@@ -30,8 +30,9 @@ struct BytspotClipApp: App {
                     // the screencap sweep) so the deep-link walkthrough is
                     // reachable.
                     guard invocation.invocationURL == nil else { return }
-                    if let env = ProcessInfo.processInfo.environment["BYT_DEBUG_URL"],
-                       let url = URL(string: env) {
+                    let env = ProcessInfo.processInfo.environment
+                    if let raw = env["BYT_DEBUG_URL"] ?? env["_XCAppClipURL"],
+                       let url = URL(string: raw) {
                         invocation.handle(url: url)
                         return
                     }
@@ -214,7 +215,8 @@ struct PartyHostDestination: Identifiable, Equatable {
     let label: String
     let url: URL
 
-    var id: String { kind.rawValue }
+    // Ordered identity lists may carry several socials (distinct labels).
+    var id: String { "\(kind.rawValue)-\(label)" }
 }
 
 /// The authoritative, Party-only representation used by `/party/<id>`.
@@ -235,6 +237,7 @@ struct PartyPassInvite: Equatable {
     let itinerary: [String]
     let note: String?
     let hostDestinations: [PartyHostDestination]
+    let hostHandle: String?
     let heroImageURL: URL?
     let thumbnailURL: URL?
     let photoURLs: [URL]
@@ -262,6 +265,14 @@ struct PartyPassInvite: Equatable {
         return id.isEmpty || id.count > 200 ? nil : id
     }
 
+    /// A `/party/…` link is always a Party Pass. Malformed party paths fail
+    /// as a party — never fall through to the patch/vendor catalog.
+    enum Route: Equatable {
+        case none
+        case party(id: String)
+        case invalid
+    }
+
     static func fromPayload(_ value: Any) -> Self? {
         guard let row = value as? [String: Any],
               let id = string(row["id"]),
@@ -287,6 +298,7 @@ struct PartyPassInvite: Equatable {
             itinerary: stringArray(row["activityHighlights"]) ?? stringArray(row["highlights"]) ?? [],
             note: string(row["inviteNote"]),
             hostDestinations: hostDestinations(host: host),
+            hostHandle: string(host?["handle"]).map { "@\($0.hasPrefix("@") ? String($0.dropFirst()) : $0)" },
             heroImageURL: secureURL(row["heroImageURL"]),
             thumbnailURL: secureURL(row["thumbnailURL"]),
             photoURLs: ((row["photoURLs"] as? [Any]) ?? []).compactMap(secureURL).prefix(6).map { $0 }
@@ -318,6 +330,20 @@ struct PartyPassInvite: Equatable {
         return url
     }
     private static func hostDestinations(host: [String: Any]?) -> [PartyHostDestination] {
+        // Prefer the ordered Official Host identity list. Labels are @handles
+        // or display names — never raw URLs — and order is host-controlled.
+        if let list = host?["destinationList"] as? [[String: Any]], !list.isEmpty {
+            let socialKinds = ["instagram", "tiktok", "youtube", "x", "facebook", "linkedin"]
+            return list.compactMap { entry in
+                guard let rawKind = string(entry["kind"]), let label = string(entry["label"]),
+                      !label.lowercased().hasPrefix("http"), let url = secureURL(entry["url"]) else { return nil }
+                let kind: PartyHostDestinationKind
+                if socialKinds.contains(rawKind) { kind = .social }
+                else if let mapped = PartyHostDestinationKind(rawValue: rawKind) { kind = mapped }
+                else { return nil }
+                return PartyHostDestination(kind: kind, label: label, url: url)
+            }
+        }
         guard let source = object(host?["destinations"]) else { return [] }
         var results: [PartyHostDestination] = []
         if let url = secureURL(source["musicUrl"]) {
@@ -331,7 +357,10 @@ struct PartyPassInvite: Equatable {
         }
         let primarySocial = object(source["primarySocial"])
         if let socialURL = secureURL(primarySocial?["url"]), let socialLabel = string(primarySocial?["platform"]) {
-            results.append(PartyHostDestination(kind: .social, label: socialLabel, url: socialURL))
+            // Legacy platform text is untrusted: only a recognized platform
+            // name renders; anything URL-like or unknown says Social.
+            let known = ["instagram": "Instagram", "tiktok": "TikTok", "youtube": "YouTube", "x": "X", "facebook": "Facebook", "linkedin": "LinkedIn"][socialLabel.lowercased()]
+            results.append(PartyHostDestination(kind: .social, label: known ?? "Social", url: socialURL))
         }
         return results
     }
@@ -755,11 +784,17 @@ final class ClipInvocationModel: ObservableObject {
 
         let detectedTier = BytspotTier.detect(url: url, patchId: patchId)
         tier = detectedTier
-        if let partyID = PartyPassInvite.partyID(from: pathParts) {
+        switch Self.partyRoute(from: pathParts) {
+        case .party(let partyID):
             flow = .partyLoading(partyID: partyID)
             isLoadingContext = true
             loadTask = Task { [weak self] in await self?.loadPartyInvite(partyID: partyID) }
             return
+        case .invalid:
+            flow = .partyFailed(partyID: "", message: "This Party Pass link is invalid. Ask the host for a fresh link.")
+            return
+        case .none:
+            break
         }
         // Reset catalog/vendor caches when the tier changes so stale luxury
         // entries never leak into a Green/Platinum invocation.
@@ -1197,6 +1232,12 @@ final class ClipInvocationModel: ObservableObject {
             return pathParts[0]
         }
         return nil
+    }
+
+    nonisolated static func partyRoute(from pathParts: [String]) -> PartyPassInvite.Route {
+        guard pathParts.first?.lowercased() == "party" else { return .none }
+        guard let partyID = PartyPassInvite.partyID(from: pathParts) else { return .invalid }
+        return .party(id: partyID)
     }
 
     private static func pathParts(from components: URLComponents) -> [String] {

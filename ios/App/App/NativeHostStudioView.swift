@@ -67,6 +67,9 @@ struct NativeHostStudioView: View {
     @State private var title = ""
     @State private var tagline = "One moment. Your people."
     @State private var startsAt = Self.defaultStart
+    @State private var beatOffsets: [Int] = []
+    @State private var hostSetsEnd = false
+    @State private var endsAt = Self.defaultStart.addingTimeInterval(3 * 60 * 60)
     @State private var venueName = ""
     @State private var capacity = "\(NativeHostTaxonomySelection.recommendedCapacity)"
     @State private var accessMode: NativePartyAccessMode = .privateApproval
@@ -80,11 +83,11 @@ struct NativeHostStudioView: View {
     @State private var releaseFormat: NativeReleaseFormat = .single
     @State private var releaseTitle = ""
     @State private var locationDisclosure: NativePartyLocationDisclosure = .public
-    @State private var musicURL = ""
-    @State private var merchURL = ""
-    @State private var websiteURL = ""
-    @State private var primarySocialPlatform: NativePartySocialPlatform = .instagram
-    @State private var primarySocialURL = ""
+    @State private var hostIdentity = NativeHostIdentity.empty
+    @State private var loadedProfileDestinations = false
+    /// True only after a successful profile fetch. A failed load must never
+    /// persist an empty list over an existing profile.
+    @State private var didLoadHostIdentity = false
     @State private var privateGuestPolicy: NativePrivatePartyGuestPolicy = .namedGuests
     @State private var isPublishing = false
     @State private var publishPresentation = NativePartyPassPresentation()
@@ -315,12 +318,7 @@ struct NativeHostStudioView: View {
             field("Party venue", text: $venueName, icon: "mappin.and.ellipse", prompt: "Venue or secret location")
             locationDisclosureEditor
             officialDestinationsEditor
-            VStack(alignment: .leading, spacing: 7) {
-                Text("RUN OF SHOW").studioLabel()
-                ForEach(Array(template.itinerary.enumerated()), id: \.offset) { index, item in
-                    HStack { Text("\(index + 1)").font(.system(size: 10, weight: .black)).foregroundColor(.black).frame(width: 23, height: 23).background(NativeTheme.cyan).clipShape(Circle()); Text(item).font(.system(size: 12.5, weight: .bold)); Spacer(); Text(index == 0 ? "Doors" : "+\(index * 60)m").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.4)) }
-                }
-            }.padding(14).studioSurface()
+            runOfShowEditor
         }
     }
 
@@ -361,19 +359,147 @@ struct NativeHostStudioView: View {
         }
     }
 
+    /// Editable Run of Show: each beat gets a wall-clock time picker on the
+    /// existing party clock (offsets roll to the next day for all-day rooms),
+    /// plus an optional host-set end. No second clock, no cron.
+    private var runOfShowEditor: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("RUN OF SHOW").studioLabel()
+            Text("Times ride the party clock. A beat earlier than the start rolls to the next day.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+            ForEach(Array(template.itinerary.enumerated()), id: \.offset) { index, item in
+                HStack(spacing: 10) {
+                    Text("\(index + 1)").font(.system(size: 10, weight: .black)).foregroundColor(.black).frame(width: 23, height: 23).background(NativeTheme.cyan).clipShape(Circle())
+                    Text(item).font(.system(size: 12.5, weight: .bold))
+                    Spacer()
+                    DatePicker("", selection: beatTimeBinding(index), displayedComponents: [.hourAndMinute])
+                        .labelsHidden()
+                        .accessibilityLabel("\(item) time")
+                }
+            }
+            Toggle(isOn: $hostSetsEnd.animation(.easeInOut(duration: 0.15))) {
+                Text("SET PARTY END").studioLabel()
+            }
+            .tint(NativeTheme.cyan)
+            if hostSetsEnd {
+                DatePicker("Party ends", selection: $endsAt, in: startsAt.addingTimeInterval(15 * 60)..., displayedComponents: [.date, .hourAndMinute]).font(.system(size: 13, weight: .bold))
+            } else {
+                Text("No end set: the party closes one hour after the last beat.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+            }
+        }.padding(14).studioSurface()
+    }
+
+    private func beatTimeBinding(_ index: Int) -> Binding<Date> {
+        Binding(
+            get: { NativeRunOfShowSchedule.beatDate(offsetMinutes: currentBeatOffsets[index], startsAt: startsAt) },
+            set: { picked in
+                var offsets = currentBeatOffsets
+                offsets[index] = NativeRunOfShowSchedule.offsetMinutes(pickedTime: picked, startsAt: startsAt)
+                beatOffsets = offsets
+            }
+        )
+    }
+
+    /// Falls back to the template's hourly cadence until the host edits a beat
+    /// or the template (and its beat count) changes.
+    private var currentBeatOffsets: [Int] {
+        beatOffsets.count == template.itinerary.count ? beatOffsets : template.itinerary.indices.map { $0 * 60 }
+    }
+
+    /// Official Host identity editor. Horizontal pill scroll: tap adds a
+    /// destination (selected state), tap again removes it. Added destinations
+    /// list vertically below — reorder with arrows, star one as Primary ⭐.
+    /// Socials take handles; Bytspot owns the routing. No URLs in public UI.
     private var officialDestinationsEditor: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("OFFICIAL HOST DESTINATIONS").studioLabel()
-            Text("Only these verified HTTPS links appear in the Party Pass.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
-            field("Music link", text: $musicURL, icon: "music.note", prompt: "https://music…", keyboard: .URL)
-            field("Merch link", text: $merchURL, icon: "bag.fill", prompt: "https://shop…", keyboard: .URL)
-            field("Website link", text: $websiteURL, icon: "globe", prompt: "https://…", keyboard: .URL)
-            VStack(alignment: .leading, spacing: 7) {
-                Text("PRIMARY SOCIAL · ONE LINK").studioLabel()
-                Picker("Primary social platform", selection: $primarySocialPlatform) { ForEach(NativePartySocialPlatform.allCases) { Text($0.title).tag($0) } }.pickerStyle(.segmented)
-                field("Primary social link", text: $primarySocialURL, icon: "person.crop.circle.badge.checkmark", prompt: "https://…", keyboard: .URL)
+            Text("Saved to your host profile. Tap to add, tap again to remove. Guests see your verified host name — never a link.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(NativeHostDestinationKind.allCases) { kind in destinationPill(kind) }
+                }
+            }
+            ForEach(Array(hostIdentity.destinations.enumerated()), id: \.element.id) { index, destination in
+                destinationRow(index: index, destination: destination)
             }
         }.padding(14).studioSurface()
+            .task { await prefillHostIdentity() }
+    }
+
+    private func destinationPill(_ kind: NativeHostDestinationKind) -> some View {
+        let isOn = hostIdentity.destinations.contains { $0.kind == kind }
+        return Button(action: { toggleDestination(kind) }) {
+            Label(kind.title, systemImage: kind.icon)
+                .font(.system(size: 12, weight: .black))
+                .foregroundColor(isOn ? .black : .white.opacity(0.72))
+                .padding(.horizontal, 13).frame(height: 34)
+                .background(isOn ? NativeTheme.cyan : Color.white.opacity(0.08))
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(kind.title) destination")
+        .accessibilityValue(isOn ? "Added" : "Not added")
+        .accessibilityHint(isOn ? "Removes this destination." : "Adds this destination.")
+    }
+
+    @ViewBuilder private func destinationRow(index: Int, destination: NativeHostIdentityDestination) -> some View {
+        HStack(spacing: 8) {
+            field(destination.kind.title, text: destinationValueBinding(destination.kind), icon: destination.kind.icon, prompt: destination.kind.fieldPrompt, keyboard: destination.kind.isSocial ? .default : .URL)
+            Button(action: { setPrimary(destination.kind) }) {
+                Image(systemName: destination.primary ? "star.fill" : "star")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(destination.primary ? NativeTheme.cyan : .white.opacity(0.35))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(destination.kind.title) primary")
+            .accessibilityValue(destination.primary ? "Primary" : "Not primary")
+            VStack(spacing: 3) {
+                Button(action: { moveDestination(destination.kind, by: -1) }) { Image(systemName: "chevron.up").font(.system(size: 11, weight: .black)).foregroundColor(index == 0 ? .white.opacity(0.18) : .white.opacity(0.6)) }
+                    .buttonStyle(.plain).disabled(index == 0)
+                    .accessibilityLabel("Move \(destination.kind.title) up")
+                Button(action: { moveDestination(destination.kind, by: 1) }) { Image(systemName: "chevron.down").font(.system(size: 11, weight: .black)).foregroundColor(index == hostIdentity.destinations.count - 1 ? .white.opacity(0.18) : .white.opacity(0.6)) }
+                    .buttonStyle(.plain).disabled(index == hostIdentity.destinations.count - 1)
+                    .accessibilityLabel("Move \(destination.kind.title) down")
+            }
+        }
+    }
+
+    private func destinationValueBinding(_ kind: NativeHostDestinationKind) -> Binding<String> {
+        Binding(
+            get: { hostIdentity.destinations.first { $0.kind == kind }?.value ?? "" },
+            set: { value in
+                if let index = hostIdentity.destinations.firstIndex(where: { $0.kind == kind }) { hostIdentity.destinations[index].value = value }
+            }
+        )
+    }
+
+    private func toggleDestination(_ kind: NativeHostDestinationKind) {
+        if let index = hostIdentity.destinations.firstIndex(where: { $0.kind == kind }) {
+            hostIdentity.destinations.remove(at: index)
+        } else {
+            hostIdentity.destinations.append(NativeHostIdentityDestination(kind: kind, value: "", primary: false))
+        }
+    }
+
+    private func setPrimary(_ kind: NativeHostDestinationKind) {
+        for index in hostIdentity.destinations.indices {
+            let isTarget = hostIdentity.destinations[index].kind == kind
+            hostIdentity.destinations[index].primary = isTarget ? !hostIdentity.destinations[index].primary : false
+        }
+    }
+
+    private func moveDestination(_ kind: NativeHostDestinationKind, by delta: Int) {
+        guard let index = hostIdentity.destinations.firstIndex(where: { $0.kind == kind }) else { return }
+        let target = index + delta
+        guard hostIdentity.destinations.indices.contains(target) else { return }
+        hostIdentity.destinations.swapAt(index, target)
+    }
+
+    private func prefillHostIdentity() async {
+        guard !loadedProfileDestinations, sessionStore.canAttachBearerToken, let token = sessionStore.token else { return }
+        loadedProfileDestinations = true
+        guard let saved = try? await NativePartyStudioAPI(client: BytspotAPIClient(tokenProvider: { token })).loadHostIdentity() else { return }
+        didLoadHostIdentity = true
+        if hostIdentity == .empty { hostIdentity = saved }
     }
 
     private func templatePicker<T: CaseIterable & Identifiable & Hashable>(_ label: String, selection: Binding<T>, options: T.AllCases) -> some View where T.ID == String, T: RawRepresentable, T.RawValue == String {
@@ -535,6 +661,8 @@ struct NativeHostStudioView: View {
         if step == .build && (title.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 || venueName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { publishPresentation.message = "Add a title and venue before setting the door."; return }
         if step == .door && draft.validationMessage != nil { publishPresentation.message = draft.validationMessage ?? "Review the door settings."; return }
         guard step == .invite else { step = Step(rawValue: step.rawValue + 1) ?? .invite; return }
+        // Surface identity field errors before any draft or media work starts.
+        if let message = hostIdentity.validationMessage { publishPresentation.message = message; return }
         guard !isPublishing else { return }
         isPublishing = true
         publishTask = Task { await publish() }
@@ -564,6 +692,14 @@ struct NativeHostStudioView: View {
             }
             try Task.checkCancellation()
             guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
+            publishStage = "identity"
+            // Save the Official Host identity first: publish snapshots the
+            // profile onto the party, so the save must land before it.
+            // Persist the current selection — including an empty list — only
+            // after a successful profile load, so a transient fetch failure
+            // cannot wipe a real profile and a cleared editor cannot leak
+            // stale destinations onto the next publish snapshot.
+            if didLoadHostIdentity { try await api.saveHostIdentity(hostIdentity) }
             publishStage = "publish"
             let result = try await api.publish(partyID: partyID, draft: draft, idempotencyKey: idempotencyKey)
             try Task.checkCancellation()
@@ -608,7 +744,7 @@ struct NativeHostStudioView: View {
         let count = Int(capacity) ?? 0
         let cents = max(0, Int(((Double(ticketPrice) ?? 0) * 100).rounded()))
         let teammate = teammateEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, hostDestinations: NativePartyHostDestinations(musicURL: musicURL, merchURL: merchURL, websiteURL: websiteURL, primarySocialPlatform: primarySocialPlatform, primarySocialURL: primarySocialURL), audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: $0.offset * 60) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration, taxonomy: taxonomy)
+        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, endsAt: hostSetsEnd ? endsAt : nil, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: currentBeatOffsets[$0.offset]) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration, taxonomy: taxonomy)
     }
 
     private var templateConfiguration: NativePartyTemplateConfiguration {

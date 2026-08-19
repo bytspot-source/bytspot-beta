@@ -242,6 +242,19 @@ enum BytspotAviationFallbackTests {
         rootDestinationDTO["musicUrl"] = "https://music.example.com/unapproved"
         rootDestinationDTO["primarySocial"] = ["platform": "Unapproved", "url": "https://social.example.com/unapproved"]
         precondition(PartyPassInvite.fromPayload(rootDestinationDTO)?.hostDestinations.isEmpty == true, "Party Loop: only canonical host.destinations fields may reach recipients.")
+        var identityDTO = dto
+        identityDTO["host"] = ["handle": "midtownjohn", "destinationList": [
+            ["kind": "instagram", "label": "@MidtownJohn", "url": "https://instagram.com/MidtownJohn", "primary": true],
+            ["kind": "music", "label": "Music", "url": "https://music.example.com/host"],
+            ["kind": "merch", "label": "https://leaky.example.com", "url": "https://leaky.example.com"],
+        ]] as [String: Any]
+        let identityInvite = PartyPassInvite.fromPayload(identityDTO)
+        precondition(identityInvite?.hostHandle == "@midtownjohn", "Party Loop: the verified handle must reach recipients.")
+        precondition(identityInvite?.hostDestinations.map(\.label) == ["@MidtownJohn", "Music"], "Party Loop: ordered identity destinations must keep host order and never render a raw URL as a label.")
+        precondition(identityInvite?.hostDestinations.first?.kind == .social, "Party Loop: social identity destinations map to the social kind.")
+        var leakyLegacy = dto
+        leakyLegacy["host"] = ["destinations": ["primarySocial": ["platform": "https://evil.example.com", "url": "https://instagram.com/host"]]] as [String: Any]
+        precondition(PartyPassInvite.fromPayload(leakyLegacy)?.hostDestinations.map(\.label) == ["Social"], "Party Loop: a crafted URL as the legacy platform must never render as public text.")
         let ticketTier = ClipPartyTicketTier.from(["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"])
         precondition(ticketTier?.name == "First Drop" && ticketTier?.priceCents == 2500, "Party Loop: server-published paid tiers must decode before Checkout can be offered.")
         precondition(ClipPartyTicketTier.from(["name": "Bad", "priceCents": 0, "quantity": 1, "requiredMembershipTier": "green"]) == nil, "Party Loop: invalid ticket tiers must not reach the secure Checkout picker.")
@@ -320,6 +333,10 @@ enum BytspotAviationFallbackTests {
         precondition(withheldInvite?.locationIsWithheld == true && withheldInvite?.locationLabel == "Location withheld by host", "Party Loop: host-withheld locations must remain redacted.")
         precondition(PartyPassInvite.partyID(from: ["party", "party-1"]) == "party-1", "Party Loop: Party route must resolve authoritatively.")
         precondition(PartyPassInvite.partyID(from: ["group", "party-1"]) == nil, "Party Loop: legacy group routes must never masquerade as Party routes.")
+        precondition(ClipInvocationModel.partyRoute(from: ["party", "party-1"]) == .party(id: "party-1"), "Party Loop: /party/<id> must route to the Party Pass.")
+        precondition(ClipInvocationModel.partyRoute(from: ["party"]) == .invalid, "Party Loop: a bare /party link must fail as a party, never fall through to the catalog.")
+        precondition(ClipInvocationModel.partyRoute(from: ["party", "a", "b"]) == .invalid, "Party Loop: malformed party paths must fail as a party, never fall through to the catalog.")
+        precondition(ClipInvocationModel.partyRoute(from: ["p", "black-0301"]) == PartyPassInvite.Route.none, "Party Loop: patch routes stay on the catalog.")
         var missingSource = dto
         missingSource.removeValue(forKey: "source")
         precondition(PartyPassInvite.fromPayload(missingSource) == nil, "Party Loop: a Party DTO without Host Studio provenance must fail closed.")

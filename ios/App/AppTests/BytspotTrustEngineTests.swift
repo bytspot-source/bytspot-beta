@@ -1738,6 +1738,14 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativeNetworkDismissedContacts.storageKey(userID: "  "), "bytspot.network.dismissed-contacts.signed-out")
     }
 
+    func testNetworkSwipeRevealRequiresAHorizontalThresholdAndDoesNotToggleOnSmallDrags() {
+        XCTAssertFalse(NativeNetworkSwipeReveal.isRevealed(translation: -18, currentlyRevealed: false))
+        XCTAssertTrue(NativeNetworkSwipeReveal.isRevealed(translation: -40, currentlyRevealed: false))
+        XCTAssertTrue(NativeNetworkSwipeReveal.isRevealed(translation: 12, currentlyRevealed: true))
+        XCTAssertFalse(NativeNetworkSwipeReveal.isRevealed(translation: 40, currentlyRevealed: true))
+        XCTAssertEqual(NativeNetworkSwipeReveal.width, 84)
+    }
+
     func testNetworkAuthenticationContinuationUsesTheStandardSignInIntent() {
         XCTAssertEqual(NativePostAuthIntent.network.rawValue, "network")
         XCTAssertEqual(NativePostAuthIntent.network.authMode, .login)
@@ -1895,7 +1903,11 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(payload?["musicUrl"] as? String, "https://music.example.com/host")
         XCTAssertEqual((payload?["primarySocial"] as? [String: Any])?["platform"] as? String, "Instagram")
         XCTAssertEqual(NativePartyHostDestinations(musicURL: "http://not-secure.example.com", merchURL: "", websiteURL: "", primarySocialPlatform: .instagram, primarySocialURL: "https://instagram.com/host").validationMessage, "Music links must use HTTPS.")
-        XCTAssertEqual(NativePartyHostDestinations.empty.validationMessage, "Add one primary social link.")
+        // Empty legacy destinations are valid: new drafts omit them entirely
+        // and rely on the publish-time Official Host identity snapshot.
+        XCTAssertNil(NativePartyHostDestinations.empty.validationMessage)
+        XCTAssertEqual(NativePartyHostDestinations(musicURL: "https://music.example.com", merchURL: "", websiteURL: "", primarySocialPlatform: .instagram, primarySocialURL: "").validationMessage, "Add one primary social link.")
+        XCTAssertNil(NativePartyDraftInput(templateID: .comedyNight, title: "No Cameras Comedy", tagline: "One room.", startsAt: Date(), venueName: "Aster Room", capacity: 80, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .standard).rpcInput["hostDestinations"])
     }
 
     func testNativeHostStudioUploadsCompressedPartyMediaThroughAuthenticatedRoute() async throws {
@@ -2181,6 +2193,115 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertTrue(presentation.isPartyPassVisible)
         XCTAssertEqual(presentation.party, party)
         XCTAssertEqual(presentation.message, "")
+    }
+
+    func testHostIdentityValidatesHandlesAndDecodesProfilePayloadInOrder() {
+        // Socials take handles, links take HTTPS, handle rules enforced.
+        XCTAssertNil(NativeHostIdentityDestination(kind: .instagram, value: "@MidtownJohn", primary: true).validationMessage)
+        XCTAssertNotNil(NativeHostIdentityDestination(kind: .instagram, value: "https://instagram.com/host", primary: false).validationMessage)
+        XCTAssertNil(NativeHostIdentityDestination(kind: .music, value: "https://music.example.com", primary: false).validationMessage)
+        XCTAssertNotNil(NativeHostIdentityDestination(kind: .music, value: "http://insecure.example.com", primary: false).validationMessage)
+        XCTAssertNotNil(NativeHostIdentity(handle: "x", destinations: []).validationMessage)
+        XCTAssertNil(NativeHostIdentity(handle: "@midtownjohn", destinations: []).validationMessage)
+
+        // Payload decode preserves the host's order and the primary flag.
+        let payload: [String: Any] = ["handle": "midtownjohn", "destinations": [
+            ["kind": "tiktok", "value": "@midtownjohn", "primary": true],
+            ["kind": "music", "value": "https://music.example.com/host"],
+            ["kind": "unknown", "value": "x"],
+        ]]
+        let identity = NativeHostIdentity.fromPayload(payload)
+        XCTAssertEqual(identity.handle, "@midtownjohn")
+        XCTAssertEqual(identity.destinations.map(\.kind), [.tiktok, .music])
+        XCTAssertEqual(identity.destinations.first?.primary, true)
+        XCTAssertEqual(NativeHostIdentity.fromPayload([String: Any]()), .empty)
+
+        // Round-trip: rpcInput carries order and only flags the primary.
+        let rpc = identity.rpcInput
+        XCTAssertEqual(rpc["handle"] as? String, "@midtownjohn")
+        let entries = rpc["destinations"] as? [[String: Any]]
+        XCTAssertEqual(entries?.map { $0["kind"] as? String }, ["tiktok", "music"])
+        XCTAssertEqual(entries?.first?["primary"] as? Bool, true)
+        XCTAssertNil(entries?.last?["primary"])
+
+        // A cleared editor is still a persistable identity: save must send
+        // destinations: [] so publish cannot snapshot a stale profile.
+        let cleared = NativeHostIdentity.empty.rpcInput
+        XCTAssertEqual((cleared["destinations"] as? [[String: Any]])?.isEmpty, true)
+        XCTAssertNil(cleared["handle"])
+        XCTAssertTrue(NativeHostIdentity.empty == NativeHostIdentity(handle: "", destinations: []))
+    }
+
+    func testRunOfShowClockMathRollsToNextDayAndDerivesNowWithFallback() {
+        let calendar = Calendar(identifier: .gregorian)
+        let start = calendar.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 20, minute: 0))!
+
+        // Same-evening beat: simple positive offset.
+        let tenPM = calendar.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 22, minute: 0))!
+        XCTAssertEqual(NativeRunOfShowSchedule.offsetMinutes(pickedTime: tenPM, startsAt: start, calendar: calendar), 120)
+        // A beat "earlier" than the start rolls to the next day (all-day model).
+        let oneAM = calendar.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 1, minute: 30))!
+        XCTAssertEqual(NativeRunOfShowSchedule.offsetMinutes(pickedTime: oneAM, startsAt: start, calendar: calendar), 330)
+        XCTAssertEqual(NativeRunOfShowSchedule.beatDate(offsetMinutes: 330, startsAt: start), start.addingTimeInterval(330 * 60))
+
+        // "Now" selection: latest beat at-or-before now while the party runs.
+        let beats = [start, start.addingTimeInterval(2 * 3600)]
+        XCTAssertNil(NativeRunOfShowSchedule.currentBeatIndex(beats: beats, endsAt: nil, now: start.addingTimeInterval(-60)))
+        XCTAssertEqual(NativeRunOfShowSchedule.currentBeatIndex(beats: beats, endsAt: nil, now: start.addingTimeInterval(3600)), 0)
+        XCTAssertEqual(NativeRunOfShowSchedule.currentBeatIndex(beats: beats, endsAt: nil, now: start.addingTimeInterval(2 * 3600 + 60)), 1)
+        // Fallback close: no endsAt → last beat + 60m ends the show.
+        XCTAssertNil(NativeRunOfShowSchedule.currentBeatIndex(beats: beats, endsAt: nil, now: start.addingTimeInterval(3 * 3600 + 60)))
+        // Host end wins over the fallback.
+        XCTAssertNil(NativeRunOfShowSchedule.currentBeatIndex(beats: beats, endsAt: start.addingTimeInterval(2 * 3600 + 30 * 60), now: start.addingTimeInterval(2 * 3600 + 45 * 60)))
+    }
+
+    func testNativePartyPassDecodesScheduledBeatsSortedAndFailsClosedPerBeat() {
+        let row: [String: Any] = ["runOfShow": [
+            ["title": "Headliner", "scheduledAt": "2026-08-10T22:00:00.000Z"],
+            ["title": "Doors open", "scheduledAt": "2026-08-10T20:00:00.000Z"],
+            ["title": "Broken beat"],
+        ]]
+        let beats = NativePartyPassAPI.beats(from: row)
+        XCTAssertEqual(beats.map(\.title), ["Doors open", "Headliner"])
+        XCTAssertEqual(NativePartyPassAPI.beats(from: [:]), [])
+    }
+
+    func testNativePartyPassProjectsOnlyCanonicalOfficialHostDestinations() {
+        // New ordered identity list: order preserved, primary flagged, and a
+        // raw URL can never render as a label.
+        let identityRow: [String: Any] = ["host": [
+            "handle": "midtownjohn",
+            "destinationList": [
+                ["kind": "instagram", "label": "@MidtownJohn", "url": "https://instagram.com/MidtownJohn", "primary": true],
+                ["kind": "music", "label": "Music", "url": "https://music.example.com/host"],
+                ["kind": "merch", "label": "https://leaky.example.com", "url": "https://leaky.example.com"],
+                ["kind": "website", "label": "Website", "url": "http://insecure.example.com"],
+            ],
+        ]]
+        let identityDestinations = NativePartyPassAPI.destinations(from: identityRow)
+        XCTAssertEqual(identityDestinations.map(\.kind), [.instagram, .music])
+        XCTAssertEqual(identityDestinations.first?.label, "@MidtownJohn")
+        XCTAssertEqual(identityDestinations.first?.primary, true)
+        XCTAssertEqual(NativePartyPassAPI.hostHandle(from: identityRow), "@midtownjohn")
+
+        // Legacy object fallback still projects for already-published parties.
+        let legacyRow: [String: Any] = [
+            "musicUrl": "https://music.example.com/root-alias",
+            "host": ["destinations": [
+                "musicUrl": "https://music.example.com/host",
+                "merchUrl": "http://insecure.example.com",
+                "primarySocial": ["platform": "Instagram", "url": "https://instagram.com/host"],
+            ]],
+        ]
+        let destinations = NativePartyPassAPI.destinations(from: legacyRow)
+        XCTAssertEqual(destinations.map(\.kind), [.music, .instagram])
+        XCTAssertEqual(destinations.last?.label, "Instagram")
+        XCTAssertNil(NativePartyPassAPI.hostHandle(from: legacyRow))
+        // A crafted URL as the legacy platform never renders as public text.
+        let leakyLegacy: [String: Any] = ["host": ["destinations": ["primarySocial": ["platform": "https://evil.example.com", "url": "https://instagram.com/host"]]]]
+        XCTAssertEqual(NativePartyPassAPI.destinations(from: leakyLegacy).map(\.label), ["Social"])
+        // Root-level aliases and non-HTTPS links never reach recipients.
+        XCTAssertEqual(NativePartyPassAPI.destinations(from: ["musicUrl": "https://music.example.com/root-alias"]), [])
     }
 
     @MainActor

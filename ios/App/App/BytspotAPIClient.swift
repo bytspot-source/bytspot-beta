@@ -202,6 +202,15 @@ struct NativeSocialCircle: Codable, Equatable, Identifiable {
         return NativeSocialCircle(id: id, name: name, ownerUserId: cleanValue(row["ownerUserId"]), memberCount: intValue(row["memberCount"] ?? row["membersCount"]) ?? memberIDs.count, memberIDs: memberIDs, role: cleanValue(row["role"]) ?? "member")
     }
 
+    /// Create is always performed by the owner. Promote a missing/legacy role
+    /// so swipe-to-delete is enabled on the row that just appeared.
+    static func ownedByCreator(_ circle: NativeSocialCircle) -> NativeSocialCircle {
+        guard circle.role != "owner" else { return circle }
+        var owned = circle
+        owned.role = "owner"
+        return owned
+    }
+
     static func normalizeSocialCircles(_ response: Any) -> [NativeSocialCircle] {
         rows(from: response, keys: ["groups", "circles", "items"]).compactMap(normalizeSocialCircle)
     }
@@ -275,6 +284,20 @@ enum NativeNetworkSwipePolicy {
         direction == "outgoing" && status == "pending"
     }
     static func canDismissContact() -> Bool { true }
+}
+
+/// Horizontal reveal for Network swipe-to-delete. Trash stays off-screen
+/// until a real swipe crosses the threshold, so row taps never hit delete.
+enum NativeNetworkSwipeReveal {
+    static let width: CGFloat = 84
+    static let revealThreshold: CGFloat = -40
+    static let hideThreshold: CGFloat = 40
+
+    static func isRevealed(translation: CGFloat, currentlyRevealed: Bool) -> Bool {
+        if translation <= revealThreshold { return true }
+        if translation >= hideThreshold { return false }
+        return currentlyRevealed
+    }
 }
 
 enum NativeNetworkDismissedContacts {
@@ -384,7 +407,125 @@ enum NativePrivatePartyGuestPolicy: String, CaseIterable, Codable, Identifiable 
 enum NativePartySocialPlatform: String, CaseIterable, Codable, Identifiable {
     case instagram, tiktok, youtube, x, facebook, linkedin
     var id: String { rawValue }
-    var title: String { rawValue == "x" ? "X" : rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .instagram: return "Instagram"
+        case .tiktok: return "TikTok"
+        case .youtube: return "YouTube"
+        case .x: return "X"
+        case .facebook: return "Facebook"
+        case .linkedin: return "LinkedIn"
+        }
+    }
+
+    /// Round-trip decode is case-insensitive on both the rawValue and the
+    /// display title, so stored payloads survive brand-capitalization drift.
+    static func match(_ name: String?) -> Self? {
+        guard let name = name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !name.isEmpty else { return nil }
+        return allCases.first { $0.rawValue == name || $0.title.lowercased() == name }
+    }
+}
+
+/// Official Host destination kinds. Socials store handles — Bytspot owns the
+/// routing — while music/merch/website store HTTPS URLs that never render as
+/// text in any public-facing UI.
+enum NativeHostDestinationKind: String, CaseIterable, Identifiable, Codable {
+    case instagram, tiktok, youtube, x, facebook, linkedin, music, merch, website
+    var id: String { rawValue }
+    var isSocial: Bool { ![Self.music, .merch, .website].contains(self) }
+    var title: String {
+        switch self {
+        case .instagram: return "Instagram"
+        case .tiktok: return "TikTok"
+        case .youtube: return "YouTube"
+        case .x: return "X"
+        case .facebook: return "Facebook"
+        case .linkedin: return "LinkedIn"
+        case .music: return "Music"
+        case .merch: return "Merch"
+        case .website: return "Website"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .instagram, .facebook, .linkedin: return "person.crop.circle.badge.checkmark"
+        case .tiktok, .youtube: return "play.rectangle.fill"
+        case .x: return "at"
+        case .music: return "music.note"
+        case .merch: return "bag.fill"
+        case .website: return "globe"
+        }
+    }
+    var fieldPrompt: String { isSocial ? "@handle" : "https://…" }
+}
+
+/// One host-selected destination. `value` is a handle for socials or an
+/// HTTPS URL for links. Order is host-controlled; at most one is primary ⭐.
+struct NativeHostIdentityDestination: Equatable, Identifiable {
+    var kind: NativeHostDestinationKind
+    var value: String
+    var primary: Bool
+    var id: String { kind.rawValue }
+
+    var validationMessage: String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "Add your \(kind.title) \(kind.isSocial ? "handle" : "link")." }
+        if kind.isSocial {
+            let handle = trimmed.hasPrefix("@") ? String(trimmed.dropFirst()) : trimmed
+            if handle.isEmpty || handle.count > 80 || handle.rangeOfCharacter(from: CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-").inverted) != nil {
+                return "\(kind.title) takes a handle, not a link."
+            }
+        } else if URLComponents(string: trimmed)?.scheme?.lowercased() != "https" || URLComponents(string: trimmed)?.host?.isEmpty != false {
+            return "\(kind.title) links must use HTTPS."
+        }
+        return nil
+    }
+
+    var rpcValue: [String: Any] {
+        var entry: [String: Any] = ["kind": kind.rawValue, "value": value.trimmingCharacters(in: .whitespacesAndNewlines)]
+        if primary { entry["primary"] = true }
+        return entry
+    }
+}
+
+/// The host's public identity: @handle plus the ordered destination list.
+struct NativeHostIdentity: Equatable {
+    var handle: String
+    var destinations: [NativeHostIdentityDestination]
+
+    static let empty = Self(handle: "", destinations: [])
+
+    var validationMessage: String? {
+        let trimmedHandle = handle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedHandle.isEmpty {
+            let bare = trimmedHandle.hasPrefix("@") ? String(trimmedHandle.dropFirst()) : trimmedHandle
+            if bare.count < 2 || bare.count > 30 || bare.rangeOfCharacter(from: CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._").inverted) != nil {
+                return "Handles are 2–30 letters, numbers, dots, or underscores."
+            }
+        }
+        for destination in destinations {
+            if let message = destination.validationMessage { return message }
+        }
+        return nil
+    }
+
+    var rpcInput: [String: Any] {
+        var input: [String: Any] = ["destinations": destinations.map(\.rpcValue)]
+        let trimmed = handle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { input["handle"] = trimmed }
+        return input
+    }
+
+    static func fromPayload(_ payload: Any) -> Self {
+        guard let row = payload as? [String: Any] else { return .empty }
+        let handle = (row["handle"] as? String).map { "@\($0)" } ?? ""
+        let destinations: [NativeHostIdentityDestination] = ((row["destinations"] as? [[String: Any]]) ?? []).compactMap { entry in
+            guard let kind = (entry["kind"] as? String).flatMap(NativeHostDestinationKind.init(rawValue:)),
+                  let value = entry["value"] as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return NativeHostIdentityDestination(kind: kind, value: value, primary: entry["primary"] as? Bool == true)
+        }
+        return Self(handle: handle, destinations: destinations)
+    }
 }
 
 struct NativePartyHostDestinations: Equatable {
@@ -396,13 +537,20 @@ struct NativePartyHostDestinations: Equatable {
 
     static let empty = Self(musicURL: "", merchURL: "", websiteURL: "", primarySocialPlatform: .instagram, primarySocialURL: "")
 
+    /// Legacy per-party destinations. New drafts leave this empty — the
+    /// Official Host identity on the profile is snapshotted at publish — but
+    /// any provided link must still be HTTPS with a primary social present.
     var validationMessage: String? {
+        let anyLink = [musicURL, merchURL, websiteURL, primarySocialURL].contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if !anyLink { return nil }
         if primarySocialURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Add one primary social link." }
         for (label, rawURL) in [("Music", musicURL), ("Merch", merchURL), ("Website", websiteURL), (primarySocialPlatform.title, primarySocialURL)] {
             if !rawURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && Self.secureURL(rawURL) == nil { return "\(label) links must use HTTPS." }
         }
         return nil
     }
+
+    var isEmpty: Bool { self == .empty || rpcInput.isEmpty }
 
     var rpcInput: [String: Any] {
         var input: [String: Any] = [:]
@@ -496,6 +644,31 @@ enum NativePartyRoleContract {
 }
 
 struct NativePartyItineraryItem: Equatable { let title: String; let offsetMinutes: Int }
+
+/// Run of Show slice 1 clock math. Beats live on the party clock as offsets;
+/// pickers edit wall-clock times and roll to the next day when a beat's time
+/// lands before the party start (an all-day model without a second clock).
+enum NativeRunOfShowSchedule {
+    static func offsetMinutes(pickedTime: Date, startsAt: Date, calendar: Calendar = .current) -> Int {
+        let start = calendar.dateComponents([.hour, .minute], from: startsAt)
+        let picked = calendar.dateComponents([.hour, .minute], from: pickedTime)
+        let minutes = ((picked.hour ?? 0) * 60 + (picked.minute ?? 0)) - ((start.hour ?? 0) * 60 + (start.minute ?? 0))
+        return minutes >= 0 ? minutes : minutes + 24 * 60
+    }
+
+    static func beatDate(offsetMinutes: Int, startsAt: Date) -> Date {
+        startsAt.addingTimeInterval(TimeInterval(offsetMinutes * 60))
+    }
+
+    /// "Now" for the Party Pass: latest beat at-or-before now, while the party
+    /// runs. Falls back to endsAt or the last beat + 60m when no end is set.
+    static func currentBeatIndex(beats: [Date], endsAt: Date?, now: Date) -> Int? {
+        guard let first = beats.first, now >= first else { return nil }
+        let effectiveEnd = endsAt ?? beats.last.map { $0.addingTimeInterval(60 * 60) }
+        if let effectiveEnd, now >= effectiveEnd { return nil }
+        return beats.lastIndex(where: { $0 <= now })
+    }
+}
 struct NativePartyTicketTier: Equatable { let name: String; let priceCents: Int; let quantity: Int; let requiredMembershipTier: BytspotTier }
 struct NativePartyHostAssignment: Equatable { let email: String; let role: NativePartyHostRole }
 
@@ -504,6 +677,9 @@ struct NativePartyDraftInput: Equatable {
     let title: String
     let tagline: String
     let startsAt: Date
+    /// Optional host-set end. Nil lets the API derive it from the last
+    /// itinerary beat (+60m), or leave it null when there are no beats.
+    let endsAt: Date?
     let venueName: String
     let locationDisclosure: NativePartyLocationDisclosure
     let capacity: Int
@@ -518,11 +694,12 @@ struct NativePartyDraftInput: Equatable {
     /// Host Spark tags only. Never a new printer or a Live occupancy source.
     let taxonomy: NativeHostTaxonomySelection?
 
-    init(templateID: NativePartyTemplateID, title: String, tagline: String, startsAt: Date, venueName: String, locationDisclosure: NativePartyLocationDisclosure = .public, capacity: Int, accessMode: NativePartyAccessMode, requiredMembershipTier: BytspotTier, hostDestinations: NativePartyHostDestinations = .empty, audienceCircleIDs: [String], itinerary: [NativePartyItineraryItem], ticketTiers: [NativePartyTicketTier], cohosts: [NativePartyHostAssignment], templateConfiguration: NativePartyTemplateConfiguration, taxonomy: NativeHostTaxonomySelection? = nil) {
+    init(templateID: NativePartyTemplateID, title: String, tagline: String, startsAt: Date, endsAt: Date? = nil, venueName: String, locationDisclosure: NativePartyLocationDisclosure = .public, capacity: Int, accessMode: NativePartyAccessMode, requiredMembershipTier: BytspotTier, hostDestinations: NativePartyHostDestinations = .empty, audienceCircleIDs: [String], itinerary: [NativePartyItineraryItem], ticketTiers: [NativePartyTicketTier], cohosts: [NativePartyHostAssignment], templateConfiguration: NativePartyTemplateConfiguration, taxonomy: NativeHostTaxonomySelection? = nil) {
         self.templateID = templateID
         self.title = title
         self.tagline = tagline
         self.startsAt = startsAt
+        self.endsAt = endsAt
         self.venueName = venueName
         self.locationDisclosure = locationDisclosure
         self.capacity = capacity
@@ -539,6 +716,8 @@ struct NativePartyDraftInput: Equatable {
 
     var validationMessage: String? {
         if title.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 { return "Add a party title." }
+        if let endsAt, endsAt <= startsAt { return "Party end must be after the start." }
+        if let endsAt, endsAt.timeIntervalSince(startsAt) > 7 * 24 * 60 * 60 { return "Party cannot run longer than 7 days." }
         if venueName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Add a venue." }
         if capacity < 2 { return "Capacity must be at least 2." }
         if let message = hostDestinations.validationMessage { return message }
@@ -555,13 +734,13 @@ struct NativePartyDraftInput: Equatable {
     }
 
     var rpcInput: [String: Any] {
-        [
+        var input: [String: Any] = [
             "templateId": templateID.rawValue, "title": title, "tagline": tagline,
-            "startsAt": ISO8601DateFormatter().string(from: startsAt), "venueName": venueName,
+            "startsAt": ISO8601DateFormatter().string(from: startsAt),
+            "venueName": venueName,
             "locationDisclosure": locationDisclosure.rawValue,
             "capacity": capacity, "accessMode": accessMode.rawValue,
             "requiredMembershipTier": requiredMembershipTier.rawValue,
-            "hostDestinations": hostDestinations.rpcInput,
             "audienceCircleIds": audienceCircleIDs,
             "itinerary": itinerary.map { ["title": $0.title, "offsetMinutes": $0.offsetMinutes] },
             "ticketTiers": ticketTiers.map { ["name": $0.name, "priceCents": $0.priceCents, "quantity": $0.quantity, "requiredMembershipTier": $0.requiredMembershipTier.rawValue] },
@@ -569,6 +748,11 @@ struct NativePartyDraftInput: Equatable {
             "templateConfig": templateConfigRPC,
             "source": "host-studio"
         ]
+        if let endsAt { input["endsAt"] = ISO8601DateFormatter().string(from: endsAt) }
+        // Legacy per-party destinations only ride when present; new drafts
+        // rely on the publish-time Official Host identity snapshot.
+        if !hostDestinations.isEmpty { input["hostDestinations"] = hostDestinations.rpcInput }
+        return input
     }
 
     /// Extra hostCategory / hostType / hostFormat / hostAge keys ride on the
@@ -648,6 +832,19 @@ struct NativePartyStudioAPI {
         _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.partyMediaResetRoute, method: "POST", input: ["partyId": partyID])
     }
 
+    /// The Official Host identity lives on the host profile. Host Studio
+    /// prefills from here and saves back before publish; the server snapshots
+    /// it onto the party.
+    func loadHostIdentity() async throws -> NativeHostIdentity {
+        let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.hostDestinationsGetRoute, input: [:])
+        return NativeHostIdentity.fromPayload(Self.objectRow(payload))
+    }
+
+    func saveHostIdentity(_ identity: NativeHostIdentity) async throws {
+        if let message = identity.validationMessage { throw NativePartyStudioError.validation(message) }
+        _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.hostDestinationsSaveRoute, method: "POST", input: identity.rpcInput)
+    }
+
     static func draftCreateInput(_ draft: NativePartyDraftInput, idempotencyKey: String) -> [String: Any] {
         var input = draft.rpcInput
         input["idempotencyKey"] = idempotencyKey
@@ -695,6 +892,16 @@ struct NativePartyStudioAPI {
     }
 }
 
+/// One approved Official Host link projected by `events.invite`.
+/// Only canonical `host.destinations` fields ever populate this.
+struct NativePartyPassDestination: Equatable, Identifiable {
+    let kind: NativeHostDestinationKind
+    let label: String
+    let url: URL
+    let primary: Bool
+    var id: String { kind.rawValue }
+}
+
 struct NativePartyPassRecord: Equatable {
     let id: String
     let title: String
@@ -707,8 +914,18 @@ struct NativePartyPassRecord: Equatable {
     let capacity: Int
     let requiredTier: String
     let coverURL: URL?
+    let hostDestinations: [NativePartyPassDestination]
+    let hostHandle: String?
+    let endsAt: Date?
+    let runOfShow: [NativePartyPassBeat]
 
     var isLocationWithheld: Bool { locationDisclosure != "public" }
+}
+
+struct NativePartyPassBeat: Equatable, Identifiable {
+    let title: String
+    let scheduledAt: Date
+    var id: String { "\(scheduledAt.timeIntervalSince1970)-\(title)" }
 }
 
 struct NativePartyPassAPI {
@@ -737,7 +954,66 @@ struct NativePartyPassAPI {
         } else {
             safeLocationLabel = locationDisclosure == "withheld" ? "Location withheld by host" : "Location shared after approval"
         }
-        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL)
+        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL, hostDestinations: destinations(from: row), hostHandle: hostHandle(from: row), endsAt: isoDate(row["endsAt"]), runOfShow: beats(from: row))
+    }
+
+    /// Scheduled beats fail closed: a malformed row drops that beat only, and
+    /// out-of-order beats are sorted so "Now" derivation stays monotonic.
+    static func beats(from row: [String: Any]) -> [NativePartyPassBeat] {
+        guard let rows = row["runOfShow"] as? [[String: Any]] else { return [] }
+        return rows.compactMap { beat in
+            guard let title = clean(beat["title"]), let scheduledAt = isoDate(beat["scheduledAt"]) else { return nil }
+            return NativePartyPassBeat(title: title, scheduledAt: scheduledAt)
+        }.sorted { $0.scheduledAt < $1.scheduledAt }
+    }
+
+    private static func isoDate(_ value: Any?) -> Date? {
+        guard let raw = clean(value) else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: raw) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: raw)
+    }
+
+    /// Only canonical host fields reach recipients (root aliases ignored).
+    /// Prefers the ordered `host.destinationList` — labels are @handles or
+    /// display names, never raw URLs — and falls back to the legacy
+    /// `host.destinations` object for parties published before the change.
+    static func destinations(from row: [String: Any]) -> [NativePartyPassDestination] {
+        guard let host = row["host"] as? [String: Any] else { return [] }
+        if let list = host["destinationList"] as? [[String: Any]], !list.isEmpty {
+            return list.compactMap { entry in
+                guard let kind = (entry["kind"] as? String).flatMap(NativeHostDestinationKind.init(rawValue:)),
+                      let label = clean(entry["label"]), !label.lowercased().hasPrefix("http"),
+                      let url = secureURL(entry["url"]) else { return nil }
+                return NativePartyPassDestination(kind: kind, label: label, url: url, primary: entry["primary"] as? Bool == true)
+            }
+        }
+        guard let source = host["destinations"] as? [String: Any] else { return [] }
+        var results: [NativePartyPassDestination] = []
+        if let url = secureURL(source["musicUrl"]) { results.append(NativePartyPassDestination(kind: .music, label: "Listen", url: url, primary: false)) }
+        if let url = secureURL(source["merchUrl"]) { results.append(NativePartyPassDestination(kind: .merch, label: "Shop", url: url, primary: false)) }
+        if let url = secureURL(source["websiteUrl"]) { results.append(NativePartyPassDestination(kind: .website, label: "Visit website", url: url, primary: false)) }
+        if let social = source["primarySocial"] as? [String: Any], let url = secureURL(social["url"]), let platform = clean(social["platform"]) {
+            // Legacy platform text is server-stored and untrusted: only a
+            // recognized platform name may render; anything else says Social.
+            let kind = NativeHostDestinationKind(rawValue: platform.lowercased())
+            results.append(NativePartyPassDestination(kind: kind ?? .instagram, label: kind?.title ?? "Social", url: url, primary: true))
+        }
+        return results
+    }
+
+    static func hostHandle(from row: [String: Any]) -> String? {
+        guard let host = row["host"] as? [String: Any], let handle = clean(host["handle"]) else { return nil }
+        return "@\(handle.hasPrefix("@") ? String(handle.dropFirst()) : handle)"
+    }
+
+    private static func secureURL(_ value: Any?) -> URL? {
+        guard let raw = clean(value), let url = URL(string: raw),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "https", components.host?.isEmpty == false else { return nil }
+        return url
     }
 
     private static func objectRow(_ value: Any) -> [String: Any] {
@@ -1156,6 +1432,8 @@ enum NativeCheckInV2Contract {
 enum NativeLiveContentV2Contract {
     static let eventsListRoute = "/trpc/events.list"
     static let partyDraftCreateRoute = "/trpc/events.drafts.create"
+    static let hostDestinationsGetRoute = "/trpc/events.hostDestinations.get"
+    static let hostDestinationsSaveRoute = "/trpc/events.hostDestinations.save"
     static let partyDraftDeleteRoute = "/trpc/events.drafts.delete"
     static let partyPublishRoute = "/trpc/events.publish"
     static let partyMediaUploadRoute = "/trpc/events.media.upload"
@@ -1467,7 +1745,7 @@ struct NativeProfileDataAPI {
 
     func createSocialCircleViaRpc(name: String) async throws -> NativeSocialCircle? {
         let response = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialGroupsCreateRoute, method: "POST", input: ["name": name, "privacy": "private", "surface": "network"])
-        return NativeSocialCircle.normalizeSocialCircle(response) ?? NativeSocialCircle.normalizeSocialCircles(response).first
+        return (NativeSocialCircle.normalizeSocialCircle(response) ?? NativeSocialCircle.normalizeSocialCircles(response).first).map(NativeSocialCircle.ownedByCreator)
     }
 
     func addPersonToSocialCircleViaRpc(circleID: String, userID: String) async throws {

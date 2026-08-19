@@ -441,8 +441,18 @@ struct PartyPassClipView: View {
     @ViewBuilder private var hostDestinations: some View {
         if !invite.hostDestinations.isEmpty {
             PartyGlassCard {
-                Text("From \(invite.hostName)").font(.system(size: 21, weight: .bold, design: .serif)).foregroundColor(.white)
-                Text("Official host destinations").font(.system(size: 11, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.60))
+                VStack(alignment: .leading, spacing: 3) {
+                    // The recipient sees the verified host name — the identity
+                    // the host signed in with — never a separate handle field.
+                    HStack(spacing: 5) {
+                        Text(invite.hostName).font(.system(size: 21, weight: .bold, design: .serif)).foregroundColor(.white)
+                        Image(systemName: "checkmark.seal.fill").font(.system(size: 14, weight: .bold)).foregroundColor(accent)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Verified host \(invite.hostName)")
+                    Text("Official Host Destinations").font(.system(size: 11, weight: .black, design: .rounded)).tracking(0.8).foregroundColor(accent)
+                        .accessibilityLabel("Official Host destinations")
+                }
                 ForEach(invite.hostDestinations) { destination in
                     Button { openURL(destination.url) } label: {
                         HStack(spacing: 11) {

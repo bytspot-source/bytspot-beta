@@ -85,6 +85,8 @@ struct NativeHostStudioView: View {
     @State private var websiteURL = ""
     @State private var primarySocialPlatform: NativePartySocialPlatform = .instagram
     @State private var primarySocialURL = ""
+    @State private var enabledDestinationPills: Set<NativeHostDestinationPill> = []
+    @State private var loadedProfileDestinations = false
     @State private var privateGuestPolicy: NativePrivatePartyGuestPolicy = .namedGuests
     @State private var isPublishing = false
     @State private var publishPresentation = NativePartyPassPresentation()
@@ -364,16 +366,65 @@ struct NativeHostStudioView: View {
     private var officialDestinationsEditor: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("OFFICIAL HOST DESTINATIONS").studioLabel()
-            Text("Only these verified HTTPS links appear in the Party Pass.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
-            field("Music link", text: $musicURL, icon: "music.note", prompt: "https://music…", keyboard: .URL)
-            field("Merch link", text: $merchURL, icon: "bag.fill", prompt: "https://shop…", keyboard: .URL)
-            field("Website link", text: $websiteURL, icon: "globe", prompt: "https://…", keyboard: .URL)
-            VStack(alignment: .leading, spacing: 7) {
-                Text("PRIMARY SOCIAL · ONE LINK").studioLabel()
-                Picker("Primary social platform", selection: $primarySocialPlatform) { ForEach(NativePartySocialPlatform.allCases) { Text($0.title).tag($0) } }.pickerStyle(.segmented)
-                field("Primary social link", text: $primarySocialURL, icon: "person.crop.circle.badge.checkmark", prompt: "https://…", keyboard: .URL)
+            Text("Saved to your host profile. Tap a pill on to include that link; only verified HTTPS links appear on the Party Pass.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(NativeHostDestinationPill.allCases) { pill in destinationPill(pill) }
+                }
+            }
+            if enabledDestinationPills.contains(.music) { field("Music link", text: $musicURL, icon: "music.note", prompt: "https://music…", keyboard: .URL) }
+            if enabledDestinationPills.contains(.shop) { field("Merch link", text: $merchURL, icon: "bag.fill", prompt: "https://shop…", keyboard: .URL) }
+            if enabledDestinationPills.contains(.website) { field("Website link", text: $websiteURL, icon: "globe", prompt: "https://…", keyboard: .URL) }
+            if enabledDestinationPills.contains(.social) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("PRIMARY SOCIAL · ONE LINK").studioLabel()
+                    Picker("Primary social platform", selection: $primarySocialPlatform) { ForEach(NativePartySocialPlatform.allCases) { Text($0.title).tag($0) } }.pickerStyle(.segmented)
+                    field("Primary social link", text: $primarySocialURL, icon: "person.crop.circle.badge.checkmark", prompt: "https://…", keyboard: .URL)
+                }
             }
         }.padding(14).studioSurface()
+            .task { await prefillProfileDestinations() }
+    }
+
+    private func destinationPill(_ pill: NativeHostDestinationPill) -> some View {
+        let isOn = enabledDestinationPills.contains(pill)
+        return Button(action: { toggleDestinationPill(pill) }) {
+            Label(pill.title, systemImage: pill.icon)
+                .font(.system(size: 12, weight: .black))
+                .foregroundColor(isOn ? .black : .white.opacity(0.72))
+                .padding(.horizontal, 13).frame(height: 34)
+                .background(isOn ? NativeTheme.cyan : Color.white.opacity(0.08))
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(pill.title) destination")
+        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityHint(isOn ? "Removes this link from the Party Pass." : "Adds this link to the Party Pass.")
+    }
+
+    private func toggleDestinationPill(_ pill: NativeHostDestinationPill) {
+        if enabledDestinationPills.contains(pill) {
+            enabledDestinationPills.remove(pill)
+            switch pill {
+            case .music: musicURL = ""
+            case .shop: merchURL = ""
+            case .website: websiteURL = ""
+            case .social: primarySocialURL = ""
+            }
+        } else {
+            enabledDestinationPills.insert(pill)
+        }
+    }
+
+    private func prefillProfileDestinations() async {
+        guard !loadedProfileDestinations, sessionStore.canAttachBearerToken, let token = sessionStore.token else { return }
+        loadedProfileDestinations = true
+        guard let saved = try? await NativePartyStudioAPI(client: BytspotAPIClient(tokenProvider: { token })).loadHostDestinations() else { return }
+        if musicURL.isEmpty { musicURL = saved.musicURL }
+        if merchURL.isEmpty { merchURL = saved.merchURL }
+        if websiteURL.isEmpty { websiteURL = saved.websiteURL }
+        if primarySocialURL.isEmpty { primarySocialURL = saved.primarySocialURL; primarySocialPlatform = saved.primarySocialPlatform }
+        enabledDestinationPills = NativeHostDestinationPill.pills(for: draft.hostDestinations)
     }
 
     private func templatePicker<T: CaseIterable & Identifiable & Hashable>(_ label: String, selection: Binding<T>, options: T.AllCases) -> some View where T.ID == String, T: RawRepresentable, T.RawValue == String {
@@ -566,6 +617,9 @@ struct NativeHostStudioView: View {
             guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
             publishStage = "publish"
             let result = try await api.publish(partyID: partyID, draft: draft, idempotencyKey: idempotencyKey)
+            // The party snapshots destinations; the host profile stays the
+            // source of truth for the next room. Best-effort, never blocks.
+            try? await api.saveHostDestinations(draft.hostDestinations)
             try Task.checkCancellation()
             guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
             publishPresentation.completePublish(with: result)

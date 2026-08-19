@@ -1738,6 +1738,14 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativeNetworkDismissedContacts.storageKey(userID: "  "), "bytspot.network.dismissed-contacts.signed-out")
     }
 
+    func testNetworkSwipeRevealRequiresAHorizontalThresholdAndDoesNotToggleOnSmallDrags() {
+        XCTAssertFalse(NativeNetworkSwipeReveal.isRevealed(translation: -18, currentlyRevealed: false))
+        XCTAssertTrue(NativeNetworkSwipeReveal.isRevealed(translation: -40, currentlyRevealed: false))
+        XCTAssertTrue(NativeNetworkSwipeReveal.isRevealed(translation: 12, currentlyRevealed: true))
+        XCTAssertFalse(NativeNetworkSwipeReveal.isRevealed(translation: 40, currentlyRevealed: true))
+        XCTAssertEqual(NativeNetworkSwipeReveal.width, 84)
+    }
+
     func testNetworkAuthenticationContinuationUsesTheStandardSignInIntent() {
         XCTAssertEqual(NativePostAuthIntent.network.rawValue, "network")
         XCTAssertEqual(NativePostAuthIntent.network.authMode, .login)
@@ -2181,6 +2189,35 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertTrue(presentation.isPartyPassVisible)
         XCTAssertEqual(presentation.party, party)
         XCTAssertEqual(presentation.message, "")
+    }
+
+    func testHostDestinationPillsDeriveFromDraftLinksAndDecodeProfilePayload() {
+        XCTAssertEqual(NativeHostDestinationPill.pills(for: .empty), [])
+        let destinations = NativePartyHostDestinations(musicURL: "https://music.example.com", merchURL: " ", websiteURL: "", primarySocialPlatform: .tiktok, primarySocialURL: "https://tiktok.com/@host")
+        XCTAssertEqual(NativeHostDestinationPill.pills(for: destinations), [.music, .social])
+
+        let payload: [String: Any] = ["destinations": ["musicUrl": "https://music.example.com/host", "primarySocial": ["platform": "TikTok", "url": "https://tiktok.com/@host"]]]
+        let decoded = NativePartyStudioAPI.profileDestinations(from: payload)
+        XCTAssertEqual(decoded.musicURL, "https://music.example.com/host")
+        XCTAssertEqual(decoded.primarySocialPlatform, .tiktok)
+        XCTAssertEqual(decoded.primarySocialURL, "https://tiktok.com/@host")
+        XCTAssertEqual(NativePartyStudioAPI.profileDestinations(from: [String: Any]()), .empty)
+    }
+
+    func testNativePartyPassProjectsOnlyCanonicalOfficialHostDestinations() {
+        let row: [String: Any] = [
+            "musicUrl": "https://music.example.com/root-alias",
+            "host": ["destinations": [
+                "musicUrl": "https://music.example.com/host",
+                "merchUrl": "http://insecure.example.com",
+                "primarySocial": ["platform": "Instagram", "url": "https://instagram.com/host"],
+            ]],
+        ]
+        let destinations = NativePartyPassAPI.destinations(from: row)
+        XCTAssertEqual(destinations.map(\.kind), [.music, .social])
+        XCTAssertEqual(destinations.last?.label, "Instagram")
+        // Root-level aliases and non-HTTPS links never reach recipients.
+        XCTAssertEqual(NativePartyPassAPI.destinations(from: ["musicUrl": "https://music.example.com/root-alias"]), [])
     }
 
     @MainActor

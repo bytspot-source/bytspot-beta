@@ -930,6 +930,7 @@ private struct NativePartyPassPreview: View {
             Text(party.title).nativeTitle(26)
             if let tagline = party.tagline { Text(tagline).nativeBody(size: 14) }
             NativeWalletLine(title: "Hosted by", subtitle: party.hostName, icon: "person.crop.circle.fill")
+            officialHostBlock(party)
             NativeWalletLine(title: "When", subtitle: party.scheduledDate, icon: "calendar")
             NativeWalletLine(title: party.locationDisclosure == "after-approval" ? "Location after approval" : party.isLocationWithheld ? "Location withheld" : "Where", subtitle: party.locationLabel, icon: "mappin.and.ellipse")
             NativeWalletLine(title: "Capacity", subtitle: party.capacity > 0 ? "\(party.capacity) guests" : "Party capacity set by host", icon: "person.3.fill")
@@ -949,6 +950,40 @@ private struct NativePartyPassPreview: View {
 
     private func accessLabel(_ value: String) -> String {
         value == "paid-ticket" ? "TICKET" : value == "private-approval" ? "APPROVAL" : "RSVP"
+    }
+
+    /// Vertical Official Host identity block: name · verified badge, then one
+    /// row per approved destination. Renders nothing when the host saved none.
+    @ViewBuilder private func officialHostBlock(_ party: NativePartyPassRecord) -> some View {
+        if !party.hostDestinations.isEmpty {
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 5) {
+                    Image(systemName: "checkmark.seal.fill").font(.system(size: 11, weight: .bold)).foregroundColor(NativeTheme.cyan)
+                    Text("OFFICIAL HOST").font(.system(size: 10, weight: .black)).tracking(1.2).foregroundColor(NativeTheme.cyan)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Official Host, verified destinations")
+                ForEach(party.hostDestinations) { destination in
+                    Button(action: { UIApplication.shared.open(destination.url) }) {
+                        HStack(spacing: 10) {
+                            Image(systemName: destination.kind.icon).font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.cyan).frame(width: 22)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(destination.kind.title.uppercased()).font(.system(size: 9, weight: .black)).tracking(0.9).foregroundColor(NativeTheme.textSecondary)
+                                Text(destination.label).font(.system(size: 13.5, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
+                            }
+                            Spacer(minLength: 8)
+                            Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary)
+                        }
+                        .padding(.vertical, 4).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open \(destination.kind.title): \(destination.label)")
+                }
+            }
+            .padding(12)
+            .background(Color.white.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
     }
 
     @MainActor private func loadParty() async {
@@ -3126,8 +3161,7 @@ private struct NativeNetworkSwipeToDeleteRow<Content: View>: View {
     let label: String
     let action: () -> Void
     let content: Content
-    @State private var offset: CGFloat = 0
-    private let reveal: CGFloat = 84
+    @State private var revealed = false
 
     init(enabled: Bool, label: String, action: @escaping () -> Void, @ViewBuilder content: () -> Content) {
         self.enabled = enabled
@@ -3137,45 +3171,55 @@ private struct NativeNetworkSwipeToDeleteRow<Content: View>: View {
     }
 
     var body: some View {
-        ZStack(alignment: .trailing) {
-            if enabled {
+        HStack(spacing: 0) {
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay {
+                    if enabled, revealed {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { revealed = false }
+                            }
+                            .accessibilityHidden(true)
+                    }
+                }
+            if enabled, revealed {
                 Button(action: {
                     nativeImpactLight()
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { offset = 0 }
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { revealed = false }
                     action()
                 }) {
                     Image(systemName: "trash.fill")
                         .font(.system(size: 16, weight: .black))
                         .foregroundColor(.white)
-                        .frame(width: reveal, height: 44)
+                        .frame(width: NativeNetworkSwipeReveal.width)
                         .frame(maxHeight: .infinity)
                         .background(NativeTheme.orange)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(label)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            }
-            Group {
-                if enabled {
-                    content.offset(x: offset).gesture(drag)
-                } else {
-                    content
-                }
+                .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(Rectangle())
+        .highPriorityGesture(enabled ? drag : nil)
+        .animation(.spring(response: 0.28, dampingFraction: 0.86), value: revealed)
+        .accessibilityAction(named: Text(label)) {
+            guard enabled else { return }
+            action()
+        }
     }
 
     private var drag: some Gesture {
         DragGesture(minimumDistance: 18, coordinateSpace: .local)
-            .onChanged { value in
-                guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                offset = max(min(value.translation.width, 0), -reveal)
-            }
             .onEnded { value in
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                    offset = value.translation.width < -reveal / 2 ? -reveal : 0
-                }
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                let next = NativeNetworkSwipeReveal.isRevealed(translation: value.translation.width, currentlyRevealed: revealed)
+                guard next != revealed else { return }
+                nativeImpactLight()
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { revealed = next }
             }
     }
 }
@@ -3336,28 +3380,27 @@ private struct NativeNetworkHubView: View {
                             Task { await deleteHostedRoom(party) }
                         } content: {
                         HStack(alignment: .center, spacing: 10) {
-                            Button(action: {
+                            HStack(alignment: .center, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(party.title).font(.system(size: 16, weight: .black)).foregroundColor(NativeProfileStyle.title).lineLimit(1)
+                                    Text("\(party.venueName) · \(party.startsAtDate?.formatted(date: .abbreviated, time: .shortened) ?? party.startsAt)").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(1)
+                                    if let passCode = party.retrievedPassCode {
+                                        Text(passCode).font(.system(size: 11, weight: .black, design: .monospaced)).foregroundColor(NativeTheme.cyan)
+                                    }
+                                    if party.admissionPaused {
+                                        Text("ADMISSIONS PAUSED").font(.system(size: 9, weight: .black)).foregroundColor(NativeTheme.orange)
+                                    } else if party.shareLinkExpired {
+                                        Text("NEW ARRIVALS CLOSED").font(.system(size: 9, weight: .black)).foregroundColor(NativeTheme.orange)
+                                    }
+                                }
+                                Spacer()
+                                Text("Control").font(.system(size: 12, weight: .black)).foregroundColor(.black).padding(.horizontal, 12).frame(height: 32).background(NativeTheme.cyan).clipShape(Capsule())
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
                                 nativeImpactLight()
                                 hostedControlTarget = HostedControlTarget(id: party.id)
-                            }) {
-                                HStack(alignment: .center, spacing: 12) {
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(party.title).font(.system(size: 16, weight: .black)).foregroundColor(NativeProfileStyle.title).lineLimit(1)
-                                        Text("\(party.venueName) · \(party.startsAtDate?.formatted(date: .abbreviated, time: .shortened) ?? party.startsAt)").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(1)
-                                        if let passCode = party.retrievedPassCode {
-                                            Text(passCode).font(.system(size: 11, weight: .black, design: .monospaced)).foregroundColor(NativeTheme.cyan)
-                                        }
-                                        if party.admissionPaused {
-                                            Text("ADMISSIONS PAUSED").font(.system(size: 9, weight: .black)).foregroundColor(NativeTheme.orange)
-                                        } else if party.shareLinkExpired {
-                                            Text("NEW ARRIVALS CLOSED").font(.system(size: 9, weight: .black)).foregroundColor(NativeTheme.orange)
-                                        }
-                                    }
-                                    Spacer()
-                                    Text("Control").font(.system(size: 12, weight: .black)).foregroundColor(.black).padding(.horizontal, 12).frame(height: 32).background(NativeTheme.cyan).clipShape(Capsule())
-                                }
                             }
-                            .buttonStyle(.plain)
                             if let url = party.retrievedShareURL {
                                 Button(action: {
                                     nativeImpactLight()
@@ -3479,29 +3522,35 @@ private struct NativeNetworkHubView: View {
     }
 
     private func personRow(_ person: NativeFriendSuggestion) -> some View {
-        Button(action: { nativeImpactLight(); withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) { selectedPersonID = person.userId }; statusMessage = "Selected \(person.name)." }) {
-            HStack(spacing: 12) {
-                networkAvatar(person.name, color: person.relationshipStatus == "connected" ? NativeTheme.emerald : NativeTheme.purple)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(person.name).nativeTitle(15)
-                    HStack(spacing: 6) {
-                        if person.relationshipStatus == "connected" {
-                            Image(systemName: "link").font(.system(size: 9, weight: .bold)).foregroundColor(NativeTheme.emerald)
-                        }
-                        Text(person.reason).nativeBody(size: 12).lineLimit(1)
+        HStack(spacing: 12) {
+            networkAvatar(person.name, color: person.relationshipStatus == "connected" ? NativeTheme.emerald : NativeTheme.purple)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(person.name).nativeTitle(15)
+                HStack(spacing: 6) {
+                    if person.relationshipStatus == "connected" {
+                        Image(systemName: "link").font(.system(size: 9, weight: .bold)).foregroundColor(NativeTheme.emerald)
                     }
+                    Text(person.reason).nativeBody(size: 12).lineLimit(1)
                 }
-                Spacer(minLength: 8)
-                Image(systemName: selectedPersonID == person.userId ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundColor(selectedPersonID == person.userId ? NativeTheme.cyan : NativeProfileStyle.muted.opacity(0.5))
-                    .scaleEffect(selectedPersonID == person.userId ? 1.06 : 1.0)
             }
-            .padding(16)
-            .background(NativeProfileStyle.insetSurface)
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(selectedPersonID == person.userId ? NativeTheme.cyan.opacity(0.45) : NativePolish.softBorder, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }.buttonStyle(.plain).accessibilityIdentifier("native-network-person-\(person.userId)")
+            Spacer(minLength: 8)
+            Image(systemName: selectedPersonID == person.userId ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundColor(selectedPersonID == person.userId ? NativeTheme.cyan : NativeProfileStyle.muted.opacity(0.5))
+                .scaleEffect(selectedPersonID == person.userId ? 1.06 : 1.0)
+        }
+        .padding(16)
+        .background(NativeProfileStyle.insetSurface)
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(selectedPersonID == person.userId ? NativeTheme.cyan.opacity(0.45) : NativePolish.softBorder, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            nativeImpactLight()
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) { selectedPersonID = person.userId }
+            statusMessage = "Selected \(person.name)."
+        }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("native-network-person-\(person.userId)")
     }
 
     private var personActions: some View {
@@ -3546,7 +3595,7 @@ private struct NativeNetworkHubView: View {
     }
 
     private func circleRow(_ circle: NativeSocialCircle) -> some View {
-        Button(action: { nativeImpactLight(); selectedCircleID = circle.id; withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { segment = .people } }) { HStack(spacing: 12) {
+        HStack(spacing: 12) {
             Image(systemName: "person.3.fill")
                 .font(.system(size: 16, weight: .bold))
                 .foregroundColor(.white)
@@ -3562,7 +3611,14 @@ private struct NativeNetworkHubView: View {
         .padding(16)
         .background(NativeProfileStyle.insetSurface)
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }.buttonStyle(.plain)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            nativeImpactLight()
+            selectedCircleID = circle.id
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { segment = .people }
+        }
+        .accessibilityAddTraits(.isButton)
     }
 
     private var invitationsContent: some View {

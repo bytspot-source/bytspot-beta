@@ -202,6 +202,15 @@ struct NativeSocialCircle: Codable, Equatable, Identifiable {
         return NativeSocialCircle(id: id, name: name, ownerUserId: cleanValue(row["ownerUserId"]), memberCount: intValue(row["memberCount"] ?? row["membersCount"]) ?? memberIDs.count, memberIDs: memberIDs, role: cleanValue(row["role"]) ?? "member")
     }
 
+    /// Create is always performed by the owner. Promote a missing/legacy role
+    /// so swipe-to-delete is enabled on the row that just appeared.
+    static func ownedByCreator(_ circle: NativeSocialCircle) -> NativeSocialCircle {
+        guard circle.role != "owner" else { return circle }
+        var owned = circle
+        owned.role = "owner"
+        return owned
+    }
+
     static func normalizeSocialCircles(_ response: Any) -> [NativeSocialCircle] {
         rows(from: response, keys: ["groups", "circles", "items"]).compactMap(normalizeSocialCircle)
     }
@@ -275,6 +284,20 @@ enum NativeNetworkSwipePolicy {
         direction == "outgoing" && status == "pending"
     }
     static func canDismissContact() -> Bool { true }
+}
+
+/// Horizontal reveal for Network swipe-to-delete. Trash stays off-screen
+/// until a real swipe crosses the threshold, so row taps never hit delete.
+enum NativeNetworkSwipeReveal {
+    static let width: CGFloat = 84
+    static let revealThreshold: CGFloat = -40
+    static let hideThreshold: CGFloat = 40
+
+    static func isRevealed(translation: CGFloat, currentlyRevealed: Bool) -> Bool {
+        if translation <= revealThreshold { return true }
+        if translation >= hideThreshold { return false }
+        return currentlyRevealed
+    }
 }
 
 enum NativeNetworkDismissedContacts {
@@ -385,6 +408,31 @@ enum NativePartySocialPlatform: String, CaseIterable, Codable, Identifiable {
     case instagram, tiktok, youtube, x, facebook, linkedin
     var id: String { rawValue }
     var title: String { rawValue == "x" ? "X" : rawValue.capitalized }
+}
+
+/// Host Studio's tap-on/off destination pills. A pill is "on" when its link
+/// participates in the draft; the link itself still validates as HTTPS.
+enum NativeHostDestinationPill: String, CaseIterable, Identifiable {
+    case music, shop, website, social
+    var id: String { rawValue }
+    var title: String { self == .shop ? "Shop" : rawValue.capitalized }
+    var icon: String {
+        switch self {
+        case .music: return "music.note"
+        case .shop: return "bag.fill"
+        case .website: return "globe"
+        case .social: return "person.crop.circle.badge.checkmark"
+        }
+    }
+
+    static func pills(for destinations: NativePartyHostDestinations) -> Set<Self> {
+        var pills: Set<Self> = []
+        if !destinations.musicURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { pills.insert(.music) }
+        if !destinations.merchURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { pills.insert(.shop) }
+        if !destinations.websiteURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { pills.insert(.website) }
+        if !destinations.primarySocialURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { pills.insert(.social) }
+        return pills
+    }
 }
 
 struct NativePartyHostDestinations: Equatable {
@@ -648,6 +696,31 @@ struct NativePartyStudioAPI {
         _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.partyMediaResetRoute, method: "POST", input: ["partyId": partyID])
     }
 
+    /// Official Host destinations live on the host profile. Host Studio
+    /// prefills its pills from here and saves back on publish.
+    func loadHostDestinations() async throws -> NativePartyHostDestinations {
+        let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.hostDestinationsGetRoute, input: [:])
+        return Self.profileDestinations(from: payload)
+    }
+
+    func saveHostDestinations(_ destinations: NativePartyHostDestinations) async throws {
+        _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.hostDestinationsSaveRoute, method: "POST", input: ["destinations": destinations.rpcInput])
+    }
+
+    static func profileDestinations(from payload: Any) -> NativePartyHostDestinations {
+        let row = objectRow(payload)
+        guard let source = row["destinations"] as? [String: Any] else { return .empty }
+        let social = source["primarySocial"] as? [String: Any]
+        let platform = (social?["platform"] as? String).flatMap { name in NativePartySocialPlatform.allCases.first { $0.title == name } }
+        return NativePartyHostDestinations(
+            musicURL: clean(source["musicUrl"]) ?? "",
+            merchURL: clean(source["merchUrl"]) ?? "",
+            websiteURL: clean(source["websiteUrl"]) ?? "",
+            primarySocialPlatform: platform ?? .instagram,
+            primarySocialURL: clean(social?["url"]) ?? ""
+        )
+    }
+
     static func draftCreateInput(_ draft: NativePartyDraftInput, idempotencyKey: String) -> [String: Any] {
         var input = draft.rpcInput
         input["idempotencyKey"] = idempotencyKey
@@ -695,6 +768,15 @@ struct NativePartyStudioAPI {
     }
 }
 
+/// One approved Official Host link projected by `events.invite`.
+/// Only canonical `host.destinations` fields ever populate this.
+struct NativePartyPassDestination: Equatable, Identifiable {
+    let kind: NativeHostDestinationPill
+    let label: String
+    let url: URL
+    var id: String { kind.rawValue }
+}
+
 struct NativePartyPassRecord: Equatable {
     let id: String
     let title: String
@@ -707,6 +789,7 @@ struct NativePartyPassRecord: Equatable {
     let capacity: Int
     let requiredTier: String
     let coverURL: URL?
+    let hostDestinations: [NativePartyPassDestination]
 
     var isLocationWithheld: Bool { locationDisclosure != "public" }
 }
@@ -737,7 +820,28 @@ struct NativePartyPassAPI {
         } else {
             safeLocationLabel = locationDisclosure == "withheld" ? "Location withheld by host" : "Location shared after approval"
         }
-        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL)
+        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL, hostDestinations: destinations(from: row))
+    }
+
+    /// Mirrors the App Clip rule: only canonical `host.destinations` HTTPS
+    /// links reach recipients; root-level aliases are ignored.
+    static func destinations(from row: [String: Any]) -> [NativePartyPassDestination] {
+        guard let host = row["host"] as? [String: Any], let source = host["destinations"] as? [String: Any] else { return [] }
+        var results: [NativePartyPassDestination] = []
+        if let url = secureURL(source["musicUrl"]) { results.append(NativePartyPassDestination(kind: .music, label: "Listen", url: url)) }
+        if let url = secureURL(source["merchUrl"]) { results.append(NativePartyPassDestination(kind: .shop, label: "Shop", url: url)) }
+        if let url = secureURL(source["websiteUrl"]) { results.append(NativePartyPassDestination(kind: .website, label: "Visit website", url: url)) }
+        if let social = source["primarySocial"] as? [String: Any], let url = secureURL(social["url"]), let platform = clean(social["platform"]) {
+            results.append(NativePartyPassDestination(kind: .social, label: platform, url: url))
+        }
+        return results
+    }
+
+    private static func secureURL(_ value: Any?) -> URL? {
+        guard let raw = clean(value), let url = URL(string: raw),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "https", components.host?.isEmpty == false else { return nil }
+        return url
     }
 
     private static func objectRow(_ value: Any) -> [String: Any] {
@@ -1156,6 +1260,8 @@ enum NativeCheckInV2Contract {
 enum NativeLiveContentV2Contract {
     static let eventsListRoute = "/trpc/events.list"
     static let partyDraftCreateRoute = "/trpc/events.drafts.create"
+    static let hostDestinationsGetRoute = "/trpc/events.hostDestinations.get"
+    static let hostDestinationsSaveRoute = "/trpc/events.hostDestinations.save"
     static let partyDraftDeleteRoute = "/trpc/events.drafts.delete"
     static let partyPublishRoute = "/trpc/events.publish"
     static let partyMediaUploadRoute = "/trpc/events.media.upload"
@@ -1467,7 +1573,7 @@ struct NativeProfileDataAPI {
 
     func createSocialCircleViaRpc(name: String) async throws -> NativeSocialCircle? {
         let response = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialGroupsCreateRoute, method: "POST", input: ["name": name, "privacy": "private", "surface": "network"])
-        return NativeSocialCircle.normalizeSocialCircle(response) ?? NativeSocialCircle.normalizeSocialCircles(response).first
+        return (NativeSocialCircle.normalizeSocialCircle(response) ?? NativeSocialCircle.normalizeSocialCircles(response).first).map(NativeSocialCircle.ownedByCreator)
     }
 
     func addPersonToSocialCircleViaRpc(circleID: String, userID: String) async throws {

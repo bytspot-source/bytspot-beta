@@ -1,4 +1,4 @@
-export type NativeHandoffKind = 'party' | 'group' | 'patch' | 'access';
+export type NativeHandoffKind = 'party' | 'group' | 'patch' | 'access' | 'app';
 
 export type NativeHandoffContext = {
   kind: NativeHandoffKind;
@@ -12,6 +12,7 @@ const APP_HOSTS = new Set(['bytspot.app', 'www.bytspot.app', 'bytspot.com', 'www
 const PATCH_PATHS = new Set(['p', 'patch', 't']);
 const PATCH_QUERY_KEYS = ['patchId', 'patch', 'p'];
 const ACCESS_COMPATIBILITY_PATHS = new Set(['access', 'patch', 'clip']);
+const LEGAL_PATHS = new Set(['privacy', 'terms', 'disclaimer']);
 
 function isLikelyBytspotTag(value: string | undefined): boolean {
   return Boolean(value && /^BYT[A-Z0-9_-]{2,}$/i.test(value));
@@ -37,6 +38,10 @@ function patchIdFrom(url: URL, parts: string[]): string | null {
   return null;
 }
 
+function isLegalWebPath(parts: string[]): boolean {
+  return parts.length === 1 && LEGAL_PATHS.has(parts[0].toLowerCase());
+}
+
 export function nativeAppClipArgumentFor(rawUrl: string): string {
   try {
     const current = new URL(rawUrl);
@@ -44,14 +49,14 @@ export function nativeAppClipArgumentFor(rawUrl: string): string {
     const [first] = parts;
     if (first && ['party', 'group'].includes(first.toLowerCase())) return current.toString();
     const patchId = patchIdFrom(current, parts);
-    if (!patchId) return 'https://bytspot.app/p/app-clip?patchId=BYT424&tier=platinum';
+    if (!patchId) return current.toString();
     const next = new URL('https://bytspot.app/p/app-clip');
     next.searchParams.set('patchId', patchId);
     cloneQuery(current, next);
     next.searchParams.set('patchId', patchId);
     return next.toString();
   } catch {
-    return 'https://bytspot.app/p/app-clip?patchId=BYT424&tier=platinum';
+    return rawUrl;
   }
 }
 
@@ -68,6 +73,8 @@ export function nativeHandoffContext(rawUrl: string): NativeHandoffContext | nul
   if (url.hostname && !APP_HOSTS.has(url.hostname.toLowerCase())) return null;
 
   const parts = pathParts(url);
+  if (isLegalWebPath(parts)) return null;
+
   const first = parts[0]?.toLowerCase();
   const source = url.searchParams.get('source')?.toLowerCase();
   const isAppClipHandoff = source === 'app_clip' || url.searchParams.get('handoff') === '1';
@@ -90,7 +97,7 @@ export function nativeHandoffContext(rawUrl: string): NativeHandoffContext | nul
     return {
       kind: 'group',
       title: 'Open this invite in Bytspot',
-      subtitle: 'This private group invite is native/App Clip only. The legacy web app is not used for joins.',
+      subtitle: 'This private group invite is native/App Clip only. The web app is not used for joins.',
       appArgument: url.toString(),
       appSchemeURL: nativeURL.toString(),
     };
@@ -103,13 +110,21 @@ export function nativeHandoffContext(rawUrl: string): NativeHandoffContext | nul
     return {
       kind: patchId ? 'patch' : 'access',
       title: patchId ? 'Open this tap in Bytspot' : 'Open Bytspot Access',
-      subtitle: 'NFC, QR, map, and App Clip taps go to the native app/App Clip only — not the old React PWA.',
+      subtitle: 'NFC, QR, map, and App Clip taps go to the native app or App Clip — never the old web app.',
       appArgument: nativeAppClipArgumentFor(rawUrl),
       appSchemeURL: nativeURL.toString(),
     };
   }
 
-  return null;
+  const nativeURL = new URL(first ? `bytspot://${parts.join('/')}` : 'bytspot://home');
+  cloneQuery(url, nativeURL);
+  return {
+    kind: 'app',
+    title: 'Open Bytspot',
+    subtitle: 'Bytspot is a native iPhone app. This page does not load the old web app.',
+    appArgument: url.toString(),
+    appSchemeURL: nativeURL.toString(),
+  };
 }
 
 export function shouldBlockLegacyPwaFallback(rawUrl: string): boolean {

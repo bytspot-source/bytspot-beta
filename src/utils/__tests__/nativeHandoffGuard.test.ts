@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { Script, createContext } from 'node:vm';
 import {
   nativeAppClipArgumentFor,
   nativeHandoffContext,
@@ -52,22 +51,19 @@ test('blocks bare native compatibility paths listed in AASA', () => {
   assert.equal(nativeHandoffContext('https://bytspot.app/patch/BYT424-0301')?.kind, 'patch');
 });
 
-test('service worker bypass classifier stays aligned for handoff navigation URLs', () => {
+test('retired service worker is a kill-switch, not a cache', () => {
   const source = readFileSync(new URL('../../../public/sw.js', import.meta.url), 'utf8');
-  const context = createContext({ URL, self: { addEventListener() {} } });
-  new Script(`${source}\nglobalThis.__isNativeHandoffURL = isNativeHandoffURL;`).runInContext(context);
-  const isNativeHandoffURL = context.__isNativeHandoffURL as (url: URL) => boolean;
-
-  assert.equal(isNativeHandoffURL(new URL('https://bytspot.app/access')), true);
-  assert.equal(isNativeHandoffURL(new URL('https://bytspot.app/access/BYT424-0301')), true);
-  assert.equal(isNativeHandoffURL(new URL('https://bytspot.app/patch')), true);
-  assert.equal(isNativeHandoffURL(new URL('https://bytspot.app/patch/BYT424-0301')), true);
-  assert.equal(isNativeHandoffURL(new URL('https://bytspot.app/party/party-1')), true);
-  assert.equal(isNativeHandoffURL(new URL('https://bytspot.app/discover')), false);
+  assert.match(source, /registration\.unregister/);
+  assert.match(source, /caches\.delete/);
+  assert.doesNotMatch(source, /bytspot-v2/);
+  assert.doesNotMatch(source, /isNativeHandoffURL/);
 });
 
-test('does not block ordinary web pages', () => {
+test('product routes never boot the web app; legal pages stay on the web', () => {
+  assert.equal(nativeHandoffContext('https://bytspot.app/discover')?.kind, 'app');
+  assert.equal(nativeHandoffContext('https://bytspot.app/')?.kind, 'app');
   assert.equal(shouldBlockLegacyPwaFallback('https://bytspot.app/privacy'), false);
-  assert.equal(shouldBlockLegacyPwaFallback('https://bytspot.app/discover'), false);
+  assert.equal(shouldBlockLegacyPwaFallback('https://bytspot.app/terms'), false);
+  assert.equal(shouldBlockLegacyPwaFallback('https://bytspot.app/disclaimer'), false);
   assert.equal(shouldBlockLegacyPwaFallback('https://example.com/p/BYT424'), false);
 });

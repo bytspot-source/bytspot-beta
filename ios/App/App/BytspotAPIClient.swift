@@ -1147,6 +1147,50 @@ struct NativeWalletLedgerRecord: Codable, Equatable, Identifiable {
     }
 }
 
+/// Pending-deletion state for the signed-in member. `purgeAfter` is the moment
+/// the account stops being recoverable.
+struct NativeAccountDeletionStatus: Codable, Equatable {
+    let pendingDeletion: Bool
+    let purgeAfter: String?
+    let graceDays: Int
+
+    static let inactive = NativeAccountDeletionStatus(pendingDeletion: false, purgeAfter: nil, graceDays: 30)
+
+    var purgeDate: Date? { purgeAfter.flatMap(NativeAccountDeletionFormat.date(fromISO:)) }
+}
+
+struct NativeAccountDeletionReceipt: Codable, Equatable {
+    let purgeAfter: String
+    let graceDays: Int
+
+    var purgeDate: Date? { NativeAccountDeletionFormat.date(fromISO: purgeAfter) }
+}
+
+enum NativeAccountDeletionFormat {
+    static func date(fromISO value: String) -> Date? {
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return withFraction.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+
+    /// Whole days remaining, rounded up: a member with 12 hours left still has
+    /// "1 day", never "0 days".
+    static func daysRemaining(until purgeAfter: Date, now: Date = Date()) -> Int {
+        let seconds = purgeAfter.timeIntervalSince(now)
+        guard seconds > 0 else { return 0 }
+        return Int((seconds / 86_400).rounded(.up))
+    }
+
+    static func countdown(until purgeAfter: Date, now: Date = Date()) -> String {
+        let days = daysRemaining(until: purgeAfter, now: now)
+        switch days {
+        case 0: return "Your account is being deleted now."
+        case 1: return "1 day left to restore your account."
+        default: return "\(days) days left to restore your account."
+        }
+    }
+}
+
 struct NativeWalletLedgerSnapshot: Codable, Equatable {
     var source: String
     var count: Int
@@ -1858,6 +1902,23 @@ struct NativeProfileDataAPI {
     }
 
     static func socialCircleListInput() -> [String: Any] { ["surface": "network"] }
+
+    func loadAccountDeletionStatus() async throws -> NativeAccountDeletionStatus {
+        try await client.trpcDecode(NativeAccountDeletionStatus.self, path: "/trpc/user.account.deletionStatus")
+    }
+
+    func requestAccountDeletion(reason: String?) async throws -> NativeAccountDeletionReceipt {
+        try await client.trpcDecode(NativeAccountDeletionReceipt.self, path: "/trpc/user.account.requestDeletion", method: "POST", input: Self.accountDeletionInput(reason: reason))
+    }
+
+    func cancelAccountDeletion() async throws {
+        _ = try await client.trpcPayload(path: "/trpc/user.account.cancelDeletion", method: "POST", input: [:])
+    }
+
+    static func accountDeletionInput(reason: String?) -> [String: Any] {
+        let trimmed = reason?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? [:] : ["reason": trimmed]
+    }
 
     private func vehicleInput(_ vehicle: NativeVehicleRecord, includeID: Bool) -> [String: Any] {
         var input: [String: Any] = [

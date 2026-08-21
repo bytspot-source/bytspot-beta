@@ -2909,4 +2909,38 @@ final class NativeMenuCheckoutTests: XCTestCase {
         XCTAssertTrue(NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: emptySnapshot, launchPicksCompleted: true, launchPickCount: 0))
         XCTAssertFalse(NativeHomeRegionPresentation.hasTrustedLocalRecommendations(in: emptySnapshot))
     }
+
+    func testAccountDeletionInputOmitsAnEmptyReason() {
+        XCTAssertTrue(NativeProfileDataAPI.accountDeletionInput(reason: nil).isEmpty)
+        XCTAssertTrue(NativeProfileDataAPI.accountDeletionInput(reason: "   ").isEmpty)
+        XCTAssertEqual(NativeProfileDataAPI.accountDeletionInput(reason: "  moving city ") as? [String: String], ["reason": "moving city"])
+    }
+
+    func testAccountDeletionStatusDecodesTheGraceWindow() throws {
+        let pending = try JSONDecoder().decode(NativeAccountDeletionStatus.self, from: Data(#"{"pendingDeletion":true,"purgeAfter":"2026-09-20T00:00:00.000Z","graceDays":30}"#.utf8))
+        XCTAssertTrue(pending.pendingDeletion)
+        XCTAssertEqual(pending.graceDays, 30)
+        XCTAssertNotNil(pending.purgeDate)
+
+        let inactive = try JSONDecoder().decode(NativeAccountDeletionStatus.self, from: Data(#"{"pendingDeletion":false,"purgeAfter":null,"graceDays":30}"#.utf8))
+        XCTAssertFalse(inactive.pendingDeletion)
+        XCTAssertNil(inactive.purgeDate)
+    }
+
+    func testDeletionCountdownRoundsUpSoAPartialDayIsNeverZero() {
+        let now = Date()
+        // Twelve hours left is still "1 day": rounding down would tell a member
+        // they are out of time while they can still restore.
+        XCTAssertEqual(NativeAccountDeletionFormat.daysRemaining(until: now.addingTimeInterval(12 * 3600), now: now), 1)
+        XCTAssertEqual(NativeAccountDeletionFormat.daysRemaining(until: now.addingTimeInterval(30 * 86_400), now: now), 30)
+        XCTAssertEqual(NativeAccountDeletionFormat.daysRemaining(until: now.addingTimeInterval(-3600), now: now), 0)
+    }
+
+    func testDeletionCountdownCopyMatchesTheRemainingWindow() {
+        let now = Date()
+        XCTAssertEqual(NativeAccountDeletionFormat.countdown(until: now.addingTimeInterval(5 * 86_400), now: now), "5 days left to restore your account.")
+        XCTAssertEqual(NativeAccountDeletionFormat.countdown(until: now.addingTimeInterval(3600), now: now), "1 day left to restore your account.")
+        XCTAssertEqual(NativeAccountDeletionFormat.countdown(until: now.addingTimeInterval(-60), now: now), "Your account is being deleted now.")
+    }
+
 }

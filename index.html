@@ -17,19 +17,32 @@
       <meta property="og:title" content="Bytspot" />
       <meta property="og:description" content="Open Bytspot on iPhone. Party Pass and rooms open in the native app or App Clip." />
       <meta property="og:url" content="https://bytspot.app/" />
-      <meta property="og:image" content="https://bytspot.app/media/gh-akwaaba-fifa-ghana-thumbnail.png" />
-      <meta property="og:image:secure_url" content="https://bytspot.app/media/gh-akwaaba-fifa-ghana-thumbnail.png" />
+      <meta property="og:image" content="https://bytspot.app/media/bytspot-og.png" />
+      <meta property="og:image:secure_url" content="https://bytspot.app/media/bytspot-og.png" />
       <meta property="og:image:type" content="image/png" />
-      <meta property="og:image:width" content="1800" />
-      <meta property="og:image:height" content="1200" />
+      <meta property="og:image:width" content="1200" />
+      <meta property="og:image:height" content="630" />
       <meta property="og:image:alt" content="Bytspot" />
       <meta name="twitter:card" content="summary_large_image" />
       <meta name="twitter:title" content="Bytspot" />
       <meta name="twitter:description" content="Open Bytspot on iPhone. Party Pass and rooms open in the native app or App Clip." />
-      <meta name="twitter:image" content="https://bytspot.app/media/gh-akwaaba-fifa-ghana-thumbnail.png" />
+      <meta name="twitter:image" content="https://bytspot.app/media/bytspot-og.png" />
       <!-- Smart App Banner — default argument is this page, never the retired
            Platinum /p/app-clip catalog. JS below rewrites /party/<id> and
            patch URLs before iOS caches the card. -->
+      <script>
+        // Runs before the Smart App Banner meta is parsed so iOS never caches a
+        // homepage app-argument for a /party/<id> link. The module bundle below
+        // re-applies the same value once it boots.
+        (function () {
+          try {
+            var parts = window.location.pathname.split('/').filter(Boolean);
+            if ((parts[0] === 'party' || parts[0] === 'group') && parts[1]) {
+              document.write('<meta name="apple-itunes-app" content="app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=' + window.location.href + '">');
+            }
+          } catch (_) {}
+        })();
+      </script>
       <meta name="apple-itunes-app" content="app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=https://bytspot.app/" />
     </head>
 
@@ -53,6 +66,7 @@
               if (!patchId && (pathParts[0] === 'p' || pathParts[0] === 'patch' || pathParts[0] === 't') && pathParts[1]) patchId = pathParts[1];
               if ((pathParts[0] === 'group' || pathParts[0] === 'party') && pathParts[1]) {
                 canonicalArgument = current.toString();
+                patchId = null;
               } else if (patchId) {
                 var next = new URL('https://bytspot.app/p/app-clip');
                 next.searchParams.set('patchId', patchId);

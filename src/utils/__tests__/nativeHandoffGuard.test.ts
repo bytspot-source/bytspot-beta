@@ -59,6 +59,21 @@ test('retired service worker is a kill-switch, not a cache', () => {
   assert.doesNotMatch(source, /isNativeHandoffURL/);
 });
 
+test('share metadata carries no retired campaign artwork', () => {
+  const html = readFileSync(new URL('../../../index.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, /akwaaba/i);
+  assert.match(html, /og:image" content="https:\/\/bytspot\.app\/media\/bytspot-og\.png"/);
+  assert.match(html, /twitter:image" content="https:\/\/bytspot\.app\/media\/bytspot-og\.png"/);
+});
+
+test('party links get a self-referencing Smart App Banner before the bundle boots', () => {
+  const html = readFileSync(new URL('../../../index.html', import.meta.url), 'utf8');
+  // A /party/<id> page must not inherit the homepage app-argument, or iOS
+  // caches a Default App Clip card for every share link.
+  assert.match(html, /parts\[0\] === 'party'[\s\S]*?document\.write/);
+  assert.match(html, /app-argument=' \+ window\.location\.href/);
+});
+
 test('product routes never boot the web app; legal pages stay on the web', () => {
   assert.equal(nativeHandoffContext('https://bytspot.app/discover')?.kind, 'app');
   assert.equal(nativeHandoffContext('https://bytspot.app/')?.kind, 'app');

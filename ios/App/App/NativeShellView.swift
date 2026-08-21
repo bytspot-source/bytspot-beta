@@ -588,11 +588,14 @@ struct BytspotNativeShellView: View {
 
     private func presentWelcomeBannerIfNeeded() {
         guard sessionStore.isAuthenticated, NativeSignedInIdentity.consumePendingWelcome() else { return }
-        let message = NativeSignedInIdentity.welcomeMessage(displayName: NativeSignedInIdentity.displayName)
+        let restored = NativeSignedInIdentity.consumeAccountRestored()
+        let message = NativeSignedInIdentity.welcomeMessage(displayName: NativeSignedInIdentity.displayName, accountRestored: restored)
         welcomeBannerGeneration += 1
         let generation = welcomeBannerGeneration
         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { welcomeBannerText = message }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) {
+        // A restoration notice must outlast a routine greeting; it reports an
+        // account state change the member did not ask for on this screen.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (restored ? 5.5 : 3.2)) {
             guard welcomeBannerGeneration == generation else { return }
             withAnimation(.easeOut(duration: 0.3)) { welcomeBannerText = nil }
         }
@@ -2633,7 +2636,7 @@ private struct NativeDeleteAccountSafetyPanel: View {
     private var deletionRequestState: some View {
         Group {
             NativeWalletLine(title: "Permanently delete your account?", subtitle: "This removes profile data, saved places, preferences, check-ins, access passes, reservations, and session state.", icon: "trash.fill")
-            NativeWalletLine(title: "\(status.graceDays)-day grace period", subtitle: "Your account is deactivated immediately and erased permanently after \(status.graceDays) days. Signing back in before then restores it.", icon: "clock.arrow.circlepath")
+            NativeWalletLine(title: "\(status.graceDays)-day grace period", subtitle: "Your account is deactivated immediately and erased permanently after \(status.graceDays) days. Signing back in before then cancels the deletion and restores everything.", icon: "clock.arrow.circlepath")
             NativeProfileTextField(title: "Type DELETE to confirm", text: $confirmation)
             Button(action: { nativeImpactLight(); showsFinalConfirmation = true }) {
                 NativeCTA(title: isWorking ? "Deleting\u{2026}" : "Delete my account", color: canDelete ? NativeProfileStyle.danger : NativeProfileStyle.muted, foreground: .white)

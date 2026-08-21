@@ -1588,6 +1588,9 @@ struct NativeAuthResponse: Codable, Equatable {
     var token: String?
     var user: NativeAuthUserRecord?
     var isNewUser: Bool?
+    /// True when this sign-in cancelled a pending account deletion. The member
+    /// must be told: they are being restored, not merely signed in.
+    var deletionCancelled: Bool?
 }
 
 enum NativeAuthRouteContract {

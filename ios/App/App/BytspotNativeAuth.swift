@@ -112,6 +112,14 @@ enum NativeAuthStatus: Equatable {
 enum NativeSignedInIdentity {
     static let displayNameKey = "bytspot_signed_in_display_name"
     static let pendingWelcomeKey = "bytspot_signed_in_pending_welcome"
+    static let restoredAccountKey = "bytspot_signed_in_restored_account"
+
+    /// Signing in cancels a pending deletion server-side. Recording it here
+    /// lets the next welcome say so, rather than silently undoing a deletion
+    /// the member asked for.
+    static func markAccountRestored() {
+        UserDefaults.standard.set(true, forKey: restoredAccountKey)
+    }
 
     static func store(displayName: String?) {
         let trimmed = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -126,6 +134,7 @@ enum NativeSignedInIdentity {
     static func clear() {
         UserDefaults.standard.removeObject(forKey: displayNameKey)
         UserDefaults.standard.removeObject(forKey: pendingWelcomeKey)
+        UserDefaults.standard.removeObject(forKey: restoredAccountKey)
     }
 
     /// One-shot: true only for the first call after a fresh sign-in.
@@ -149,6 +158,20 @@ enum NativeSignedInIdentity {
     static func welcomeMessage(displayName: String?) -> String {
         guard let first = firstName(from: displayName) else { return "Welcome to Bytspot" }
         return "Welcome, \(first)"
+    }
+
+    /// One-shot: true only for the first call after a sign-in that cancelled a
+    /// pending deletion.
+    static func consumeAccountRestored() -> Bool {
+        guard UserDefaults.standard.bool(forKey: restoredAccountKey) else { return false }
+        UserDefaults.standard.removeObject(forKey: restoredAccountKey)
+        return true
+    }
+
+    static func welcomeMessage(displayName: String?, accountRestored: Bool) -> String {
+        guard accountRestored else { return welcomeMessage(displayName: displayName) }
+        guard let first = firstName(from: displayName) else { return "Welcome back. Your account deletion was cancelled." }
+        return "Welcome back, \(first). Your account deletion was cancelled."
     }
 }
 

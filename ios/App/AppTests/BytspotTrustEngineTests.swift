@@ -1582,6 +1582,22 @@ final class BytspotTrustEngineTests: XCTestCase {
 
 final class NativeProfileDataAPITests: XCTestCase {
 
+    func testSignInThatCancelledADeletionSaysSoInTheWelcome() {
+        // Signing in silently undoes a deletion server-side. The member must be
+        // told, not just greeted.
+        XCTAssertEqual(NativeSignedInIdentity.welcomeMessage(displayName: "Ama Boateng", accountRestored: true), "Welcome back, Ama. Your account deletion was cancelled.")
+        XCTAssertEqual(NativeSignedInIdentity.welcomeMessage(displayName: nil, accountRestored: true), "Welcome back. Your account deletion was cancelled.")
+        XCTAssertEqual(NativeSignedInIdentity.welcomeMessage(displayName: "Ama Boateng", accountRestored: false), "Welcome, Ama")
+    }
+
+    func testAuthResponseDecodesTheDeletionCancelledFlag() throws {
+        let cancelled = try JSONDecoder().decode(NativeAuthResponse.self, from: Data(#"{"token":"t","user":{"id":"u1"},"deletionCancelled":true}"#.utf8))
+        XCTAssertEqual(cancelled.deletionCancelled, true)
+        // Signup and provider responses omit the field entirely.
+        let plain = try JSONDecoder().decode(NativeAuthResponse.self, from: Data(#"{"token":"t","user":{"id":"u1"}}"#.utf8))
+        XCTAssertNil(plain.deletionCancelled)
+    }
+
     func testAccountDeletionInputOmitsAnEmptyReason() {
         XCTAssertTrue(NativeProfileDataAPI.accountDeletionInput(reason: nil).isEmpty)
         XCTAssertTrue(NativeProfileDataAPI.accountDeletionInput(reason: "   ").isEmpty)

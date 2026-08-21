@@ -1598,6 +1598,68 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(plain.deletionCancelled)
     }
 
+    func testDeletionPurgesCachedProfileAndVehicleValuesButKeepsDeviceSettings() {
+        let defaults = UserDefaults(suiteName: "bytspot.deletion.purge.tests")!
+        defaults.removePersistentDomain(forName: "bytspot.deletion.purge.tests")
+        defaults.set("Ama Boateng", forKey: "bytspot_profile_display_name")
+        defaults.set("ama@example.com", forKey: "bytspot_profile_email")
+        defaults.set("BYT-424", forKey: "bytspot_vehicle_plate_hint")
+        defaults.set(true, forKey: "bytspot_vibe_learning_enabled")
+        defaults.set("dark", forKey: "bytspot_native_appearance_mode")
+        defaults.set("token", forKey: "bytspot_apns_device_token")
+        defaults.set("unrelated", forKey: "some_other_app_key")
+
+        NativeAccountLocalData.purge(defaults)
+
+        // Account-derived values must not survive a deletion, including on a
+        // shared device where the next person can open Profile.
+        XCTAssertNil(defaults.string(forKey: "bytspot_profile_display_name"))
+        XCTAssertNil(defaults.string(forKey: "bytspot_profile_email"))
+        XCTAssertNil(defaults.string(forKey: "bytspot_vehicle_plate_hint"))
+        XCTAssertNil(defaults.object(forKey: "bytspot_vibe_learning_enabled"))
+        // Device-scoped settings are not the member's data.
+        XCTAssertEqual(defaults.string(forKey: "bytspot_native_appearance_mode"), "dark")
+        XCTAssertEqual(defaults.string(forKey: "bytspot_apns_device_token"), "token")
+        XCTAssertEqual(defaults.string(forKey: "some_other_app_key"), "unrelated")
+        defaults.removePersistentDomain(forName: "bytspot.deletion.purge.tests")
+    }
+
+    func testAccountScopedKeyClassificationFailsTowardsDeleting() {
+        // An account-scoped key added later is purged without anyone
+        // remembering to list it.
+        XCTAssertTrue(NativeAccountLocalData.isAccountScoped("bytspot_some_future_member_field"))
+        XCTAssertFalse(NativeAccountLocalData.isAccountScoped("bytspot_native_appearance_mode"))
+        XCTAssertFalse(NativeAccountLocalData.isAccountScoped("bytspot_debug_party_publish_failure_stage"))
+        XCTAssertFalse(NativeAccountLocalData.isAccountScoped("unrelated_key"))
+    }
+
+    func testRestoredBannerIsScopedToTheAccountThatWasRestored() {
+        NativeSignedInIdentity.recordRestoration(true, userID: "usr_ama")
+        // A different member signing in on a shared device must not be told
+        // someone else's deletion was cancelled.
+        XCTAssertFalse(NativeSignedInIdentity.consumeAccountRestored(userID: "usr_kwame"))
+        // The stale marker is discarded rather than left to fire later.
+        XCTAssertFalse(NativeSignedInIdentity.consumeAccountRestored(userID: "usr_ama"))
+
+        NativeSignedInIdentity.recordRestoration(true, userID: "usr_ama")
+        XCTAssertTrue(NativeSignedInIdentity.consumeAccountRestored(userID: "usr_ama"))
+        XCTAssertFalse(NativeSignedInIdentity.consumeAccountRestored(userID: "usr_ama"), "the banner is one-shot")
+    }
+
+    func testASignInThatDidNotRestoreClearsAnyStaleMarker() {
+        NativeSignedInIdentity.recordRestoration(true, userID: "usr_ama")
+        NativeSignedInIdentity.recordRestoration(false, userID: "usr_ama")
+        XCTAssertFalse(NativeSignedInIdentity.consumeAccountRestored(userID: "usr_ama"))
+    }
+
+    func testProviderSignInCarriesTheRestoredFlag() throws {
+        let restored = try JSONDecoder().decode(NativeAuthResponse.self, from: Data(#"{"token":"t","user":{"id":"u1"},"isNewUser":false,"deletionCancelled":true}"#.utf8))
+        let result = NativeAuthAdapterResult(provider: .apple, token: "t", userID: "u1", displayName: "Ama", deletionCancelled: restored.deletionCancelled == true)
+        XCTAssertTrue(result.deletionCancelled)
+        // Apple and Google accounts get the same restoration notice as email.
+        XCTAssertEqual(NativeAuthAdapterResult(provider: .google, token: "t", userID: "u1", displayName: nil).deletionCancelled, false)
+    }
+
     func testAccountDeletionInputOmitsAnEmptyReason() {
         XCTAssertTrue(NativeProfileDataAPI.accountDeletionInput(reason: nil).isEmpty)
         XCTAssertTrue(NativeProfileDataAPI.accountDeletionInput(reason: "   ").isEmpty)

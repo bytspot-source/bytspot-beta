@@ -74,6 +74,20 @@ test('party links get a self-referencing Smart App Banner before the bundle boot
   assert.match(html, /app-argument=' \+ window\.location\.href/);
 });
 
+test('search structured data parses and claims only what ships', () => {
+  const html = readFileSync(new URL('../../../index.html', import.meta.url), 'utf8');
+  const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)];
+  assert.equal(blocks.length, 1);
+
+  const graph = JSON.parse(blocks[0][1])['@graph'];
+  assert.deepEqual(graph.map((n: { '@type': string }) => n['@type']), ['Organization', 'WebSite', 'MobileApplication']);
+
+  // Unverifiable markup is a manual-action risk and would contradict the
+  // Typical-never-Live contract, so these must stay absent.
+  const serialized = blocks[0][1];
+  assert.doesNotMatch(serialized, /aggregateRating|reviewCount|"Offer"|priceCurrency/);
+});
+
 test('product routes never boot the web app; legal pages stay on the web', () => {
   assert.equal(nativeHandoffContext('https://bytspot.app/discover')?.kind, 'app');
   assert.equal(nativeHandoffContext('https://bytspot.app/')?.kind, 'app');

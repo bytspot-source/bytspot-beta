@@ -27,6 +27,51 @@
       <meta name="twitter:title" content="Bytspot" />
       <meta name="twitter:description" content="Open Bytspot on iPhone. Party Pass and rooms open in the native app or App Clip." />
       <meta name="twitter:image" content="https://bytspot.app/media/bytspot-og.png" />
+
+      <!-- Search-result structured data. Claims stay inside what the product
+           actually does: a native iPhone app with an App Clip. No ratings,
+           no offers, no "live" occupancy — unverifiable markup is a
+           manual-action risk and would contradict the Typical/Live contract. -->
+      <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://bytspot.app/#organization",
+            "name": "Bytspot",
+            "url": "https://bytspot.app/",
+            "logo": {
+              "@type": "ImageObject",
+              "url": "https://bytspot.app/icon-512.png",
+              "width": 512,
+              "height": 512
+            }
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://bytspot.app/#website",
+            "url": "https://bytspot.app/",
+            "name": "Bytspot",
+            "description": "Open Bytspot on iPhone. Party Pass and rooms open in the native app or App Clip.",
+            "publisher": { "@id": "https://bytspot.app/#organization" },
+            "inLanguage": "en-US"
+          },
+          {
+            "@type": "MobileApplication",
+            "@id": "https://bytspot.app/#app",
+            "name": "Bytspot",
+            "applicationCategory": "LifestyleApplication",
+            "operatingSystem": "iOS",
+            "url": "https://apps.apple.com/app/id6761876421",
+            "installUrl": "https://apps.apple.com/app/id6761876421",
+            "publisher": { "@id": "https://bytspot.app/#organization" },
+            "image": "https://bytspot.app/media/bytspot-og.png"
+          }
+        ]
+      }
+      </script>
+
       <!-- Smart App Banner — default argument is this page, never the retired
            Platinum /p/app-clip catalog. JS below rewrites /party/<id> and
            patch URLs before iOS caches the card. -->

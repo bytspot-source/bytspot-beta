@@ -12,7 +12,7 @@ const APP_HOSTS = new Set(['bytspot.app', 'www.bytspot.app', 'bytspot.com', 'www
 const PATCH_PATHS = new Set(['p', 'patch', 't']);
 const PATCH_QUERY_KEYS = ['patchId', 'patch', 'p'];
 const ACCESS_COMPATIBILITY_PATHS = new Set(['access', 'patch', 'clip']);
-const LEGAL_PATHS = new Set(['privacy', 'terms', 'disclaimer']);
+const LEGAL_PATHS = new Set(['privacy', 'terms', 'disclaimer', 'support']);
 
 function isLikelyBytspotTag(value: string | undefined): boolean {
   return Boolean(value && /^BYT[A-Z0-9_-]{2,}$/i.test(value));

@@ -94,5 +94,8 @@ test('product routes never boot the web app; legal pages stay on the web', () =>
   assert.equal(shouldBlockLegacyPwaFallback('https://bytspot.app/privacy'), false);
   assert.equal(shouldBlockLegacyPwaFallback('https://bytspot.app/terms'), false);
   assert.equal(shouldBlockLegacyPwaFallback('https://bytspot.app/disclaimer'), false);
+  // The support page has to be reachable on the web: App Review requires a
+  // working support URL, and a member locked out of the app needs a way in.
+  assert.equal(shouldBlockLegacyPwaFallback('https://bytspot.app/support'), false);
   assert.equal(shouldBlockLegacyPwaFallback('https://example.com/p/BYT424'), false);
 });

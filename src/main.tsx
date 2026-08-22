@@ -1,7 +1,7 @@
 import './index.css';
 import { nativeHandoffContext } from './utils/nativeHandoffGuard';
 
-const LEGAL_PATHS = new Set(['/privacy', '/terms', '/disclaimer']);
+const LEGAL_PATHS = new Set(['/privacy', '/terms', '/disclaimer', '/support']);
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char] ?? char);

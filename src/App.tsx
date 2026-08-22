@@ -48,6 +48,7 @@ const AdminApprovals = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailabl
 const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy').then(m => ({ default: m.PrivacyPolicy })));
 const TermsOfService = lazy(() => import('./components/TermsOfService').then(m => ({ default: m.TermsOfService })));
 const Disclaimer = lazy(() => import('./components/Disclaimer').then(m => ({ default: m.Disclaimer })));
+const Support = lazy(() => import('./components/Support').then(m => ({ default: m.Support })));
 const ProviderLanding = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/provider/ProviderLanding').then(m => ({ default: m.ProviderLanding })));
 const ProviderApp = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/host/ProviderApp').then(m => ({ default: m.ProviderApp })));
 const ValetApp = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/valet/ValetApp').then(m => ({ default: m.ValetApp })));
@@ -1396,6 +1397,13 @@ export default function App() {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <Disclaimer />
+        </Suspense>
+      );
+    }
+    if (normalizedPath === '/support') {
+      return (
+        <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+          <Support />
         </Suspense>
       );
     }

@@ -802,6 +802,7 @@ private struct NativeContextualDestinationView: View {
     @EnvironmentObject private var apiState: NativeAPIState
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
     @EnvironmentObject private var locationStore: NativeLocationStore
+    @EnvironmentObject private var membershipStore: NativeMembershipTierStore
 
     var body: some View {
         NavigationView {
@@ -820,6 +821,7 @@ private struct NativeContextualDestinationView: View {
                                 .environmentObject(sessionStore)
                                 .environmentObject(authCoordinator)
                                 .environmentObject(apiState)
+                                .environmentObject(membershipStore)
                                 .padding(.horizontal, 16)
                                 .padding(.top, 16)
                                 .padding(.bottom, 112)

@@ -5831,9 +5831,10 @@ private struct NativeHomeDashboardView: View {
                             .monospacedDigit()
                             .foregroundColor(NativeTheme.textPrimary)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.82)
+                            .minimumScaleFactor(0.7)
                     }
-                    .frame(width: 86, height: 40)
+                    .padding(.horizontal, 10)
+                    .frame(minWidth: 86, maxWidth: 190, minHeight: 40, maxHeight: 40)
                     .background(NativeTheme.emerald.opacity(0.18))
                     .overlay(Capsule().stroke(NativeTheme.emerald.opacity(0.42), lineWidth: 1))
                     .clipShape(Capsule())
@@ -14840,6 +14841,8 @@ private struct NativeMapExploreView: View {
                 .textCase(.uppercase)
             HStack(spacing: 8) {
                 NativeSmallToggle(title: "Verified", active: showVerifiedOnly, color: NativeTheme.emerald) { showVerifiedOnly.toggle() }
+                    .fixedSize()
+                Spacer(minLength: 0)
             }
             HStack(spacing: 8) {
                 ForEach([1, 2, 3, 4], id: \.self) { level in

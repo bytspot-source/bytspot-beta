@@ -33,14 +33,14 @@ Thank you for reviewing Bytspot.
   - **Party Control** — the host's view of their guest list, admissions, and
     share-link expiry
   - **Network** — find contacts already on Bytspot (requires Contacts access)
-  - **Account deletion and restoration** — Profile → account settings
+  - **Account deletion and restoration** — Profile → Safety & Legal
   - Home, Discover, Map, and Concierge browsing
 - Profile is opened from the Home screen (avatar/profile entry), not from the
   tab bar.
 
 ## Account Deletion — Guideline 5.1.1(v)
 
-- In-app deletion is at **Profile → account settings → Delete Account**.
+- In-app deletion is at **Profile → Safety & Legal → Delete Account**.
 - Confirming deletion signs the member out immediately and revokes the session.
 - Deletion is soft for a fixed 30-day grace period, then the record is purged
   irreversibly. Identity hashes used for contact discovery are removed at the
@@ -103,9 +103,7 @@ Thank you for reviewing Bytspot.
 
 ## Support
 
+- Support URL: https://bytspot.app/support
 - Privacy Policy: https://bytspot.app/privacy
 - Terms: https://bytspot.app/terms
-- Support URL: **not yet published.** `bytspot.com` does not serve these pages
-  (all three return 404) and `bytspot.app/support` currently returns the app
-  handoff page with no contact route. A real support page is required before
-  submission.
+- Disclaimer: https://bytspot.app/disclaimer

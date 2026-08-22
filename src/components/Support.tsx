@@ -16,15 +16,18 @@ export function Support() {
         <a className="text-cyan-400 underline" href={`mailto:${SUPPORT_EMAIL}`}>
           {SUPPORT_EMAIL}
         </a>{' '}
-        and we will reply within two business days. Include your account email
-        and, if the question is about a specific party, its invitation link.
+        and we will get back to you as soon as we can. Include your account
+        email and, if the question is about a specific party, its invitation
+        link. Never send us your password or payment details — we will never
+        ask for them.
       </p>
 
       <Section title="Your account">
         <p className="mb-3">
           You can delete your account inside the app: open <strong>Profile</strong>,
-          then account settings, then <strong>Delete Account</strong>. Deletion is
-          immediate from your side — you are signed out and your session ends.
+          then <strong>Safety &amp; Legal</strong>, then <strong>Delete Account</strong>.
+          Deletion is immediate from your side — you are signed out and your
+          session ends.
         </p>
         <p className="mb-3">
           Your record is held for 30 days before it is erased permanently. Signing
@@ -33,8 +36,9 @@ export function Support() {
           record is gone and cannot be recovered.
         </p>
         <p className="mb-3">
-          If you cannot reach the app, email us from the address on the account and
-          we will delete it for you.
+          If you cannot reach the app, email us from the address on the account
+          and we will handle the deletion once we have confirmed the account
+          belongs to you.
         </p>
       </Section>
 

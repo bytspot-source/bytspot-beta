@@ -72,6 +72,7 @@ import {
 } from './utils/personalization';
 import { trpc } from './utils/trpc';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
+import { canonicalLegalPath } from './utils/nativeHandoffGuard';
 import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
 import { detectBytspotPatchTierFromUrl, detectBytspotTagIntentFromUrl, detectBytspotTagUseModeFromUrl, normalizeBytspotPatchTier, type BytspotPatchTier, type BytspotTagIntent, type BytspotTagUseMode } from './utils/patchTiers';
 import { curatedServiceRecommendationCards, savedServiceRequestToCard } from './utils/vendorServiceCards';
@@ -1246,6 +1247,7 @@ export default function App() {
 
   if (typeof window !== 'undefined') {
     const normalizedPath = window.location.pathname.replace(/\/+/g, '/');
+    const legalPath = canonicalLegalPath(normalizedPath);
     const canonicalPath = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? normalizedPath : canonicalProviderPath(normalizedPath);
     if (APP_STORE_CONSUMER_ONLY_BUILD && (isAppStoreConsumerOnlyBlockedPath(normalizedPath) || isAppStoreConsumerOnlyBlockedPath(canonicalPath))) {
       return <ConsumerOnlyRouteRedirect />;
@@ -1379,28 +1381,28 @@ export default function App() {
         </Suspense>
       );
     }
-    if (normalizedPath === '/privacy') {
+    if (legalPath === '/privacy') {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <PrivacyPolicy />
         </Suspense>
       );
     }
-    if (normalizedPath === '/terms') {
+    if (legalPath === '/terms') {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <TermsOfService />
         </Suspense>
       );
     }
-    if (normalizedPath === '/disclaimer') {
+    if (legalPath === '/disclaimer') {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <Disclaimer />
         </Suspense>
       );
     }
-    if (normalizedPath === '/support') {
+    if (legalPath === '/support') {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <Support />

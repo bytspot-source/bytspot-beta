@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
+  canonicalLegalPath,
   nativeAppClipArgumentFor,
   nativeHandoffContext,
   shouldBlockLegacyPwaFallback,
@@ -98,4 +99,28 @@ test('product routes never boot the web app; legal pages stay on the web', () =>
   // working support URL, and a member locked out of the app needs a way in.
   assert.equal(shouldBlockLegacyPwaFallback('https://bytspot.app/support'), false);
   assert.equal(shouldBlockLegacyPwaFallback('https://example.com/p/BYT424'), false);
+});
+
+test('legal web paths canonicalize identically for the bootstrap and the router', () => {
+  // A trailing slash previously passed the kill-switch but matched no route,
+  // dropping the visitor into the retired web app.
+  assert.equal(canonicalLegalPath('/support'), '/support');
+  assert.equal(canonicalLegalPath('/support/'), '/support');
+  assert.equal(canonicalLegalPath('//support//'), '/support');
+  assert.equal(canonicalLegalPath('/Support'), '/support');
+  assert.equal(canonicalLegalPath('/privacy/'), '/privacy');
+  assert.equal(canonicalLegalPath('/terms/'), '/terms');
+  assert.equal(canonicalLegalPath('/disclaimer/'), '/disclaimer');
+
+  // Everything else stays native-only.
+  assert.equal(canonicalLegalPath('/discover'), null);
+  assert.equal(canonicalLegalPath('/support/extra'), null);
+  assert.equal(canonicalLegalPath('/'), null);
+});
+
+test('a trailing slash on a legal path never reopens the retired web app', () => {
+  for (const path of ['/support/', '/privacy/', '/terms/', '/disclaimer/', '/Support']) {
+    assert.equal(shouldBlockLegacyPwaFallback(`https://bytspot.app${path}`), false, path);
+  }
+  assert.equal(shouldBlockLegacyPwaFallback('https://bytspot.app/discover/'), true);
 });

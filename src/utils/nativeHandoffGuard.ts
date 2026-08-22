@@ -42,6 +42,19 @@ function isLegalWebPath(parts: string[]): boolean {
   return parts.length === 1 && LEGAL_PATHS.has(parts[0].toLowerCase());
 }
 
+/**
+ * The single canonical form of a legal web path, or null if the URL is not
+ * one. Both the bootstrap that decides whether React may load and the router
+ * that decides what to render must agree on this: when they disagreed, a
+ * trailing slash let a page through the kill-switch and then fell past its
+ * route into the retired web app.
+ */
+export function canonicalLegalPath(pathname: string): string | null {
+  const parts = pathname.split('/').filter(Boolean);
+  if (!isLegalWebPath(parts)) return null;
+  return `/${parts[0].toLowerCase()}`;
+}
+
 export function nativeAppClipArgumentFor(rawUrl: string): string {
   try {
     const current = new URL(rawUrl);

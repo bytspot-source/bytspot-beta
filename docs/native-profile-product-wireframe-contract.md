@@ -23,7 +23,7 @@ in order:
 | --- | --- | --- |
 | Identity header | name/guest, tier, following, points, badges | Passport identity and status |
 | Your Bytspot benefits | booking count, points, check-ins, insider state, next unlock | Progress toward benefits |
-| Insider membership | active/available, Stripe checkout, review-build handling | Subscription/access state, not random promo |
+| Insider membership | active/available, Stripe checkout, review-build handling | Membership tier and subscription state, not a random promo |
 | My Reservations | parking pass count, spot, address, window, price, pass code | Active arrival logistics |
 | My Access | access passes, virtual patch, NFC/QR, service requests | Wallet for access and patch context |
 | Rewards | points, badges, achievements | Earned value and gamification |
@@ -49,7 +49,7 @@ in order:
 
 - Avatar / initials
 - User name or Guest
-- Bytspot member tier
+- Bytspot membership tier, shown as the literal label `Green`, `Platinum`, or `Black`. The tier is always rendered for signed-in members, because it states both what the member pays for and which premium features they are eligible for. Guests show no tier.
 - Connections / Points / Check-ins
 - Passive theme status only, e.g. `Auto theme`
 
@@ -61,9 +61,8 @@ in order:
 
 ### 3. Progress
 
-- Parker Progress
 - Points earned by verified check-in
-- Insider/subscription state as a status line or CTA, not a disconnected card
+- Membership state as a status line or CTA, not a disconnected card: an active tier reads as its label, and a member without a paid tier gets the upgrade CTA
 
 ### 4. Social
 
@@ -104,6 +103,26 @@ in order:
 - Disclaimer
 - Logout / Sign In
 
+## Membership Contract
+
+Premium Bytspot features are reached by holding a membership, and a membership is
+obtained through a subscription. There is no other path to premium access.
+
+- Tiers are exactly `Green`, `Platinum`, and `Black`. No other tier name may be
+  rendered, and the set is closed.
+- The tier is the single statement of subscription status and premium feature
+  eligibility. Do not display a separate "premium", "pro", or "insider" badge
+  beside it, because a second label invites the two to disagree.
+- Server truth is `subscription.status`, which returns `membershipTier` and
+  `isPremium`; the client mirrors it in `NativeMembershipTierStore`. Never infer
+  a tier from a purchase, a pass, or a local flag.
+- `Green` is the entry tier and carries no paid entitlement, so Progress shows the
+  upgrade CTA for `Green` and the tier label for `Platinum` and `Black`.
+- Tier gates feature eligibility only. It never implies a venue is available, a
+  door is open, or occupancy is live.
+- Guests have no tier. Show no tier label and no upgrade CTA until sign-in,
+  rather than implying a signed-out visitor is on `Green`.
+
 ## Theme Placement Contract
 
 Theme is an app setting, not a Profile identity feature.
@@ -120,7 +139,7 @@ Theme is an app setting, not a Profile identity feature.
 
 ```text
 [ACCOUNT CENTER]
-Avatar  Name / Guest       Tier + theme status
+Avatar  Name / Guest       Green | Platinum | Black + theme status
 Connections   Points   Check-ins
 
 [QUICK ACTIONS]

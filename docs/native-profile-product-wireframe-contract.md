@@ -50,7 +50,7 @@ in order:
 - Avatar / initials
 - User name or Guest
 - Bytspot member tier
-- Following / Points / Badges
+- Connections / Points / Check-ins
 - Passive theme status only, e.g. `Auto theme`
 
 ### 2. Today
@@ -62,7 +62,7 @@ in order:
 ### 3. Progress
 
 - Parker Progress
-- Rewards & Badges
+- Points earned by verified check-in
 - Insider/subscription state as a status line or CTA, not a disconnected card
 
 ### 4. Social
@@ -121,11 +121,11 @@ Theme is an app setting, not a Profile identity feature.
 ```text
 [ACCOUNT CENTER]
 Avatar  Name / Guest       Tier + theme status
-Following   Points   Badges
+Connections   Points   Check-ins
 
 [QUICK ACTIONS]
 Wallet          Bookings
-Rewards         Saved
+Points          Saved
 
 [ACCOUNT ESSENTIALS]
 Identity        name, email, phone, city
@@ -282,9 +282,9 @@ Native Profile preference panels mirror the React/web files below. The SwiftUI p
 | Native panel | React source | Source-of-truth semantics |
 | --- | --- | --- |
 | Vibe Preferences | `src/components/VibePreferences.tsx` | Atmosphere sliders are 1–10 for Energy, Social, Style, Noise, Crowd. Defaults are `7/6/7/5/5`; price range starts `$60–$250`; max distance starts `5 mi`; time slots default Afternoon+Evening; groups default Solo+Couple+Small Group; AI Learning and Seasonal Adjustments default on; Social Influence defaults off. Vibe score maps to selected tokens `coffee`, `food`, `drinks`, `nightlife` through `saveUserPreferences({ vibePreferences.selectedVibes })`. |
-| Parking Preferences | `src/components/ParkingPreferences.tsx` | Parking type defaults: Covered on, Outdoor off, Garage on, Street off. Feature defaults: EV and Security on, Accessible off, Valet on. Smart defaults: Auto-Reserve off, Auto-Extend on, Expiry on, Nearby off. Budget defaults are `$20/hr`, `$50/day`, walking `0.5 mi`, Closest on, Cheapest off. |
+| Parking Preferences | `src/components/ParkingPreferences.tsx` | Parking type defaults: Covered on, Outdoor off, Garage on, Street off. Feature defaults: EV and Security on, Accessible off, Valet on. Smart defaults: Auto-Reserve off, Auto-Extend on, Expiry on, Nearby off. Budget defaults are `$20/hr`, `$50/day`, walking `0.5 mi`, Closest on, Cheapest off. The API stores `parking.security` as `basic | standard | premium`; the native toggle maps off to `basic` and preserves whichever level the server last returned when on. |
 | Notifications | `src/components/NotificationSettings.tsx` | Channel groups are Push, Email, SMS. Push: reservations/promotions/reminders/insider on, nearby off. Email: reservations/newsletter/receipts on, promotions off. SMS: reservations/reminders/emergencies on. React backend routes are `user.notifications.getPrefs` and `user.notifications.updatePrefs`. |
-| Location & Privacy | `src/components/LocationSettings.tsx` | Controls are Primary Location Permission, Enhanced Indoor Accuracy, Background Location, Location for Offers & Promotions, Venue Recommendations, Active Job Tracking, and Transparency & Privacy. React storage keys include `bytspot_location_settings`, `bytspot_venue_recommendations_enabled`, and `bytspot_active_valet_job`. |
+| Location & Privacy | `src/components/LocationSettings.tsx` | Controls are Primary Location Permission, Enhanced Indoor Accuracy, Background Location, Location for Offers & Promotions, Venue Recommendations, and Transparency & Privacy. The native panel omits Active Job Tracking, which belongs to the valet driver experience. React storage keys include `bytspot_location_settings` and `bytspot_venue_recommendations_enabled`. |
 
 Native API persistence:
 

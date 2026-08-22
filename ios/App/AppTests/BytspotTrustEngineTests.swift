@@ -1927,7 +1927,7 @@ final class NativeProfileDataAPITests: XCTestCase {
     }
 
     func testNativeNetworkHasExactlyPeopleCirclesInvitationsAndPeopleMet() {
-        XCTAssertEqual(NativeProfileWireframeGuard.menuSectionTitles, ["Places & Activity", "Preferences", "App Settings", "Safety & Legal"])
+        XCTAssertEqual(NativeProfileWireframeGuard.menuSectionTitles, ["Account", "Places & Activity", "Preferences", "App Settings", "Safety & Legal"])
         XCTAssertEqual(NativeProfileWireframeGuard.networkSegments, ["People", "Social Circles", "Invitations", "People You Met"])
         XCTAssertFalse(NativeProfileWireframeGuard.networkSegments.contains("Plans"))
         XCTAssertEqual(NativeProfilePanel.allCases.count, Set(NativeProfilePanel.allCases.map(\.rawValue)).count)

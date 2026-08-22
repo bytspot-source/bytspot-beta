@@ -2263,8 +2263,116 @@ private enum NativeProfileP3Contract {
     static let privacyKeys = ["bytspot_location_enhanced_indoor_accuracy", "bytspot_location_background", "bytspot_location_offers", "bytspot_venue_recommendations_enabled"]
 }
 
+/// The three signals Home actually ranks on. The launch quiz writes them and
+/// `NativeHomeDashboardView` scores against them, so the Profile panel edits
+/// these same keys rather than a parallel set that nothing reads.
+enum NativeVibeFocusCatalog {
+    typealias Choice = (value: String, label: String, subtitle: String)
+
+    static let intents: [Choice] = [
+        ("food", "Food", "Somewhere to eat"),
+        ("drinks", "Drinks", "Bars and nightlife"),
+        ("coffee", "Coffee", "Cafés and work"),
+        ("events", "Events", "Something happening"),
+        ("parking", "Parking", "Somewhere to leave the car"),
+        ("work", "Work", "Quiet enough to think"),
+    ]
+
+    static let walks: [Choice] = [
+        ("closest", "Right nearby", "Within a mile"),
+        ("medium", "A short walk", "Within three miles"),
+        ("far", "Worth the trip", "No limit"),
+    ]
+
+    static let crews: [Choice] = [
+        ("solo", "Just me", "No preference"),
+        ("date_night", "Date night", "Dining and nightlife"),
+        ("group", "A group", "Room for everyone"),
+    ]
+
+    /// Only tokens the ranking actually distinguishes may be offered; a label
+    /// that maps to a token the scorer ignores would be a control that does
+    /// nothing.
+    static var offeredIntentTokens: [String] { intents.map(\.value) }
+    static var offeredWalkTokens: [String] { walks.map(\.value) }
+    static var offeredCrewTokens: [String] { crews.map(\.value) }
+
+    static func label(forIntent token: String) -> String? { intents.first { $0.value == token }?.label }
+
+    private static let typeNames: [String: String] = [
+        "dining": "Dining", "nightlife": "Nightlife", "coffee": "Coffee",
+        "entertainment": "Events", "parking": "Parking", "venue": "Venues",
+    ]
+
+    /// The catalog is the seam: Home's dashboard is file-private, so this is
+    /// the one internal way in, and the panel and its tests both read the
+    /// real ranking through it rather than a copy.
+    static func focusTypes(intent: String, walk: String, crew: String) -> [String] {
+        NativeHomeDashboardView.personalizedAIPickTypes(vibe: intent, walk: walk, crew: crew)
+    }
+
+    /// Reads back through the ranking Home actually uses, so the sentence
+    /// cannot drift from the behaviour it describes. It names only the type
+    /// Home tries first: the rest of the list is fallback for when nothing of
+    /// that type is nearby, and promising it would overstate the effect.
+    ///
+    /// With no intent chosen the ranking still returns its neutral default,
+    /// which is not personalization, so say nothing rather than dress up the
+    /// default as a choice the member made.
+    static func focusSummary(intent: String, walk: String, crew: String) -> String? {
+        guard !intent.isEmpty else { return nil }
+        guard let leading = focusTypes(intent: intent, walk: walk, crew: crew).compactMap({ typeNames[$0] }).first else { return nil }
+        guard let miles = maxFocusWalkMiles(walk) else { return "Home leads with \(leading)." }
+        return "Home leads with \(leading), within \(Int(miles)) \(miles == 1 ? "mile" : "miles")."
+    }
+
+    static func maxFocusWalkMiles(_ walk: String) -> Double? { NativeHomeDashboardView.maxLaunchWalkMiles(walk) }
+}
+
+private struct NativeVibeFocusChoiceRow: View {
+    let title: String
+    let choices: [NativeVibeFocusCatalog.Choice]
+    @Binding var selection: String
+    let color: Color
+
+    private var rows: [[NativeVibeFocusCatalog.Choice]] { stride(from: 0, to: choices.count, by: 3).map { Array(choices[$0..<min($0 + 3, choices.count)]) } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(title).nativeTitle(16)
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 8) {
+                    ForEach(row, id: \.value) { choice in
+                        Button(action: { nativeImpactLight(); selection = choice.value }) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(choice.label).font(.system(size: 14, weight: .black))
+                                Text(choice.subtitle).font(.system(size: 11.5, weight: .bold)).opacity(0.72)
+                            }
+                            .foregroundColor(selection == choice.value ? NativeProfileStyle.onVibrant : NativeProfileStyle.title)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(selection == choice.value ? color : NativeProfileStyle.insetSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(selection == choice.value ? [.isSelected] : [])
+                    }
+                    if row.count < 3 { ForEach(0..<(3 - row.count), id: \.self) { _ in Color.clear.frame(maxWidth: .infinity) } }
+                }
+            }
+        }
+        .padding(12)
+        .background(NativeProfileStyle.insetSurface)
+        .clipShape(RoundedRectangle(cornerRadius: NativeProfileStyle.rowRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: NativeProfileStyle.rowRadius, style: .continuous).stroke(NativeProfileStyle.cardBorder, lineWidth: 1))
+    }
+}
+
 private struct NativeVibePreferencesPanel: View {
     let sessionStore: BytspotSessionStore
+    @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var launchIntent = ""
+    @AppStorage(NativeLaunchPersonalizationStorage.walkKey) private var launchWalk = ""
+    @AppStorage(NativeLaunchPersonalizationStorage.crewKey) private var launchCrew = ""
     @AppStorage("bytspot_vibe_energy_level") private var energyLevel = 7.0
     @AppStorage("bytspot_vibe_social_setting") private var socialSetting = 6.0
     @AppStorage("bytspot_vibe_style") private var style = 7.0
@@ -2300,7 +2408,11 @@ private struct NativeVibePreferencesPanel: View {
                 NativeProfilePanelStat(value: "\(vibeScore)/10", label: vibeProfile.label, color: vibeProfile.color)
                 NativeProfilePanelStat(value: vibeProfile.publicStyle, label: "Style", color: NativeTheme.purple)
             }
-            NativeProfilePanelNotice(title: "\(vibeProfile.emoji) \(vibeProfile.label)", subtitle: "This style helps Bytspot recommend better places and experiences.", icon: "sparkles", color: vibeProfile.color)
+            NativeProfilePanelNotice(title: focusTitle, subtitle: focusSubtitle, icon: "sparkles", color: NativeTheme.cyan)
+            NativeVibeFocusChoiceRow(title: "What you're usually after", choices: NativeVibeFocusCatalog.intents, selection: $launchIntent, color: NativeTheme.cyan)
+            NativeVibeFocusChoiceRow(title: "How far you'll go", choices: NativeVibeFocusCatalog.walks, selection: $launchWalk, color: NativeTheme.emerald)
+            NativeVibeFocusChoiceRow(title: "Who you're usually with", choices: NativeVibeFocusCatalog.crews, selection: $launchCrew, color: NativeTheme.purple)
+            NativeProfilePanelNotice(title: "\(vibeProfile.emoji) \(vibeProfile.label)", subtitle: "Your saved style. It shapes the badge above, not the order of your picks.", icon: "slider.horizontal.3", color: vibeProfile.color)
             NativePreferenceScaleRow(title: "Energy Level", value: $energyLevel, range: 1...10, step: 1, leftLabel: "Relaxed", rightLabel: "Energetic", valueLabel: "\(Int(energyLevel))/10", color: NativeTheme.purple)
             NativePreferenceScaleRow(title: "Social Setting", value: $socialSetting, range: 1...10, step: 1, leftLabel: "Intimate", rightLabel: "Social", valueLabel: "\(Int(socialSetting))/10", color: NativeTheme.purple)
             NativePreferenceScaleRow(title: "Style", value: $style, range: 1...10, step: 1, leftLabel: "Classic", rightLabel: "Trendy", valueLabel: "\(Int(style))/10", color: NativeTheme.purple)
@@ -2327,8 +2439,18 @@ private struct NativeVibePreferencesPanel: View {
     private var api: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
     private var statusTitle: String { statusMessage.isEmpty ? "Preferences ready" : statusMessage }
     private var statusSubtitle: String {
-        if sessionStore.isAuthenticated { return "Your vibe choices help personalize Discover, Map, and Concierge." }
-        return "Guest choices stay on this iPhone until you sign in."
+        if sessionStore.isAuthenticated { return "Your focus shapes Home. Everything here is saved to your account." }
+        return "Your focus shapes Home. Choices stay on this iPhone until you sign in."
+    }
+
+    private var focusTitle: String {
+        guard let intent = NativeVibeFocusCatalog.label(forIntent: launchIntent) else { return "Set your focus" }
+        return "Focused on \(intent.lowercased())"
+    }
+
+    private var focusSubtitle: String {
+        NativeVibeFocusCatalog.focusSummary(intent: launchIntent, walk: launchWalk, crew: launchCrew)
+            ?? "Pick what you're usually after and Home will lead with it."
     }
 
     private func loadVibePreferenceIfNeeded() async {
@@ -5885,7 +6007,7 @@ private struct NativeHomeDashboardView: View {
 
     private static func isParkingIntent(_ intent: String) -> Bool { intent == "parking" || intent == "covered_parking" }
 
-    private static func maxLaunchWalkMiles(_ walk: String) -> Double? {
+    static func maxLaunchWalkMiles(_ walk: String) -> Double? {
         switch walk {
         case "close", "closest": return 1.0
         case "medium": return 3.0

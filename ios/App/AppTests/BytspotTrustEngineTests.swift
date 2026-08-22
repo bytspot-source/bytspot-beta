@@ -2947,8 +2947,16 @@ extension BytspotTrustEngineTests {
         let unlimited = NativeVibeFocusCatalog.focusSummary(intent: "food", walk: "far", crew: "solo")
         XCTAssertEqual(unlimited, "Home leads with Dining.")
 
-        // No focus chosen yet: say nothing rather than claim a personalization.
+        // No focus chosen yet: the ranking still returns its neutral default,
+        // and presenting that as the member's own setting would be the same
+        // false claim this panel was fixed for.
         XCTAssertNil(NativeVibeFocusCatalog.focusSummary(intent: "", walk: "", crew: ""))
+        XCTAssertNil(NativeVibeFocusCatalog.focusSummary(intent: "", walk: "closest", crew: "group"))
+        XCTAssertFalse(NativeVibeFocusCatalog.focusTypes(intent: "", walk: "", crew: "").isEmpty,
+                       "the default ranking still exists; the summary just must not claim it")
+
+        // Only the type Home tries first is named; the rest is fallback.
+        XCTAssertEqual(NativeVibeFocusCatalog.focusTypes(intent: "drinks", walk: "closest", crew: "solo").count > 1, true)
     }
 
     func testVibeFocusPanelEditsTheSameKeysHomeRanksOn() {

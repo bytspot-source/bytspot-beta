@@ -2304,8 +2304,6 @@ enum NativeVibeFocusCatalog {
         "entertainment": "Events", "parking": "Parking", "venue": "Venues",
     ]
 
-    /// Reads back through the same function Home uses to choose its pick, so
-    /// the summary cannot drift from the behaviour it describes.
     /// The catalog is the seam: Home's dashboard is file-private, so this is
     /// the one internal way in, and the panel and its tests both read the
     /// real ranking through it rather than a copy.
@@ -2313,11 +2311,17 @@ enum NativeVibeFocusCatalog {
         NativeHomeDashboardView.personalizedAIPickTypes(vibe: intent, walk: walk, crew: crew)
     }
 
+    /// Reads back through the ranking Home actually uses, so the sentence
+    /// cannot drift from the behaviour it describes. It names only the type
+    /// Home tries first: the rest of the list is fallback for when nothing of
+    /// that type is nearby, and promising it would overstate the effect.
+    ///
+    /// With no intent chosen the ranking still returns its neutral default,
+    /// which is not personalization, so say nothing rather than dress up the
+    /// default as a choice the member made.
     static func focusSummary(intent: String, walk: String, crew: String) -> String? {
-        let types = focusTypes(intent: intent, walk: walk, crew: crew)
-        let named = types.compactMap { typeNames[$0] }.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
-        guard !named.isEmpty else { return nil }
-        let leading = named.prefix(3).joined(separator: ", ")
+        guard !intent.isEmpty else { return nil }
+        guard let leading = focusTypes(intent: intent, walk: walk, crew: crew).compactMap({ typeNames[$0] }).first else { return nil }
         guard let miles = maxFocusWalkMiles(walk) else { return "Home leads with \(leading)." }
         return "Home leads with \(leading), within \(Int(miles)) \(miles == 1 ? "mile" : "miles")."
     }

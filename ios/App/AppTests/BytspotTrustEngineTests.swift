@@ -1938,6 +1938,15 @@ final class NativeProfileDataAPITests: XCTestCase {
         }
     }
 
+    func testPassportCarriesExactlyOneStatusChip() {
+        // The tier replaces the old "Signed in" chip rather than stacking beside it.
+        XCTAssertEqual(NativeProfileWireframeGuard.passportStatusChip(isAuthenticated: true, tier: .green), "Green")
+        XCTAssertEqual(NativeProfileWireframeGuard.passportStatusChip(isAuthenticated: true, tier: .platinum), "Platinum")
+        XCTAssertEqual(NativeProfileWireframeGuard.passportStatusChip(isAuthenticated: true, tier: .black), "Black")
+        XCTAssertEqual(NativeProfileWireframeGuard.passportStatusChip(isAuthenticated: false, tier: .green), "Guest")
+        XCTAssertFalse(NativeProfileWireframeGuard.membershipTierLabels.contains("Signed in"))
+    }
+
     func testOnlyTheEntryTierIsOfferedTheMembershipUpgrade() {
         XCTAssertTrue(NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: true, tier: .green))
         XCTAssertFalse(NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: true, tier: .platinum))

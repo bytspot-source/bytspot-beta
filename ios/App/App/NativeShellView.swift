@@ -5640,6 +5640,7 @@ private struct NativeHomeDashboardView: View {
     @State private var headerNow = Date()
     @State private var showHomeSearchSheet = false
     @State private var weatherSnapshot = NativeWeatherSnapshot.fallback
+    @State private var presenceSummary = NativePresenceSummary.none
 
     static let quickActionSpecs: [QuickActionSpec] = [
         QuickActionSpec(id: "coffee", title: "Coffee", subtitle: "Walkable stops", icon: "cup.and.saucer.fill", color: NativeTheme.cyan, target: .discoverFilter("coffee")),
@@ -5717,6 +5718,7 @@ private struct NativeHomeDashboardView: View {
         .accessibilityIdentifier("native-home-dashboard")
         .onAppear { scheduleAuthenticatedLaunchPicksCollapseIfNeeded(); openValetPreviewIfRequested(); locationStore.startIfAuthorized() }
         .task { await refreshLiveWeather() }
+        .task { await refreshPresence() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in Task { await refreshLiveWeather() } }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { headerNow = $0 }
         .onChange(of: sessionStore.token ?? "") { _ in scheduleAuthenticatedLaunchPicksCollapseIfNeeded() }
@@ -5768,6 +5770,21 @@ private struct NativeHomeDashboardView: View {
         }
     }
 
+    /// Presence is a courtesy on the header: a failed or unauthenticated fetch
+    /// falls back to the venue count rather than inventing a number.
+    private func refreshPresence() async {
+        guard sessionStore.isAuthenticated else {
+            presenceSummary = .none
+            return
+        }
+        do {
+            let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
+            presenceSummary = try await NativeProfileDataAPI(client: client).presenceSummaryViaRpc()
+        } catch {
+            presenceSummary = .none
+        }
+    }
+
     private var nativeHomeHeader: some View {
         let snapshot = regionalSnapshot
         let inventoryStat = NativeHomeRegionPresentation.headerInventoryStat(for: snapshot.venues)
@@ -5809,7 +5826,7 @@ private struct NativeHomeDashboardView: View {
                     HStack(spacing: 5) {
                         Circle().fill(NativeTheme.emerald).frame(width: 6, height: 6)
                         Image(systemName: "person.2.fill").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                        Text(venuesNearby > 0 ? "\(venuesNearby) venues" : "Local")
+                        Text(presenceSummary.chipLabel ?? (venuesNearby > 0 ? "\(venuesNearby) venues" : "Local"))
                             .font(.system(size: 12, weight: .black, design: .rounded))
                             .monospacedDigit()
                             .foregroundColor(NativeTheme.textPrimary)

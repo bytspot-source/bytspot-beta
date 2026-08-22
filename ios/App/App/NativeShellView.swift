@@ -5790,7 +5790,6 @@ private struct NativeHomeDashboardView: View {
         let inventoryStat = NativeHomeRegionPresentation.headerInventoryStat(for: snapshot.venues)
         let weather = NativeHomeCopyContract.weatherPresentation(for: weatherSnapshot)
         let forYou = snapshot.discoverCards.count
-        let venuesNearby = snapshot.venues.filter { $0.crowd != nil }.count
         let city = NativeHomeRegionPresentation.cityBadge(for: locationStore.coordinate, locality: locationStore.locality)
         return VStack(alignment: .leading, spacing: 10) {
             VStack(spacing: 0) {
@@ -5824,22 +5823,6 @@ private struct NativeHomeDashboardView: View {
                     .clipShape(Capsule())
 
                     HStack(spacing: 5) {
-                        Circle().fill(NativeTheme.emerald).frame(width: 6, height: 6)
-                        Image(systemName: "person.2.fill").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                        Text(presenceSummary.chipLabel ?? (venuesNearby > 0 ? "\(venuesNearby) venues" : "Local"))
-                            .font(.system(size: 12, weight: .black, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundColor(NativeTheme.textPrimary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
-                    .padding(.horizontal, 10)
-                    .frame(minWidth: 86, maxWidth: 190, minHeight: 40, maxHeight: 40)
-                    .background(NativeTheme.emerald.opacity(0.18))
-                    .overlay(Capsule().stroke(NativeTheme.emerald.opacity(0.42), lineWidth: 1))
-                    .clipShape(Capsule())
-
-                    HStack(spacing: 5) {
                         Image(systemName: "mappin.circle.fill").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan)
                         Text(city)
                             .font(.system(size: 12, weight: .black, design: .rounded))
@@ -5866,6 +5849,22 @@ private struct NativeHomeDashboardView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.horizontal, 16).padding(.vertical, 8)
+                if let presence = presenceSummary.chipLabel {
+                    // Given its own row: the count states scope and window, and
+                    // that sentence does not fit the four-up chip strip.
+                    HStack(spacing: 6) {
+                        Circle().fill(NativeTheme.emerald).frame(width: 6, height: 6)
+                        Image(systemName: "person.2.fill").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                        Text(presence)
+                            .font(.system(size: 12, weight: .black, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundColor(NativeTheme.textPrimary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 16).padding(.bottom, 8)
+                }
                 Rectangle().fill(NativePolish.softBorder).frame(height: 1)
                 HStack(spacing: 0) {
                     statStripItem(icon: "circle.fill", iconColor: NativeTheme.emerald, value: inventoryStat.value, label: inventoryStat.label)
@@ -14841,7 +14840,7 @@ private struct NativeMapExploreView: View {
                 .textCase(.uppercase)
             HStack(spacing: 8) {
                 NativeSmallToggle(title: "Verified", active: showVerifiedOnly, color: NativeTheme.emerald) { showVerifiedOnly.toggle() }
-                    .fixedSize()
+                    .frame(width: 96)
                 Spacer(minLength: 0)
             }
             HStack(spacing: 8) {

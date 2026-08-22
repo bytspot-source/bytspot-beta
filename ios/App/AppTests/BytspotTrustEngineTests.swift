@@ -2910,3 +2910,57 @@ final class NativeMenuCheckoutTests: XCTestCase {
         XCTAssertFalse(NativeHomeRegionPresentation.hasTrustedLocalRecommendations(in: emptySnapshot))
     }
 }
+
+extension BytspotTrustEngineTests {
+    func testVibeFocusCatalogOnlyOffersTokensTheRankingDistinguishes() {
+        // A control that maps to a token the scorer ignores would be a switch
+        // wired to nothing, which is what this panel used to be.
+        var leadingTypes: [String] = []
+        for token in NativeVibeFocusCatalog.offeredIntentTokens {
+            let types = NativeHomeDashboardView.personalizedAIPickTypes(vibe: token, walk: "", crew: "")
+            XCTAssertFalse(types.isEmpty, "intent \(token) produces no ranking preference")
+            leadingTypes.append(types[0])
+        }
+        XCTAssertEqual(Set(leadingTypes).count, Set(NativeVibeFocusCatalog.offeredIntentTokens).count - 1,
+                       "coffee and work intentionally share a leading type; every other intent must differ")
+    }
+
+    func testVibeFocusWalkChoicesMatchTheDistanceTheyPromise() {
+        XCTAssertEqual(NativeVibeFocusCatalog.maxFocusWalkMiles("closest"), 1.0)
+        XCTAssertEqual(NativeVibeFocusCatalog.maxFocusWalkMiles("medium"), 3.0)
+        XCTAssertNil(NativeVibeFocusCatalog.maxFocusWalkMiles("far"))
+
+        for choice in NativeVibeFocusCatalog.walks {
+            let miles = NativeVibeFocusCatalog.maxFocusWalkMiles(choice.value)
+            if choice.subtitle == "No limit" { XCTAssertNil(miles, "\(choice.value) claims no limit but has one") }
+            else { XCTAssertNotNil(miles, "\(choice.value) promises a distance the ranking does not apply") }
+        }
+    }
+
+    func testVibeFocusSummaryDescribesTheRankingItReadsBack() {
+        let drinks = NativeVibeFocusCatalog.focusSummary(intent: "drinks", walk: "closest", crew: "solo")
+        XCTAssertEqual(drinks, "Home leads with Nightlife, within 1 mile.")
+
+        let coffee = NativeVibeFocusCatalog.focusSummary(intent: "coffee", walk: "medium", crew: "solo")
+        XCTAssertEqual(coffee, "Home leads with Coffee, within 3 miles.")
+
+        let unlimited = NativeVibeFocusCatalog.focusSummary(intent: "food", walk: "far", crew: "solo")
+        XCTAssertEqual(unlimited, "Home leads with Dining.")
+
+        // No focus chosen yet: say nothing rather than claim a personalization.
+        XCTAssertNil(NativeVibeFocusCatalog.focusSummary(intent: "", walk: "", crew: ""))
+    }
+
+    func testVibeFocusPanelEditsTheSameKeysHomeRanksOn() {
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.vibeKey, "bytspot_native_launch_vibe")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.walkKey, "bytspot_native_launch_walk")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.crewKey, "bytspot_native_launch_crew")
+
+        // The quiz and the panel must agree on token spelling, or editing in
+        // Profile would silently reset what onboarding captured.
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🍸 A good drink"), "drinks")
+        XCTAssertTrue(NativeVibeFocusCatalog.offeredIntentTokens.contains("drinks"))
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "👥 A group"), "group")
+        XCTAssertTrue(NativeVibeFocusCatalog.offeredCrewTokens.contains("group"))
+    }
+}

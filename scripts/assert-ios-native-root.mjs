@@ -32,7 +32,8 @@ const packageResolved = fs.existsSync(files.packageResolved) ? fs.readFileSync(f
 const packageJson = JSON.parse(read('package.json', files.packageJson));
 const aasaJson = JSON.parse(read('AASA', files.aasa));
 const rootAasaJson = JSON.parse(read('Root AASA alias', files.rootAasa));
-const reviewNotes = read('App Review Notes', files.reviewNotes);
+// Collapsed so the documented exception can be re-wrapped without breaking the gate.
+const reviewNotes = read('App Review Notes', files.reviewNotes).replace(/\s+/g, ' ');
 const appDelegateBody = appDelegate.split('// MARK: - BytspotTier')[0] ?? appDelegate;
 
 const walkFiles = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

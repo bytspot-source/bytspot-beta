@@ -12,7 +12,7 @@ const APP_HOSTS = new Set(['bytspot.app', 'www.bytspot.app', 'bytspot.com', 'www
 const PATCH_PATHS = new Set(['p', 'patch', 't']);
 const PATCH_QUERY_KEYS = ['patchId', 'patch', 'p'];
 const ACCESS_COMPATIBILITY_PATHS = new Set(['access', 'patch', 'clip']);
-const LEGAL_PATHS = new Set(['privacy', 'terms', 'disclaimer']);
+const LEGAL_PATHS = new Set(['privacy', 'terms', 'disclaimer', 'support']);
 
 function isLikelyBytspotTag(value: string | undefined): boolean {
   return Boolean(value && /^BYT[A-Z0-9_-]{2,}$/i.test(value));
@@ -40,6 +40,19 @@ function patchIdFrom(url: URL, parts: string[]): string | null {
 
 function isLegalWebPath(parts: string[]): boolean {
   return parts.length === 1 && LEGAL_PATHS.has(parts[0].toLowerCase());
+}
+
+/**
+ * The single canonical form of a legal web path, or null if the URL is not
+ * one. Both the bootstrap that decides whether React may load and the router
+ * that decides what to render must agree on this: when they disagreed, a
+ * trailing slash let a page through the kill-switch and then fell past its
+ * route into the retired web app.
+ */
+export function canonicalLegalPath(pathname: string): string | null {
+  const parts = pathname.split('/').filter(Boolean);
+  if (!isLegalWebPath(parts)) return null;
+  return `/${parts[0].toLowerCase()}`;
 }
 
 export function nativeAppClipArgumentFor(rawUrl: string): string {

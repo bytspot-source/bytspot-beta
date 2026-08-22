@@ -48,6 +48,7 @@ const AdminApprovals = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailabl
 const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy').then(m => ({ default: m.PrivacyPolicy })));
 const TermsOfService = lazy(() => import('./components/TermsOfService').then(m => ({ default: m.TermsOfService })));
 const Disclaimer = lazy(() => import('./components/Disclaimer').then(m => ({ default: m.Disclaimer })));
+const Support = lazy(() => import('./components/Support').then(m => ({ default: m.Support })));
 const ProviderLanding = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/provider/ProviderLanding').then(m => ({ default: m.ProviderLanding })));
 const ProviderApp = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/host/ProviderApp').then(m => ({ default: m.ProviderApp })));
 const ValetApp = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/valet/ValetApp').then(m => ({ default: m.ValetApp })));
@@ -71,6 +72,7 @@ import {
 } from './utils/personalization';
 import { trpc } from './utils/trpc';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
+import { canonicalLegalPath } from './utils/nativeHandoffGuard';
 import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
 import { detectBytspotPatchTierFromUrl, detectBytspotTagIntentFromUrl, detectBytspotTagUseModeFromUrl, normalizeBytspotPatchTier, type BytspotPatchTier, type BytspotTagIntent, type BytspotTagUseMode } from './utils/patchTiers';
 import { curatedServiceRecommendationCards, savedServiceRequestToCard } from './utils/vendorServiceCards';
@@ -1245,6 +1247,7 @@ export default function App() {
 
   if (typeof window !== 'undefined') {
     const normalizedPath = window.location.pathname.replace(/\/+/g, '/');
+    const legalPath = canonicalLegalPath(normalizedPath);
     const canonicalPath = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? normalizedPath : canonicalProviderPath(normalizedPath);
     if (APP_STORE_CONSUMER_ONLY_BUILD && (isAppStoreConsumerOnlyBlockedPath(normalizedPath) || isAppStoreConsumerOnlyBlockedPath(canonicalPath))) {
       return <ConsumerOnlyRouteRedirect />;
@@ -1378,24 +1381,31 @@ export default function App() {
         </Suspense>
       );
     }
-    if (normalizedPath === '/privacy') {
+    if (legalPath === '/privacy') {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <PrivacyPolicy />
         </Suspense>
       );
     }
-    if (normalizedPath === '/terms') {
+    if (legalPath === '/terms') {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <TermsOfService />
         </Suspense>
       );
     }
-    if (normalizedPath === '/disclaimer') {
+    if (legalPath === '/disclaimer') {
       return (
         <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
           <Disclaimer />
+        </Suspense>
+      );
+    }
+    if (legalPath === '/support') {
+      return (
+        <Suspense fallback={<div className="fixed inset-0 bg-black flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" /></div>}>
+          <Support />
         </Suspense>
       );
     }

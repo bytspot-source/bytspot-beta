@@ -1,7 +1,5 @@
 import './index.css';
-import { nativeHandoffContext } from './utils/nativeHandoffGuard';
-
-const LEGAL_PATHS = new Set(['/privacy', '/terms', '/disclaimer']);
+import { canonicalLegalPath, nativeHandoffContext } from './utils/nativeHandoffGuard';
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char] ?? char);
@@ -21,8 +19,7 @@ function unregisterLegacyServiceWorkers() {
 }
 
 function isLegalWebPath(): boolean {
-  const path = window.location.pathname.replace(/\/+$/, '') || '/';
-  return LEGAL_PATHS.has(path);
+  return canonicalLegalPath(window.location.pathname) !== null;
 }
 
 function renderNativeHandoffOnly() {

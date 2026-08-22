@@ -50,7 +50,7 @@ in order:
 - Avatar / initials
 - User name or Guest
 - Bytspot member tier
-- Connections / Points / Check-ins. Badges are not shown until a badge is actually earnable; the Passport must not display a stat the app cannot compute.
+- Connections / Points / Check-ins
 - Passive theme status only, e.g. `Auto theme`
 
 ### 2. Today
@@ -62,7 +62,7 @@ in order:
 ### 3. Progress
 
 - Parker Progress
-- Rewards & Badges
+- Points earned by verified check-in
 - Insider/subscription state as a status line or CTA, not a disconnected card
 
 ### 4. Social

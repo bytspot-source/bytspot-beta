@@ -5864,6 +5864,7 @@ private struct NativeHomeDashboardView: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 16).padding(.bottom, 8)
+                    .accessibilityIdentifier("native-home-presence-row")
                 }
                 Rectangle().fill(NativePolish.softBorder).frame(height: 1)
                 HStack(spacing: 0) {
@@ -14840,7 +14841,7 @@ private struct NativeMapExploreView: View {
                 .textCase(.uppercase)
             HStack(spacing: 8) {
                 NativeSmallToggle(title: "Verified", active: showVerifiedOnly, color: NativeTheme.emerald) { showVerifiedOnly.toggle() }
-                    .frame(width: 96)
+                    .frame(width: 84)
                 Spacer(minLength: 0)
             }
             HStack(spacing: 8) {

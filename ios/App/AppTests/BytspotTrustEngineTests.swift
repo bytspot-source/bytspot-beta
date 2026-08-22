@@ -1926,6 +1926,24 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(NativePeopleMetPerson.normalizedPartyID("https://bytspot.app/other/party-9"))
     }
 
+    func testPassportShowsTheMembershipTierLabelOnlyForSignedInMembers() {
+        XCTAssertEqual(NativeProfileWireframeGuard.membershipTierLabels, ["Black", "Platinum", "Green"])
+        XCTAssertEqual(NativeProfileWireframeGuard.passportTierLabel(isAuthenticated: true, tier: .green), "Green")
+        XCTAssertEqual(NativeProfileWireframeGuard.passportTierLabel(isAuthenticated: true, tier: .platinum), "Platinum")
+        XCTAssertEqual(NativeProfileWireframeGuard.passportTierLabel(isAuthenticated: true, tier: .black), "Black")
+        // A guest holds no membership, so no tier may be implied for them.
+        for tier in BytspotTier.allCases {
+            XCTAssertNil(NativeProfileWireframeGuard.passportTierLabel(isAuthenticated: false, tier: tier))
+            XCTAssertFalse(NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: false, tier: tier))
+        }
+    }
+
+    func testOnlyTheEntryTierIsOfferedTheMembershipUpgrade() {
+        XCTAssertTrue(NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: true, tier: .green))
+        XCTAssertFalse(NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: true, tier: .platinum))
+        XCTAssertFalse(NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: true, tier: .black))
+    }
+
     func testNativeNetworkHasExactlyPeopleCirclesInvitationsAndPeopleMet() {
         XCTAssertEqual(NativeProfileWireframeGuard.menuSectionTitles, ["Account", "Places & Activity", "Preferences", "App Settings", "Safety & Legal"])
         XCTAssertEqual(NativeProfileWireframeGuard.networkSegments, ["People", "Social Circles", "Invitations", "People You Met"])

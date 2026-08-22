@@ -1143,7 +1143,9 @@ private struct NativeProfileStat: View {
 private struct NativeProfileHeaderCard: View {
     let sessionStore: BytspotSessionStore
     let socialCircleSnapshot: NativeSocialCircleSnapshot
+    let openAccess: () -> Void
 
+    @EnvironmentObject private var membershipStore: NativeMembershipTierStore
     @AppStorage(NativeSignedInIdentity.displayNameKey) private var signedInDisplayName = ""
 
     // The local personal-info draft ("bytspot_profile_display_name") is
@@ -1189,6 +1191,10 @@ private struct NativeProfileHeaderCard: View {
                         Text(sessionStore.isAuthenticated ? "Member account" : "Guest account")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(NativeProfileStyle.muted)
+                        if let tierLabel {
+                            NativeProfileMicroChip(tierLabel, icon: "crown.fill", color: BytspotTheme.accent(for: membershipStore.tier))
+                                .accessibilityIdentifier("native-profile-membership-tier")
+                        }
                     }
                     Spacer()
                 }
@@ -1203,11 +1209,26 @@ private struct NativeProfileHeaderCard: View {
                     }
                     .padding(.top, 16)
                 }
+                if showsUpgradeCTA {
+                    Button(action: openAccess) {
+                        NativeCTA(title: "Upgrade membership", color: NativeTheme.purple, foreground: NativeProfileStyle.onVibrant)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("native-profile-membership-upgrade")
+                }
             }
             .padding(22)
         }
         .nativeProfileCard(accent: NativeTheme.purple)
         .accessibilityIdentifier("native-profile-header")
+    }
+
+    private var tierLabel: String? {
+        NativeProfileWireframeGuard.passportTierLabel(isAuthenticated: sessionStore.isAuthenticated, tier: membershipStore.tier)
+    }
+
+    private var showsUpgradeCTA: Bool {
+        NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: sessionStore.isAuthenticated, tier: membershipStore.tier)
     }
 }
 
@@ -1228,7 +1249,7 @@ private struct NativeProfileAccountView: View {
 
     var body: some View {
         VStack(spacing: NativeProfileStyle.cardSpacing) {
-            NativeProfileHeaderCard(sessionStore: sessionStore, socialCircleSnapshot: socialCircleSnapshot)
+            NativeProfileHeaderCard(sessionStore: sessionStore, socialCircleSnapshot: socialCircleSnapshot, openAccess: { activePanel = .access })
             NativeProfileIAHeader(title: "Quick actions", subtitle: "The four things people open Profile for most.")
             NativeProfileCommandGrid(openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Account Essentials", subtitle: "Identity, payment, and vehicles used at arrival.")
@@ -1582,6 +1603,19 @@ enum NativeProfileWireframeGuard {
     static let menuSectionTitles = NativeProfileAccountView.menuSectionOrder.map(\.title)
     static let socialActivityPanels = NativeProfilePanel.p2SocialActivityPanels
     static let networkSegments = NativeNetworkSegment.allCases.map(\.rawValue)
+    static let membershipTierLabels = BytspotTier.allCases.map(\.displayName)
+
+    /// Passport tier label for a Profile viewer: guests hold no membership, so
+    /// they get no label rather than being implied onto the entry tier.
+    static func passportTierLabel(isAuthenticated: Bool, tier: BytspotTier) -> String? {
+        isAuthenticated ? tier.displayName : nil
+    }
+
+    /// Only the entry tier carries no paid entitlement, so only it is offered the
+    /// upgrade CTA.
+    static func showsUpgradeCTA(isAuthenticated: Bool, tier: BytspotTier) -> Bool {
+        isAuthenticated && tier == .green
+    }
 }
 
 private enum NativeArrivalLedgerContract {

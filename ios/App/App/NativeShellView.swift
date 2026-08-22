@@ -588,11 +588,14 @@ struct BytspotNativeShellView: View {
 
     private func presentWelcomeBannerIfNeeded() {
         guard sessionStore.isAuthenticated, NativeSignedInIdentity.consumePendingWelcome() else { return }
-        let message = NativeSignedInIdentity.welcomeMessage(displayName: NativeSignedInIdentity.displayName)
+        let restored = NativeSignedInIdentity.consumeAccountRestored(userID: sessionStore.authenticatedUserID)
+        let message = NativeSignedInIdentity.welcomeMessage(displayName: NativeSignedInIdentity.displayName, accountRestored: restored)
         welcomeBannerGeneration += 1
         let generation = welcomeBannerGeneration
         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { welcomeBannerText = message }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) {
+        // A restoration notice must outlast a routine greeting; it reports an
+        // account state change the member did not ask for on this screen.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (restored ? 5.5 : 3.2)) {
             guard welcomeBannerGeneration == generation else { return }
             withAnimation(.easeOut(duration: 0.3)) { welcomeBannerText = nil }
         }
@@ -1518,7 +1521,7 @@ private struct NativeProfilePanelSheet: View {
         case .locationPrivacy: return "Control location permissions, offers, recommendations, and privacy choices."
         case .generalSettings: return "Manage version, appearance, and app behavior."
         case .appearance: return "Choose Auto, Dark, or Light for Bytspot."
-        case .deleteAccount: return "Account deletion requires review before any permanent change."
+        case .deleteAccount: return "Delete your account and everything in it, with 30 days to change your mind."
         case .privacyPolicy: return "Policy highlights are available in-app."
         case .termsOfService: return "Terms highlights are available in-app."
         case .disclaimer: return "Important service disclaimers stay easy to review."
@@ -1556,7 +1559,7 @@ private struct NativeProfilePanelSheet: View {
         case .appearance:
             return [("Auto", "Follows your iPhone appearance and system accessibility choices.", "iphone"), ("Dark", "Keeps Bytspot in its premium night interface.", "moon.stars.fill"), ("Light", "Uses high-contrast daytime surfaces when available.", "sun.max.fill")]
         case .deleteAccount:
-            return [("Safety check", "Deletion requires explicit confirmation before continuing.", "exclamationmark.triangle.fill"), ("Data review", "Export and account status should be reviewed first.", "doc.text.magnifyingglass"), ("Final confirmation", "Bytspot asks again before any permanent account change.", "checkmark.shield.fill")]
+            return [("Immediate", "Your account is deactivated and you are signed out as soon as you confirm.", "exclamationmark.triangle.fill"), ("30-day grace period", "Sign back in within 30 days to restore everything.", "clock.arrow.circlepath"), ("Then permanent", "After 30 days your data is erased and cannot be recovered.", "trash.fill")]
         case .privacyPolicy:
             return [("Privacy summary", "Bytspot keeps sensitive location and account choices explicit.", "shield.fill"), ("Data handling", "Contact matching is designed to protect your address book.", "lock.doc.fill"), ("Review anytime", "Legal details stay available in Profile.", "checkmark.shield.fill")]
         case .termsOfService:
@@ -2721,27 +2724,112 @@ private struct NativeGeneralSettingsPanel: View {
 private struct NativeDeleteAccountSafetyPanel: View {
     let sessionStore: BytspotSessionStore
     @State private var confirmation = ""
-    @State private var didStageDeletionReview = false
+    @State private var status = NativeAccountDeletionStatus.inactive
+    @State private var isWorking = false
+    @State private var message: String?
+    @State private var showsFinalConfirmation = false
+    @State private var didDelete = false
+
+    private var api: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
+    private var canDelete: Bool { confirmation.uppercased() == "DELETE" && !isWorking }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            NativeWalletLine(title: "Permanently delete your account?", subtitle: "This would remove profile data, saved places, preferences, check-ins, access passes, reservations, and session state.", icon: "trash.fill")
-            NativeProfileTextField(title: "Type DELETE to unlock review", text: $confirmation)
-            Button(action: { nativeImpactLight(); didStageDeletionReview = true }) {
-                NativeCTA(title: "Request deletion review", color: canStage ? NativeProfileStyle.danger : NativeProfileStyle.muted, foreground: .white)
+            if didDelete {
+                deletedState
+            } else if status.pendingDeletion {
+                pendingDeletionState
+            } else {
+                deletionRequestState
             }
-            .buttonStyle(.plain)
-            .disabled(!canStage)
-            NativeWalletLine(title: didStageDeletionReview ? "Deletion review staged" : "Safety gate active", subtitle: safetySubtitle, icon: didStageDeletionReview ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
-            if !(sessionStore.isAuthenticated || sessionStore.isGuest) {
-                NativeProfileEmptyState(title: "No active session", subtitle: "Sign in or continue as guest before account actions are available.", icon: "person.crop.circle.badge.exclamationmark")
+            if let message {
+                NativeWalletLine(title: "Account", subtitle: message, icon: "info.circle.fill")
             }
+            if !sessionStore.isAuthenticated && !didDelete {
+                NativeProfileEmptyState(title: "Sign in to manage your account", subtitle: "Account deletion applies to a signed-in Bytspot account. Guest sessions store nothing to delete.", icon: "person.crop.circle.badge.exclamationmark")
+            }
+        }
+        .task { await loadStatus() }
+        .confirmationDialog("Delete your Bytspot account?", isPresented: $showsFinalConfirmation, titleVisibility: .visible) {
+            Button("Delete my account", role: .destructive) { Task { await requestDeletion() } }
+            Button("Keep my account", role: .cancel) {}
+        } message: {
+            Text("You have \(status.graceDays) days to restore it by signing back in. After that it cannot be recovered.")
         }
     }
 
-    private var canStage: Bool { confirmation.uppercased() == "DELETE" }
-    private var safetySubtitle: String {
-        didStageDeletionReview ? "No deletion was sent. Final confirmation happens after account review." : "Profile will ask again before any permanent account change."
+    private var deletionRequestState: some View {
+        Group {
+            NativeWalletLine(title: "Permanently delete your account?", subtitle: "This removes profile data, saved places, preferences, check-ins, access passes, reservations, and session state.", icon: "trash.fill")
+            NativeWalletLine(title: "\(status.graceDays)-day grace period", subtitle: "Your account is deactivated immediately and erased permanently after \(status.graceDays) days. Signing back in before then cancels the deletion and restores everything.", icon: "clock.arrow.circlepath")
+            NativeProfileTextField(title: "Type DELETE to confirm", text: $confirmation)
+            Button(action: { nativeImpactLight(); showsFinalConfirmation = true }) {
+                NativeCTA(title: isWorking ? "Deleting\u{2026}" : "Delete my account", color: canDelete ? NativeProfileStyle.danger : NativeProfileStyle.muted, foreground: .white)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canDelete || !sessionStore.isAuthenticated)
+            .accessibilityIdentifier("native-delete-account-confirm")
+        }
+    }
+
+    /// Shown only in the moments after a successful deletion, before the
+    /// member leaves this screen. Restoring needs a session this device no
+    /// longer has, so it points at the path that actually works.
+    private var deletedState: some View {
+        Group {
+            NativeWalletLine(title: "Your account was deleted", subtitle: status.purgeDate.map { "You have been signed out. \(NativeAccountDeletionFormat.countdown(until: $0))" } ?? "You have been signed out.", icon: "checkmark.shield.fill")
+            NativeWalletLine(title: "Changed your mind?", subtitle: "Sign in again within \(status.graceDays) days and your account is restored in full.", icon: "arrow.uturn.backward")
+        }
+    }
+
+    private var pendingDeletionState: some View {
+        Group {
+            NativeWalletLine(title: "Deletion scheduled", subtitle: status.purgeDate.map { NativeAccountDeletionFormat.countdown(until: $0) } ?? "Your account is scheduled for deletion.", icon: "exclamationmark.triangle.fill")
+            Button(action: { nativeImpactLight(); Task { await cancelDeletion() } }) {
+                NativeCTA(title: isWorking ? "Restoring\u{2026}" : "Restore my account", color: NativeTheme.cyan, foreground: .black)
+            }
+            .buttonStyle(.plain)
+            .disabled(isWorking)
+            .accessibilityIdentifier("native-delete-account-restore")
+        }
+    }
+
+    private func loadStatus() async {
+        guard sessionStore.isAuthenticated else { return }
+        status = (try? await api.loadAccountDeletionStatus()) ?? status
+    }
+
+    private func requestDeletion() async {
+        guard sessionStore.isAuthenticated, !isWorking else { return }
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let receipt = try await api.requestAccountDeletion(reason: nil)
+            status = NativeAccountDeletionStatus(pendingDeletion: true, purgeAfter: receipt.purgeAfter, graceDays: receipt.graceDays)
+            confirmation = ""
+            didDelete = true
+            // Cached profile and vehicle values would otherwise keep rendering
+            // a deleted member's name, email, phone and plate on this device.
+            NativeAccountLocalData.purge()
+            // The account is deactivated server-side, so the local session is
+            // no longer valid: end it rather than leaving a signed-in shell.
+            sessionStore.signOut()
+        } catch {
+            message = "We couldn't delete your account just now. Please try again."
+        }
+    }
+
+    private func cancelDeletion() async {
+        guard sessionStore.isAuthenticated, !isWorking else { return }
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            try await api.cancelAccountDeletion()
+            status = .inactive
+            message = "Your account was restored."
+        } catch {
+            message = "We couldn't restore your account. The grace period may have ended."
+        }
     }
 }
 

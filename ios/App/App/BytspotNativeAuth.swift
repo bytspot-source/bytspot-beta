@@ -42,6 +42,8 @@ struct NativeAuthAdapterResult: Equatable {
     let token: String
     let userID: String?
     let displayName: String?
+    /// True when this provider sign-in cancelled a pending account deletion.
+    var deletionCancelled: Bool = false
 }
 
 enum NativeAuthAdapterError: Error, Equatable {
@@ -112,6 +114,23 @@ enum NativeAuthStatus: Equatable {
 enum NativeSignedInIdentity {
     static let displayNameKey = "bytspot_signed_in_display_name"
     static let pendingWelcomeKey = "bytspot_signed_in_pending_welcome"
+    static let restoredAccountKey = "bytspot_signed_in_restored_account"
+
+    /// Signing in cancels a pending deletion server-side. Recording it here
+    /// lets the next welcome say so, rather than silently undoing a deletion
+    /// the member asked for.
+    ///
+    /// The marker stores the restored account's id, not a bare flag: on a
+    /// shared device an unconsumed marker must never announce one member's
+    /// restoration to the next person who signs in.
+    static func recordRestoration(_ restored: Bool, userID: String?) {
+        let trimmed = userID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard restored, !trimmed.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: restoredAccountKey)
+            return
+        }
+        UserDefaults.standard.set(trimmed, forKey: restoredAccountKey)
+    }
 
     static func store(displayName: String?) {
         let trimmed = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -126,6 +145,7 @@ enum NativeSignedInIdentity {
     static func clear() {
         UserDefaults.standard.removeObject(forKey: displayNameKey)
         UserDefaults.standard.removeObject(forKey: pendingWelcomeKey)
+        UserDefaults.standard.removeObject(forKey: restoredAccountKey)
     }
 
     /// One-shot: true only for the first call after a fresh sign-in.
@@ -149,6 +169,57 @@ enum NativeSignedInIdentity {
     static func welcomeMessage(displayName: String?) -> String {
         guard let first = firstName(from: displayName) else { return "Welcome to Bytspot" }
         return "Welcome, \(first)"
+    }
+
+    /// One-shot: true only for the first call after the given account signed
+    /// in and cancelled its own pending deletion. A marker belonging to a
+    /// different account is discarded rather than shown.
+    static func consumeAccountRestored(userID: String?) -> Bool {
+        guard let marker = UserDefaults.standard.string(forKey: restoredAccountKey), !marker.isEmpty else { return false }
+        UserDefaults.standard.removeObject(forKey: restoredAccountKey)
+        let current = userID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !current.isEmpty && marker == current
+    }
+
+    static func welcomeMessage(displayName: String?, accountRestored: Bool) -> String {
+        guard accountRestored else { return welcomeMessage(displayName: displayName) }
+        guard let first = firstName(from: displayName) else { return "Welcome back. Your account deletion was cancelled." }
+        return "Welcome back, \(first). Your account deletion was cancelled."
+    }
+}
+
+/// Removes every account-derived value this device cached, so a deleted
+/// account cannot keep rendering its owner's name, email, phone, birthday or
+/// vehicle plate in the signed-out shell.
+///
+/// The sweep is deny-by-default: everything under the `bytspot_` namespace is
+/// removed except an explicit allowlist of device-scoped settings. A new
+/// account-scoped key added later is therefore purged automatically, which is
+/// the safe direction to fail for a deletion promise.
+enum NativeAccountLocalData {
+    static let namespace = "bytspot_"
+
+    /// Belongs to the device, not the member: appearance, migration and launch
+    /// gating, debug switches, and the APNs token whose server row is removed
+    /// by the account cascade.
+    static let deviceScopedKeys: Set<String> = [
+        "bytspot_native_appearance_mode",
+        "bytspot_native_root_enabled",
+        "bytspot_native_launch_completed",
+        "bytspot_apns_device_token",
+    ]
+
+    static func isAccountScoped(_ key: String) -> Bool {
+        guard key.hasPrefix(namespace) else { return false }
+        if deviceScopedKeys.contains(key) { return false }
+        return !key.hasPrefix("bytspot_debug_")
+    }
+
+    @discardableResult
+    static func purge(_ defaults: UserDefaults = .standard) -> Int {
+        let keys = defaults.dictionaryRepresentation().keys.filter(isAccountScoped)
+        for key in keys { defaults.removeObject(forKey: key) }
+        return keys.count
     }
 }
 
@@ -216,6 +287,7 @@ final class NativeAuthCoordinator: ObservableObject {
             }
             if sessionStore.updateSession(token: result.token, userID: result.userID) {
                 NativeSignedInIdentity.store(displayName: result.displayName)
+                NativeSignedInIdentity.recordRestoration(result.deletionCancelled, userID: result.userID)
                 status = .signedIn(provider: provider, displayName: result.displayName)
             } else {
                 status = .failed(message: "We couldn't save your sign-in. Please try again.")
@@ -278,7 +350,7 @@ private final class NativeGoogleSignInAdapter: GoogleAuthAdapter {
         guard let token = response.token, !token.isEmpty else {
             throw NativeAuthAdapterError.googleBackendVerificationFailed
         }
-        return NativeAuthAdapterResult(provider: .google, token: token, userID: response.user?.id, displayName: response.user?.name ?? user.profile?.name)
+        return NativeAuthAdapterResult(provider: .google, token: token, userID: response.user?.id, displayName: response.user?.name ?? user.profile?.name, deletionCancelled: response.deletionCancelled == true)
     }
 
     private static func configureIfNeeded() throws {
@@ -402,7 +474,7 @@ private final class NativeAppleSignInAdapter: NSObject, AppleAuthAdapter, ASAuth
                 let api = NativeAuthDataAPI(client: BytspotAPIClient())
                 let response = try await api.appleSignIn(identityToken: identityToken, email: credential.email, name: displayName.isEmpty ? nil : displayName)
                 guard let token = response.token, !token.isEmpty else { throw NativeAuthAdapterError.appleBackendVerificationFailed }
-                finish(.success(NativeAuthAdapterResult(provider: .apple, token: token, userID: response.user?.id, displayName: response.user?.name ?? (displayName.isEmpty ? nil : displayName))))
+                finish(.success(NativeAuthAdapterResult(provider: .apple, token: token, userID: response.user?.id, displayName: response.user?.name ?? (displayName.isEmpty ? nil : displayName), deletionCancelled: response.deletionCancelled == true)))
             } catch let error as NativeAuthAdapterError {
                 finish(.failure(error))
             } catch {

@@ -1314,6 +1314,7 @@ private struct NativeLaunchPickRow: View {
         }
         guard sessionStore.updateSession(token: token, userID: userID) else { return false }
         NativeSignedInIdentity.store(displayName: response.user?.name)
+        NativeSignedInIdentity.recordRestoration(response.deletionCancelled == true, userID: userID)
         return true
     }
 }

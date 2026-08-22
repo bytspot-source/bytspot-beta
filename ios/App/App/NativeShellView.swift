@@ -1224,13 +1224,15 @@ private struct NativeProfileAccountView: View {
     @State private var didConsumeDirectSmokePanel = false
     @State private var lastConsumedNetworkResumeGeneration = 0
 
-    static let menuSectionOrder: [NativeProfileMenuSectionKind] = [.placesActivity, .preferences, .appSettings, .safetyLegal]
+    static let menuSectionOrder: [NativeProfileMenuSectionKind] = [.account, .placesActivity, .preferences, .appSettings, .safetyLegal]
 
     var body: some View {
         VStack(spacing: NativeProfileStyle.cardSpacing) {
             NativeProfileHeaderCard(sessionStore: sessionStore, socialCircleSnapshot: socialCircleSnapshot)
             NativeProfileIAHeader(title: "Quick actions", subtitle: "The four things people open Profile for most.")
             NativeProfileCommandGrid(openPanel: { activePanel = $0 })
+            NativeProfileIAHeader(title: "Account Essentials", subtitle: "Identity, payment, and vehicles used at arrival.")
+            NativeProfileMenuGroup(section: .account, openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Places & Activity", subtitle: "Saved places and check-in history stay easy to find.")
             NativeProfileMenuGroup(section: .placesActivity, openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Network", subtitle: "Invite and connect without exposing private contact data.")
@@ -2254,8 +2256,8 @@ private enum NativeProfilePreferenceSourceContract {
     static let notificationRoutes = ["user.notifications.getPrefs", "user.notifications.updatePrefs"]
     static let userPreferenceRoutes = ["user.preferences.get", "user.preferences.update"]
     static let userPreferenceSyncScope = ["vibes", "parking.covered", "parking.evCharging", "parking.security"]
-    static let locationSourceKeys = ["bytspot_location_settings", "bytspot_venue_recommendations_enabled", "bytspot_active_valet_job"]
-    static let locationControls = ["Primary Location Permission", "Enhanced Indoor Accuracy", "Background Location", "Location for Offers & Promotions", "Venue Recommendations", "Active Job Tracking"]
+    static let locationSourceKeys = ["bytspot_location_settings", "bytspot_venue_recommendations_enabled"]
+    static let locationControls = ["Primary Location Permission", "Enhanced Indoor Accuracy", "Background Location", "Location for Offers & Promotions", "Venue Recommendations"]
 }
 
 private enum NativeProfileP3Contract {
@@ -2513,6 +2515,7 @@ private struct NativeParkingPreferencesPanel: View {
     @AppStorage("bytspot_parking_prioritize_cheapest") private var prioritizeCheapest = false
     @AppStorage("bytspot_parking_max_walking_distance") private var maxWalkingDistance = 0.5
     @AppStorage("bytspot_parking_prioritize_closest") private var prioritizeClosest = true
+    @AppStorage("bytspot_parking_security_level") private var securedLevel = "premium"
     @State private var isLoading = false
     @State private var isSaving = false
     @State private var statusMessage = ""
@@ -2540,7 +2543,7 @@ private struct NativeParkingPreferencesPanel: View {
     }
 
     private var api: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
-    private var parkingSummary: NativeUserPreferencesRecord.Parking { NativeUserPreferencesRecord.Parking(covered: covered, evCharging: evCharging, security: security ? "premium" : "basic") }
+    private var parkingSummary: NativeUserPreferencesRecord.Parking { NativeUserPreferencesRecord.Parking(covered: covered, evCharging: evCharging, security: security ? securedLevel : "basic") }
     private var statusTitle: String { statusMessage.isEmpty ? "Parking preferences ready" : statusMessage }
     private var statusSubtitle: String {
         if sessionStore.isAuthenticated { return "These choices help Bytspot surface better parking options." }
@@ -2556,7 +2559,10 @@ private struct NativeParkingPreferencesPanel: View {
             if let parking = preferences.parking {
                 covered = parking.covered ?? covered
                 evCharging = parking.evCharging ?? evCharging
-                if let securityValue = parking.security { security = securityValue != "basic" }
+                if let securityValue = parking.security {
+                    security = securityValue != "basic"
+                    if security { securedLevel = securityValue }
+                }
                 statusMessage = "Parking preferences loaded"
             }
         } catch { statusMessage = "Parking preferences unavailable" }
@@ -2685,7 +2691,6 @@ private struct NativeLocationPrivacyPanel: View {
     @AppStorage("bytspot_location_background") private var backgroundLocation = false
     @AppStorage("bytspot_location_offers") private var locationForOffers = false
     @AppStorage("bytspot_venue_recommendations_enabled") private var venueRecommendations = false
-    @AppStorage("bytspot_active_valet_job_present") private var activeJobTracking = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -2694,8 +2699,7 @@ private struct NativeLocationPrivacyPanel: View {
             NativePreferenceToggleRow(title: "Background Location", subtitle: "Allow valet return-trip tracking when needed. iOS may ask for Always Allow before this turns on.", icon: "location.circle.fill", color: NativeTheme.orange, isOn: $backgroundLocation)
             NativePreferenceToggleRow(title: "Location for Offers & Promotions", subtitle: "Use general location for special offers near partner venues.", icon: "gift.fill", color: NativeTheme.pink, isOn: $locationForOffers)
             NativePreferenceToggleRow(title: "Venue Recommendations", subtitle: "Show restaurants, shops, and attractions based on current location in Discover and Profile.", icon: "sparkles", color: NativeTheme.emerald, isOn: $venueRecommendations)
-            NativePreferenceToggleRow(title: "Active Job Tracking", subtitle: "Shows when an active valet flow is using location for return-trip help.", icon: "car.rear.road.lane", color: NativeTheme.cyan, isOn: $activeJobTracking)
-            NativeWalletLine(title: "Transparency & Privacy", subtitle: activeJobTracking ? "Tracking is ON for an active valet flow." : "Tracking is OFF; no active valet job is using location.", icon: activeJobTracking ? "checkmark.circle.fill" : "xmark.circle.fill")
+            NativeWalletLine(title: "Transparency & Privacy", subtitle: "Bytspot uses location for nearby parking, arrival help, and the options you turn on above.", icon: "eye.fill")
             NativeWalletLine(title: "Your Privacy is Protected", subtitle: "Location controls are explicit and can be changed from Profile or iOS Settings.", icon: "shield.fill")
         }
     }
@@ -4202,14 +4206,14 @@ private struct NativeProfileSummaryCard: View {
 private struct NativeProfileCommandGrid: View {
     let openPanel: (NativeProfilePanel) -> Void
 
-    static let tileTitles = ["Wallet", "Bookings", "Payments", "Points"]
-    static let tilePanels: [NativeProfilePanel] = [.access, .reservations, .paymentMethods, .points]
+    static let tileTitles = ["Wallet", "Bookings", "Points", "Saved"]
+    static let tilePanels: [NativeProfilePanel] = [.access, .reservations, .points, .savedSpots]
 
     private let tiles: [(String, String, String, String, NativeProfilePanel, Color)] = [
         ("WALLET", "Wallet", "Passes & access", "ticket.fill", .access, NativeTheme.pink),
         ("BOOKINGS", "Bookings", "Parking & stays", "car.fill", .reservations, NativeTheme.cyan),
-        ("PAYMENTS", "Payments", "Cards & Apple Pay", "creditcard.fill", .paymentMethods, NativeTheme.pink),
-        ("ACTIVITY", "Points", "Earned by check-in", "mappin.and.ellipse", .points, NativeTheme.purple)
+        ("REWARDS", "Points", "Earned by check-in", "mappin.and.ellipse", .points, NativeTheme.purple),
+        ("SAVED", "Saved", "Favorites & spots", "heart.fill", .savedSpots, NativeTheme.emerald)
     ]
 
     var body: some View {
@@ -17942,7 +17946,10 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfileMenuSectionKind.preferences.items.map(\.label) == ["Vibe Preferences", "Parking Preferences", "Notifications", "Location & Privacy"], "NativeAccountParitySelfTests: preference controls drifted.")
         precondition(NativeProfileMenuSectionKind.appSettings.items.map(\.label) == ["General", "Appearance"], "NativeAccountParitySelfTests: theme must live under App Settings/Appearance.")
         precondition(NativeProfileMenuSectionKind.safetyLegal.items.map(\.label) == ["Delete Account", "Privacy Policy", "Terms of Service", "Disclaimer"], "NativeAccountParitySelfTests: safety/legal section drifted.")
-        precondition(NativeProfileAccountView.menuSectionOrder == [.placesActivity, .preferences, .appSettings, .safetyLegal], "NativeAccountParitySelfTests: Profile landing must expose Places & Activity without duplicating Account controls.")
+        precondition(NativeProfileAccountView.menuSectionOrder == [.account, .placesActivity, .preferences, .appSettings, .safetyLegal], "NativeAccountParitySelfTests: Profile landing must expose Account Essentials and Places & Activity exactly once.")
+        precondition(Set(NativeProfileCommandGrid.tilePanels).isDisjoint(with: Set(NativeProfileMenuSectionKind.account.items.map(\.panel))), "NativeAccountParitySelfTests: quick actions must not duplicate Account Essentials rows.")
+        let reachablePanels = Set(NativeProfileAccountView.menuSectionOrder.flatMap { $0.items.map(\.panel) } + NativeProfileCommandGrid.tilePanels)
+        precondition(NativeProfileInteractionContract.accountPanels.allSatisfy(reachablePanels.contains), "NativeAccountParitySelfTests: account panels must be reachable from the Profile landing.")
         precondition(NativeProfileMenuSectionKind.placesActivity.items.map(\.panel) == [.savedSpots, .placesVisited], "NativeAccountParitySelfTests: places/activity rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileMenuSectionKind.account.items.map(\.panel) == [.personalInformation, .paymentMethods, .vehicles], "NativeAccountParitySelfTests: account rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileInteractionContract.accountPanels == [.personalInformation, .paymentMethods, .vehicles], "NativeAccountParitySelfTests: account interaction panels must stay native.")
@@ -17960,8 +17967,8 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfileMenuSectionKind.preferences.items.map(\.panel) == [.vibePreferences, .parkingPreferences, .notifications, .locationPrivacy], "NativeAccountParitySelfTests: preference rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileMenuSectionKind.appSettings.items.map(\.panel) == [.generalSettings, .appearance], "NativeAccountParitySelfTests: settings rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileMenuSectionKind.safetyLegal.items.map(\.panel) == [.deleteAccount, .privacyPolicy, .termsOfService, .disclaimer], "NativeAccountParitySelfTests: safety/legal rows must open native panels, not hybrid Profile.")
-        precondition(NativeProfileCommandGrid.tileTitles == ["Wallet", "Bookings", "Payments", "Points"], "NativeAccountParitySelfTests: Profile quick-action tiles drifted.")
-        precondition(NativeProfileCommandGrid.tilePanels == [.access, .reservations, .paymentMethods, .points], "NativeAccountParitySelfTests: Profile command-center panels drifted.")
+        precondition(NativeProfileCommandGrid.tileTitles == ["Wallet", "Bookings", "Points", "Saved"], "NativeAccountParitySelfTests: Profile quick-action tiles drifted.")
+        precondition(NativeProfileCommandGrid.tilePanels == [.access, .reservations, .points, .savedSpots], "NativeAccountParitySelfTests: Profile command-center panels drifted.")
         precondition(NativeProfilePanel.access.title == "My Access" && NativeProfilePanel.reservations.title == "Arrivals", "NativeAccountParitySelfTests: Wallet/Bookings tiles must open My Access and Arrivals native surfaces.")
         precondition(NativeProfileBoardDesignContract.footerTitle == "Close" && NativeProfileBoardDesignContract.neutralActionSurface == "NativeTheme.selectedControlSurface", "NativeAccountParitySelfTests: Profile panels should use neutral board close actions, not colored generic Done footers.")
         precondition(NativeProfileBoardDesignContract.productBoardIDs == ["native-arrival-ledger-panel", "native-saved-places-board", "native-places-visited-board"], "NativeAccountParitySelfTests: Product boards must remain on the neutral ledger design system.")
@@ -17990,7 +17997,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfilePreferenceSourceContract.notificationRoutes == ["user.notifications.getPrefs", "user.notifications.updatePrefs"], "NativeAccountParitySelfTests: notification preference routes drifted.")
         precondition(NativeProfilePreferenceSourceContract.userPreferenceRoutes == ["user.preferences.get", "user.preferences.update"], "NativeAccountParitySelfTests: user preference routes drifted.")
         precondition(NativeProfilePreferenceSourceContract.userPreferenceSyncScope == ["vibes", "parking.covered", "parking.evCharging", "parking.security"], "NativeAccountParitySelfTests: Vibe/Parking API sync scope drifted.")
-        precondition(NativeProfilePreferenceSourceContract.locationControls == ["Primary Location Permission", "Enhanced Indoor Accuracy", "Background Location", "Location for Offers & Promotions", "Venue Recommendations", "Active Job Tracking"], "NativeAccountParitySelfTests: Location Settings controls drifted from React.")
+        precondition(NativeProfilePreferenceSourceContract.locationControls == ["Primary Location Permission", "Enhanced Indoor Accuracy", "Background Location", "Location for Offers & Promotions", "Venue Recommendations"], "NativeAccountParitySelfTests: Location Settings controls drifted from React.")
         precondition(NativeProfileP3Contract.notificationKeys == ["bytspot_notify_push_reservations", "bytspot_notify_push_promotions", "bytspot_notify_push_reminders", "bytspot_notify_push_insider", "bytspot_notify_push_nearby", "bytspot_notify_email_reservations", "bytspot_notify_email_promotions", "bytspot_notify_email_newsletter", "bytspot_notify_email_receipts", "bytspot_notify_sms_reservations", "bytspot_notify_sms_reminders", "bytspot_notify_sms_emergencies"], "NativeAccountParitySelfTests: notification storage keys drifted.")
         precondition(NativeProfileP3Contract.privacyKeys == ["bytspot_location_enhanced_indoor_accuracy", "bytspot_location_background", "bytspot_location_offers", "bytspot_venue_recommendations_enabled"], "NativeAccountParitySelfTests: privacy storage keys drifted.")
         precondition(NativeProfileWireframeGuard.networkSegments == ["People", "Social Circles", "Invitations", "People You Met"], "NativeAccountParitySelfTests: Network segment copy drifted.")

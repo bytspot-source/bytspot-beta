@@ -2917,7 +2917,7 @@ extension BytspotTrustEngineTests {
         // wired to nothing, which is what this panel used to be.
         var leadingTypes: [String] = []
         for token in NativeVibeFocusCatalog.offeredIntentTokens {
-            let types = NativeHomeDashboardView.personalizedAIPickTypes(vibe: token, walk: "", crew: "")
+            let types = NativeVibeFocusCatalog.focusTypes(intent: token, walk: "", crew: "")
             XCTAssertFalse(types.isEmpty, "intent \(token) produces no ranking preference")
             leadingTypes.append(types[0])
         }

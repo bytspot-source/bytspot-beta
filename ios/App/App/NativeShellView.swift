@@ -1177,7 +1177,14 @@ private struct NativeProfileHeaderCard: View {
                             .foregroundColor(NativeProfileStyle.muted)
                     }
                     Spacer()
-                    NativeProfileMicroChip(sessionStore.isAuthenticated ? "Signed in" : "Guest", icon: sessionStore.isAuthenticated ? "checkmark.seal.fill" : "person.crop.circle", color: NativeTheme.cyan)
+                    // A tier already proves the viewer is signed in, so it takes the
+                    // status slot instead of stacking a second chip beneath it.
+                    if let tierLabel {
+                        NativeProfileMicroChip(tierLabel, icon: "crown.fill", color: BytspotTheme.accent(for: membershipStore.tier))
+                            .accessibilityIdentifier("native-profile-membership-tier")
+                    } else {
+                        NativeProfileMicroChip("Guest", icon: "person.crop.circle", color: NativeTheme.cyan)
+                    }
                 }
                 HStack(spacing: 16) {
                     ZStack {
@@ -1193,10 +1200,6 @@ private struct NativeProfileHeaderCard: View {
                         Text(sessionStore.isAuthenticated ? "Member account" : "Guest account")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(NativeProfileStyle.muted)
-                        if let tierLabel {
-                            NativeProfileMicroChip(tierLabel, icon: "crown.fill", color: BytspotTheme.accent(for: membershipStore.tier))
-                                .accessibilityIdentifier("native-profile-membership-tier")
-                        }
                     }
                     Spacer()
                 }
@@ -1611,6 +1614,13 @@ enum NativeProfileWireframeGuard {
     /// they get no label rather than being implied onto the entry tier.
     static func passportTierLabel(isAuthenticated: Bool, tier: BytspotTier) -> String? {
         isAuthenticated ? tier.displayName : nil
+    }
+
+    /// The Passport carries exactly one status chip: the tier for a member, or
+    /// `Guest`. Signed-in state is never chipped separately, because a tier
+    /// already implies it and two chips can contradict each other.
+    static func passportStatusChip(isAuthenticated: Bool, tier: BytspotTier) -> String {
+        passportTierLabel(isAuthenticated: isAuthenticated, tier: tier) ?? "Guest"
     }
 
     /// Only the entry tier carries no paid entitlement, so only it is offered the

@@ -2764,11 +2764,14 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertFalse(empty.contains { ($0.value ?? "").hasPrefix("0") }, "A header stat rendered an unmeasured zero: \(empty)")
         XCTAssertEqual(empty.map(\.id), ["coverage", "provenance"])
         XCTAssertEqual(empty.first { $0.id == "coverage" }?.value, "\(NativeAtlantaCorridor.catalogDoorCount)")
+        XCTAssertEqual(empty.first { $0.id == "coverage" }?.label, "doors mapped")
         XCTAssertEqual(empty.first { $0.id == "provenance" }?.label, "Typical, not guessed")
 
-        // Coverage is only claimable where the catalog actually covers.
+        // Coverage still shows before any location fix, scoped so the claim
+        // stays true away from the corridor rather than gated into silence.
         let awayFromCatalog = NativeHomeRegionPresentation.headerStats(venues: [], discoverCardCount: 0, location: NativeLocationCoordinate(latitude: 40.7128, longitude: -74.0060, isFallback: false))
-        XCTAssertEqual(awayFromCatalog.map(\.id), ["provenance"])
+        XCTAssertEqual(awayFromCatalog.map(\.id), ["coverage", "provenance"])
+        XCTAssertEqual(awayFromCatalog.first { $0.id == "coverage" }?.label, "doors · Midtown")
 
         // Measured counts take the slots back once they exist.
         let measured = NativeVenueSummary(id: "proven", name: "Proven Venue", category: "parking", address: "200 Live St", distance: "0.3 mi", rating: nil, latitude: 33.7866, longitude: -84.3831, crowd: NativeCrowdSummary(level: 1, label: "Open", waitMins: 0), parking: NativeParkingSummary(totalAvailable: 18, priceLabel: "$6/hr"), verifiedPatchId: nil, imageUrl: nil)

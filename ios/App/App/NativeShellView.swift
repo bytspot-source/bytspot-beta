@@ -5556,11 +5556,11 @@ enum NativeHomeRegionPresentation {
         if discoverCardCount > 0 {
             stats.append(HeaderStat(id: "for-you", icon: "bolt.fill", value: "\(discoverCardCount)", label: "for you", tint: .purple))
         }
-        // Only claimable where the catalog actually covers: elsewhere we have
-        // mapped nothing and saying otherwise would be the lie we avoid.
-        if isAtlanta(location) {
-            stats.append(HeaderStat(id: "coverage", icon: "mappin.and.ellipse", value: "\(NativeAtlantaCorridor.catalogDoorCount)", label: "doors mapped", tint: .cyan))
-        }
+        // Scoped rather than gated on location: "doors in Midtown" is a claim
+        // about the catalog, true wherever it is read, so first launch gets a
+        // real number before any permission is granted. An unscoped "doors
+        // mapped" would be the lie, since elsewhere we have mapped nothing.
+        stats.append(HeaderStat(id: "coverage", icon: "mappin.and.ellipse", value: "\(NativeAtlantaCorridor.catalogDoorCount)", label: isAtlanta(location) ? "doors mapped" : "doors · Midtown", tint: .cyan))
         stats.append(HeaderStat(id: "provenance", icon: "checkmark.seal.fill", value: nil, label: "Typical, not guessed", tint: .cyan))
         return Array(stats.prefix(headerStatSlots))
     }
@@ -5909,14 +5909,24 @@ private struct NativeHomeDashboardView: View {
                     .accessibilityIdentifier("native-home-presence-row")
                 }
                 Rectangle().fill(NativePolish.softBorder).frame(height: 1)
-                HStack(spacing: 0) {
+                // A short strip is centred as a group: stretching two items to
+                // full width leaves dead space that reads as missing content.
+                HStack(spacing: headerStats.count < NativeHomeRegionPresentation.headerStatSlots ? 14 : 0) {
                     ForEach(Array(headerStats.enumerated()), id: \.element.id) { index, stat in
                         if index > 0 {
                             Rectangle().fill(NativePolish.softBorder).frame(width: 1, height: 18)
                         }
-                        statStripItem(icon: stat.icon, iconColor: tint(stat.tint), value: stat.value, label: stat.label, valueColor: tint(stat.tint))
+                        statStripItem(
+                            icon: stat.icon,
+                            iconColor: tint(stat.tint),
+                            value: stat.value,
+                            label: stat.label,
+                            valueColor: tint(stat.tint),
+                            fillsWidth: headerStats.count == NativeHomeRegionPresentation.headerStatSlots
+                        )
                     }
                 }
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, 16).padding(.vertical, 8)
                 .accessibilityIdentifier("native-home-stat-strip")
             }
@@ -5946,8 +5956,8 @@ private struct NativeHomeDashboardView: View {
         }
     }
 
-    private func statStripItem(icon: String, iconColor: Color, value: String?, label: String, valueColor: Color = NativeTheme.textPrimary) -> some View {
-        let wraps = label == "spots nearby" || label == "Typical, not guessed" || label == "doors mapped"
+    private func statStripItem(icon: String, iconColor: Color, value: String?, label: String, valueColor: Color = NativeTheme.textPrimary, fillsWidth: Bool = true) -> some View {
+        let wraps = label == "spots nearby" || label == "Typical, not guessed"
         let displayLabel = label == "spots nearby" ? "spots\nnearby" : label == "Typical, not guessed" ? "Typical,\nnot guessed" : label
         return HStack(spacing: 4) {
             Image(systemName: icon).font(.system(size: 10, weight: .black)).foregroundColor(iconColor).frame(width: 12)
@@ -5967,7 +5977,7 @@ private struct NativeHomeDashboardView: View {
                 .minimumScaleFactor(0.72)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: fillsWidth ? .infinity : nil)
         .frame(height: 28)
     }
 

@@ -764,6 +764,12 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle), "Nearby")
         XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "Seattle"), "Seattle")
         XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "  Decatur  "), "Decatur")
+        // A long place name is shortened here, not by the layout: an unbounded
+        // chip makes the header card size the whole page column.
+        let long = NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "Rancho Santa Margarita")
+        XCTAssertEqual(long, "Rancho Santa\u{2026}")
+        XCTAssertLessThanOrEqual(long.count, NativeHomeRegionPresentation.cityBadgeCharacterLimit)
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "San Francisco"), "San Francisco")
         XCTAssertFalse((eyebrow.0 + eyebrow.1).localizedCaseInsensitiveContains("Midtown"))
         XCTAssertFalse(NativeHomeRegionPresentation.launchTitle(intent: "parking", location: seattle).localizedCaseInsensitiveContains("Midtown"))
         XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: .midtown), "Nearby")

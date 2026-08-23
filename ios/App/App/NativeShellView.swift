@@ -5426,9 +5426,15 @@ enum NativeHomeRegionPresentation {
         NativeTabContentStore.canUseCurrentEventFeed(at: location)
     }
 
+    /// Longest place name the chip can hold before the header card starts
+    /// sizing the page column instead of the screen doing it.
+    static let cityBadgeCharacterLimit = 14
+
     static func cityBadge(for location: NativeLocationCoordinate, locality: String? = nil) -> String {
         let resolved = locality?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return resolved.isEmpty ? "Nearby" : resolved
+        if resolved.isEmpty { return "Nearby" }
+        guard resolved.count > cityBadgeCharacterLimit else { return resolved }
+        return resolved.prefix(cityBadgeCharacterLimit - 1).trimmingCharacters(in: .whitespaces) + "\u{2026}"
     }
     static func areaLabel(for location: NativeLocationCoordinate) -> String { isAtlanta(location) ? "Midtown" : "Near you" }
 
@@ -5872,10 +5878,6 @@ private struct NativeHomeDashboardView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.65)
                             .truncationMode(.tail)
-                            // Capped here rather than on the capsule: the chip
-                            // hugs its name, and a long locality stops growing
-                            // instead of pushing the card past the screen.
-                            .frame(maxWidth: 124, alignment: .leading)
                     }
                     .padding(.horizontal, 12)
                     .frame(height: 40)

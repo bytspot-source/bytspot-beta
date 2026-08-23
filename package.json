@@ -106,7 +106,7 @@
             "ios:gate": "npm run assert:ios-native-root && npm run assert:ios-app-clip-packaging",
             "test:e2e": "node -e \"const fs=require('fs'); fs.rmSync('test-results/chromium',{recursive:true,force:true});\" && node ./node_modules/vite/bin/vite.js build && node ./node_modules/@playwright/test/cli.js test --project=chromium --output=test-results/chromium --reporter=line",
             "release:quality": "npm run type-check && npm run assert:native-trust-contract && npm run lint && npm run build && npm run test:unit",
-            "release:e2e:smoke": "node -e \"const fs=require('fs'); fs.rmSync('test-results/release-smoke',{recursive:true,force:true});\" && node ./node_modules/vite/bin/vite.js build && node ./node_modules/@playwright/test/cli.js test e2e/google-auth.spec.ts e2e/map-spatial-intelligence.spec.ts e2e/toast-contrast.spec.ts e2e/app-store-consumer-only.spec.ts --project=chromium --output=test-results/release-smoke --reporter=line",
+            "release:e2e:smoke": "node -e \"const fs=require('fs'); fs.rmSync('test-results/release-smoke',{recursive:true,force:true});\" && node ./node_modules/vite/bin/vite.js build && node ./node_modules/@playwright/test/cli.js test e2e/native-handoff-gate.spec.ts --project=chromium --output=test-results/release-smoke --reporter=line",
             "release:gate": "npm run release:quality && npm audit --omit=dev --audit-level=high && npm run build:app-store && npm run release:e2e:smoke"
       }
 }

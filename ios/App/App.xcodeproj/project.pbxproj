@@ -12,6 +12,7 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		6E3B8A112D20000000000011 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 6E3B8A102D20000000000010 /* GoogleSignIn */; };
+		77D285B6692359716629BED7 /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = 0DDB896DF7B687483EAB76D7 /* FirebaseCrashlytics */; };
 		7B5E2C812B6A4A6AA8A21A01 /* StripeApplePay in Frameworks */ = {isa = PBXBuildFile; productRef = 7B5E2C802B6A4A6AA8A21A01 /* StripeApplePay */; };
 		A13F00012C0FF00100000001 /* NativeShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F00002C0FF00100000001 /* NativeShellView.swift */; };
 		A13F01062C0FF00100000016 /* ClipApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F01012C0FF00100000011 /* ClipApp.swift */; };
@@ -30,22 +31,22 @@
 		A13F03092C0FF00100000059 /* BytspotNativeAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03082C0FF00100000059 /* BytspotNativeAuth.swift */; };
 		A13F03112C0FF00100000061 /* NativeAuthSeamSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03102C0FF00100000061 /* NativeAuthSeamSelfTests.swift */; };
 		A13F03132C0FF00100000063 /* NativePatchRouteSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03122C0FF00100000063 /* NativePatchRouteSelfTests.swift */; };
+		A13F03152C0FF00100000065 /* NativePatchBookingSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03142C0FF00100000065 /* NativePatchBookingSelfTests.swift */; };
+		A13F03172C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03162C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift */; };
 		A13F0A012D0000000000A001 /* BytspotContactHasher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0A002D0000000000A000 /* BytspotContactHasher.swift */; };
 		A13F0A032D0000000000A003 /* BytspotContactSyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0A022D0000000000A002 /* BytspotContactSyncStore.swift */; };
 		A13F0A052D0000000000A005 /* NativeContactSyncSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0A042D0000000000A004 /* NativeContactSyncSelfTests.swift */; };
-		A13F03152C0FF00100000065 /* NativePatchBookingSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03142C0FF00100000065 /* NativePatchBookingSelfTests.swift */; };
-		A13F03172C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03162C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift */; };
-			A13F0C012D0000000000C001 /* NativeShellDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0C002D0000000000C000 /* NativeShellDesignSystem.swift */; };
-			A13F0C032D0000000000C003 /* NativeVenueDetailPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0C022D0000000000C002 /* NativeVenueDetailPresentation.swift */; };
-			A13F0D012D0000000000D001 /* NativeHostStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0D002D0000000000D000 /* NativeHostStudioView.swift */; };
-			A13F0E012D0000000000E001 /* NativePartyArrival.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0E002D0000000000E000 /* NativePartyArrival.swift */; };
-			A13F10012D0000000000F101 /* NativePartyControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10002D0000000000F100 /* NativePartyControlView.swift */; };
+		A13F0B012D0000000000B001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A13F0B002D0000000000B000 /* PrivacyInfo.xcprivacy */; };
+		A13F0B032D0000000000B003 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A13F0B022D0000000000B002 /* PrivacyInfo.xcprivacy */; };
+		A13F0C012D0000000000C001 /* NativeShellDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0C002D0000000000C000 /* NativeShellDesignSystem.swift */; };
+		A13F0C032D0000000000C003 /* NativeVenueDetailPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0C022D0000000000C002 /* NativeVenueDetailPresentation.swift */; };
+		A13F0D012D0000000000D001 /* NativeHostStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0D002D0000000000D000 /* NativeHostStudioView.swift */; };
+		A13F0E012D0000000000E001 /* NativePartyArrival.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0E002D0000000000E000 /* NativePartyArrival.swift */; };
+		A13F0F012D0000000000F001 /* NativePartyArrivalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0F002D0000000000F000 /* NativePartyArrivalTests.swift */; };
+		A13F10012D0000000000F101 /* NativePartyControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10002D0000000000F100 /* NativePartyControlView.swift */; };
 		A13F11012D00000000001101 /* NativeCollapsePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F11002D00000000001100 /* NativeCollapsePlan.swift */; };
 		A13F11032D00000000001103 /* NativeAtlantaCorridor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F11022D00000000001102 /* NativeAtlantaCorridor.swift */; };
 		A13F12012D00000000001201 /* NativeHostTaxonomy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F12002D00000000001200 /* NativeHostTaxonomy.swift */; };
-			A13F0F012D0000000000F001 /* NativePartyArrivalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0F002D0000000000F000 /* NativePartyArrivalTests.swift */; };
-		A13F0B012D0000000000B001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A13F0B002D0000000000B000 /* PrivacyInfo.xcprivacy */; };
-		A13F0B032D0000000000B003 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A13F0B022D0000000000B002 /* PrivacyInfo.xcprivacy */; };
 		B3D8A6E7D100EEDA96C20BD3 /* BytspotTrustEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1129492FA586137FE60C71 /* BytspotTrustEngineTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -106,22 +107,22 @@
 		A13F03082C0FF00100000059 /* BytspotNativeAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotNativeAuth.swift; sourceTree = "<group>"; };
 		A13F03102C0FF00100000061 /* NativeAuthSeamSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAuthSeamSelfTests.swift; sourceTree = "<group>"; };
 		A13F03122C0FF00100000063 /* NativePatchRouteSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePatchRouteSelfTests.swift; sourceTree = "<group>"; };
+		A13F03142C0FF00100000065 /* NativePatchBookingSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePatchBookingSelfTests.swift; sourceTree = "<group>"; };
+		A13F03162C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePatchSpecialFlowSelfTests.swift; sourceTree = "<group>"; };
 		A13F0A002D0000000000A000 /* BytspotContactHasher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotContactHasher.swift; sourceTree = "<group>"; };
 		A13F0A022D0000000000A002 /* BytspotContactSyncStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotContactSyncStore.swift; sourceTree = "<group>"; };
 		A13F0A042D0000000000A004 /* NativeContactSyncSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeContactSyncSelfTests.swift; sourceTree = "<group>"; };
-		A13F03142C0FF00100000065 /* NativePatchBookingSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePatchBookingSelfTests.swift; sourceTree = "<group>"; };
-		A13F03162C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePatchSpecialFlowSelfTests.swift; sourceTree = "<group>"; };
-			A13F0C002D0000000000C000 /* NativeShellDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeShellDesignSystem.swift; sourceTree = "<group>"; };
-			A13F0C022D0000000000C002 /* NativeVenueDetailPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeVenueDetailPresentation.swift; sourceTree = "<group>"; };
-			A13F0D002D0000000000D000 /* NativeHostStudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHostStudioView.swift; sourceTree = "<group>"; };
-			A13F0E002D0000000000E000 /* NativePartyArrival.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyArrival.swift; sourceTree = "<group>"; };
-			A13F10002D0000000000F100 /* NativePartyControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyControlView.swift; sourceTree = "<group>"; };
+		A13F0B002D0000000000B000 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A13F0B022D0000000000B002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A13F0C002D0000000000C000 /* NativeShellDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeShellDesignSystem.swift; sourceTree = "<group>"; };
+		A13F0C022D0000000000C002 /* NativeVenueDetailPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeVenueDetailPresentation.swift; sourceTree = "<group>"; };
+		A13F0D002D0000000000D000 /* NativeHostStudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHostStudioView.swift; sourceTree = "<group>"; };
+		A13F0E002D0000000000E000 /* NativePartyArrival.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyArrival.swift; sourceTree = "<group>"; };
+		A13F0F002D0000000000F000 /* NativePartyArrivalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyArrivalTests.swift; sourceTree = "<group>"; };
+		A13F10002D0000000000F100 /* NativePartyControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyControlView.swift; sourceTree = "<group>"; };
 		A13F11002D00000000001100 /* NativeCollapsePlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCollapsePlan.swift; sourceTree = "<group>"; };
 		A13F11022D00000000001102 /* NativeAtlantaCorridor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAtlantaCorridor.swift; sourceTree = "<group>"; };
 		A13F12002D00000000001200 /* NativeHostTaxonomy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHostTaxonomy.swift; sourceTree = "<group>"; };
-			A13F0F002D0000000000F000 /* NativePartyArrivalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyArrivalTests.swift; sourceTree = "<group>"; };
-		A13F0B002D0000000000B000 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		A13F0B022D0000000000B002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -139,6 +140,7 @@
 			files = (
 				6E3B8A112D20000000000011 /* GoogleSignIn in Frameworks */,
 				7B5E2C812B6A4A6AA8A21A01 /* StripeApplePay in Frameworks */,
+				77D285B6692359716629BED7 /* FirebaseCrashlytics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -192,7 +194,7 @@
 				A13F00002C0FF00100000001 /* NativeShellView.swift */,
 				A13F0C002D0000000000C000 /* NativeShellDesignSystem.swift */,
 				A13F0C022D0000000000C002 /* NativeVenueDetailPresentation.swift */,
-					A13F0D002D0000000000D000 /* NativeHostStudioView.swift */,
+				A13F0D002D0000000000D000 /* NativeHostStudioView.swift */,
 				A13F0E002D0000000000E000 /* NativePartyArrival.swift */,
 				A13F10002D0000000000F100 /* NativePartyControlView.swift */,
 				A13F11002D00000000001100 /* NativeCollapsePlan.swift */,
@@ -260,6 +262,7 @@
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
 				A13F01122C0FF00100000022 /* Embed App Clips */,
+				6204ED4D8B4F6B78AA8204C9 /* Run Script */,
 			);
 			buildRules = (
 			);
@@ -270,6 +273,7 @@
 			packageProductDependencies = (
 				6E3B8A102D20000000000010 /* GoogleSignIn */,
 				7B5E2C802B6A4A6AA8A21A01 /* StripeApplePay */,
+				0DDB896DF7B687483EAB76D7 /* FirebaseCrashlytics */,
 			);
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
@@ -344,7 +348,8 @@
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
 				6E3B8A0F2D2000000000000F /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
-				7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios.git" */,
+				7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios" */,
+				FE43C0B2776E53F732A30086 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
 			projectDirPath = "";
@@ -388,6 +393,29 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		6204ED4D8B4F6B78AA8204C9 /* Run Script */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Resources/DWARF/${TARGET_NAME}",
+				"$(SRCROOT)/$(BUILT_PRODUCTS_DIR)/$(INFOPLIST_PATH)",
+			);
+			name = "Run Script";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		504EC3001FED79650016851F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -409,7 +437,7 @@
 				A13F03172C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift in Sources */,
 				A13F0C012D0000000000C001 /* NativeShellDesignSystem.swift in Sources */,
 				A13F0C032D0000000000C003 /* NativeVenueDetailPresentation.swift in Sources */,
-					A13F0D012D0000000000D001 /* NativeHostStudioView.swift in Sources */,
+				A13F0D012D0000000000D001 /* NativeHostStudioView.swift in Sources */,
 				A13F0E012D0000000000E001 /* NativePartyArrival.swift in Sources */,
 				A13F10012D0000000000F101 /* NativePartyControlView.swift in Sources */,
 				A13F11012D00000000001101 /* NativeCollapsePlan.swift in Sources */,
@@ -770,7 +798,7 @@
 				minimumVersion = 9.0.0;
 			};
 		};
-		7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios.git" */ = {
+		7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/stripe/stripe-ios.git";
 			requirement = {
@@ -778,9 +806,22 @@
 				minimumVersion = 24.0.0;
 			};
 		};
+		FE43C0B2776E53F732A30086 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		0DDB896DF7B687483EAB76D7 /* FirebaseCrashlytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FE43C0B2776E53F732A30086 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCrashlytics;
+		};
 		6E3B8A102D20000000000010 /* GoogleSignIn */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 6E3B8A0F2D2000000000000F /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
@@ -788,7 +829,7 @@
 		};
 		7B5E2C802B6A4A6AA8A21A01 /* StripeApplePay */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios.git" */;
+			package = 7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios" */;
 			productName = StripeApplePay;
 		};
 /* End XCSwiftPackageProductDependency section */

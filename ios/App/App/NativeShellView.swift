@@ -5872,11 +5872,12 @@ private struct NativeHomeDashboardView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.65)
                     }
-                    // Sized to the place name rather than a fixed 72pt box, so
-                    // a long locality is not squeezed and a short one leaves no
-                    // hole between the chips.
+                    // Hugs the place name. A flexible frame next to a Spacer
+                    // takes all the slack first, which inflated the chip to a
+                    // near-empty 152pt lozenge whatever the name inside it.
                     .padding(.horizontal, 12)
-                    .frame(minWidth: 72, maxWidth: 168, minHeight: 40, maxHeight: 40)
+                    .frame(height: 40)
+                    .fixedSize(horizontal: true, vertical: false)
                     .background(NativeTheme.cyan.opacity(0.16))
                     .overlay(Capsule().stroke(NativeTheme.cyan.opacity(0.42), lineWidth: 1))
                     .clipShape(Capsule())
@@ -5919,20 +5920,22 @@ private struct NativeHomeDashboardView: View {
                     .accessibilityIdentifier("native-home-presence-row")
                 }
                 Rectangle().fill(NativePolish.softBorder).frame(height: 1)
-                // A short strip is centred as a group: stretching two items to
-                // full width leaves dead space that reads as missing content.
-                HStack(spacing: headerStats.count < NativeHomeRegionPresentation.headerStatSlots ? 14 : 0) {
+                // Centred as a group with equal air either side of each
+                // divider, so the strip reads evenly whether it carries two
+                // items or three.
+                HStack(spacing: 0) {
                     ForEach(Array(headerStats.enumerated()), id: \.element.id) { index, stat in
                         if index > 0 {
+                            Spacer(minLength: 10)
                             Rectangle().fill(NativePolish.softBorder).frame(width: 1, height: 18)
+                            Spacer(minLength: 10)
                         }
                         statStripItem(
                             icon: stat.icon,
                             iconColor: tint(stat.tint),
                             value: stat.value,
                             label: stat.label,
-                            valueColor: tint(stat.tint),
-                            fillsWidth: headerStats.count == NativeHomeRegionPresentation.headerStatSlots
+                            valueColor: tint(stat.tint)
                         )
                     }
                 }
@@ -5966,10 +5969,11 @@ private struct NativeHomeDashboardView: View {
         }
     }
 
-    private func statStripItem(icon: String, iconColor: Color, value: String?, label: String, valueColor: Color = NativeTheme.textPrimary, fillsWidth: Bool = true) -> some View {
-        let wraps = label == "spots nearby" || label == "Typical, not guessed"
-        let displayLabel = label == "spots nearby" ? "spots\nnearby" : label == "Typical, not guessed" ? "Typical,\nnot guessed" : label
-        return HStack(spacing: 4) {
+    /// Items size to their own text. Equal thirds crowded a long label against
+    /// its divider while leaving the short one adrift, and forced a wrap on one
+    /// item so the three sat at different heights in a 28pt row.
+    private func statStripItem(icon: String, iconColor: Color, value: String?, label: String, valueColor: Color = NativeTheme.textPrimary) -> some View {
+        HStack(spacing: 4) {
             Image(systemName: icon).font(.system(size: 10, weight: .black)).foregroundColor(iconColor).frame(width: 12)
             if let v = value {
                 Text(v)
@@ -5979,15 +5983,13 @@ private struct NativeHomeDashboardView: View {
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
-            Text(displayLabel)
-                .font(.system(size: wraps ? 10.5 : 11.5, weight: .bold, design: .rounded))
+            Text(label)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
                 .foregroundColor(value == nil ? valueColor : NativeTheme.textSecondary)
-                .lineLimit(wraps ? 2 : 1)
-                .lineSpacing(-1)
+                .lineLimit(1)
                 .minimumScaleFactor(0.72)
-                .fixedSize(horizontal: false, vertical: true)
+                .fixedSize(horizontal: true, vertical: false)
         }
-        .frame(maxWidth: fillsWidth ? .infinity : nil)
         .frame(height: 28)
     }
 

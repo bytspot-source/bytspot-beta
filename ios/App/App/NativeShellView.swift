@@ -5871,10 +5871,12 @@ private struct NativeHomeDashboardView: View {
                             .foregroundColor(NativeTheme.textPrimary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.65)
+                            .truncationMode(.tail)
+                            // Capped here rather than on the capsule: the chip
+                            // hugs its name, and a long locality stops growing
+                            // instead of pushing the card past the screen.
+                            .frame(maxWidth: 124, alignment: .leading)
                     }
-                    // Hugs the place name. A flexible frame next to a Spacer
-                    // takes all the slack first, which inflated the chip to a
-                    // near-empty 152pt lozenge whatever the name inside it.
                     .padding(.horizontal, 12)
                     .frame(height: 40)
                     .fixedSize(horizontal: true, vertical: false)
@@ -5988,7 +5990,10 @@ private struct NativeHomeDashboardView: View {
                 .foregroundColor(value == nil ? valueColor : NativeTheme.textSecondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
-                .fixedSize(horizontal: true, vertical: false)
+                // Compressible on purpose: items that refuse to shrink make
+                // the card size to its content and drag the page column with
+                // it when a third stat appears.
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(height: 28)
     }

@@ -5872,10 +5872,20 @@ private struct NativeHomeDashboardView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.65)
                     }
-                    .frame(width: 72, height: 40)
+                    // Sized to the place name rather than a fixed 72pt box, so
+                    // a long locality is not squeezed and a short one leaves no
+                    // hole between the chips.
+                    .padding(.horizontal, 12)
+                    .frame(minWidth: 72, maxWidth: 168, minHeight: 40, maxHeight: 40)
                     .background(NativeTheme.cyan.opacity(0.16))
                     .overlay(Capsule().stroke(NativeTheme.cyan.opacity(0.42), lineWidth: 1))
                     .clipShape(Capsule())
+
+                    // The row spans the card: context reads from the leading
+                    // edge and the menu sits under the thumb at the trailing
+                    // edge, instead of three fixed-width controls huddling
+                    // mid-card with dead space at both ends.
+                    Spacer(minLength: 8)
 
                     Button(action: openNativeProfile) {
                         Image(systemName: "line.3.horizontal")
@@ -5889,7 +5899,7 @@ private struct NativeHomeDashboardView: View {
                     }
                     .accessibilityLabel("Open menu")
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16).padding(.vertical, 8)
                 if let presence = presenceSummary.chipLabel {
                     // Given its own row: the count states scope and window, and

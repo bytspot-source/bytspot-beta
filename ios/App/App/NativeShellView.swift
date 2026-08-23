@@ -5518,12 +5518,51 @@ enum NativeHomeRegionPresentation {
         return address.isEmpty ? "View location details" : address
     }
 
-    static func headerInventoryStat(for venues: [NativeVenueSummary]) -> (value: String, label: String) {
+    /// Nil when nothing is loaded yet: an empty venue list means unknown, not
+    /// zero, and "0 local places" states an emptiness we have not measured.
+    static func headerInventoryStat(for venues: [NativeVenueSummary]) -> (value: String, label: String)? {
         let explicitAvailableSpots = venues.reduce(0) { total, venue in
             total + max(venue.parking.totalAvailable, 0)
         }
         if explicitAvailableSpots > 0 { return ("\(explicitAvailableSpots)", "spots nearby") }
+        guard !venues.isEmpty else { return nil }
         return ("\(venues.count)", venues.count == 1 ? "local place" : "local places")
+    }
+
+    struct HeaderStat: Equatable {
+        let id: String
+        let icon: String
+        let value: String?
+        let label: String
+        let tint: HeaderStatTint
+    }
+
+    enum HeaderStatTint { case emerald, purple, cyan }
+
+    static let headerStatSlots = 3
+
+    /// Confidence the header can state before anyone is online.
+    ///
+    /// Presence is the strongest signal but needs density we do not have yet,
+    /// and a small real number reads as emptiness. Coverage and provenance are
+    /// true at zero density, so the header stays honest and still says
+    /// something worth trusting; the presence row appears above these on its
+    /// own once it clears the floor.
+    static func headerStats(venues: [NativeVenueSummary], discoverCardCount: Int, location: NativeLocationCoordinate) -> [HeaderStat] {
+        var stats: [HeaderStat] = []
+        if let inventory = headerInventoryStat(for: venues) {
+            stats.append(HeaderStat(id: "inventory", icon: "circle.fill", value: inventory.value, label: inventory.label, tint: .emerald))
+        }
+        if discoverCardCount > 0 {
+            stats.append(HeaderStat(id: "for-you", icon: "bolt.fill", value: "\(discoverCardCount)", label: "for you", tint: .purple))
+        }
+        // Scoped rather than gated on location: "doors in Midtown" is a claim
+        // about the catalog, true wherever it is read, so first launch gets a
+        // real number before any permission is granted. An unscoped "doors
+        // mapped" would be the lie, since elsewhere we have mapped nothing.
+        stats.append(HeaderStat(id: "coverage", icon: "mappin.and.ellipse", value: "\(NativeAtlantaCorridor.catalogDoorCount)", label: isAtlanta(location) ? "doors mapped" : "doors · Midtown", tint: .cyan))
+        stats.append(HeaderStat(id: "provenance", icon: "checkmark.seal.fill", value: nil, label: "Typical, not guessed", tint: .cyan))
+        return Array(stats.prefix(headerStatSlots))
     }
 
     static func launchTitle(intent: String, location: NativeLocationCoordinate) -> String {
@@ -5787,9 +5826,12 @@ private struct NativeHomeDashboardView: View {
 
     private var nativeHomeHeader: some View {
         let snapshot = regionalSnapshot
-        let inventoryStat = NativeHomeRegionPresentation.headerInventoryStat(for: snapshot.venues)
+        let headerStats = NativeHomeRegionPresentation.headerStats(
+            venues: snapshot.venues,
+            discoverCardCount: snapshot.discoverCards.count,
+            location: locationStore.coordinate
+        )
         let weather = NativeHomeCopyContract.weatherPresentation(for: weatherSnapshot)
-        let forYou = snapshot.discoverCards.count
         let city = NativeHomeRegionPresentation.cityBadge(for: locationStore.coordinate, locality: locationStore.locality)
         return VStack(alignment: .leading, spacing: 10) {
             VStack(spacing: 0) {
@@ -5867,14 +5909,26 @@ private struct NativeHomeDashboardView: View {
                     .accessibilityIdentifier("native-home-presence-row")
                 }
                 Rectangle().fill(NativePolish.softBorder).frame(height: 1)
-                HStack(spacing: 0) {
-                    statStripItem(icon: "circle.fill", iconColor: NativeTheme.emerald, value: inventoryStat.value, label: inventoryStat.label)
-                    Rectangle().fill(NativePolish.softBorder).frame(width: 1, height: 18)
-                    statStripItem(icon: "chart.line.uptrend.xyaxis", iconColor: NativeTheme.orange, value: nil, label: "Peak hours", valueColor: NativeTheme.orange)
-                    Rectangle().fill(NativePolish.softBorder).frame(width: 1, height: 18)
-                    statStripItem(icon: "bolt.fill", iconColor: NativeTheme.purple, value: "\(forYou)", label: "for you", valueColor: NativeTheme.purple)
+                // A short strip is centred as a group: stretching two items to
+                // full width leaves dead space that reads as missing content.
+                HStack(spacing: headerStats.count < NativeHomeRegionPresentation.headerStatSlots ? 14 : 0) {
+                    ForEach(Array(headerStats.enumerated()), id: \.element.id) { index, stat in
+                        if index > 0 {
+                            Rectangle().fill(NativePolish.softBorder).frame(width: 1, height: 18)
+                        }
+                        statStripItem(
+                            icon: stat.icon,
+                            iconColor: tint(stat.tint),
+                            value: stat.value,
+                            label: stat.label,
+                            valueColor: tint(stat.tint),
+                            fillsWidth: headerStats.count == NativeHomeRegionPresentation.headerStatSlots
+                        )
+                    }
                 }
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, 16).padding(.vertical, 8)
+                .accessibilityIdentifier("native-home-stat-strip")
             }
             .background(LinearGradient(colors: [NativePolish.elevatedSurface, NativePolish.glassSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
             .overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
@@ -5894,8 +5948,17 @@ private struct NativeHomeDashboardView: View {
         .accessibilityIdentifier("native-home-header")
     }
 
-    private func statStripItem(icon: String, iconColor: Color, value: String?, label: String, valueColor: Color = NativeTheme.textPrimary) -> some View {
-        let displayLabel = label == "spots nearby" ? "spots\nnearby" : label
+    private func tint(_ tint: NativeHomeRegionPresentation.HeaderStatTint) -> Color {
+        switch tint {
+        case .emerald: return NativeTheme.emerald
+        case .purple: return NativeTheme.purple
+        case .cyan: return NativeTheme.cyan
+        }
+    }
+
+    private func statStripItem(icon: String, iconColor: Color, value: String?, label: String, valueColor: Color = NativeTheme.textPrimary, fillsWidth: Bool = true) -> some View {
+        let wraps = label == "spots nearby" || label == "Typical, not guessed"
+        let displayLabel = label == "spots nearby" ? "spots\nnearby" : label == "Typical, not guessed" ? "Typical,\nnot guessed" : label
         return HStack(spacing: 4) {
             Image(systemName: icon).font(.system(size: 10, weight: .black)).foregroundColor(iconColor).frame(width: 12)
             if let v = value {
@@ -5907,14 +5970,14 @@ private struct NativeHomeDashboardView: View {
                     .fixedSize(horizontal: true, vertical: false)
             }
             Text(displayLabel)
-                .font(.system(size: label == "spots nearby" ? 10.5 : 11.5, weight: .bold, design: .rounded))
+                .font(.system(size: wraps ? 10.5 : 11.5, weight: .bold, design: .rounded))
                 .foregroundColor(value == nil ? valueColor : NativeTheme.textSecondary)
-                .lineLimit(label == "spots nearby" ? 2 : 1)
+                .lineLimit(wraps ? 2 : 1)
                 .lineSpacing(-1)
                 .minimumScaleFactor(0.72)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: fillsWidth ? .infinity : nil)
         .frame(height: 28)
     }
 

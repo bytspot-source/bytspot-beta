@@ -2750,10 +2750,31 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         let proven = NativeVenueSummary(id: "proven", name: "Proven Venue", category: "parking", address: "200 Live St", distance: "0.3 mi", rating: nil, latitude: 33.7866, longitude: -84.3831, crowd: NativeCrowdSummary(level: 1, label: "Open", waitMins: 0), parking: NativeParkingSummary(totalAvailable: 18, priceLabel: "$6/hr"), verifiedPatchId: nil, imageUrl: nil)
         XCTAssertEqual(NativeHomeRegionPresentation.nearbySubtitle(for: unproven), "100 Neutral St")
         XCTAssertEqual(NativeHomeRegionPresentation.nearbySubtitle(for: proven), "18 spots · Open")
-        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [unproven]).value, "1")
-        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [unproven]).label, "local place")
-        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [proven]).value, "18")
-        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [proven]).label, "spots nearby")
+        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [unproven])?.value, "1")
+        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [unproven])?.label, "local place")
+        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [proven])?.value, "18")
+        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [proven])?.label, "spots nearby")
+        // Nothing loaded is unknown, not zero.
+        XCTAssertNil(NativeHomeRegionPresentation.headerInventoryStat(for: []))
+    }
+
+    @MainActor
+    func testHeaderStatsNeverStateAnUnmeasuredZero() {
+        let empty = NativeHomeRegionPresentation.headerStats(venues: [], discoverCardCount: 0, location: .verifiedMidtown)
+        XCTAssertFalse(empty.contains { ($0.value ?? "").hasPrefix("0") }, "A header stat rendered an unmeasured zero: \(empty)")
+        XCTAssertEqual(empty.map(\.id), ["coverage", "provenance"])
+        XCTAssertEqual(empty.first { $0.id == "coverage" }?.value, "\(NativeAtlantaCorridor.catalogDoorCount)")
+        XCTAssertEqual(empty.first { $0.id == "provenance" }?.label, "Typical, not guessed")
+
+        // Coverage is only claimable where the catalog actually covers.
+        let awayFromCatalog = NativeHomeRegionPresentation.headerStats(venues: [], discoverCardCount: 0, location: NativeLocationCoordinate(latitude: 40.7128, longitude: -74.0060, isFallback: false))
+        XCTAssertEqual(awayFromCatalog.map(\.id), ["provenance"])
+
+        // Measured counts take the slots back once they exist.
+        let measured = NativeVenueSummary(id: "proven", name: "Proven Venue", category: "parking", address: "200 Live St", distance: "0.3 mi", rating: nil, latitude: 33.7866, longitude: -84.3831, crowd: NativeCrowdSummary(level: 1, label: "Open", waitMins: 0), parking: NativeParkingSummary(totalAvailable: 18, priceLabel: "$6/hr"), verifiedPatchId: nil, imageUrl: nil)
+        let loaded = NativeHomeRegionPresentation.headerStats(venues: [measured], discoverCardCount: 4, location: .verifiedMidtown)
+        XCTAssertEqual(loaded.map(\.id), ["inventory", "for-you", "coverage"])
+        XCTAssertEqual(loaded.count, NativeHomeRegionPresentation.headerStatSlots)
 
         let fallbackWeather = NativeHomeCopyContract.weatherPresentation(for: .fallback)
         XCTAssertEqual(fallbackWeather.headline, "Weather update unavailable")

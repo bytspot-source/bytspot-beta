@@ -5640,6 +5640,7 @@ private struct NativeHomeDashboardView: View {
     @State private var headerNow = Date()
     @State private var showHomeSearchSheet = false
     @State private var weatherSnapshot = NativeWeatherSnapshot.fallback
+    @State private var presenceSummary = NativePresenceSummary.none
 
     static let quickActionSpecs: [QuickActionSpec] = [
         QuickActionSpec(id: "coffee", title: "Coffee", subtitle: "Walkable stops", icon: "cup.and.saucer.fill", color: NativeTheme.cyan, target: .discoverFilter("coffee")),
@@ -5717,6 +5718,7 @@ private struct NativeHomeDashboardView: View {
         .accessibilityIdentifier("native-home-dashboard")
         .onAppear { scheduleAuthenticatedLaunchPicksCollapseIfNeeded(); openValetPreviewIfRequested(); locationStore.startIfAuthorized() }
         .task { await refreshLiveWeather() }
+        .task { await refreshPresence() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in Task { await refreshLiveWeather() } }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { headerNow = $0 }
         .onChange(of: sessionStore.token ?? "") { _ in scheduleAuthenticatedLaunchPicksCollapseIfNeeded() }
@@ -5768,12 +5770,26 @@ private struct NativeHomeDashboardView: View {
         }
     }
 
+    /// Presence is a courtesy on the header: a failed or unauthenticated fetch
+    /// falls back to the venue count rather than inventing a number.
+    private func refreshPresence() async {
+        guard sessionStore.isAuthenticated else {
+            presenceSummary = .none
+            return
+        }
+        do {
+            let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
+            presenceSummary = try await NativeProfileDataAPI(client: client).presenceSummaryViaRpc()
+        } catch {
+            presenceSummary = .none
+        }
+    }
+
     private var nativeHomeHeader: some View {
         let snapshot = regionalSnapshot
         let inventoryStat = NativeHomeRegionPresentation.headerInventoryStat(for: snapshot.venues)
         let weather = NativeHomeCopyContract.weatherPresentation(for: weatherSnapshot)
         let forYou = snapshot.discoverCards.count
-        let liveVenues = snapshot.venues.filter { $0.crowd != nil }.count
         let city = NativeHomeRegionPresentation.cityBadge(for: locationStore.coordinate, locality: locationStore.locality)
         return VStack(alignment: .leading, spacing: 10) {
             VStack(spacing: 0) {
@@ -5807,21 +5823,6 @@ private struct NativeHomeDashboardView: View {
                     .clipShape(Capsule())
 
                     HStack(spacing: 5) {
-                        Circle().fill(NativeTheme.emerald).frame(width: 6, height: 6)
-                        Image(systemName: "person.2.fill").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                        Text(liveVenues > 0 ? "\(liveVenues) live" : "Local")
-                            .font(.system(size: 12, weight: .black, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundColor(NativeTheme.textPrimary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                    }
-                    .frame(width: 86, height: 40)
-                    .background(NativeTheme.emerald.opacity(0.18))
-                    .overlay(Capsule().stroke(NativeTheme.emerald.opacity(0.42), lineWidth: 1))
-                    .clipShape(Capsule())
-
-                    HStack(spacing: 5) {
                         Image(systemName: "mappin.circle.fill").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan)
                         Text(city)
                             .font(.system(size: 12, weight: .black, design: .rounded))
@@ -5848,6 +5849,23 @@ private struct NativeHomeDashboardView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.horizontal, 16).padding(.vertical, 8)
+                if let presence = presenceSummary.chipLabel {
+                    // Given its own row: the count states scope and window, and
+                    // that sentence does not fit the four-up chip strip.
+                    HStack(spacing: 6) {
+                        Circle().fill(NativeTheme.emerald).frame(width: 6, height: 6)
+                        Image(systemName: "person.2.fill").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                        Text(presence)
+                            .font(.system(size: 12, weight: .black, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundColor(NativeTheme.textPrimary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 16).padding(.bottom, 8)
+                    .accessibilityIdentifier("native-home-presence-row")
+                }
                 Rectangle().fill(NativePolish.softBorder).frame(height: 1)
                 HStack(spacing: 0) {
                     statStripItem(icon: "circle.fill", iconColor: NativeTheme.emerald, value: inventoryStat.value, label: inventoryStat.label)
@@ -6413,7 +6431,7 @@ private struct NativeHomeDashboardView: View {
         if !venues.isEmpty {
             NativeHorizontalSection(title: "🔥 Trending Now", subtitle: nativeCrowdFreshnessLabel) {
                 ForEach(Array(venues.sorted { ($0.crowd?.level ?? 0) > ($1.crowd?.level ?? 0) }.prefix(6))) { venue in
-                    NativeMiniCard(eyebrow: venue.crowd?.label ?? "Trending", title: venue.name, subtitle: venue.parking.totalAvailable > 0 ? "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)" : venue.address, iconText: categoryEmoji(venue.discoverType), accent: NativeTheme.orange) { openNativeTab(.map) }
+                    NativeMiniCard(eyebrow: venue.crowd?.label ?? "Typical", title: venue.name, subtitle: venue.address, iconText: categoryEmoji(venue.discoverType), accent: NativeTheme.orange) { openNativeTab(.map) }
                 }
             }
             .accessibilityIdentifier("native-home-trending-now")
@@ -12907,8 +12925,6 @@ private struct NativeMapExploreView: View {
     @State private var showServiceHereSheet = false
     @State private var didAutoOpenServiceHere = false
     @State private var pendingServiceHereAction: NativeServiceHereActionKind?
-    @State private var showHeatmap = false
-    @State private var entryFilter: String? = nil
     @State private var vibeFilter: Int? = nil
     @State private var communityReports: [NativeCommunityReport] = NativeCommunityReport.samples
     @State private var recenterMode: NativeMapRecenterMode = .off
@@ -13137,6 +13153,14 @@ private struct NativeMapExploreView: View {
 
     static let modeTitles = ["Smart Parking", "Nearby", "Tap Zones", "Route"]
     static let layerTitles = ["Parking", "Venues", "Tap Zones"]
+    /// Map function-row copy. Occupancy is Typical, so this copy may never
+    /// borrow Live/Real-time credibility, and may never state availability.
+    static let functionRowCopy: [[String]] = [
+        ["Smart Parking", "Parking near your destination"],
+        ["Venue Patterns", "Typical crowd levels by hour"],
+        ["Busy Patterns", "Typically busiest around this hour"]
+    ]
+    static let functionRowBannedClaims = ["live", "real-time", "realtime", "available spots"]
     static let scannerCapabilityLabels = ["QR", "NFC", "App Clip"]
     static let tabModeBaseHex = NativePolish.mapBaseHex
     static let tabModePanelHex = NativePolish.mapPanelHex
@@ -14494,16 +14518,16 @@ private struct NativeMapExploreView: View {
 
     private var functionFeatureRows: some View {
         VStack(spacing: NativePolish.mapFunctionRowGap) {
-            functionFeatureRow(icon: "car.fill", title: "Smart Parking", subtitle: "Available spots with listed pricing", colors: [NativeTheme.pink.opacity(0.10), NativeTheme.purple.opacity(0.06), NativePolish.mapPanelSurface], accent: NativeTheme.pink) {
+            functionFeatureRow(icon: "car.fill", title: Self.functionRowCopy[0][0], subtitle: Self.functionRowCopy[0][1], colors: [NativeTheme.pink.opacity(0.10), NativeTheme.purple.opacity(0.06), NativePolish.mapPanelSurface], accent: NativeTheme.pink) {
                 selectedMode = "Smart Parking"
                 showFunctionSheet = false
                 selectedPin = pins.first(where: { $0.kind == .parking })
             }
-            functionFeatureRow(icon: "waveform.path.ecg", title: "Live Venue Data", subtitle: "Crowd levels & wait times", colors: [NativeTheme.cyan.opacity(0.10), NativePolish.mapPanelSurface], accent: NativeTheme.cyan) {
+            functionFeatureRow(icon: "waveform.path.ecg", title: Self.functionRowCopy[1][0], subtitle: Self.functionRowCopy[1][1], colors: [NativeTheme.cyan.opacity(0.10), NativePolish.mapPanelSurface], accent: NativeTheme.cyan) {
                 selectedMode = "Nearby"
                 showFunctionSheet = false
             }
-            functionFeatureRow(icon: "arrow.up.right", title: "Trending Hotspots", subtitle: "Real-time crowd momentum & arrivals", colors: [NativeTheme.orange.opacity(0.10), NativePolish.mapPanelSurface], accent: NativeTheme.orange) {
+            functionFeatureRow(icon: "arrow.up.right", title: Self.functionRowCopy[2][0], subtitle: Self.functionRowCopy[2][1], colors: [NativeTheme.orange.opacity(0.10), NativePolish.mapPanelSurface], accent: NativeTheme.orange) {
                 openTrafficIntel()
             }
             premiumFunctionsHeader
@@ -14660,7 +14684,6 @@ private struct NativeMapExploreView: View {
             openNativeTab(.concierge)
         case .spotRadar:
             selectedMode = "Nearby"
-            showHeatmap = true
         case .trafficIntelligence:
             openTrafficIntel()
         }
@@ -14744,7 +14767,6 @@ private struct NativeMapExploreView: View {
                     .font(.system(size: 13, weight: .black))
                     .foregroundColor(NativeTheme.textPrimary)
                 Spacer()
-                Text("LIVE").font(.system(size: 10, weight: .black)).foregroundColor(.black).padding(.horizontal, 8).padding(.vertical, 4).background(NativeTheme.pink).clipShape(Capsule())
             }
             ForEach(pins.filter { $0.kind == .parking }) { pin in
                 Button(action: { didOpenMapContext = true; selectedPin = pin; selectedMode = "Smart Parking"; routeFocusedPinID = nil; activeRoutePinID = nil; nativeImpactLight() }) {
@@ -14819,8 +14841,8 @@ private struct NativeMapExploreView: View {
                 .textCase(.uppercase)
             HStack(spacing: 8) {
                 NativeSmallToggle(title: "Verified", active: showVerifiedOnly, color: NativeTheme.emerald) { showVerifiedOnly.toggle() }
-                NativeSmallToggle(title: "Heatmap", active: showHeatmap, color: NativeTheme.orange) { showHeatmap.toggle() }
-                NativeSmallToggle(title: "Paid", active: entryFilter == "paid", color: NativeTheme.purple) { entryFilter = entryFilter == "paid" ? nil : "paid" }
+                    .frame(width: 84)
+                Spacer(minLength: 0)
             }
             HStack(spacing: 8) {
                 ForEach([1, 2, 3, 4], id: \.self) { level in
@@ -17721,6 +17743,12 @@ enum NativeMapParitySelfTests {
     private static func run() {
         precondition(NativeMapExploreView.modeTitles == ["Smart Parking", "Nearby", "Tap Zones", "Route"], "NativeMapParitySelfTests: native Map mode chips drifted from React MapSection entry points.")
         precondition(NativeMapExploreView.layerTitles == ["Parking", "Venues", "Tap Zones"], "NativeMapParitySelfTests: native Map layer labels drifted.")
+        for row in NativeMapExploreView.functionRowCopy {
+            let copy = row.joined(separator: " ").lowercased()
+            for banned in NativeMapExploreView.functionRowBannedClaims {
+                precondition(!copy.contains(banned), "NativeMapParitySelfTests: Map function copy '\(copy)' claims '\(banned)' over Typical occupancy.")
+            }
+        }
         precondition(NativeMapExploreView.scannerCapabilityLabels == ["QR", "NFC", "App Clip"], "NativeMapParitySelfTests: scanner capability labels drifted.")
         precondition(NativeMapExploreView.tabModeBaseHex == 0x050505 && NativeMapExploreView.tabModePanelHex == 0x080A10 && NativeMapExploreView.tabModeActiveCyanPanelHex == 0x06242B, "NativeMapParitySelfTests: Map tabMode overlay tokens drifted from React MapSection.")
         precondition(NativeMapExploreView.crowdLevelColorHex == [BytspotTheme.emeraldHex, BytspotTheme.cyanHex, BytspotTheme.orangeHex, BytspotTheme.pinkHex], "NativeMapParitySelfTests: Map crowd level color contract drifted.")

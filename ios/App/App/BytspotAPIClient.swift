@@ -1519,7 +1519,30 @@ enum NativeLiveContentV2Contract {
     static let socialPeopleMetOptOutRoute = "/trpc/social.peopleMet.optOut"
     static let socialPeopleMetStatusRoute = "/trpc/social.peopleMet.status"
     static let socialPeopleMetListRoute = "/trpc/social.peopleMet.list"
+    static let userPresenceSummaryRoute = "/trpc/user.presence.summary"
     static let phase1Providers = ["apple_sign_in", "mapkit_corelocation", "google_places", "google_routes", "open_meteo", "ticketmaster"]
+}
+
+/// Home header presence. `scope` decides the copy: circle counts are Evidenced,
+/// global counts are withheld below the server's floor, and `none` renders no
+/// number at all rather than a small one dressed up.
+struct NativePresenceSummary: Codable, Equatable {
+    let scope: String
+    let count: Int?
+    let windowMs: Int?
+
+    static let none = NativePresenceSummary(scope: "none", count: nil, windowMs: nil)
+
+    /// Copy must state scope and window; a bare number implies a density that
+    /// has not been measured.
+    var chipLabel: String? {
+        guard let count, count > 0 else { return nil }
+        switch scope {
+        case "circle": return count == 1 ? "1 in your circle out" : "\(count) in your circle out"
+        case "global": return "\(count) active this hour"
+        default: return nil
+        }
+    }
 }
 
 struct NativeCheckInCreateResponse: Codable, Equatable {
@@ -1821,6 +1844,10 @@ struct NativeProfileDataAPI {
 
     func cancelSocialInvitationViaRpc(id: String) async throws {
         _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialInvitesCancelRoute, method: "POST", input: ["inviteId": id, "surface": "network"])
+    }
+
+    func presenceSummaryViaRpc() async throws -> NativePresenceSummary {
+        try await client.trpcDecode(NativePresenceSummary.self, path: NativeLiveContentV2Contract.userPresenceSummaryRoute)
     }
 
     func peopleMetStatusViaRpc(partyID: String) async throws -> Bool {

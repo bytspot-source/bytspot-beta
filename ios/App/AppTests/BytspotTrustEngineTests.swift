@@ -1947,6 +1947,18 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertFalse(NativeProfileWireframeGuard.membershipTierLabels.contains("Signed in"))
     }
 
+    func testHomeHeaderPresenceStatesItsScopeAndWithholdsWhatItCannotKnow() {
+        // Circle counts are Evidenced and name the scope.
+        XCTAssertEqual(NativePresenceSummary(scope: "circle", count: 3, windowMs: nil).chipLabel, "3 in your circle out")
+        XCTAssertEqual(NativePresenceSummary(scope: "circle", count: 1, windowMs: nil).chipLabel, "1 in your circle out")
+        // Global counts must state the window rather than imply live density.
+        XCTAssertEqual(NativePresenceSummary(scope: "global", count: 42, windowMs: 3_600_000).chipLabel, "42 active this hour")
+        // Withheld and zero both render nothing; the header falls back instead.
+        XCTAssertNil(NativePresenceSummary.none.chipLabel)
+        XCTAssertNil(NativePresenceSummary(scope: "global", count: 0, windowMs: 3_600_000).chipLabel)
+        XCTAssertFalse(NativePresenceSummary(scope: "global", count: 42, windowMs: 3_600_000).chipLabel?.lowercased().contains("live") ?? true)
+    }
+
     func testOnlyTheEntryTierIsOfferedTheMembershipUpgrade() {
         XCTAssertTrue(NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: true, tier: .green))
         XCTAssertFalse(NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: true, tier: .platinum))

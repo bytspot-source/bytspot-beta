@@ -5830,7 +5830,8 @@ private struct NativeHomeDashboardView: View {
         }
         do {
             let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
-            presenceSummary = try await NativeProfileDataAPI(client: client).presenceSummaryViaRpc()
+            let fix = locationStore.coordinate
+            presenceSummary = try await NativeProfileDataAPI(client: client).presenceSummaryViaRpc(at: fix.isFallback ? nil : fix)
         } catch {
             presenceSummary = .none
         }

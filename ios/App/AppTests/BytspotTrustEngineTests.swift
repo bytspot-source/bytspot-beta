@@ -1954,20 +1954,21 @@ final class NativeProfileDataAPITests: XCTestCase {
     }
 
     func testHomeHeaderPresenceStatesItsScopeAndWithholdsWhatItCannotKnow() {
-        // The home count is the whole app, so who a member knows never renders
-        // here; that belongs on their profile next to connections.
-        XCTAssertNil(NativePresenceSummary(scope: "circle", count: 3, windowMs: nil).chipLabel)
-        // Global counts must state the window and the scope rather than imply
-        // a local density: the count spans time zones and the header does not.
-        XCTAssertEqual(NativePresenceSummary(scope: "global", count: 42, windowMs: 3_600_000).chipLabel, "42 active worldwide this hour")
+        // The home count is the area, so who a member knows never renders here;
+        // that belongs on their profile next to connections.
+        XCTAssertNil(NativePresenceSummary(scope: "circle", count: 3, windowMs: nil, area: nil).chipLabel)
+        // Area counts state both the place and the window. A cell we have no
+        // catalog for is still counted, but it is not ours to name.
+        XCTAssertEqual(NativePresenceSummary(scope: "area", count: 42, windowMs: 86400000, area: "Midtown").chipLabel, "42 in Midtown today")
+        XCTAssertEqual(NativePresenceSummary(scope: "area", count: 42, windowMs: 86400000, area: nil).chipLabel, "42 in your area today")
         // Accounts are a different claim and say so.
-        XCTAssertEqual(NativePresenceSummary(scope: "members", count: 64, windowMs: nil).chipLabel, "64 members")
-        XCTAssertEqual(NativePresenceSummary(scope: "members", count: 1, windowMs: nil).chipLabel, "1 member")
-        XCTAssertNil(NativePresenceSummary(scope: "members", count: 0, windowMs: nil).chipLabel)
+        XCTAssertEqual(NativePresenceSummary(scope: "members", count: 64, windowMs: nil, area: nil).chipLabel, "64 members")
+        XCTAssertEqual(NativePresenceSummary(scope: "members", count: 1, windowMs: nil, area: nil).chipLabel, "1 member")
+        XCTAssertNil(NativePresenceSummary(scope: "members", count: 0, windowMs: nil, area: nil).chipLabel)
         // Withheld and zero both render nothing; the header falls back instead.
         XCTAssertNil(NativePresenceSummary.none.chipLabel)
-        XCTAssertNil(NativePresenceSummary(scope: "global", count: 0, windowMs: 3_600_000).chipLabel)
-        XCTAssertFalse(NativePresenceSummary(scope: "global", count: 42, windowMs: 3_600_000).chipLabel?.lowercased().contains("live") ?? true)
+        XCTAssertNil(NativePresenceSummary(scope: "area", count: 0, windowMs: 86400000, area: "Midtown").chipLabel)
+        XCTAssertFalse(NativePresenceSummary(scope: "area", count: 42, windowMs: 86400000, area: "Midtown").chipLabel?.lowercased().contains("live") ?? true)
     }
 
     func testOnlyTheEntryTierIsOfferedTheMembershipUpgrade() {

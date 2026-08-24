@@ -2796,17 +2796,30 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         // rather than failing. This pins the width that measurement found.
         let inner = 362.0 - 32.0
         let spacerFloor = 8.0, dividers = 2.0
+        func rounded(_ size: Double, _ weight: UIFont.Weight) -> UIFont {
+            let base = UIFont.systemFont(ofSize: size, weight: weight)
+            guard let descriptor = base.fontDescriptor.withDesign(.rounded) else { return base }
+            return UIFont(descriptor: descriptor, size: size)
+        }
         func stripWidth(_ stats: [NativeHomeRegionPresentation.HeaderStat]) -> Double {
-            let value = UIFont.systemFont(ofSize: 13.5, weight: .black)
-            let label = UIFont.systemFont(ofSize: 11, weight: .semibold)
+            let value = rounded(13.5, .black)
+            let label = rounded(11, .semibold)
             return stats.reduce(0.0) { total, stat in
                 let number = (stat.value.map { ($0 as NSString).size(withAttributes: [.font: value]).width } ?? 0)
                 let words = (stat.label as NSString).size(withAttributes: [.font: label]).width
                 return total + 13.0 + 5.0 + number + (stat.value == nil ? 0 : 5.0) + words
             }
         }
-        let widest = stripWidth(loaded) + dividers + spacerFloor * 4
-        XCTAssertLessThanOrEqual(widest, inner, "The header stat strip no longer fits: \(widest)pt of content in \(inner)pt. A longer label compresses the coverage text instead of failing.")
+        // Inventory is live, so the budget is measured against the widest
+        // counts the strip can carry rather than whatever the fixture emits.
+        // A one-venue fixture reports two digits and hides 19pt of real width.
+        let worstCase = loaded.map { stat -> NativeHomeRegionPresentation.HeaderStat in
+            guard let value = stat.value else { return stat }
+            let ceiling = String(repeating: "9", count: max(value.count, stat.id == "inventory" ? 3 : 2))
+            return NativeHomeRegionPresentation.HeaderStat(id: stat.id, icon: stat.icon, value: ceiling, label: stat.label, tint: stat.tint)
+        }
+        let widest = stripWidth(worstCase) + dividers + spacerFloor * 4
+        XCTAssertLessThanOrEqual(widest, inner, "The header stat strip no longer fits: \(widest)pt of content in \(inner)pt. A longer label or a wider count compresses the coverage text instead of failing.")
 
         let fallbackWeather = NativeHomeCopyContract.weatherPresentation(for: .fallback)
         XCTAssertEqual(fallbackWeather.headline, "Weather update unavailable")

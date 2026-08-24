@@ -112,6 +112,13 @@ final class NativeLocationStore: NSObject, ObservableObject, CLLocationManagerDe
     var isUsingFallback: Bool { coordinate.isFallback }
     var displayLabel: String { coordinate.isFallback ? "Midtown fallback" : "Near you" }
 
+    /// A check-in claims "I am here now", so a stale fix fails it the same way
+    /// a fallback does: the device reported that position honestly, just not
+    /// now. Same bar as ride booking, which already answers the same question.
+    nonisolated static func coordinateForCheckIn(location: CLLocation?, now: Date = Date()) -> NativeLocationCoordinate? {
+        coordinateForRideBooking(location: location, now: now)
+    }
+
     nonisolated static let rideBookingMaximumLocationAge: TimeInterval = 60
     nonisolated static let rideBookingMaximumHorizontalAccuracy: CLLocationAccuracy = 250
 
@@ -1668,7 +1675,7 @@ private struct NativeArrivalLedgerItem: Identifiable {
     }
 
     static func checkIn(_ record: NativeManualCheckInRecord) -> Self {
-        Self(id: "checkin-\(record.id)", title: "Manual Check-In", venue: record.venueName, window: record.displayTimeLabel, payment: "+\(record.pointsAwarded) pending points", reservation: record.trustLabel, statusBadge: record.syncStatusBadge, statusColor: record.isSynced ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent, actionTitle: "Review in Places I've Been", createdAt: record.createdAt)
+        Self(id: "checkin-\(record.id)", title: "Manual Check-In", venue: record.venueName, window: record.displayTimeLabel, payment: record.pointsLine, reservation: record.trustLabel, statusBadge: record.syncStatusBadge, statusColor: record.isSynced ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent, actionTitle: "Review in Places I've Been", createdAt: record.createdAt)
     }
 
     static func server(_ entry: NativeWalletLedgerRecord) -> Self {
@@ -4615,7 +4622,7 @@ private struct NativeManualCheckInWalletSection: View {
                     NativeWalletLine(title: "Active Manual Check-In", subtitle: "\(record.venueName) · \(record.syncStatusLabel)", icon: "checkmark.seal.fill")
                     NativeTransactionLedger(entries: [
                         NativeTransactionLedgerEntry("Trust", record.trustLabel, valueColor: NativeTransactionVisuals.pendingAccent),
-                        NativeTransactionLedgerEntry("Points", "+\(record.pointsAwarded) pending", valueColor: NativeTheme.emerald),
+                        NativeTransactionLedgerEntry("Points", record.pointsLine, valueColor: NativeTheme.emerald),
                         NativeTransactionLedgerEntry("Sync", record.syncStatusLabel, valueColor: record.isSynced ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent)
                     ])
                     if !statusMessage.isEmpty { Text(statusMessage).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
@@ -7233,10 +7240,16 @@ struct NativeManualCheckInRecord: Codable, Equatable, Identifiable {
     var syncStatusBadge: String { isSynced ? "SYNCED" : "PENDING SYNC" }
     var syncStatusLabel: String { isSynced ? "Synced" : "Pending API sync" }
     var displayTimeLabel: String { Self.displayTime(from: createdAt) }
-    var profileMetaLine: String { "+\(pointsAwarded) pending points · \(trustLabel) · \(displayTimeLabel)" }
+    /// A check-in with no location proof earns nothing, so it must not promise
+    /// points it will never be paid. It is still the member's own record.
+    var pointsLine: String { pointsAwarded > 0 ? "+\(pointsAwarded) pending points" : "No points · unverified" }
+    var profileMetaLine: String { "\(pointsLine) · \(trustLabel) · \(displayTimeLabel)" }
 
-    static func manual(venue: NativeVenueSummary, idempotencyKey: String, date: Date = Date(), syncStatus: String = "pending_sync") -> Self {
-        Self(id: "manual-\(Int(date.timeIntervalSince1970))-\(venue.id)", venueID: venue.id, venueName: venue.name, address: venue.address, category: venue.discoverType, createdAt: ISO8601DateFormatter().string(from: date), idempotencyKey: idempotencyKey, trustLabel: "Manual signal", pointsAwarded: NativeManualCheckInStore.manualPointAward, syncStatus: syncStatus)
+    /// `atVenue` has no default on purpose: points are the thing people will
+    /// try to farm, so a caller that has not thought about proof must fail the
+    /// build rather than quietly record a check-in worth nothing.
+    static func manual(venue: NativeVenueSummary, idempotencyKey: String, date: Date = Date(), syncStatus: String = "pending_sync", atVenue: Bool) -> Self {
+        Self(id: "manual-\(Int(date.timeIntervalSince1970))-\(venue.id)", venueID: venue.id, venueName: venue.name, address: venue.address, category: venue.discoverType, createdAt: ISO8601DateFormatter().string(from: date), idempotencyKey: idempotencyKey, trustLabel: atVenue ? "Location checked" : "Self-reported", pointsAwarded: atVenue ? NativeManualCheckInStore.manualPointAward : 0, syncStatus: syncStatus)
     }
 
     func markingSynced() -> Self {
@@ -7304,9 +7317,9 @@ enum NativeManualCheckInStore {
 
     static func latest(scope: NativeManualCheckInScope) -> NativeManualCheckInRecord? { all(scope: scope).first }
 
-    static func record(venue: NativeVenueSummary, idempotencyKey: String, scope: NativeManualCheckInScope, date: Date = Date()) -> (NativeManualCheckInRecord, Bool) {
+    static func record(venue: NativeVenueSummary, idempotencyKey: String, scope: NativeManualCheckInScope, date: Date = Date(), atVenue: Bool) -> (NativeManualCheckInRecord, Bool) {
         if let recent = recentCheckIn(venueID: venue.id, scope: scope, now: date) { return (recent, false) }
-        let record = NativeManualCheckInRecord.manual(venue: venue, idempotencyKey: idempotencyKey, date: date)
+        let record = NativeManualCheckInRecord.manual(venue: venue, idempotencyKey: idempotencyKey, date: date, atVenue: atVenue)
         guard scope.storageKey != nil else { return (record, false) }
         upsert(record, scope: scope)
         return (record, true)
@@ -10546,14 +10559,16 @@ private struct NativeDiscoverView: View {
         }
         let idempotencyKey = UUID().uuidString
         let syncContext = NativeManualCheckInSyncContext.authenticated(token: sessionStore.token)
-        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey, scope: syncContext.scope)
-        discoverStatusMessage = created ? "Checked in at \(venue.name) · +\(record.pointsAwarded) pending points." : "Already checked in recently at \(venue.name)."
+        let fix = NativeLocationStore.coordinateForCheckIn(location: locationStore.lastLocation)
+        let atVenue = NativeVenueDetailPresentation.isAtVenue(fix, venue: venue)
+        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey, scope: syncContext.scope, atVenue: atVenue)
+        discoverStatusMessage = created ? "Checked in at \(venue.name) · \(record.pointsLine)." : "Already checked in recently at \(venue.name)."
         guard created, syncContext.canSync else { return }
         Task { await syncManualCheckIn(record, context: syncContext) }
     }
 
     private func syncManualCheckIn(_ record: NativeManualCheckInRecord, context: NativeManualCheckInSyncContext) async {
-        let body = try? JSONSerialization.data(withJSONObject: ["json": ["venueId": record.venueID, "idempotencyKey": record.idempotencyKey]])
+        let body = try? JSONSerialization.data(withJSONObject: ["json": NativeVenueDetailContract.checkinInput(venueID: record.venueID, idempotencyKey: record.idempotencyKey, coordinate: NativeLocationStore.coordinateForCheckIn(location: locationStore.lastLocation))])
         let client = context.apiClient()
         guard let body, (try? await client.data(path: "/trpc/\(NativeVenueDetailContract.checkinEndpoint)", method: "POST", body: body)) != nil else { return }
         NativeManualCheckInStore.markSynced(id: record.id, scope: context.scope)
@@ -11268,6 +11283,7 @@ private extension Notification.Name {
 }
 
 private struct NativeVenueDetailView: View {
+    @EnvironmentObject private var locationStore: NativeLocationStore
     let venue: NativeVenueSummary
     let openHybrid: (BytspotHybridRoute) -> Void
     var openNativeTab: ((BytspotNativeTab) -> Void)? = nil
@@ -11796,22 +11812,26 @@ private struct NativeVenueDetailView: View {
         }
     }
 
+    private var checkInCoordinate: NativeLocationCoordinate? {
+        NativeLocationStore.coordinateForCheckIn(location: locationStore.lastLocation)
+    }
+
     private func submitCheckIn() async {
         guard !didCheckIn else { statusMessage = "Already checked in recently at \(venue.name)."; return }
         guard sessionStore.isAuthenticated else { statusMessage = "Sign in to keep manual check-ins, pending points, and Places I've Been."; openNativeAuth?(); return }
         didCheckIn = true
         let idempotencyKey = UUID().uuidString
         let syncContext = NativeManualCheckInSyncContext.authenticated(token: sessionStore.token)
-        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey, scope: syncContext.scope)
-        statusMessage = created ? "Manual check-in saved · +\(record.pointsAwarded) pending points." : "Already checked in recently at \(venue.name)."
+        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey, scope: syncContext.scope, atVenue: NativeVenueDetailPresentation.isAtVenue(checkInCoordinate, venue: venue))
+        statusMessage = created ? "Manual check-in saved · \(record.pointsLine)." : "Already checked in recently at \(venue.name)."
         guard created, syncContext.canSync else { return }
-        guard let body = try? JSONSerialization.data(withJSONObject: ["json": ["venueId": venue.id, "idempotencyKey": idempotencyKey]]) else { return }
+        guard let body = try? JSONSerialization.data(withJSONObject: ["json": NativeVenueDetailContract.checkinInput(venueID: venue.id, idempotencyKey: idempotencyKey, coordinate: checkInCoordinate)]) else { return }
         let client = syncContext.apiClient()
         if (try? await client.data(path: "/trpc/\(NativeVenueDetailContract.checkinEndpoint)", method: "POST", body: body)) != nil {
             NativeManualCheckInStore.markSynced(id: record.id, scope: syncContext.scope)
             await MainActor.run {
                 if NativeManualCheckInScope.authenticated(token: sessionStore.token) == syncContext.scope {
-                    statusMessage = "Check-in synced · +\(record.pointsAwarded) points saved."
+                    statusMessage = "Check-in synced · \(record.pointsLine)."
                 }
             }
         }

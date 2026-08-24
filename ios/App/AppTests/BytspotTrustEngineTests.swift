@@ -276,7 +276,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         let checkedAt = Date(timeIntervalSince1970: 1_735_000_000)
         let accountBBaseline = NativeManualCheckInStore.pointsBalance(scope: accountB)
 
-        let (record, created) = NativeManualCheckInStore.record(venue: checkedVenue, idempotencyKey: "scope-a", scope: accountA, date: checkedAt)
+        let (record, created) = NativeManualCheckInStore.record(venue: checkedVenue, idempotencyKey: "scope-a", scope: accountA, date: checkedAt, atVenue: true)
 
         XCTAssertTrue(created)
         XCTAssertEqual(NativeManualCheckInStore.all(scope: accountA).map(\.id), [record.id])
@@ -292,10 +292,10 @@ final class BytspotTrustEngineTests: XCTestCase {
         let account = NativeManualCheckInScope.testingAccount("manual-checkin-private-\(UUID().uuidString)")
         defer { NativeManualCheckInStore.clear(scope: account); UserDefaults.standard.removeObject(forKey: NativeManualCheckInStore.legacyStorageKey) }
         let checkedVenue = venue(name: "Private Dinner", category: "dining", address: "Account scoped")
-        let legacyRecord = NativeManualCheckInRecord.manual(venue: checkedVenue, idempotencyKey: "legacy", date: Date(timeIntervalSince1970: 1_735_000_100))
+        let legacyRecord = NativeManualCheckInRecord.manual(venue: checkedVenue, idempotencyKey: "legacy", date: Date(timeIntervalSince1970: 1_735_000_100), atVenue: true)
         let signedOutBaseline = NativeManualCheckInStore.pointsBalance(scope: .signedOut)
         UserDefaults.standard.set(try JSONEncoder().encode([legacyRecord]), forKey: NativeManualCheckInStore.legacyStorageKey)
-        _ = NativeManualCheckInStore.record(venue: checkedVenue, idempotencyKey: "account", scope: account, date: Date(timeIntervalSince1970: 1_735_000_200))
+        _ = NativeManualCheckInStore.record(venue: checkedVenue, idempotencyKey: "account", scope: account, date: Date(timeIntervalSince1970: 1_735_000_200), atVenue: true)
 
         XCTAssertTrue(NativeManualCheckInStore.all(scope: .signedOut).isEmpty)
         XCTAssertNil(UserDefaults.standard.data(forKey: NativeManualCheckInStore.legacyStorageKey))
@@ -2465,6 +2465,63 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativePartyPassAPI.destinations(from: leakyLegacy).map(\.label), ["Social"])
         // Root-level aliases and non-HTTPS links never reach recipients.
         XCTAssertEqual(NativePartyPassAPI.destinations(from: ["musicUrl": "https://music.example.com/root-alias"]), [])
+    }
+
+    @MainActor
+    func testCheckInSendsCoordinateOnlyForARealFixAndPromisesPointsAccordingly() {
+        let venue = NativeVenueSummary(id: "v1", name: "Bar Marilou", category: "bar", address: "1 Peachtree", distance: "0.1 mi", rating: 4.5, latitude: 33.7866, longitude: -84.3833, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: ""), verifiedPatchId: nil, imageUrl: nil)
+
+        // No fix: no coordinate on the wire, so the server can only record a
+        // self-reported tap - and the copy must not promise points for it.
+        let bare = NativeVenueDetailContract.checkinInput(venueID: venue.id, idempotencyKey: "k", coordinate: nil)
+        XCTAssertNil(bare["lat"])
+        XCTAssertNil(bare["lng"])
+        XCTAssertFalse(NativeVenueDetailPresentation.isAtVenue(nil, venue: venue))
+
+        // A fallback coordinate is not a fix. Sending it would claim a member
+        // is standing somewhere the device never reported.
+        XCTAssertNil(NativeVenueDetailContract.checkinInput(venueID: venue.id, idempotencyKey: "k", coordinate: .midtown)["lat"])
+        XCTAssertFalse(NativeVenueDetailPresentation.isAtVenue(.midtown, venue: venue))
+
+        // A real fix at the door travels, and is inside the fence.
+        let atDoor = NativeLocationCoordinate(latitude: 33.7868, longitude: -84.3835, isFallback: false)
+        let sent = NativeVenueDetailContract.checkinInput(venueID: venue.id, idempotencyKey: "k", coordinate: atDoor)
+        XCTAssertEqual(sent["lat"] as? Double, 33.7868)
+        XCTAssertEqual(sent["lng"] as? Double, -84.3835)
+        XCTAssertTrue(NativeVenueDetailPresentation.isAtVenue(atDoor, venue: venue))
+
+        // A real fix a kilometre away still travels - the server records the
+        // distance - but it is not at the venue.
+        XCTAssertFalse(NativeVenueDetailPresentation.isAtVenue(NativeLocationCoordinate(latitude: 33.7960, longitude: -84.3833, isFallback: false), venue: venue))
+    }
+
+    func testCheckInCoordinateRejectsStaleAndInaccurateFixes() {
+        let now = Date()
+        let here = CLLocationCoordinate2D(latitude: 33.7866, longitude: -84.3833)
+        let fresh = CLLocation(coordinate: here, altitude: 0, horizontalAccuracy: 12, verticalAccuracy: 12, timestamp: now)
+        XCTAssertNotNil(NativeLocationStore.coordinateForCheckIn(location: fresh, now: now))
+
+        // A check-in claims "I am here now". An hour-old fix cannot support it.
+        let stale = CLLocation(coordinate: here, altitude: 0, horizontalAccuracy: 12, verticalAccuracy: 12, timestamp: now.addingTimeInterval(-3600))
+        XCTAssertNil(NativeLocationStore.coordinateForCheckIn(location: stale, now: now))
+
+        // An accuracy wider than the fence cannot decide the fence.
+        let vague = CLLocation(coordinate: here, altitude: 0, horizontalAccuracy: 900, verticalAccuracy: 12, timestamp: now)
+        XCTAssertNil(NativeLocationStore.coordinateForCheckIn(location: vague, now: now))
+        XCTAssertNil(NativeLocationStore.coordinateForCheckIn(location: nil, now: now))
+    }
+
+    func testUnverifiedCheckInPromisesNoPoints() {
+        let venue = NativeVenueSummary(id: "v1", name: "Bar Marilou", category: "bar", address: "1 Peachtree", distance: "0.1 mi", rating: nil, latitude: 33.7866, longitude: -84.3833, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: ""), verifiedPatchId: nil, imageUrl: nil)
+        let unproven = NativeManualCheckInRecord.manual(venue: venue, idempotencyKey: "k", atVenue: false)
+        XCTAssertEqual(unproven.pointsAwarded, 0)
+        XCTAssertEqual(unproven.pointsLine, "No points · unverified")
+        XCTAssertEqual(unproven.trustLabel, "Self-reported")
+
+        let proven = NativeManualCheckInRecord.manual(venue: venue, idempotencyKey: "k", atVenue: true)
+        XCTAssertEqual(proven.pointsAwarded, 10)
+        XCTAssertEqual(proven.pointsLine, "+10 pending points")
+        XCTAssertEqual(proven.trustLabel, "Location checked")
     }
 
     @MainActor

@@ -5934,6 +5934,11 @@ private struct NativeHomeDashboardView: View {
                             value: stat.value,
                             label: stat.label
                         )
+                        // Items are served before the gaps. Without this the
+                        // spacers take their share first and the labels pay
+                        // for it by scaling, so the same words rendered
+                        // smaller in a three-item strip than in a two-item one.
+                        .layoutPriority(1)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -5984,10 +5989,7 @@ private struct NativeHomeDashboardView: View {
                     .fixedSize(horizontal: true, vertical: false)
             }
             Text(label)
-                // 10.5 rather than 11: at 11 the full strip had 4pt of slack
-                // and scaled the coverage label to ~90%, so the same words
-                // rendered visibly smaller here than in a two-item strip.
-                .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundColor(NativeTheme.textSecondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)

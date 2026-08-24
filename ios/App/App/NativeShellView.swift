@@ -5924,9 +5924,14 @@ private struct NativeHomeDashboardView: View {
                 HStack(spacing: 0) {
                     ForEach(Array(headerStats.enumerated()), id: \.element.id) { index, stat in
                         if index > 0 {
-                            Spacer(minLength: 10)
+                            // 8 rather than 10: the floor was binding at
+                            // allocation, so the coverage label scaled to 0.90
+                            // and the gaps only looked roomy afterwards. The
+                            // freed width goes to the text, not back to the
+                            // spacers, because the items hold priority.
+                            Spacer(minLength: 8)
                             Rectangle().fill(NativePolish.softBorder).frame(width: 1, height: 18)
-                            Spacer(minLength: 10)
+                            Spacer(minLength: 8)
                         }
                         statStripItem(
                             icon: stat.icon,

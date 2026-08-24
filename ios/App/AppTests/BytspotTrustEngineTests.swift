@@ -2791,6 +2791,23 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(noDiscoverCards.count, NativeHomeRegionPresentation.headerStatSlots)
         XCTAssertEqual(noDiscoverCards.first { $0.id == "inventory" }?.label, "spots")
 
+        // Measured on device: the three-item strip closes its 330pt budget
+        // exactly, so a longer label silently compresses the coverage text
+        // rather than failing. This pins the width that measurement found.
+        let inner = 362.0 - 32.0
+        let spacerFloor = 8.0, dividers = 2.0
+        func stripWidth(_ stats: [NativeHomeRegionPresentation.HeaderStat]) -> Double {
+            let value = UIFont.systemFont(ofSize: 13.5, weight: .black)
+            let label = UIFont.systemFont(ofSize: 11, weight: .semibold)
+            return stats.reduce(0.0) { total, stat in
+                let number = (stat.value.map { ($0 as NSString).size(withAttributes: [.font: value]).width } ?? 0)
+                let words = (stat.label as NSString).size(withAttributes: [.font: label]).width
+                return total + 13.0 + 5.0 + number + (stat.value == nil ? 0 : 5.0) + words
+            }
+        }
+        let widest = stripWidth(loaded) + dividers + spacerFloor * 4
+        XCTAssertLessThanOrEqual(widest, inner, "The header stat strip no longer fits: \(widest)pt of content in \(inner)pt. A longer label compresses the coverage text instead of failing.")
+
         let fallbackWeather = NativeHomeCopyContract.weatherPresentation(for: .fallback)
         XCTAssertEqual(fallbackWeather.headline, "Weather update unavailable")
         XCTAssertEqual(fallbackWeather.headerTemperature, "—")

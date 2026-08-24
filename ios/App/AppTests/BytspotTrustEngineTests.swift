@@ -276,7 +276,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         let checkedAt = Date(timeIntervalSince1970: 1_735_000_000)
         let accountBBaseline = NativeManualCheckInStore.pointsBalance(scope: accountB)
 
-        let (record, created) = NativeManualCheckInStore.record(venue: checkedVenue, idempotencyKey: "scope-a", scope: accountA, date: checkedAt)
+        let (record, created) = NativeManualCheckInStore.record(venue: checkedVenue, idempotencyKey: "scope-a", scope: accountA, date: checkedAt, atVenue: true)
 
         XCTAssertTrue(created)
         XCTAssertEqual(NativeManualCheckInStore.all(scope: accountA).map(\.id), [record.id])
@@ -292,10 +292,10 @@ final class BytspotTrustEngineTests: XCTestCase {
         let account = NativeManualCheckInScope.testingAccount("manual-checkin-private-\(UUID().uuidString)")
         defer { NativeManualCheckInStore.clear(scope: account); UserDefaults.standard.removeObject(forKey: NativeManualCheckInStore.legacyStorageKey) }
         let checkedVenue = venue(name: "Private Dinner", category: "dining", address: "Account scoped")
-        let legacyRecord = NativeManualCheckInRecord.manual(venue: checkedVenue, idempotencyKey: "legacy", date: Date(timeIntervalSince1970: 1_735_000_100))
+        let legacyRecord = NativeManualCheckInRecord.manual(venue: checkedVenue, idempotencyKey: "legacy", date: Date(timeIntervalSince1970: 1_735_000_100), atVenue: true)
         let signedOutBaseline = NativeManualCheckInStore.pointsBalance(scope: .signedOut)
         UserDefaults.standard.set(try JSONEncoder().encode([legacyRecord]), forKey: NativeManualCheckInStore.legacyStorageKey)
-        _ = NativeManualCheckInStore.record(venue: checkedVenue, idempotencyKey: "account", scope: account, date: Date(timeIntervalSince1970: 1_735_000_200))
+        _ = NativeManualCheckInStore.record(venue: checkedVenue, idempotencyKey: "account", scope: account, date: Date(timeIntervalSince1970: 1_735_000_200), atVenue: true)
 
         XCTAssertTrue(NativeManualCheckInStore.all(scope: .signedOut).isEmpty)
         XCTAssertNil(UserDefaults.standard.data(forKey: NativeManualCheckInStore.legacyStorageKey))
@@ -764,6 +764,12 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle), "Nearby")
         XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "Seattle"), "Seattle")
         XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "  Decatur  "), "Decatur")
+        // A long place name is shortened here, not by the layout: an unbounded
+        // chip makes the header card size the whole page column.
+        let long = NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "Rancho Santa Margarita")
+        XCTAssertEqual(long, "Rancho Santa\u{2026}")
+        XCTAssertLessThanOrEqual(long.count, NativeHomeRegionPresentation.cityBadgeCharacterLimit)
+        XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: seattle, locality: "San Francisco"), "San Francisco")
         XCTAssertFalse((eyebrow.0 + eyebrow.1).localizedCaseInsensitiveContains("Midtown"))
         XCTAssertFalse(NativeHomeRegionPresentation.launchTitle(intent: "parking", location: seattle).localizedCaseInsensitiveContains("Midtown"))
         XCTAssertEqual(NativeHomeRegionPresentation.cityBadge(for: .midtown), "Nearby")
@@ -1948,15 +1954,21 @@ final class NativeProfileDataAPITests: XCTestCase {
     }
 
     func testHomeHeaderPresenceStatesItsScopeAndWithholdsWhatItCannotKnow() {
-        // Circle counts are Evidenced and name the scope.
-        XCTAssertEqual(NativePresenceSummary(scope: "circle", count: 3, windowMs: nil).chipLabel, "3 in your circle out")
-        XCTAssertEqual(NativePresenceSummary(scope: "circle", count: 1, windowMs: nil).chipLabel, "1 in your circle out")
-        // Global counts must state the window rather than imply live density.
-        XCTAssertEqual(NativePresenceSummary(scope: "global", count: 42, windowMs: 3_600_000).chipLabel, "42 active this hour")
+        // The home count is the area, so who a member knows never renders here;
+        // that belongs on their profile next to connections.
+        XCTAssertNil(NativePresenceSummary(scope: "circle", count: 3, windowMs: nil, area: nil).chipLabel)
+        // Area counts state both the place and the window. A cell we have no
+        // catalog for is still counted, but it is not ours to name.
+        XCTAssertEqual(NativePresenceSummary(scope: "area", count: 42, windowMs: 86400000, area: "Midtown").chipLabel, "42 in Midtown today")
+        XCTAssertEqual(NativePresenceSummary(scope: "area", count: 42, windowMs: 86400000, area: nil).chipLabel, "42 in your area today")
+        // Accounts are a different claim and say so.
+        XCTAssertEqual(NativePresenceSummary(scope: "members", count: 64, windowMs: nil, area: nil).chipLabel, "64 members")
+        XCTAssertEqual(NativePresenceSummary(scope: "members", count: 1, windowMs: nil, area: nil).chipLabel, "1 member")
+        XCTAssertNil(NativePresenceSummary(scope: "members", count: 0, windowMs: nil, area: nil).chipLabel)
         // Withheld and zero both render nothing; the header falls back instead.
         XCTAssertNil(NativePresenceSummary.none.chipLabel)
-        XCTAssertNil(NativePresenceSummary(scope: "global", count: 0, windowMs: 3_600_000).chipLabel)
-        XCTAssertFalse(NativePresenceSummary(scope: "global", count: 42, windowMs: 3_600_000).chipLabel?.lowercased().contains("live") ?? true)
+        XCTAssertNil(NativePresenceSummary(scope: "area", count: 0, windowMs: 86400000, area: "Midtown").chipLabel)
+        XCTAssertFalse(NativePresenceSummary(scope: "area", count: 42, windowMs: 86400000, area: "Midtown").chipLabel?.lowercased().contains("live") ?? true)
     }
 
     func testOnlyTheEntryTierIsOfferedTheMembershipUpgrade() {
@@ -2456,6 +2468,63 @@ final class NativeProfileDataAPITests: XCTestCase {
     }
 
     @MainActor
+    func testCheckInSendsCoordinateOnlyForARealFixAndPromisesPointsAccordingly() {
+        let venue = NativeVenueSummary(id: "v1", name: "Bar Marilou", category: "bar", address: "1 Peachtree", distance: "0.1 mi", rating: 4.5, latitude: 33.7866, longitude: -84.3833, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: ""), verifiedPatchId: nil, imageUrl: nil)
+
+        // No fix: no coordinate on the wire, so the server can only record a
+        // self-reported tap - and the copy must not promise points for it.
+        let bare = NativeVenueDetailContract.checkinInput(venueID: venue.id, idempotencyKey: "k", coordinate: nil)
+        XCTAssertNil(bare["lat"])
+        XCTAssertNil(bare["lng"])
+        XCTAssertFalse(NativeVenueDetailPresentation.isAtVenue(nil, venue: venue))
+
+        // A fallback coordinate is not a fix. Sending it would claim a member
+        // is standing somewhere the device never reported.
+        XCTAssertNil(NativeVenueDetailContract.checkinInput(venueID: venue.id, idempotencyKey: "k", coordinate: .midtown)["lat"])
+        XCTAssertFalse(NativeVenueDetailPresentation.isAtVenue(.midtown, venue: venue))
+
+        // A real fix at the door travels, and is inside the fence.
+        let atDoor = NativeLocationCoordinate(latitude: 33.7868, longitude: -84.3835, isFallback: false)
+        let sent = NativeVenueDetailContract.checkinInput(venueID: venue.id, idempotencyKey: "k", coordinate: atDoor)
+        XCTAssertEqual(sent["lat"] as? Double, 33.7868)
+        XCTAssertEqual(sent["lng"] as? Double, -84.3835)
+        XCTAssertTrue(NativeVenueDetailPresentation.isAtVenue(atDoor, venue: venue))
+
+        // A real fix a kilometre away still travels - the server records the
+        // distance - but it is not at the venue.
+        XCTAssertFalse(NativeVenueDetailPresentation.isAtVenue(NativeLocationCoordinate(latitude: 33.7960, longitude: -84.3833, isFallback: false), venue: venue))
+    }
+
+    func testCheckInCoordinateRejectsStaleAndInaccurateFixes() {
+        let now = Date()
+        let here = CLLocationCoordinate2D(latitude: 33.7866, longitude: -84.3833)
+        let fresh = CLLocation(coordinate: here, altitude: 0, horizontalAccuracy: 12, verticalAccuracy: 12, timestamp: now)
+        XCTAssertNotNil(NativeLocationStore.coordinateForCheckIn(location: fresh, now: now))
+
+        // A check-in claims "I am here now". An hour-old fix cannot support it.
+        let stale = CLLocation(coordinate: here, altitude: 0, horizontalAccuracy: 12, verticalAccuracy: 12, timestamp: now.addingTimeInterval(-3600))
+        XCTAssertNil(NativeLocationStore.coordinateForCheckIn(location: stale, now: now))
+
+        // An accuracy wider than the fence cannot decide the fence.
+        let vague = CLLocation(coordinate: here, altitude: 0, horizontalAccuracy: 900, verticalAccuracy: 12, timestamp: now)
+        XCTAssertNil(NativeLocationStore.coordinateForCheckIn(location: vague, now: now))
+        XCTAssertNil(NativeLocationStore.coordinateForCheckIn(location: nil, now: now))
+    }
+
+    func testUnverifiedCheckInPromisesNoPoints() {
+        let venue = NativeVenueSummary(id: "v1", name: "Bar Marilou", category: "bar", address: "1 Peachtree", distance: "0.1 mi", rating: nil, latitude: 33.7866, longitude: -84.3833, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: ""), verifiedPatchId: nil, imageUrl: nil)
+        let unproven = NativeManualCheckInRecord.manual(venue: venue, idempotencyKey: "k", atVenue: false)
+        XCTAssertEqual(unproven.pointsAwarded, 0)
+        XCTAssertEqual(unproven.pointsLine, "No points · unverified")
+        XCTAssertEqual(unproven.trustLabel, "Self-reported")
+
+        let proven = NativeManualCheckInRecord.manual(venue: venue, idempotencyKey: "k", atVenue: true)
+        XCTAssertEqual(proven.pointsAwarded, 10)
+        XCTAssertEqual(proven.pointsLine, "+10 pending points")
+        XCTAssertEqual(proven.trustLabel, "Location checked")
+    }
+
+    @MainActor
     func testPartySharePresentationAnchorsPopoverToPresenterView() throws {
         let presenter = UIViewController()
         presenter.view = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
@@ -2751,9 +2820,9 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeHomeRegionPresentation.nearbySubtitle(for: unproven), "100 Neutral St")
         XCTAssertEqual(NativeHomeRegionPresentation.nearbySubtitle(for: proven), "18 spots · Open")
         XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [unproven])?.value, "1")
-        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [unproven])?.label, "local place")
+        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [unproven])?.label, "place")
         XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [proven])?.value, "18")
-        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [proven])?.label, "spots nearby")
+        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [proven])?.label, "spots")
         // Nothing loaded is unknown, not zero.
         XCTAssertNil(NativeHomeRegionPresentation.headerInventoryStat(for: []))
     }
@@ -2764,20 +2833,56 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertFalse(empty.contains { ($0.value ?? "").hasPrefix("0") }, "A header stat rendered an unmeasured zero: \(empty)")
         XCTAssertEqual(empty.map(\.id), ["coverage", "provenance"])
         XCTAssertEqual(empty.first { $0.id == "coverage" }?.value, "\(NativeAtlantaCorridor.catalogDoorCount)")
-        XCTAssertEqual(empty.first { $0.id == "coverage" }?.label, "doors mapped")
+        XCTAssertEqual(empty.first { $0.id == "coverage" }?.label, "places · Midtown")
         XCTAssertEqual(empty.first { $0.id == "provenance" }?.label, "Typical, not guessed")
 
-        // Coverage still shows before any location fix, scoped so the claim
-        // stays true away from the corridor rather than gated into silence.
+        // Coverage names the catalog town in both states: the label is a fact
+        // about the catalog, so it does not change when the member moves.
         let awayFromCatalog = NativeHomeRegionPresentation.headerStats(venues: [], discoverCardCount: 0, location: NativeLocationCoordinate(latitude: 40.7128, longitude: -74.0060, isFallback: false))
         XCTAssertEqual(awayFromCatalog.map(\.id), ["coverage", "provenance"])
-        XCTAssertEqual(awayFromCatalog.first { $0.id == "coverage" }?.label, "doors · Midtown")
+        XCTAssertEqual(awayFromCatalog.first { $0.id == "coverage" }?.label, "places · Midtown")
 
         // Measured counts take the slots back once they exist.
         let measured = NativeVenueSummary(id: "proven", name: "Proven Venue", category: "parking", address: "200 Live St", distance: "0.3 mi", rating: nil, latitude: 33.7866, longitude: -84.3831, crowd: NativeCrowdSummary(level: 1, label: "Open", waitMins: 0), parking: NativeParkingSummary(totalAvailable: 18, priceLabel: "$6/hr"), verifiedPatchId: nil, imageUrl: nil)
         let loaded = NativeHomeRegionPresentation.headerStats(venues: [measured], discoverCardCount: 4, location: .verifiedMidtown)
         XCTAssertEqual(loaded.map(\.id), ["inventory", "for-you", "coverage"])
         XCTAssertEqual(loaded.count, NativeHomeRegionPresentation.headerStatSlots)
+        // Measured: the strip is always full when inventory shows, and it has
+        // 4.7pt of slack — not the ~20pt " nearby" needs.
+        XCTAssertEqual(loaded.first { $0.id == "inventory" }?.label, "spots")
+        let noDiscoverCards = NativeHomeRegionPresentation.headerStats(venues: [measured], discoverCardCount: 0, location: .verifiedMidtown)
+        XCTAssertEqual(noDiscoverCards.count, NativeHomeRegionPresentation.headerStatSlots)
+        XCTAssertEqual(noDiscoverCards.first { $0.id == "inventory" }?.label, "spots")
+
+        // Measured on device: the three-item strip closes its 330pt budget
+        // exactly, so a longer label silently compresses the coverage text
+        // rather than failing. This pins the width that measurement found.
+        let inner = 362.0 - 32.0
+        let spacerFloor = 8.0, dividers = 2.0
+        func rounded(_ size: Double, _ weight: UIFont.Weight) -> UIFont {
+            let base = UIFont.systemFont(ofSize: size, weight: weight)
+            guard let descriptor = base.fontDescriptor.withDesign(.rounded) else { return base }
+            return UIFont(descriptor: descriptor, size: size)
+        }
+        func stripWidth(_ stats: [NativeHomeRegionPresentation.HeaderStat]) -> Double {
+            let value = rounded(13.5, .black)
+            let label = rounded(11, .semibold)
+            return stats.reduce(0.0) { total, stat in
+                let number = (stat.value.map { ($0 as NSString).size(withAttributes: [.font: value]).width } ?? 0)
+                let words = (stat.label as NSString).size(withAttributes: [.font: label]).width
+                return total + 13.0 + 5.0 + number + (stat.value == nil ? 0 : 5.0) + words
+            }
+        }
+        // Inventory is live, so the budget is measured against the widest
+        // counts the strip can carry rather than whatever the fixture emits.
+        // A one-venue fixture reports two digits and hides 19pt of real width.
+        let worstCase = loaded.map { stat -> NativeHomeRegionPresentation.HeaderStat in
+            guard let value = stat.value else { return stat }
+            let ceiling = String(repeating: "9", count: max(value.count, stat.id == "inventory" ? 3 : 2))
+            return NativeHomeRegionPresentation.HeaderStat(id: stat.id, icon: stat.icon, value: ceiling, label: stat.label, tint: stat.tint)
+        }
+        let widest = stripWidth(worstCase) + dividers + spacerFloor * 4
+        XCTAssertLessThanOrEqual(widest, inner, "The header stat strip no longer fits: \(widest)pt of content in \(inner)pt. A longer label or a wider count compresses the coverage text instead of failing.")
 
         let fallbackWeather = NativeHomeCopyContract.weatherPresentation(for: .fallback)
         XCTAssertEqual(fallbackWeather.headline, "Weather update unavailable")

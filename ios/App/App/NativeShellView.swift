@@ -112,6 +112,13 @@ final class NativeLocationStore: NSObject, ObservableObject, CLLocationManagerDe
     var isUsingFallback: Bool { coordinate.isFallback }
     var displayLabel: String { coordinate.isFallback ? "Midtown fallback" : "Near you" }
 
+    /// A check-in claims "I am here now", so a stale fix fails it the same way
+    /// a fallback does: the device reported that position honestly, just not
+    /// now. Same bar as ride booking, which already answers the same question.
+    nonisolated static func coordinateForCheckIn(location: CLLocation?, now: Date = Date()) -> NativeLocationCoordinate? {
+        coordinateForRideBooking(location: location, now: now)
+    }
+
     nonisolated static let rideBookingMaximumLocationAge: TimeInterval = 60
     nonisolated static let rideBookingMaximumHorizontalAccuracy: CLLocationAccuracy = 250
 
@@ -340,7 +347,7 @@ struct BytspotNativeShellView: View {
                 Group {
                     switch selectedTab {
                     case .home:
-                        NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeProfile: openNativeProfile, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth)
+                        NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth)
                     case .discover:
                         NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
@@ -1668,7 +1675,7 @@ private struct NativeArrivalLedgerItem: Identifiable {
     }
 
     static func checkIn(_ record: NativeManualCheckInRecord) -> Self {
-        Self(id: "checkin-\(record.id)", title: "Manual Check-In", venue: record.venueName, window: record.displayTimeLabel, payment: "+\(record.pointsAwarded) pending points", reservation: record.trustLabel, statusBadge: record.syncStatusBadge, statusColor: record.isSynced ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent, actionTitle: "Review in Places I've Been", createdAt: record.createdAt)
+        Self(id: "checkin-\(record.id)", title: "Manual Check-In", venue: record.venueName, window: record.displayTimeLabel, payment: record.pointsLine, reservation: record.trustLabel, statusBadge: record.syncStatusBadge, statusColor: record.isSynced ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent, actionTitle: "Review in Places I've Been", createdAt: record.createdAt)
     }
 
     static func server(_ entry: NativeWalletLedgerRecord) -> Self {
@@ -4615,7 +4622,7 @@ private struct NativeManualCheckInWalletSection: View {
                     NativeWalletLine(title: "Active Manual Check-In", subtitle: "\(record.venueName) · \(record.syncStatusLabel)", icon: "checkmark.seal.fill")
                     NativeTransactionLedger(entries: [
                         NativeTransactionLedgerEntry("Trust", record.trustLabel, valueColor: NativeTransactionVisuals.pendingAccent),
-                        NativeTransactionLedgerEntry("Points", "+\(record.pointsAwarded) pending", valueColor: NativeTheme.emerald),
+                        NativeTransactionLedgerEntry("Points", record.pointsLine, valueColor: NativeTheme.emerald),
                         NativeTransactionLedgerEntry("Sync", record.syncStatusLabel, valueColor: record.isSynced ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent)
                     ])
                     if !statusMessage.isEmpty { Text(statusMessage).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
@@ -5426,9 +5433,15 @@ enum NativeHomeRegionPresentation {
         NativeTabContentStore.canUseCurrentEventFeed(at: location)
     }
 
+    /// Longest place name the chip can hold before the header card starts
+    /// sizing the page column instead of the screen doing it.
+    static let cityBadgeCharacterLimit = 14
+
     static func cityBadge(for location: NativeLocationCoordinate, locality: String? = nil) -> String {
         let resolved = locality?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return resolved.isEmpty ? "Nearby" : resolved
+        if resolved.isEmpty { return "Nearby" }
+        guard resolved.count > cityBadgeCharacterLimit else { return resolved }
+        return resolved.prefix(cityBadgeCharacterLimit - 1).trimmingCharacters(in: .whitespaces) + "\u{2026}"
     }
     static func areaLabel(for location: NativeLocationCoordinate) -> String { isAtlanta(location) ? "Midtown" : "Near you" }
 
@@ -5519,14 +5532,18 @@ enum NativeHomeRegionPresentation {
     }
 
     /// Nil when nothing is loaded yet: an empty venue list means unknown, not
-    /// zero, and "0 local places" states an emptiness we have not measured.
+    /// zero, and "0 places" states an emptiness we have not measured.
     static func headerInventoryStat(for venues: [NativeVenueSummary]) -> (value: String, label: String)? {
         let explicitAvailableSpots = venues.reduce(0) { total, venue in
             total + max(venue.parking.totalAvailable, 0)
         }
-        if explicitAvailableSpots > 0 { return ("\(explicitAvailableSpots)", "spots nearby") }
+        // No "nearby": inventory only ever appears alongside coverage and
+        // provenance, so the strip is always full when it shows, and the
+        // measured slack is 4.7pt against the ~20pt the word needs. It read as
+        // "spots near…" and squeezed the coverage label out of full size.
+        if explicitAvailableSpots > 0 { return ("\(explicitAvailableSpots)", "spots") }
         guard !venues.isEmpty else { return nil }
-        return ("\(venues.count)", venues.count == 1 ? "local place" : "local places")
+        return ("\(venues.count)", venues.count == 1 ? "place" : "places")
     }
 
     struct HeaderStat: Equatable {
@@ -5551,16 +5568,19 @@ enum NativeHomeRegionPresentation {
     static func headerStats(venues: [NativeVenueSummary], discoverCardCount: Int, location: NativeLocationCoordinate) -> [HeaderStat] {
         var stats: [HeaderStat] = []
         if let inventory = headerInventoryStat(for: venues) {
-            stats.append(HeaderStat(id: "inventory", icon: "circle.fill", value: inventory.value, label: inventory.label, tint: .emerald))
+            // The glyph names the unit: parking spots and places are different
+            // things and a plain dot said neither.
+            let icon = inventory.label == "spots" ? "parkingsign" : "building.2.fill"
+            stats.append(HeaderStat(id: "inventory", icon: icon, value: inventory.value, label: inventory.label, tint: .emerald))
         }
         if discoverCardCount > 0 {
             stats.append(HeaderStat(id: "for-you", icon: "bolt.fill", value: "\(discoverCardCount)", label: "for you", tint: .purple))
         }
-        // Scoped rather than gated on location: "doors in Midtown" is a claim
-        // about the catalog, true wherever it is read, so first launch gets a
-        // real number before any permission is granted. An unscoped "doors
+        // Named in both states: the town is where the catalog is, not where
+        // the member is, so the claim stays true wherever it is read and reads
+        // the same either side of the corridor line. An unscoped "places
         // mapped" would be the lie, since elsewhere we have mapped nothing.
-        stats.append(HeaderStat(id: "coverage", icon: "mappin.and.ellipse", value: "\(NativeAtlantaCorridor.catalogDoorCount)", label: isAtlanta(location) ? "doors mapped" : "doors · Midtown", tint: .cyan))
+        stats.append(HeaderStat(id: "coverage", icon: "mappin.and.ellipse", value: "\(NativeAtlantaCorridor.catalogDoorCount)", label: "places · \(NativeAtlantaCorridor.catalogTownName)", tint: .cyan))
         stats.append(HeaderStat(id: "provenance", icon: "checkmark.seal.fill", value: nil, label: "Typical, not guessed", tint: .cyan))
         return Array(stats.prefix(headerStatSlots))
     }
@@ -5654,7 +5674,6 @@ private struct NativeHomeDashboardView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
     let openNativeTab: (BytspotNativeTab) -> Void
     let openDiscoverFilter: (String) -> Void
-    let openNativeProfile: () -> Void
     let openNativeAccess: () -> Void
     let openNativeAuth: (NativeAuthMode, NativePostAuthIntent?) -> Void
     @State private var searchText = ""
@@ -5818,7 +5837,8 @@ private struct NativeHomeDashboardView: View {
         }
         do {
             let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
-            presenceSummary = try await NativeProfileDataAPI(client: client).presenceSummaryViaRpc()
+            let fix = locationStore.coordinate
+            presenceSummary = try await NativeProfileDataAPI(client: client).presenceSummaryViaRpc(at: fix.isFallback ? nil : fix)
         } catch {
             presenceSummary = .none
         }
@@ -5864,6 +5884,12 @@ private struct NativeHomeDashboardView: View {
                     .overlay(Capsule().stroke(NativePolish.softBorder, lineWidth: 1))
                     .clipShape(Capsule())
 
+                    // The chip anchors the trailing edge now that the menu is
+                    // gone. Leaving the slack at the end made the row stop at
+                    // 62% of a card whose divider and stat strip both run
+                    // full width, which read as a deleted control.
+                    Spacer(minLength: 12)
+
                     HStack(spacing: 5) {
                         Image(systemName: "mappin.circle.fill").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan)
                         Text(city)
@@ -5871,25 +5897,16 @@ private struct NativeHomeDashboardView: View {
                             .foregroundColor(NativeTheme.textPrimary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.65)
+                            .truncationMode(.tail)
                     }
-                    .frame(width: 72, height: 40)
+                    .padding(.horizontal, 12)
+                    .frame(height: 40)
+                    .fixedSize(horizontal: true, vertical: false)
                     .background(NativeTheme.cyan.opacity(0.16))
                     .overlay(Capsule().stroke(NativeTheme.cyan.opacity(0.42), lineWidth: 1))
                     .clipShape(Capsule())
-
-                    Button(action: openNativeProfile) {
-                        Image(systemName: "line.3.horizontal")
-                            .font(.system(size: 14, weight: .black))
-                            .foregroundColor(.white)
-                            .frame(width: 40, height: 40)
-                            .background(NativeTheme.purple)
-                            .overlay(Circle().stroke(Color.white.opacity(0.20), lineWidth: 1))
-                            .clipShape(Circle())
-                            .shadow(color: NativeTheme.purple.opacity(0.45), radius: 6, x: 0, y: 3)
-                    }
-                    .accessibilityLabel("Open menu")
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16).padding(.vertical, 8)
                 if let presence = presenceSummary.chipLabel {
                     // Given its own row: the count states scope and window, and
@@ -5909,21 +5926,32 @@ private struct NativeHomeDashboardView: View {
                     .accessibilityIdentifier("native-home-presence-row")
                 }
                 Rectangle().fill(NativePolish.softBorder).frame(height: 1)
-                // A short strip is centred as a group: stretching two items to
-                // full width leaves dead space that reads as missing content.
-                HStack(spacing: headerStats.count < NativeHomeRegionPresentation.headerStatSlots ? 14 : 0) {
+                // Centred as a group with equal air either side of each
+                // divider, so the strip reads evenly whether it carries two
+                // items or three.
+                HStack(spacing: 0) {
                     ForEach(Array(headerStats.enumerated()), id: \.element.id) { index, stat in
                         if index > 0 {
+                            // 8 rather than 10: the floor was binding at
+                            // allocation, so the coverage label scaled to 0.90
+                            // and the gaps only looked roomy afterwards. The
+                            // freed width goes to the text, not back to the
+                            // spacers, because the items hold priority.
+                            Spacer(minLength: 8)
                             Rectangle().fill(NativePolish.softBorder).frame(width: 1, height: 18)
+                            Spacer(minLength: 8)
                         }
                         statStripItem(
                             icon: stat.icon,
                             iconColor: tint(stat.tint),
                             value: stat.value,
-                            label: stat.label,
-                            valueColor: tint(stat.tint),
-                            fillsWidth: headerStats.count == NativeHomeRegionPresentation.headerStatSlots
+                            label: stat.label
                         )
+                        // Items are served before the gaps. Without this the
+                        // spacers take their share first and the labels pay
+                        // for it by scaling, so the same words rendered
+                        // smaller in a three-item strip than in a two-item one.
+                        .layoutPriority(1)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -5956,28 +5984,33 @@ private struct NativeHomeDashboardView: View {
         }
     }
 
-    private func statStripItem(icon: String, iconColor: Color, value: String?, label: String, valueColor: Color = NativeTheme.textPrimary, fillsWidth: Bool = true) -> some View {
-        let wraps = label == "spots nearby" || label == "Typical, not guessed"
-        let displayLabel = label == "spots nearby" ? "spots\nnearby" : label == "Typical, not guessed" ? "Typical,\nnot guessed" : label
-        return HStack(spacing: 4) {
-            Image(systemName: icon).font(.system(size: 10, weight: .black)).foregroundColor(iconColor).frame(width: 12)
+    /// Items size to their own text. Equal thirds crowded a long label against
+    /// its divider while leaving the short one adrift, and forced a wrap on one
+    /// item so the three sat at different heights in a 28pt row.
+    /// One colour role per element: the icon carries the accent, the number is
+    /// primary text, the label is secondary. Tinting the numbers too made the
+    /// strip read as three competing colours rather than three facts.
+    private func statStripItem(icon: String, iconColor: Color, value: String?, label: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 10.5, weight: .bold)).foregroundColor(iconColor).frame(width: 13)
             if let v = value {
                 Text(v)
-                    .font(.system(size: 13, weight: .black, design: .rounded))
+                    .font(.system(size: 13.5, weight: .black, design: .rounded))
                     .monospacedDigit()
-                    .foregroundColor(valueColor)
+                    .foregroundColor(NativeTheme.textPrimary)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
-            Text(displayLabel)
-                .font(.system(size: wraps ? 10.5 : 11.5, weight: .bold, design: .rounded))
-                .foregroundColor(value == nil ? valueColor : NativeTheme.textSecondary)
-                .lineLimit(wraps ? 2 : 1)
-                .lineSpacing(-1)
+            Text(label)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundColor(NativeTheme.textSecondary)
+                .lineLimit(1)
                 .minimumScaleFactor(0.72)
+                // Compressible on purpose: items that refuse to shrink make
+                // the card size to its content and drag the page column with
+                // it when a third stat appears.
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: fillsWidth ? .infinity : nil)
         .frame(height: 28)
     }
 
@@ -7207,10 +7240,16 @@ struct NativeManualCheckInRecord: Codable, Equatable, Identifiable {
     var syncStatusBadge: String { isSynced ? "SYNCED" : "PENDING SYNC" }
     var syncStatusLabel: String { isSynced ? "Synced" : "Pending API sync" }
     var displayTimeLabel: String { Self.displayTime(from: createdAt) }
-    var profileMetaLine: String { "+\(pointsAwarded) pending points · \(trustLabel) · \(displayTimeLabel)" }
+    /// A check-in with no location proof earns nothing, so it must not promise
+    /// points it will never be paid. It is still the member's own record.
+    var pointsLine: String { pointsAwarded > 0 ? "+\(pointsAwarded) pending points" : "No points · unverified" }
+    var profileMetaLine: String { "\(pointsLine) · \(trustLabel) · \(displayTimeLabel)" }
 
-    static func manual(venue: NativeVenueSummary, idempotencyKey: String, date: Date = Date(), syncStatus: String = "pending_sync") -> Self {
-        Self(id: "manual-\(Int(date.timeIntervalSince1970))-\(venue.id)", venueID: venue.id, venueName: venue.name, address: venue.address, category: venue.discoverType, createdAt: ISO8601DateFormatter().string(from: date), idempotencyKey: idempotencyKey, trustLabel: "Manual signal", pointsAwarded: NativeManualCheckInStore.manualPointAward, syncStatus: syncStatus)
+    /// `atVenue` has no default on purpose: points are the thing people will
+    /// try to farm, so a caller that has not thought about proof must fail the
+    /// build rather than quietly record a check-in worth nothing.
+    static func manual(venue: NativeVenueSummary, idempotencyKey: String, date: Date = Date(), syncStatus: String = "pending_sync", atVenue: Bool) -> Self {
+        Self(id: "manual-\(Int(date.timeIntervalSince1970))-\(venue.id)", venueID: venue.id, venueName: venue.name, address: venue.address, category: venue.discoverType, createdAt: ISO8601DateFormatter().string(from: date), idempotencyKey: idempotencyKey, trustLabel: atVenue ? "Location checked" : "Self-reported", pointsAwarded: atVenue ? NativeManualCheckInStore.manualPointAward : 0, syncStatus: syncStatus)
     }
 
     func markingSynced() -> Self {
@@ -7278,9 +7317,9 @@ enum NativeManualCheckInStore {
 
     static func latest(scope: NativeManualCheckInScope) -> NativeManualCheckInRecord? { all(scope: scope).first }
 
-    static func record(venue: NativeVenueSummary, idempotencyKey: String, scope: NativeManualCheckInScope, date: Date = Date()) -> (NativeManualCheckInRecord, Bool) {
+    static func record(venue: NativeVenueSummary, idempotencyKey: String, scope: NativeManualCheckInScope, date: Date = Date(), atVenue: Bool) -> (NativeManualCheckInRecord, Bool) {
         if let recent = recentCheckIn(venueID: venue.id, scope: scope, now: date) { return (recent, false) }
-        let record = NativeManualCheckInRecord.manual(venue: venue, idempotencyKey: idempotencyKey, date: date)
+        let record = NativeManualCheckInRecord.manual(venue: venue, idempotencyKey: idempotencyKey, date: date, atVenue: atVenue)
         guard scope.storageKey != nil else { return (record, false) }
         upsert(record, scope: scope)
         return (record, true)
@@ -10520,14 +10559,16 @@ private struct NativeDiscoverView: View {
         }
         let idempotencyKey = UUID().uuidString
         let syncContext = NativeManualCheckInSyncContext.authenticated(token: sessionStore.token)
-        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey, scope: syncContext.scope)
-        discoverStatusMessage = created ? "Checked in at \(venue.name) · +\(record.pointsAwarded) pending points." : "Already checked in recently at \(venue.name)."
+        let fix = NativeLocationStore.coordinateForCheckIn(location: locationStore.lastLocation)
+        let atVenue = NativeVenueDetailPresentation.isAtVenue(fix, venue: venue)
+        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey, scope: syncContext.scope, atVenue: atVenue)
+        discoverStatusMessage = created ? "Checked in at \(venue.name) · \(record.pointsLine)." : "Already checked in recently at \(venue.name)."
         guard created, syncContext.canSync else { return }
         Task { await syncManualCheckIn(record, context: syncContext) }
     }
 
     private func syncManualCheckIn(_ record: NativeManualCheckInRecord, context: NativeManualCheckInSyncContext) async {
-        let body = try? JSONSerialization.data(withJSONObject: ["json": ["venueId": record.venueID, "idempotencyKey": record.idempotencyKey]])
+        let body = try? JSONSerialization.data(withJSONObject: ["json": NativeVenueDetailContract.checkinInput(venueID: record.venueID, idempotencyKey: record.idempotencyKey, coordinate: NativeLocationStore.coordinateForCheckIn(location: locationStore.lastLocation))])
         let client = context.apiClient()
         guard let body, (try? await client.data(path: "/trpc/\(NativeVenueDetailContract.checkinEndpoint)", method: "POST", body: body)) != nil else { return }
         NativeManualCheckInStore.markSynced(id: record.id, scope: context.scope)
@@ -11242,6 +11283,7 @@ private extension Notification.Name {
 }
 
 private struct NativeVenueDetailView: View {
+    @EnvironmentObject private var locationStore: NativeLocationStore
     let venue: NativeVenueSummary
     let openHybrid: (BytspotHybridRoute) -> Void
     var openNativeTab: ((BytspotNativeTab) -> Void)? = nil
@@ -11770,22 +11812,26 @@ private struct NativeVenueDetailView: View {
         }
     }
 
+    private var checkInCoordinate: NativeLocationCoordinate? {
+        NativeLocationStore.coordinateForCheckIn(location: locationStore.lastLocation)
+    }
+
     private func submitCheckIn() async {
         guard !didCheckIn else { statusMessage = "Already checked in recently at \(venue.name)."; return }
         guard sessionStore.isAuthenticated else { statusMessage = "Sign in to keep manual check-ins, pending points, and Places I've Been."; openNativeAuth?(); return }
         didCheckIn = true
         let idempotencyKey = UUID().uuidString
         let syncContext = NativeManualCheckInSyncContext.authenticated(token: sessionStore.token)
-        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey, scope: syncContext.scope)
-        statusMessage = created ? "Manual check-in saved · +\(record.pointsAwarded) pending points." : "Already checked in recently at \(venue.name)."
+        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey, scope: syncContext.scope, atVenue: NativeVenueDetailPresentation.isAtVenue(checkInCoordinate, venue: venue))
+        statusMessage = created ? "Manual check-in saved · \(record.pointsLine)." : "Already checked in recently at \(venue.name)."
         guard created, syncContext.canSync else { return }
-        guard let body = try? JSONSerialization.data(withJSONObject: ["json": ["venueId": venue.id, "idempotencyKey": idempotencyKey]]) else { return }
+        guard let body = try? JSONSerialization.data(withJSONObject: ["json": NativeVenueDetailContract.checkinInput(venueID: venue.id, idempotencyKey: idempotencyKey, coordinate: checkInCoordinate)]) else { return }
         let client = syncContext.apiClient()
         if (try? await client.data(path: "/trpc/\(NativeVenueDetailContract.checkinEndpoint)", method: "POST", body: body)) != nil {
             NativeManualCheckInStore.markSynced(id: record.id, scope: syncContext.scope)
             await MainActor.run {
                 if NativeManualCheckInScope.authenticated(token: sessionStore.token) == syncContext.scope {
-                    statusMessage = "Check-in synced · +\(record.pointsAwarded) points saved."
+                    statusMessage = "Check-in synced · \(record.pointsLine)."
                 }
             }
         }

@@ -28,6 +28,9 @@ struct NativeCorridorDoor: Equatable, Identifiable {
 enum NativeAtlantaCorridor {
     static let kitDoorCount = 10
     static let catalogDoorCount = 40
+    /// The town the catalog covers. Named in the header wherever it is read,
+    /// because coverage is a fact about the catalog, not about the member.
+    static let catalogTownName = "Midtown"
 
     private static func stall(_ name: String, _ walkMinutes: Int, paid: Bool = true) -> NativeStallInput {
         NativeStallInput(name: name, source: .fallback, walkMinutes: walkMinutes, paid: paid)

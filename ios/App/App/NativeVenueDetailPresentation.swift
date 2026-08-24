@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 
 struct NativeVenueDetailAction: Identifiable, Equatable {
@@ -19,6 +20,18 @@ enum NativeVenueDetailContract {
     static let surfaceCapability: BytspotTrustCapability = .viewVenue
     static let checkinEndpoint = "venues.checkin"
     static let checkinIdempotent = true
+
+    /// The coordinate is what turns a tap into evidence: the server fences it
+    /// against the venue and pays points only inside. A fallback coordinate is
+    /// never passed here — it would claim a member is somewhere they are not.
+    static func checkinInput(venueID: String, idempotencyKey: String, coordinate: NativeLocationCoordinate?) -> [String: Any] {
+        var input: [String: Any] = ["venueId": venueID, "idempotencyKey": idempotencyKey]
+        if let coordinate, !coordinate.isFallback {
+            input["lat"] = coordinate.latitude
+            input["lng"] = coordinate.longitude
+        }
+        return input
+    }
     static let actions: [NativeVenueDetailAction] = [
         NativeVenueDetailAction(id: "navigate", title: "Navigate", systemImage: "arrow.triangle.turn.up.right.circle.fill", kind: .device),
         NativeVenueDetailAction(id: "call", title: "Call", systemImage: "phone.fill", kind: .device),
@@ -33,6 +46,16 @@ enum NativeVenueDetailContract {
 }
 
 enum NativeVenueDetailPresentation {
+    /// Mirrors the server fence so the copy can be honest before the round
+    /// trip. The server decides — this only governs what we promise.
+    static let fenceMetres: Double = 250
+
+    static func isAtVenue(_ coordinate: NativeLocationCoordinate?, venue: NativeVenueSummary) -> Bool {
+        guard let coordinate, !coordinate.isFallback else { return false }
+        let device = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        return device.distance(from: CLLocation(latitude: venue.latitude, longitude: venue.longitude)) <= fenceMetres
+    }
+
     static func supportsManualCheckIn(_ venue: NativeVenueSummary) -> Bool {
         if venue.id.hasPrefix("suggestion-") { return false }
         if isBoutiqueApartmentVenue(venue) || isMobilityVenue(venue) || isServiceVenue(venue) { return false }

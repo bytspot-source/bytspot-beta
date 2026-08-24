@@ -1523,23 +1523,30 @@ enum NativeLiveContentV2Contract {
     static let phase1Providers = ["apple_sign_in", "mapkit_corelocation", "google_places", "google_routes", "open_meteo", "ticketmaster"]
 }
 
-/// Home header presence. `scope` decides the copy: circle counts are Evidenced,
-/// global counts are withheld below the server's floor, and `none` renders no
-/// number at all rather than a small one dressed up.
+/// Home header presence. The count is everyone active in the window, not the
+/// people a member knows: global counts are withheld below the server's floor
+/// and fall back to accounts, and `none` renders no number at all rather than a
+/// small one dressed up.
 struct NativePresenceSummary: Codable, Equatable {
     let scope: String
     let count: Int?
     let windowMs: Int?
+    /// Named only where the server has a catalog for the cell. Elsewhere the
+    /// count is real and the place is not ours to name.
+    var area: String?
 
-    static let none = NativePresenceSummary(scope: "none", count: nil, windowMs: nil)
+    static let none = NativePresenceSummary(scope: "none", count: nil, windowMs: nil, area: nil)
 
     /// Copy must state scope and window; a bare number implies a density that
     /// has not been measured.
     var chipLabel: String? {
         guard let count, count > 0 else { return nil }
         switch scope {
-        case "circle": return count == 1 ? "1 in your circle out" : "\(count) in your circle out"
-        case "global": return "\(count) active this hour"
+        // The window is a day and the scope is the cell the member is in, so
+        // the copy says both. A bare number invites the reader to supply a
+        // scope of their own, which is how "active" becomes "active here now".
+        case "area": return "\(count) in \(area ?? "your area") today"
+        case "members": return count == 1 ? "1 member" : "\(count) members"
         default: return nil
         }
     }
@@ -1846,8 +1853,18 @@ struct NativeProfileDataAPI {
         _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.socialInvitesCancelRoute, method: "POST", input: ["inviteId": id, "surface": "network"])
     }
 
-    func presenceSummaryViaRpc() async throws -> NativePresenceSummary {
-        try await client.trpcDecode(NativePresenceSummary.self, path: NativeLiveContentV2Contract.userPresenceSummaryRoute)
+    /// Coordinates are sent only for a real fix: a fallback coordinate would
+    /// write a member into a cell they are not standing in, which inflates the
+    /// one area we can name.
+    func presenceSummaryViaRpc(at coordinate: NativeLocationCoordinate?) async throws -> NativePresenceSummary {
+        let route = NativeLiveContentV2Contract.userPresenceSummaryRoute
+        let payload: Any
+        if let fix = coordinate {
+            payload = try await client.trpcQueryPayload(path: route, input: fix.apiPoint())
+        } else {
+            payload = try await client.trpcPayload(path: route)
+        }
+        return try JSONDecoder().decode(NativePresenceSummary.self, from: JSONSerialization.data(withJSONObject: payload))
     }
 
     func peopleMetStatusViaRpc(partyID: String) async throws -> Bool {

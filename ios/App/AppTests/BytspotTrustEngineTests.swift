@@ -1954,9 +1954,9 @@ final class NativeProfileDataAPITests: XCTestCase {
     }
 
     func testHomeHeaderPresenceStatesItsScopeAndWithholdsWhatItCannotKnow() {
-        // Circle counts are Evidenced and name the scope.
-        XCTAssertEqual(NativePresenceSummary(scope: "circle", count: 3, windowMs: nil).chipLabel, "3 in your circle out")
-        XCTAssertEqual(NativePresenceSummary(scope: "circle", count: 1, windowMs: nil).chipLabel, "1 in your circle out")
+        // The home count is the whole app, so who a member knows never renders
+        // here; that belongs on their profile next to connections.
+        XCTAssertNil(NativePresenceSummary(scope: "circle", count: 3, windowMs: nil).chipLabel)
         // Global counts must state the window rather than imply live density.
         XCTAssertEqual(NativePresenceSummary(scope: "global", count: 42, windowMs: 3_600_000).chipLabel, "42 active this hour")
         // Withheld and zero both render nothing; the header falls back instead.

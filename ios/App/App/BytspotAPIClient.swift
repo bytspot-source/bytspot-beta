@@ -1538,7 +1538,6 @@ struct NativePresenceSummary: Codable, Equatable {
     var chipLabel: String? {
         guard let count, count > 0 else { return nil }
         switch scope {
-        case "circle": return count == 1 ? "1 in your circle out" : "\(count) in your circle out"
         case "global": return "\(count) active this hour"
         default: return nil
         }

@@ -5876,6 +5876,12 @@ private struct NativeHomeDashboardView: View {
                     .overlay(Capsule().stroke(NativePolish.softBorder, lineWidth: 1))
                     .clipShape(Capsule())
 
+                    // The chip anchors the trailing edge now that the menu is
+                    // gone. Leaving the slack at the end made the row stop at
+                    // 62% of a card whose divider and stat strip both run
+                    // full width, which read as a deleted control.
+                    Spacer(minLength: 12)
+
                     HStack(spacing: 5) {
                         Image(systemName: "mappin.circle.fill").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan)
                         Text(city)
@@ -5891,10 +5897,6 @@ private struct NativeHomeDashboardView: View {
                     .background(NativeTheme.cyan.opacity(0.16))
                     .overlay(Capsule().stroke(NativeTheme.cyan.opacity(0.42), lineWidth: 1))
                     .clipShape(Capsule())
-
-                    // The row is context only. Account lives on the other
-                    // tabs, so the header carries no control of its own.
-                    Spacer(minLength: 8)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16).padding(.vertical, 8)
@@ -5982,7 +5984,10 @@ private struct NativeHomeDashboardView: View {
                     .fixedSize(horizontal: true, vertical: false)
             }
             Text(label)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                // 10.5 rather than 11: at 11 the full strip had 4pt of slack
+                // and scaled the coverage label to ~90%, so the same words
+                // rendered visibly smaller here than in a two-item strip.
+                .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                 .foregroundColor(NativeTheme.textSecondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)

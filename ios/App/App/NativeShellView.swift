@@ -5559,7 +5559,10 @@ enum NativeHomeRegionPresentation {
     static func headerStats(venues: [NativeVenueSummary], discoverCardCount: Int, location: NativeLocationCoordinate) -> [HeaderStat] {
         var stats: [HeaderStat] = []
         if let inventory = headerInventoryStat(for: venues) {
-            stats.append(HeaderStat(id: "inventory", icon: "circle.fill", value: inventory.value, label: inventory.label, tint: .emerald))
+            // The glyph names the unit: parking spots and places are different
+            // things and a plain dot said neither.
+            let icon = inventory.label == "spots nearby" ? "parkingsign" : "building.2.fill"
+            stats.append(HeaderStat(id: "inventory", icon: icon, value: inventory.value, label: inventory.label, tint: .emerald))
         }
         if discoverCardCount > 0 {
             stats.append(HeaderStat(id: "for-you", icon: "bolt.fill", value: "\(discoverCardCount)", label: "for you", tint: .purple))
@@ -5941,8 +5944,7 @@ private struct NativeHomeDashboardView: View {
                             icon: stat.icon,
                             iconColor: tint(stat.tint),
                             value: stat.value,
-                            label: stat.label,
-                            valueColor: tint(stat.tint)
+                            label: stat.label
                         )
                     }
                 }
@@ -5979,20 +5981,23 @@ private struct NativeHomeDashboardView: View {
     /// Items size to their own text. Equal thirds crowded a long label against
     /// its divider while leaving the short one adrift, and forced a wrap on one
     /// item so the three sat at different heights in a 28pt row.
-    private func statStripItem(icon: String, iconColor: Color, value: String?, label: String, valueColor: Color = NativeTheme.textPrimary) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon).font(.system(size: 10, weight: .black)).foregroundColor(iconColor).frame(width: 12)
+    /// One colour role per element: the icon carries the accent, the number is
+    /// primary text, the label is secondary. Tinting the numbers too made the
+    /// strip read as three competing colours rather than three facts.
+    private func statStripItem(icon: String, iconColor: Color, value: String?, label: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 10.5, weight: .bold)).foregroundColor(iconColor).frame(width: 13)
             if let v = value {
                 Text(v)
-                    .font(.system(size: 13, weight: .black, design: .rounded))
+                    .font(.system(size: 13.5, weight: .black, design: .rounded))
                     .monospacedDigit()
-                    .foregroundColor(valueColor)
+                    .foregroundColor(NativeTheme.textPrimary)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
             Text(label)
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundColor(value == nil ? valueColor : NativeTheme.textSecondary)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundColor(NativeTheme.textSecondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
                 // Compressible on purpose: items that refuse to shrink make

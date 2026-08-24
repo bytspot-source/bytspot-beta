@@ -1957,8 +1957,13 @@ final class NativeProfileDataAPITests: XCTestCase {
         // The home count is the whole app, so who a member knows never renders
         // here; that belongs on their profile next to connections.
         XCTAssertNil(NativePresenceSummary(scope: "circle", count: 3, windowMs: nil).chipLabel)
-        // Global counts must state the window rather than imply live density.
-        XCTAssertEqual(NativePresenceSummary(scope: "global", count: 42, windowMs: 3_600_000).chipLabel, "42 active this hour")
+        // Global counts must state the window and the scope rather than imply
+        // a local density: the count spans time zones and the header does not.
+        XCTAssertEqual(NativePresenceSummary(scope: "global", count: 42, windowMs: 3_600_000).chipLabel, "42 active worldwide this hour")
+        // Accounts are a different claim and say so.
+        XCTAssertEqual(NativePresenceSummary(scope: "members", count: 64, windowMs: nil).chipLabel, "64 members")
+        XCTAssertEqual(NativePresenceSummary(scope: "members", count: 1, windowMs: nil).chipLabel, "1 member")
+        XCTAssertNil(NativePresenceSummary(scope: "members", count: 0, windowMs: nil).chipLabel)
         // Withheld and zero both render nothing; the header falls back instead.
         XCTAssertNil(NativePresenceSummary.none.chipLabel)
         XCTAssertNil(NativePresenceSummary(scope: "global", count: 0, windowMs: 3_600_000).chipLabel)

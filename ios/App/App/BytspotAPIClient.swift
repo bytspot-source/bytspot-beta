@@ -1523,9 +1523,10 @@ enum NativeLiveContentV2Contract {
     static let phase1Providers = ["apple_sign_in", "mapkit_corelocation", "google_places", "google_routes", "open_meteo", "ticketmaster"]
 }
 
-/// Home header presence. `scope` decides the copy: circle counts are Evidenced,
-/// global counts are withheld below the server's floor, and `none` renders no
-/// number at all rather than a small one dressed up.
+/// Home header presence. The count is everyone active in the window, not the
+/// people a member knows: global counts are withheld below the server's floor
+/// and fall back to accounts, and `none` renders no number at all rather than a
+/// small one dressed up.
 struct NativePresenceSummary: Codable, Equatable {
     let scope: String
     let count: Int?
@@ -1538,7 +1539,11 @@ struct NativePresenceSummary: Codable, Equatable {
     var chipLabel: String? {
         guard let count, count > 0 else { return nil }
         switch scope {
-        case "global": return "\(count) active this hour"
+        // "Worldwide" because that is the scope measured. Without it a member
+        // reads the number against the places beneath it and infers a local
+        // density nobody counted - the same inference "Live" invites.
+        case "global": return "\(count) active worldwide this hour"
+        case "members": return count == 1 ? "1 member" : "\(count) members"
         default: return nil
         }
     }

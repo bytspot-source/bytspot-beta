@@ -2784,6 +2784,10 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         let loaded = NativeHomeRegionPresentation.headerStats(venues: [measured], discoverCardCount: 4, location: .verifiedMidtown)
         XCTAssertEqual(loaded.map(\.id), ["inventory", "for-you", "coverage"])
         XCTAssertEqual(loaded.count, NativeHomeRegionPresentation.headerStatSlots)
+        // A full strip drops "nearby" rather than clipping it to "spots near…".
+        XCTAssertEqual(loaded.first { $0.id == "inventory" }?.label, "spots")
+        let twoUp = NativeHomeRegionPresentation.headerStats(venues: [measured], discoverCardCount: 0, location: .verifiedMidtown)
+        XCTAssertEqual(twoUp.first { $0.id == "inventory" }?.label, "spots nearby")
 
         let fallbackWeather = NativeHomeCopyContract.weatherPresentation(for: .fallback)
         XCTAssertEqual(fallbackWeather.headline, "Weather update unavailable")

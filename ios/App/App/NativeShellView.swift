@@ -5574,7 +5574,14 @@ enum NativeHomeRegionPresentation {
         // "Doors" is internal vocabulary and means nothing to a member.
         stats.append(HeaderStat(id: "coverage", icon: "mappin.and.ellipse", value: "\(NativeAtlantaCorridor.catalogDoorCount)", label: isAtlanta(location) ? "places mapped" : "places · Midtown", tint: .cyan))
         stats.append(HeaderStat(id: "provenance", icon: "checkmark.seal.fill", value: nil, label: "Typical, not guessed", tint: .cyan))
-        return Array(stats.prefix(headerStatSlots))
+        var shown = Array(stats.prefix(headerStatSlots))
+        // A full strip has no room for "nearby", which rendered as "spots
+        // near…". The glyph and the scoped coverage stat beside it already
+        // carry that meaning, so the word is dropped rather than clipped.
+        if shown.count == headerStatSlots, let first = shown.first, first.id == "inventory" {
+            shown[0] = HeaderStat(id: first.id, icon: first.icon, value: first.value, label: first.label.replacingOccurrences(of: " nearby", with: ""), tint: first.tint)
+        }
+        return shown
     }
 
     static func launchTitle(intent: String, location: NativeLocationCoordinate) -> String {

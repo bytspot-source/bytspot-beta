@@ -5525,14 +5525,16 @@ enum NativeHomeRegionPresentation {
     }
 
     /// Nil when nothing is loaded yet: an empty venue list means unknown, not
-    /// zero, and "0 local places" states an emptiness we have not measured.
+    /// zero, and "0 places nearby" states an emptiness we have not measured.
     static func headerInventoryStat(for venues: [NativeVenueSummary]) -> (value: String, label: String)? {
         let explicitAvailableSpots = venues.reduce(0) { total, venue in
             total + max(venue.parking.totalAvailable, 0)
         }
         if explicitAvailableSpots > 0 { return ("\(explicitAvailableSpots)", "spots nearby") }
         guard !venues.isEmpty else { return nil }
-        return ("\(venues.count)", venues.count == 1 ? "local place" : "local places")
+        // "Nearby" distinguishes what is around the member from the catalog
+        // count beside it, which is scoped to Midtown.
+        return ("\(venues.count)", venues.count == 1 ? "place nearby" : "places nearby")
     }
 
     struct HeaderStat: Equatable {
@@ -5562,11 +5564,12 @@ enum NativeHomeRegionPresentation {
         if discoverCardCount > 0 {
             stats.append(HeaderStat(id: "for-you", icon: "bolt.fill", value: "\(discoverCardCount)", label: "for you", tint: .purple))
         }
-        // Scoped rather than gated on location: "doors in Midtown" is a claim
+        // Scoped rather than gated on location: "places in Midtown" is a claim
         // about the catalog, true wherever it is read, so first launch gets a
-        // real number before any permission is granted. An unscoped "doors
+        // real number before any permission is granted. An unscoped "places
         // mapped" would be the lie, since elsewhere we have mapped nothing.
-        stats.append(HeaderStat(id: "coverage", icon: "mappin.and.ellipse", value: "\(NativeAtlantaCorridor.catalogDoorCount)", label: isAtlanta(location) ? "doors mapped" : "doors · Midtown", tint: .cyan))
+        // "Doors" is internal vocabulary and means nothing to a member.
+        stats.append(HeaderStat(id: "coverage", icon: "mappin.and.ellipse", value: "\(NativeAtlantaCorridor.catalogDoorCount)", label: isAtlanta(location) ? "places mapped" : "places · Midtown", tint: .cyan))
         stats.append(HeaderStat(id: "provenance", icon: "checkmark.seal.fill", value: nil, label: "Typical, not guessed", tint: .cyan))
         return Array(stats.prefix(headerStatSlots))
     }

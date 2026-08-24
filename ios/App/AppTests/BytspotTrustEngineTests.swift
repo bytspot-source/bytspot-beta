@@ -2757,7 +2757,7 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeHomeRegionPresentation.nearbySubtitle(for: unproven), "100 Neutral St")
         XCTAssertEqual(NativeHomeRegionPresentation.nearbySubtitle(for: proven), "18 spots · Open")
         XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [unproven])?.value, "1")
-        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [unproven])?.label, "local place")
+        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [unproven])?.label, "place nearby")
         XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [proven])?.value, "18")
         XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [proven])?.label, "spots nearby")
         // Nothing loaded is unknown, not zero.
@@ -2770,14 +2770,14 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertFalse(empty.contains { ($0.value ?? "").hasPrefix("0") }, "A header stat rendered an unmeasured zero: \(empty)")
         XCTAssertEqual(empty.map(\.id), ["coverage", "provenance"])
         XCTAssertEqual(empty.first { $0.id == "coverage" }?.value, "\(NativeAtlantaCorridor.catalogDoorCount)")
-        XCTAssertEqual(empty.first { $0.id == "coverage" }?.label, "doors mapped")
+        XCTAssertEqual(empty.first { $0.id == "coverage" }?.label, "places mapped")
         XCTAssertEqual(empty.first { $0.id == "provenance" }?.label, "Typical, not guessed")
 
         // Coverage still shows before any location fix, scoped so the claim
         // stays true away from the corridor rather than gated into silence.
         let awayFromCatalog = NativeHomeRegionPresentation.headerStats(venues: [], discoverCardCount: 0, location: NativeLocationCoordinate(latitude: 40.7128, longitude: -74.0060, isFallback: false))
         XCTAssertEqual(awayFromCatalog.map(\.id), ["coverage", "provenance"])
-        XCTAssertEqual(awayFromCatalog.first { $0.id == "coverage" }?.label, "doors · Midtown")
+        XCTAssertEqual(awayFromCatalog.first { $0.id == "coverage" }?.label, "places · Midtown")
 
         // Measured counts take the slots back once they exist.
         let measured = NativeVenueSummary(id: "proven", name: "Proven Venue", category: "parking", address: "200 Live St", distance: "0.3 mi", rating: nil, latitude: 33.7866, longitude: -84.3831, crowd: NativeCrowdSummary(level: 1, label: "Open", waitMins: 0), parking: NativeParkingSummary(totalAvailable: 18, priceLabel: "$6/hr"), verifiedPatchId: nil, imageUrl: nil)

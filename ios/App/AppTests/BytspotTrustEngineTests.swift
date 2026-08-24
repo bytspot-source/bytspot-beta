@@ -2757,9 +2757,9 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeHomeRegionPresentation.nearbySubtitle(for: unproven), "100 Neutral St")
         XCTAssertEqual(NativeHomeRegionPresentation.nearbySubtitle(for: proven), "18 spots · Open")
         XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [unproven])?.value, "1")
-        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [unproven])?.label, "place nearby")
+        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [unproven])?.label, "place")
         XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [proven])?.value, "18")
-        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [proven])?.label, "spots nearby")
+        XCTAssertEqual(NativeHomeRegionPresentation.headerInventoryStat(for: [proven])?.label, "spots")
         // Nothing loaded is unknown, not zero.
         XCTAssertNil(NativeHomeRegionPresentation.headerInventoryStat(for: []))
     }
@@ -2784,10 +2784,12 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         let loaded = NativeHomeRegionPresentation.headerStats(venues: [measured], discoverCardCount: 4, location: .verifiedMidtown)
         XCTAssertEqual(loaded.map(\.id), ["inventory", "for-you", "coverage"])
         XCTAssertEqual(loaded.count, NativeHomeRegionPresentation.headerStatSlots)
-        // A full strip drops "nearby" rather than clipping it to "spots near…".
+        // Measured: the strip is always full when inventory shows, and it has
+        // 4.7pt of slack — not the ~20pt " nearby" needs.
         XCTAssertEqual(loaded.first { $0.id == "inventory" }?.label, "spots")
-        let twoUp = NativeHomeRegionPresentation.headerStats(venues: [measured], discoverCardCount: 0, location: .verifiedMidtown)
-        XCTAssertEqual(twoUp.first { $0.id == "inventory" }?.label, "spots nearby")
+        let noDiscoverCards = NativeHomeRegionPresentation.headerStats(venues: [measured], discoverCardCount: 0, location: .verifiedMidtown)
+        XCTAssertEqual(noDiscoverCards.count, NativeHomeRegionPresentation.headerStatSlots)
+        XCTAssertEqual(noDiscoverCards.first { $0.id == "inventory" }?.label, "spots")
 
         let fallbackWeather = NativeHomeCopyContract.weatherPresentation(for: .fallback)
         XCTAssertEqual(fallbackWeather.headline, "Weather update unavailable")

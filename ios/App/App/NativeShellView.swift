@@ -5525,16 +5525,18 @@ enum NativeHomeRegionPresentation {
     }
 
     /// Nil when nothing is loaded yet: an empty venue list means unknown, not
-    /// zero, and "0 places nearby" states an emptiness we have not measured.
+    /// zero, and "0 places" states an emptiness we have not measured.
     static func headerInventoryStat(for venues: [NativeVenueSummary]) -> (value: String, label: String)? {
         let explicitAvailableSpots = venues.reduce(0) { total, venue in
             total + max(venue.parking.totalAvailable, 0)
         }
-        if explicitAvailableSpots > 0 { return ("\(explicitAvailableSpots)", "spots nearby") }
+        // No "nearby": inventory only ever appears alongside coverage and
+        // provenance, so the strip is always full when it shows, and the
+        // measured slack is 4.7pt against the ~20pt the word needs. It read as
+        // "spots near…" and squeezed the coverage label out of full size.
+        if explicitAvailableSpots > 0 { return ("\(explicitAvailableSpots)", "spots") }
         guard !venues.isEmpty else { return nil }
-        // "Nearby" distinguishes what is around the member from the catalog
-        // count beside it, which is scoped to Midtown.
-        return ("\(venues.count)", venues.count == 1 ? "place nearby" : "places nearby")
+        return ("\(venues.count)", venues.count == 1 ? "place" : "places")
     }
 
     struct HeaderStat: Equatable {
@@ -5561,7 +5563,7 @@ enum NativeHomeRegionPresentation {
         if let inventory = headerInventoryStat(for: venues) {
             // The glyph names the unit: parking spots and places are different
             // things and a plain dot said neither.
-            let icon = inventory.label == "spots nearby" ? "parkingsign" : "building.2.fill"
+            let icon = inventory.label == "spots" ? "parkingsign" : "building.2.fill"
             stats.append(HeaderStat(id: "inventory", icon: icon, value: inventory.value, label: inventory.label, tint: .emerald))
         }
         if discoverCardCount > 0 {
@@ -5574,14 +5576,7 @@ enum NativeHomeRegionPresentation {
         // "Doors" is internal vocabulary and means nothing to a member.
         stats.append(HeaderStat(id: "coverage", icon: "mappin.and.ellipse", value: "\(NativeAtlantaCorridor.catalogDoorCount)", label: isAtlanta(location) ? "places mapped" : "places · Midtown", tint: .cyan))
         stats.append(HeaderStat(id: "provenance", icon: "checkmark.seal.fill", value: nil, label: "Typical, not guessed", tint: .cyan))
-        var shown = Array(stats.prefix(headerStatSlots))
-        // A full strip has no room for "nearby", which rendered as "spots
-        // near…". The glyph and the scoped coverage stat beside it already
-        // carry that meaning, so the word is dropped rather than clipped.
-        if shown.count == headerStatSlots, let first = shown.first, first.id == "inventory" {
-            shown[0] = HeaderStat(id: first.id, icon: first.icon, value: first.value, label: first.label.replacingOccurrences(of: " nearby", with: ""), tint: first.tint)
-        }
-        return shown
+        return Array(stats.prefix(headerStatSlots))
     }
 
     static func launchTitle(intent: String, location: NativeLocationCoordinate) -> String {

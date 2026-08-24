@@ -2770,11 +2770,11 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertFalse(empty.contains { ($0.value ?? "").hasPrefix("0") }, "A header stat rendered an unmeasured zero: \(empty)")
         XCTAssertEqual(empty.map(\.id), ["coverage", "provenance"])
         XCTAssertEqual(empty.first { $0.id == "coverage" }?.value, "\(NativeAtlantaCorridor.catalogDoorCount)")
-        XCTAssertEqual(empty.first { $0.id == "coverage" }?.label, "places mapped")
+        XCTAssertEqual(empty.first { $0.id == "coverage" }?.label, "places · Midtown")
         XCTAssertEqual(empty.first { $0.id == "provenance" }?.label, "Typical, not guessed")
 
-        // Coverage still shows before any location fix, scoped so the claim
-        // stays true away from the corridor rather than gated into silence.
+        // Coverage names the catalog town in both states: the label is a fact
+        // about the catalog, so it does not change when the member moves.
         let awayFromCatalog = NativeHomeRegionPresentation.headerStats(venues: [], discoverCardCount: 0, location: NativeLocationCoordinate(latitude: 40.7128, longitude: -74.0060, isFallback: false))
         XCTAssertEqual(awayFromCatalog.map(\.id), ["coverage", "provenance"])
         XCTAssertEqual(awayFromCatalog.first { $0.id == "coverage" }?.label, "places · Midtown")

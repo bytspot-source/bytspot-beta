@@ -340,7 +340,7 @@ struct BytspotNativeShellView: View {
                 Group {
                     switch selectedTab {
                     case .home:
-                        NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeProfile: openNativeProfile, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth)
+                        NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth)
                     case .discover:
                         NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
@@ -5569,12 +5569,11 @@ enum NativeHomeRegionPresentation {
         if discoverCardCount > 0 {
             stats.append(HeaderStat(id: "for-you", icon: "bolt.fill", value: "\(discoverCardCount)", label: "for you", tint: .purple))
         }
-        // Scoped rather than gated on location: "places in Midtown" is a claim
-        // about the catalog, true wherever it is read, so first launch gets a
-        // real number before any permission is granted. An unscoped "places
+        // Named in both states: the town is where the catalog is, not where
+        // the member is, so the claim stays true wherever it is read and reads
+        // the same either side of the corridor line. An unscoped "places
         // mapped" would be the lie, since elsewhere we have mapped nothing.
-        // "Doors" is internal vocabulary and means nothing to a member.
-        stats.append(HeaderStat(id: "coverage", icon: "mappin.and.ellipse", value: "\(NativeAtlantaCorridor.catalogDoorCount)", label: isAtlanta(location) ? "places mapped" : "places · Midtown", tint: .cyan))
+        stats.append(HeaderStat(id: "coverage", icon: "mappin.and.ellipse", value: "\(NativeAtlantaCorridor.catalogDoorCount)", label: "places · \(NativeAtlantaCorridor.catalogTownName)", tint: .cyan))
         stats.append(HeaderStat(id: "provenance", icon: "checkmark.seal.fill", value: nil, label: "Typical, not guessed", tint: .cyan))
         return Array(stats.prefix(headerStatSlots))
     }
@@ -5668,7 +5667,6 @@ private struct NativeHomeDashboardView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
     let openNativeTab: (BytspotNativeTab) -> Void
     let openDiscoverFilter: (String) -> Void
-    let openNativeProfile: () -> Void
     let openNativeAccess: () -> Void
     let openNativeAuth: (NativeAuthMode, NativePostAuthIntent?) -> Void
     @State private var searchText = ""
@@ -5894,23 +5892,9 @@ private struct NativeHomeDashboardView: View {
                     .overlay(Capsule().stroke(NativeTheme.cyan.opacity(0.42), lineWidth: 1))
                     .clipShape(Capsule())
 
-                    // The row spans the card: context reads from the leading
-                    // edge and the menu sits under the thumb at the trailing
-                    // edge, instead of three fixed-width controls huddling
-                    // mid-card with dead space at both ends.
+                    // The row is context only. Account lives on the other
+                    // tabs, so the header carries no control of its own.
                     Spacer(minLength: 8)
-
-                    Button(action: openNativeProfile) {
-                        Image(systemName: "line.3.horizontal")
-                            .font(.system(size: 14, weight: .black))
-                            .foregroundColor(.white)
-                            .frame(width: 40, height: 40)
-                            .background(NativeTheme.purple)
-                            .overlay(Circle().stroke(Color.white.opacity(0.20), lineWidth: 1))
-                            .clipShape(Circle())
-                            .shadow(color: NativeTheme.purple.opacity(0.45), radius: 6, x: 0, y: 3)
-                    }
-                    .accessibilityLabel("Open menu")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16).padding(.vertical, 8)

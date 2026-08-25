@@ -3169,7 +3169,7 @@ final class NativeMenuCheckoutTests: XCTestCase {
             XCTAssertTrue(crowdLabel.localizedCaseInsensitiveContains("Typical"), "Typical occupancy must still say so: \(crowdLabel)")
         }
         // A bare measure still gets the provenance prefix it needs.
-        let waiting = NativeCollapsePlan.collapse(
+        let waiting = NativeCollapseInstrument.collapse(
             hang: NativeHangInput(id: "door", name: "Door", vibeTokens: [], occupancySource: "typical", waitMins: 10, occupancyLevel: 2, lat: 33.78, lng: -84.38),
             stall: NativeStallInput(name: "Stall", source: .fallback, walkMinutes: 4, paid: true)
         )

@@ -17,6 +17,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         appWindow.makeKeyAndVisible()
         window = appWindow
         NativePushService.shared.configure(delegate: self)
+        BytspotDiagnostics.shared.start()
         publishLaunchOptions(launchOptions)
         return true
     }

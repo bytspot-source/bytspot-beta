@@ -6978,8 +6978,12 @@ private struct NativeHomeHeroCard: View {
         HStack(spacing: 8) {
             Button(action: primaryAction) { ctaLabel(primaryCTATitle, systemImage: primaryCTAIcon, foreground: .black, background: NativeTheme.cyan) }
                 .buttonStyle(.plain)
-            Button(action: secondaryAction) { ctaLabel(secondaryCTATitle, systemImage: "info.circle.fill", foreground: .white, background: Color.black.opacity(0.62)) }
-                .buttonStyle(.plain)
+            // When the primary already reads Details, a second Details button
+            // offers the same thing twice and hides which one is the plan.
+            if secondaryCTATitle.caseInsensitiveCompare(primaryCTATitle) != .orderedSame {
+                Button(action: secondaryAction) { ctaLabel(secondaryCTATitle, systemImage: "info.circle.fill", foreground: .white, background: Color.black.opacity(0.62)) }
+                    .buttonStyle(.plain)
+            }
         }
     }
 

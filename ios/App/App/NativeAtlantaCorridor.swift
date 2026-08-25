@@ -200,8 +200,14 @@ enum NativeAtlantaCorridor {
         )
     }
 
+    /// The provenance prefix exists because the label may be a bare measure
+    /// like "~10m wait". When the label already says Typical, repeating it
+    /// produces "Typical · Typical now" and reads as a rendering fault rather
+    /// than a provenance claim.
     static func crowdLabel(for plan: NativeCollapsePlan) -> String {
-        "Typical · \(plan.occupancy.label)"
+        let label = plan.occupancy.label
+        guard !label.localizedCaseInsensitiveContains("typical") else { return label }
+        return "Typical · \(label)"
     }
 
     static func primaryCTATitle(for plan: NativeCollapsePlan) -> String {

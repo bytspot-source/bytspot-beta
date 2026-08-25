@@ -10,7 +10,8 @@ const checks = [
   ['lint', 'npm run lint'],
   ['build', 'npm run build'],
   ['type-check', 'npm run type-check'],
-  ['e2e-ticketing', 'npm run test:e2e:ticketing'],
+  // Ticketing runs in the native app; the browser suite drove the retired PWA.
+  ['native-handoff-gate', 'npm run release:e2e:smoke'],
 ];
 
 const results = [];

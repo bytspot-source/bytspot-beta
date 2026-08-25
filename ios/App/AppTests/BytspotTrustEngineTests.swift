@@ -3162,8 +3162,18 @@ final class NativeMenuCheckoutTests: XCTestCase {
             XCTAssertEqual(plan.occupancy.kind, .typical)
             XCTAssertFalse(plan.canCheckout)
             XCTAssertTrue(plan.because.contains("min walk"))
-            XCTAssertFalse(NativeAtlantaCorridor.crowdLabel(for: plan).localizedCaseInsensitiveContains("Live"))
+            let crowdLabel = NativeAtlantaCorridor.crowdLabel(for: plan)
+            XCTAssertFalse(crowdLabel.localizedCaseInsensitiveContains("Live"))
+            // Provenance stated once: "Typical · Typical now" reads as a fault.
+            XCTAssertFalse(crowdLabel.localizedCaseInsensitiveContains("Typical · Typical"), "Doubled provenance in \(crowdLabel)")
+            XCTAssertTrue(crowdLabel.localizedCaseInsensitiveContains("Typical"), "Typical occupancy must still say so: \(crowdLabel)")
         }
+        // A bare measure still gets the provenance prefix it needs.
+        let waiting = NativeCollapsePlan.collapse(
+            hang: NativeHangInput(id: "door", name: "Door", vibeTokens: [], occupancySource: "typical", waitMins: 10, occupancyLevel: 2, lat: 33.78, lng: -84.38),
+            stall: NativeStallInput(name: "Stall", source: .fallback, walkMinutes: 4, paid: true)
+        )
+        XCTAssertEqual(NativeAtlantaCorridor.crowdLabel(for: waiting), "Typical · ~10m wait")
         let kinds = Set(NativeAtlantaCorridor.atlanta.map(\.kind))
         XCTAssertTrue(kinds.contains(.sport))
         XCTAssertTrue(kinds.contains(.event))

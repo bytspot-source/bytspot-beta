@@ -133,6 +133,7 @@ struct NativeHostStudioView: View {
     @State private var showCoverPicker = false
     @State private var showAlbumPicker = false
     @State private var arrivalVenueCandidates: [NativePartyArrivalVenue] = []
+    @State private var registeredVenues: [NativePartyArrivalVenue] = []
     @State private var boundArrivalVenueID: String?
     @State private var isLoadingArrivalVenues = false
     @State private var isBindingArrivalDestination = false
@@ -350,6 +351,7 @@ struct NativeHostStudioView: View {
             partyMediaEditor
             DatePicker("Party date and time", selection: $startsAt, displayedComponents: [.date, .hourAndMinute]).font(.system(size: 13, weight: .bold)).padding(13).studioSurface()
             field("Party venue", text: $venueName, icon: "mappin.and.ellipse", prompt: "Venue or secret location")
+            registeredVenueSuggestions
             locationDisclosureEditor
             officialDestinationsEditor
             runOfShowEditor
@@ -785,6 +787,45 @@ struct NativeHostStudioView: View {
         UserDefaults.standard.set(stage, forKey: "bytspot_debug_party_publish_failure_stage")
         UserDefaults.standard.set(status, forKey: "bytspot_debug_party_publish_failure_status")
         #endif
+    }
+
+    /// Registered venues are a public catalog, so this needs no bearer token and
+    /// is silent on failure: suggestions are an assist, and a host who typed a
+    /// venue name by hand must never be blocked by a catalog fetch.
+    @MainActor private func loadRegisteredVenues() async {
+        guard registeredVenues.isEmpty else { return }
+        registeredVenues = (try? await NativePartyArrivalAPI(client: BytspotAPIClient()).registeredVenues()) ?? []
+    }
+
+    /// Offers the exact registered spelling when the host looks like they mean a
+    /// venue Bytspot already knows. Tapping one only rewrites the venue name —
+    /// binding still happens after publish, against the same exact-match rule,
+    /// so a suggestion can never attach an address the host did not confirm.
+    @ViewBuilder private var registeredVenueSuggestions: some View {
+        let suggestions = NativePartyArrivalAPI.suggestedRegisteredVenues(registeredVenues, matching: venueName)
+        if !suggestions.isEmpty {
+            VStack(alignment: .leading, spacing: 7) {
+                Text("REGISTERED BYTSPOT VENUES").studioLabel()
+                Text("Pick one to turn on arrival guidance for your guests. Keep typing to use a venue Bytspot does not know, or a secret location.")
+                    .font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
+                ForEach(suggestions) { venue in
+                    Button(action: { venueName = venue.name }) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "mappin.circle.fill").foregroundColor(NativeTheme.cyan)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(venue.name).font(.system(size: 13, weight: .black)).foregroundColor(.white)
+                                Text(venue.address).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
+                            }
+                            Spacer()
+                        }.padding(12).studioSurface()
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Use registered venue \(venue.name), \(venue.address)")
+                }
+            }.padding(14).studioSurface().task { await loadRegisteredVenues() }
+        } else {
+            Color.clear.frame(height: 0).task { await loadRegisteredVenues() }
+        }
     }
 
     @MainActor private func loadArrivalVenueCandidates(for party: NativePublishedParty, token: String) async {

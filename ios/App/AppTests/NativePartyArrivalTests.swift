@@ -32,4 +32,47 @@ final class NativePartyArrivalTests: XCTestCase {
 
         XCTAssertEqual(NativePartyArrivalAPI.registeredVenueCandidates(from: payload, named: " Sample   Venue ").map(\.id), ["match"])
     }
+
+    private static let catalog = NativePartyArrivalAPI.allRegisteredVenues(from: ["venues": [
+        ["id": "pcm", "name": "Ponce City Market", "address": "675 Ponce De Leon Ave NE"],
+        ["id": "piedmont", "name": "Piedmont Park", "address": "400 Park Dr NE"],
+        ["id": "krog", "name": "Krog Street Market", "address": "99 Krog St NE"],
+        ["id": "mbar", "name": "MBar", "address": "1199 Peachtree St NE"],
+    ]])
+
+    private func suggestions(_ typed: String) -> [String] {
+        NativePartyArrivalAPI.suggestedRegisteredVenues(Self.catalog, matching: typed).map(\.id)
+    }
+
+    func testSuggestionsSurfaceTheRegisteredSpellingAHostWasReachingFor() {
+        XCTAssertEqual(suggestions("ponce"), ["pcm"])
+        XCTAssertEqual(suggestions("  PONCE city  "), ["pcm"])
+        // A word the host typed out of order still finds the venue they meant,
+        // first — even though "market" also drags in the other market.
+        XCTAssertEqual(suggestions("ponce market"), ["pcm", "krog"])
+        // Shared words rank together; the tighter name is offered first.
+        XCTAssertEqual(suggestions("market"), ["pcm", "krog"])
+    }
+
+    func testSuggestionsStayQuietWhenTheyHaveNothingToCorrect() {
+        // An exact registered name is already bindable; there is nothing to fix.
+        XCTAssertEqual(suggestions("Ponce City Market"), [])
+        XCTAssertEqual(suggestions("  ponce   city   market "), [])
+        // A secret location must not be nudged toward a registered venue.
+        XCTAssertEqual(suggestions("Boss down Atl"), [])
+        XCTAssertEqual(suggestions(""), [])
+        XCTAssertEqual(suggestions("m"), [])
+        XCTAssertEqual(suggestions("a"), [])
+    }
+
+    func testSuggestionsAreCappedAndNeverBindOnTheirOwn() {
+        XCTAssertEqual(suggestions("ma"), ["pcm", "krog"])
+        XCTAssertEqual(NativePartyArrivalAPI.suggestedRegisteredVenues(Self.catalog, matching: "ma", limit: 1).map(\.id), ["pcm"])
+        // Suggesting is looser than binding: a partial name that suggests must
+        // still fail the exact-match rule that actually attaches an address.
+        let payload: [String: Any] = ["venues": [["id": "pcm", "name": "Ponce City Market", "address": "675 Ponce De Leon Ave NE"]]]
+        XCTAssertEqual(suggestions("ponce"), ["pcm"])
+        XCTAssertEqual(NativePartyArrivalAPI.registeredVenueCandidates(from: payload, named: "ponce").map(\.id), [])
+        XCTAssertEqual(NativePartyArrivalAPI.registeredVenueCandidates(from: payload, named: "Ponce City Market").map(\.id), ["pcm"])
+    }
 }

@@ -242,6 +242,17 @@ struct PartyPassInvite: Equatable {
     let thumbnailURL: URL?
     let photoURLs: [URL]
 
+    /// Shown when the host published the venue but the server sent no name. It
+    /// names no place, so it must never be handed to Maps.
+    static let unnamedVenueLabel = "Location pending"
+
+    /// Only a published, actually-named venue is routable. An after-approval or
+    /// withheld Party must not leak through a maps query what its label hides.
+    var routableVenueName: String? {
+        guard !locationIsWithheld, locationLabel != Self.unnamedVenueLabel else { return nil }
+        return locationLabel
+    }
+
     var displayPosterURL: URL? { thumbnailURL ?? heroImageURL }
     var canonicalURL: URL? { URL(string: "https://bytspot.app/party/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)") }
     /// The only valid full-app/App Clip handoff for a Host Studio Party.
@@ -289,7 +300,7 @@ struct PartyPassInvite: Equatable {
             id: id, title: title, tier: tier,
             hostName: string(row["hostName"]) ?? string(row["host"]) ?? string(host?["name"]) ?? "Bytspot Host",
             scheduledDate: displayDate(string(row["scheduledDate"])) ?? "Schedule to be announced",
-            locationLabel: locationIsPublic ? (string(row["locationLabel"]) ?? "Location pending") : locationDisclosure == "after-approval" ? "Location shared after approval" : "Location withheld by host",
+            locationLabel: locationIsPublic ? (string(row["locationLabel"]) ?? Self.unnamedVenueLabel) : locationDisclosure == "after-approval" ? "Location shared after approval" : "Location withheld by host",
             locationDisclosure: locationDisclosure,
             locationIsWithheld: !locationIsPublic,
             accessMode: string(row["accessMode"]) ?? "free-rsvp",

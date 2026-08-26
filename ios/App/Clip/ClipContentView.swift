@@ -434,8 +434,30 @@ struct PartyPassClipView: View {
             PartyDetailRow(icon: "person.crop.circle.fill", label: "HOST", value: invite.hostName)
             PartyDetailRow(icon: "calendar.badge.clock", label: "WHEN", value: invite.scheduledDate)
             PartyDetailRow(icon: "mappin.and.ellipse", label: invite.locationDisclosure == "after-approval" ? "LOCATION AFTER APPROVAL" : invite.locationIsWithheld ? "LOCATION WITHHELD" : "WHERE", value: invite.locationLabel)
+            if let venue = invite.routableVenueName { openInMapsButton(venue: venue) }
             if let note = invite.note { PartyDetailRow(icon: "sparkles", label: "FROM THE HOST", value: note) }
         }
+    }
+
+    /// Searches Maps by the published venue name rather than routing to a fixed
+    /// point: the invite carries no coordinates, so the name is all we honestly
+    /// have, and Maps lets the guest confirm the place before starting to drive.
+    private func openInMapsButton(venue: String) -> some View {
+        Button {
+            impactLight()
+            var components = URLComponents(string: "http://maps.apple.com/")!
+            components.queryItems = [URLQueryItem(name: "q", value: venue)]
+            if let url = components.url { openURL(url) }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "map.fill").font(.system(size: 12, weight: .black))
+                Text("Open in Maps").font(.system(size: 13, weight: .black, design: .rounded))
+            }
+            .foregroundColor(.white)
+            .padding(.vertical, 10).padding(.horizontal, 14)
+            .background(Color.white.opacity(0.12), in: Capsule())
+        }
+        .accessibilityLabel("Open \(venue) in Maps")
     }
 
     @ViewBuilder private var hostDestinations: some View {

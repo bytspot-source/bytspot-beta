@@ -1962,8 +1962,17 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativePresenceSummary(scope: "area", count: 42, windowMs: 86400000, area: "Midtown").chipLabel, "42 in Midtown today")
         XCTAssertEqual(NativePresenceSummary(scope: "area", count: 42, windowMs: 86400000, area: nil).chipLabel, "42 in your area today")
         // Accounts are a different claim and say so.
-        XCTAssertEqual(NativePresenceSummary(scope: "members", count: 64, windowMs: nil, area: nil).chipLabel, "64 members")
-        XCTAssertEqual(NativePresenceSummary(scope: "members", count: 1, windowMs: nil, area: nil).chipLabel, "1 member")
+        XCTAssertEqual(NativePresenceSummary(scope: "members", count: 64, windowMs: nil, area: nil).chipLabel, "64 on Bytspot")
+        XCTAssertEqual(NativePresenceSummary(scope: "members", count: 1, windowMs: nil, area: nil).chipLabel, "1 on Bytspot")
+        // A signup total must not claim presence, by word or by glyph.
+        XCTAssertFalse(NativePresenceSummary(scope: "members", count: 64, windowMs: nil, area: nil).showsPresenceGlyphs)
+        XCTAssertTrue(NativePresenceSummary(scope: "area", count: 42, windowMs: 86400000, area: "Midtown").showsPresenceGlyphs)
+        for label in ["member", "active", "now", "live"] {
+            XCTAssertFalse(
+                NativePresenceSummary(scope: "members", count: 64, windowMs: nil, area: nil).chipLabel?.lowercased().contains(label) ?? true,
+                "signup count must not imply presence via \(label)",
+            )
+        }
         XCTAssertNil(NativePresenceSummary(scope: "members", count: 0, windowMs: nil, area: nil).chipLabel)
         // Withheld and zero both render nothing; the header falls back instead.
         XCTAssertNil(NativePresenceSummary.none.chipLabel)

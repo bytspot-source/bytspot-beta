@@ -190,6 +190,224 @@ Professional guardrails:
 - Network must stay visually unified: Invite and Find Friends belong in one card, not two mismatched cards.
 - Do not duplicate Account Readiness with a second Account menu containing the same identity/payment/vehicle actions.
 
+## Geometry Baseline — iPhone 14 Pro
+
+All wireframes below are drawn to the shipped token set, not to invented values.
+Target is the 393 x 852 pt logical canvas.
+
+| Quantity | Value | Source |
+| --- | --- | --- |
+| Screen | 393 x 852 pt | iPhone 14 Pro logical size |
+| Safe area top / bottom | 59 pt / 34 pt | Dynamic Island device class |
+| Screen padding | 20 pt | `NativePolish.screenPadding` |
+| Header horizontal margin | 16 pt | shipped header rows |
+| Content width (header rows) | 361 pt | 393 - (16 x 2) |
+| Content width (padded cards) | 353 pt | 393 - (20 x 2) |
+| Card radius / hero radius | 24 pt / 30 pt | `NativePolish.cardRadius`, `.heroRadius` |
+| Row radius | 16 pt | `NativeProfileStyle.rowRadius` |
+| Card padding / spacing | 20 pt / 20 pt | `NativeProfileStyle.cardPadding`, `.cardSpacing` |
+| Section spacing | 24 pt | `NativePolish.sectionSpacing` |
+| Control size | 48 pt | `NativePolish.controlSize` |
+| Chip height | 36 pt | `NativePolish.chipHeight` |
+| Bottom bar | 72 pt, radius 24 pt | `NativePolish.bottomBar*` |
+
+A 44 pt minimum hit target applies to every interactive element. Where a
+wireframe shows a control smaller than 44 pt, the tappable area is padded to
+44 pt without changing the drawn size.
+
+## Upgrade Membership Wireframe v1
+
+Reached from Progress on `Green` only. `Platinum` and `Black` see the tier
+label, never this CTA. Guests see neither until sign-in.
+
+```text
+[SHEET · presented over Profile · 393 pt wide]
+
+  ← Close                                    Bytspot Passport
+  ─────────────────────────────────────────────────  (353 pt content)
+
+  [CURRENT → TARGET · hero card, radius 30]
+    NOW          Green        — no paid entitlement
+       ↓
+    CHOOSE       Platinum  |  Black       (segmented, 2 up, 48 pt)
+
+  [WHAT THE PASSPORT ADDS · card, radius 24, padding 20]
+    ● Priority access        earlier entry windows where a host offers them
+    ● Access wallet          passes and tickets in one place
+    ● Faster paid entry      saved payment, fewer steps at the door
+
+  [WHAT IT DOES NOT DO · card, radius 24]
+    A membership does not open a door, reserve a spot, or make a
+    venue available. Hosts set access; tier only decides eligibility.
+
+  [PRICE · card]
+    Platinum   $X / month        Black   $Y / month
+    Billed by Apple. Cancel anytime in Settings.
+
+  [Continue →]                       (primary, 56 pt, full width)
+  Restore purchase                    (tertiary text button, 44 pt)
+```
+
+Rules:
+
+- The benefit list states eligibility, never availability. Copy may not imply a
+  door is open, a venue has room, or occupancy is live.
+- Exactly two upgrade targets are offered, because the tier set is closed.
+  Never render a fourth name, and never render `Green` as purchasable.
+- The screen must not claim a benefit the backend does not gate. Each bullet maps
+  to a real entitlement check or it does not appear.
+- Price is presented as a subscription, since subscription is the only path to a
+  membership. No one-time "unlock" framing.
+- `Continue` hands off to the production purchase flow. Until that flow is wired,
+  this is a native local shell that states the boundary rather than a dead button.
+
+## Add Payment Method Wireframe v1
+
+At `Profile → Account → Payment Methods`. This surface may never collect card
+numbers, CVC, or bank details — see Native/Web Boundary Rules.
+
+```text
+[NATIVE LOCAL SHELL · NativeProfilePanel]
+
+  ← Payment Methods
+  ─────────────────────────────────────────────────
+
+  [ON FILE · card, radius 24]
+    □  Visa ···· 4242        Default        (row, radius 16, 44 pt)
+    □  Mastercard ···· 8210                     Remove
+    — or, when empty —
+    No payment method yet. Add one to speed up paid entry.
+
+  [ADD A METHOD · card, radius 24]
+    Bytspot never sees your card. Setup opens Stripe, and only a
+    token comes back.
+    [ Add payment method → ]        (primary, 56 pt)
+
+  [WHAT COMES BACK · passive text]
+    Brand, last four digits, expiry. Nothing else is stored.
+```
+
+On tap, the native shell hands off. The boundary is visible, never silent:
+
+```text
+[SECURE SETUP · Stripe setup session]
+
+  ← Cancel            Secure setup · Stripe        🔒
+  ─────────────────────────────────────────────────
+  Leaving the native shell for card entry. This screen is
+  operated by Stripe.
+
+  [ Stripe-hosted card entry — not rendered by Bytspot ]
+
+  → on success: return to native Payment Methods, list refreshed
+  → on cancel:  return unchanged, no partial method shown
+```
+
+Rules:
+
+- The native shell renders readiness and the list only. Card entry is always the
+  hosted session; there is no native card form, disabled or otherwise.
+- The handoff is labeled as a production/web continuation, which is the allowed
+  explicit fallback for payment authorization. It must not use the hybrid
+  `Back to native` overlay.
+- A cancelled session leaves no optimistic row. A method appears only after the
+  server confirms the token.
+- Never display a full number, CVC, or expiry-with-number combination, including
+  in error copy or logs.
+
+## All Saved Wireframe v1
+
+One destination consolidating `Saved Spots` and `Places I've Been`, reachable
+from Quick Actions `Saved` and from Places & Activity. Both entry points open
+this same screen — they are not two lists.
+
+```text
+[ALL SAVED]
+
+  ← All Saved                                        ⌗ Search
+  ─────────────────────────────────────────────────
+
+  [ Saved  |  Been ]                 (segmented, 2 up, 36 pt chips)
+
+  [LIST · rows radius 16, 20 pt spacing]
+    ───────────────────────────────────────────
+    [64x64]  Venue name                            ♡
+             Neighborhood · 0.4 mi
+             Typical: busy around now              (provenance)
+    ───────────────────────────────────────────
+    [64x64]  Venue name                            ♡
+             Neighborhood · 1.1 mi
+             Saved 3 weeks ago
+    ───────────────────────────────────────────
+
+  [EMPTY · Saved]
+    Nothing saved yet. Tap ♡ on a spot to keep it here.
+
+  [EMPTY · Been]
+    No check-ins yet. Visits appear here after you arrive.
+```
+
+Rules:
+
+- `Saved` is intent, `Been` is history. They share one screen and one row shape,
+  but never merge into a single undifferentiated list, because a place you
+  bookmarked and a place you visited are different claims.
+- A row may show `Typical` occupancy with that word attached, or nothing. It may
+  never show a bare number, a `Live` label, or an availability claim.
+- Distance requires a current location fix. Without one the line is omitted, not
+  filled with a stale or default distance.
+- Unsaving is immediate and reversible in place; it must not silently drop the row
+  from `Been`, which is history and not user-editable.
+
+## Home Header Refinement v2
+
+```text
+[HEADER · 393 pt wide · below 59 pt safe area]
+
+  ┌─ row 1 · 16 pt margins · 361 pt ────────────────────────┐
+  │  (AR)          Bytspot                            ≡    │
+  │  40 pt                                           44 pt  │
+  └──────────────────────────────────────────────┘
+
+  ┌─ row 2 · context ─────────────────────────────────┐
+  │  ◉ Atlanta · Midtown              72° clear          │
+  └──────────────────────────────────────────────┘
+
+  Removed: tier chip (Platinum), presence chip (Live 65).
+  Avatar = photo, else initials, else neutral glyph for a guest.
+```
+
+The hamburger opens a shortcut sheet, not a second settings tree:
+
+```text
+[MENU SHEET · shortcuts into existing destinations]
+
+  Profile / Passport            → Profile root
+  ─────────────────────────────────────────────────
+  Vibe Preferences              → Profile → Preferences → Vibe
+  Notifications                 → Profile → Preferences → Notifications
+  Location & Privacy            → Profile → Preferences → Location
+  Appearance                    → Profile → General → Appearance
+  ─────────────────────────────────────────────────
+  Sign In / Log Out             → session action
+```
+
+Rules:
+
+- Every menu row is a route into an existing Profile destination. The sheet owns
+  no settings state of its own, because a second place to change a preference is
+  a second place for the two to disagree.
+- Removing the tier chip does not remove the tier. Tier remains the single
+  statement of subscription status in Profile Progress. The header stops being a
+  second place it is asserted.
+- The avatar asserts identity only. It carries no tier ring, no badge, and no
+  count, so it cannot imply an entitlement or an activity level.
+- A guest shows a neutral glyph and the menu shows `Sign In`. No tier is implied.
+- Removing the presence chip retires the only Home surface that stated a presence
+  window. `presenceSummary` wiring and the withheld-below-15 floor stay in place
+  for whatever surface states presence next; they must not be deleted as dead code
+  and silently re-added later without the window sentence.
+
 ## Native/Web Boundary Rules
 
 - Main Profile and menu rows must open native `NativeProfilePanel` sheets.

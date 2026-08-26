@@ -42,12 +42,15 @@ enum ClipLuxe {
     static let notBookableReason = "Not bookable in this Clip yet."
 }
 
-extension View {
-    /// Eyebrow: 10pt, wide tracking, serif small-caps for the accent line.
+extension Text {
+    /// Eyebrow: 10pt, wide tracking. Declared on `Text` rather than `View` so
+    /// `tracking` resolves against `Text`, which the deployment target allows.
     func luxeLabel(_ color: Color = ClipLuxe.gray45) -> some View {
         font(.system(size: 10, weight: .semibold)).tracking(1.4).foregroundColor(color)
     }
+}
 
+extension View {
     func luxeSurface(radius: CGFloat = 20) -> some View {
         background(ClipLuxe.inkRaised)
             .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(ClipLuxe.hairline, lineWidth: 1))

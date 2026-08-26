@@ -19,6 +19,37 @@ struct NativePartyPassPresentation {
     }
 }
 
+/// The disclosure step can write the door, so the rule for when that write is
+/// attributed lives here as pure state rather than inside the view, where it
+/// could only be checked by eye.
+enum NativeHostDoorAttribution {
+    struct State: Equatable {
+        var accessMode: NativePartyAccessMode
+        var setByDisclosure: Bool
+    }
+
+    /// Only `afterApproval` can move the door, and only a move it actually made
+    /// is attributed. A host already on Private Approval is left alone.
+    static func applyDisclosure(_ disclosure: NativePartyLocationDisclosure, to state: State) -> State {
+        guard disclosure == .afterApproval else {
+            return State(accessMode: state.accessMode, setByDisclosure: false)
+        }
+        guard state.accessMode != .privateApproval else { return state }
+        return State(accessMode: .privateApproval, setByDisclosure: true)
+    }
+
+    /// A door the host picked is theirs, so it is never attributed elsewhere.
+    static func applyHostChoice(_ mode: NativePartyAccessMode) -> State {
+        State(accessMode: mode, setByDisclosure: false)
+    }
+
+    /// The note explains a choice the host did not make. It must not appear over
+    /// a Private Approval door the host selected themselves.
+    static func showsAttribution(_ state: State) -> Bool {
+        state.setByDisclosure && state.accessMode == .privateApproval
+    }
+}
+
 @MainActor
 enum NativePartySharePresentation {
     static func activityController(for items: [Any], presenter: UIViewController) -> UIActivityViewController {
@@ -83,6 +114,9 @@ struct NativeHostStudioView: View {
     @State private var releaseFormat: NativeReleaseFormat = .single
     @State private var releaseTitle = ""
     @State private var locationDisclosure: NativePartyLocationDisclosure = .public
+    /// True while the door reflects a write made by the disclosure picker rather
+    /// than by the host, so the door step can say why it changed.
+    @State private var doorSetByDisclosure = false
     @State private var hostIdentity = NativeHostIdentity.empty
     @State private var loadedProfileDestinations = false
     /// True only after a successful profile fetch. A failed load must never
@@ -354,8 +388,17 @@ struct NativeHostStudioView: View {
             Text(locationDisclosure.recipientExplanation).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
         }
         .padding(14).studioSurface()
+        // Selecting "After approval" moves the door to Private Approval because
+        // only that mode has an approver. The write is recorded so the door step
+        // can attribute it, rather than the host finding a choice they did not
+        // make already selected.
         .onChange(of: locationDisclosure) { disclosure in
-            if disclosure == .afterApproval { accessMode = .privateApproval }
+            let next = NativeHostDoorAttribution.applyDisclosure(
+                disclosure,
+                to: .init(accessMode: accessMode, setByDisclosure: doorSetByDisclosure),
+            )
+            accessMode = next.accessMode
+            doorSetByDisclosure = next.setByDisclosure
         }
     }
 
@@ -577,9 +620,26 @@ struct NativeHostStudioView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeading("SET THE DOOR", "Who gets in?", "Choose RSVP, a paid first drop, or host approval.")
             ForEach(templateConfiguration.allowedAccessModes) { mode in
-                Button(action: { accessMode = mode }) {
+                Button(action: {
+                    let next = NativeHostDoorAttribution.applyHostChoice(mode)
+                    accessMode = next.accessMode
+                    doorSetByDisclosure = next.setByDisclosure
+                }) {
                     HStack(spacing: 12) { Image(systemName: mode == .paidTicket ? "ticket.fill" : mode == .privateApproval ? "lock.fill" : "person.badge.plus").foregroundColor(tierAccent); VStack(alignment: .leading) { Text(mode.title).font(.system(size: 14, weight: .black)); Text(accessDetail(mode)).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.5)) }; Spacer(); Image(systemName: accessMode == mode ? "checkmark.circle.fill" : "circle").foregroundColor(accessMode == mode ? NativeTheme.emerald : .white.opacity(0.25)) }.padding(14).studioSurface(selected: accessMode == mode, accent: tierAccent)
                 }.buttonStyle(.plain)
+            }
+            if locationDisclosure == .afterApproval && accessMode != .privateApproval {
+                Label("Location is set to \u{201C}After approval\u{201D} on the location step. Only Private Approval can reveal it.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(NativeTheme.orange)
+                    .padding(12).studioSurface()
+                    .accessibilityIdentifier("native-host-studio-disclosure-conflict")
+            } else if NativeHostDoorAttribution.showsAttribution(.init(accessMode: accessMode, setByDisclosure: doorSetByDisclosure)) {
+                Label("Set to Private Approval because your location is revealed after approval. Change either one.", systemImage: "info.circle.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(NativeTheme.cyan)
+                    .padding(12).studioSurface()
+                    .accessibilityIdentifier("native-host-studio-door-auto-set")
             }
             if accessMode == .paidTicket { field("First Drop price", text: $ticketPrice, icon: "dollarsign.circle.fill", prompt: "25", keyboard: .decimalPad) }
             field("Capacity", text: $capacity, icon: "person.3.fill", prompt: "\(NativeHostTaxonomySelection.recommendedCapacity)", keyboard: .numberPad)

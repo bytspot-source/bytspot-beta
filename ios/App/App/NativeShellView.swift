@@ -5912,8 +5912,10 @@ private struct NativeHomeDashboardView: View {
                     // Given its own row: the count states scope and window, and
                     // that sentence does not fit the four-up chip strip.
                     HStack(spacing: 6) {
-                        Circle().fill(NativeTheme.emerald).frame(width: 6, height: 6)
-                        Image(systemName: "person.2.fill").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                        if presenceSummary.showsPresenceGlyphs {
+                            Circle().fill(NativeTheme.emerald).frame(width: 6, height: 6)
+                            Image(systemName: "person.2.fill").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                        }
                         Text(presence)
                             .font(.system(size: 12, weight: .black, design: .rounded))
                             .monospacedDigit()

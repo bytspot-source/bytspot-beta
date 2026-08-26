@@ -1549,10 +1549,17 @@ struct NativePresenceSummary: Codable, Equatable {
         // the copy says both. A bare number invites the reader to supply a
         // scope of their own, which is how "active" becomes "active here now".
         case "area": return "\(count) in \(area ?? "your area") today"
-        case "members": return count == 1 ? "1 member" : "\(count) members"
+        // Accounts, not presence. Said without the noun but still with a scope,
+        // because "on Bytspot" is a place to have signed up and not a claim
+        // about who is out.
+        case "members": return "\(count) on Bytspot"
         default: return nil
         }
     }
+
+    /// Only a measured area count is presence. The signup fallback must not wear
+    /// the pulsing dot and people icon, which read as "here, now".
+    var showsPresenceGlyphs: Bool { scope == "area" }
 }
 
 struct NativeCheckInCreateResponse: Codable, Equatable {

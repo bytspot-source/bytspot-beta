@@ -38,6 +38,9 @@ enum ClipLuxe {
     /// absence is the point: a blank slot reads as a loading bug, and a
     /// curated number reads as an offer we cannot honour.
     static let unpricedLabel = "Pricing not published"
+    /// For rows that already carry an ETA or availability string; the full
+    /// sentence wraps to two lines and crowds them.
+    static let unpricedShortLabel = "Not published"
     static let unavailableLabel = "UNAVAILABLE"
     static let notBookableReason = "Not bookable in this Clip yet."
 }
@@ -2553,7 +2556,7 @@ struct ClipCatalogView: View {
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             VStack(alignment: .leading, spacing: 4) {
                 Text(service.title).font(.system(size: 15.5, weight: .heavy)).foregroundColor(.white).lineLimit(1)
-                Text(service.priceLabel ?? "Quote ready").font(.system(size: 12, weight: .black, design: .monospaced)).foregroundColor(ClipTheme.gold)
+                ClipPriceSlot(priceLabel: service.priceLabel, isVerified: service.hasVerifiedPricing)
                 Text(serviceTileContext(service) ?? "Aircraft, catering, ground transport, and concierge clearance.").font(.system(size: 11.5, weight: .semibold)).foregroundColor(.white.opacity(0.68)).lineLimit(2).padding(.top, 1)
             }.padding(12)
         }
@@ -2808,7 +2811,7 @@ struct ClipVendorListView: View {
                             .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
                             .foregroundColor(service.tintColor)
                     } else {
-                        Text(ClipLuxe.unpricedLabel).luxeLabel()
+                        Text(ClipLuxe.unpricedShortLabel).luxeLabel()
                     }
                 }
                 .padding(12)
@@ -2922,7 +2925,7 @@ struct ClipVendorListView: View {
                     if vendor.hasVerifiedPricing {
                         Text(vendor.priceFromLabel).font(.system(size: 12.5, weight: .semibold, design: .monospaced)).foregroundColor(ClipLuxe.champagne)
                     } else {
-                        Text(ClipLuxe.unpricedLabel).luxeLabel()
+                        Text(ClipLuxe.unpricedShortLabel).luxeLabel()
                     }
                 }
             }
@@ -3004,8 +3007,8 @@ struct ClipCheckoutView: View {
                 vendorHero
                 includedCard
                 if hasLineItems { lineItemsPicker } else { guestPicker }
-                bookingDetailsCard
                 if vendor.hasVerifiedPricing {
+                    bookingDetailsCard
                     totalRow
                     applePayBlock
                     cardFallback

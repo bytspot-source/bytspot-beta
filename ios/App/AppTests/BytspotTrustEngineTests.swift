@@ -2245,11 +2245,27 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(release.validationMessage, "Add the release title.")
 
         let hiddenPopUp = NativePartyDraftInput(templateID: .popUp, title: "Secret Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, hostDestinations: destinations, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .popUp(.afterApproval))
-        XCTAssertEqual(hiddenPopUp.validationMessage, "Hidden Pop-Up locations require host approval.")
+        XCTAssertEqual(hiddenPopUp.validationMessage, "Hidden Pop-Up hides the venue until you approve a guest, so the door must be Private Approval. Change the format, or switch the door to Private Approval.")
 
         let privateParty = NativePartyDraftInput(templateID: .privateParty, title: "After Hours", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 12, accessMode: .privateApproval, requiredMembershipTier: .green, hostDestinations: destinations, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .privateParty(.namedGuestsPlusOne))
         XCTAssertNil(privateParty.validationMessage)
         XCTAssertEqual((privateParty.rpcInput["templateConfig"] as? [String: Any])?["guestPolicy"] as? String, "named-guests-plus-one")
+    }
+
+    func testPaidTicketBlockedByAfterApprovalNamesTheControlAndTheFix() {
+        // The host picks Paid Ticket on the door step while the disclosure was
+        // set two steps earlier. The old message said only "require host
+        // approval", naming neither the control nor a way out.
+        let destinations = NativePartyHostDestinations(musicURL: "", merchURL: "", websiteURL: "", primarySocialPlatform: .instagram, primarySocialURL: "https://instagram.com/host")
+        let paidAfterApproval = NativePartyDraftInput(templateID: .listeningParty, title: "Champagne pop", tagline: "One moment.", startsAt: Date(), venueName: "The Roof", locationDisclosure: .afterApproval, capacity: 20, accessMode: .paidTicket, requiredMembershipTier: .green, hostDestinations: destinations, audienceCircleIDs: [], itinerary: [], ticketTiers: [NativePartyTicketTier(name: "First Drop", priceCents: 2500, quantity: 20, requiredMembershipTier: .green)], cohosts: [], templateConfiguration: .listeningParty(.listeningSession))
+        let message = paidAfterApproval.validationMessage
+        XCTAssertNotNil(message)
+        XCTAssertTrue(message?.contains("Location on Party Pass") == true, "names the control the host must change")
+        XCTAssertTrue(message?.contains("Public") == true, "offers the fix that keeps the ticket price")
+
+        // Setting the disclosure public clears it without touching the price.
+        let paidPublic = NativePartyDraftInput(templateID: .listeningParty, title: "Champagne pop", tagline: "One moment.", startsAt: Date(), venueName: "The Roof", locationDisclosure: .public, capacity: 20, accessMode: .paidTicket, requiredMembershipTier: .green, hostDestinations: destinations, audienceCircleIDs: [], itinerary: [], ticketTiers: [NativePartyTicketTier(name: "First Drop", priceCents: 2500, quantity: 20, requiredMembershipTier: .green)], cohosts: [], templateConfiguration: .listeningParty(.listeningSession))
+        XCTAssertNil(paidPublic.validationMessage)
     }
 
     func testHostTaxonomyTagsRideOnExistingTemplateConfigWithoutChangingKind() {

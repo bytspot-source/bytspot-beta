@@ -354,8 +354,12 @@ struct NativeHostStudioView: View {
             Text(locationDisclosure.recipientExplanation).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
         }
         .padding(14).studioSurface()
+        // Selecting "After approval" moves the door to Private Approval because
+        // only that mode has an approver. The host can still change the door
+        // afterwards; the door step shows the conflict rather than silently
+        // reverting their choice.
         .onChange(of: locationDisclosure) { disclosure in
-            if disclosure == .afterApproval { accessMode = .privateApproval }
+            if disclosure == .afterApproval && accessMode != .privateApproval { accessMode = .privateApproval }
         }
     }
 
@@ -580,6 +584,13 @@ struct NativeHostStudioView: View {
                 Button(action: { accessMode = mode }) {
                     HStack(spacing: 12) { Image(systemName: mode == .paidTicket ? "ticket.fill" : mode == .privateApproval ? "lock.fill" : "person.badge.plus").foregroundColor(tierAccent); VStack(alignment: .leading) { Text(mode.title).font(.system(size: 14, weight: .black)); Text(accessDetail(mode)).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.5)) }; Spacer(); Image(systemName: accessMode == mode ? "checkmark.circle.fill" : "circle").foregroundColor(accessMode == mode ? NativeTheme.emerald : .white.opacity(0.25)) }.padding(14).studioSurface(selected: accessMode == mode, accent: tierAccent)
                 }.buttonStyle(.plain)
+            }
+            if locationDisclosure == .afterApproval && accessMode != .privateApproval {
+                Label("Location is set to \u{201C}After approval\u{201D} on the location step. Only Private Approval can reveal it.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(NativeTheme.orange)
+                    .padding(12).studioSurface()
+                    .accessibilityIdentifier("native-host-studio-disclosure-conflict")
             }
             if accessMode == .paidTicket { field("First Drop price", text: $ticketPrice, icon: "dollarsign.circle.fill", prompt: "25", keyboard: .decimalPad) }
             field("Capacity", text: $capacity, icon: "person.3.fill", prompt: "\(NativeHostTaxonomySelection.recommendedCapacity)", keyboard: .numberPad)

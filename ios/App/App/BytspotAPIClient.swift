@@ -725,8 +725,11 @@ struct NativePartyDraftInput: Equatable {
         if templateConfiguration.templateID == nil && ![NativePartyTemplateID.comedyNight, .premiere].contains(templateID) { return "Choose the matching Party format." }
         if let message = templateConfiguration.validationMessage { return message }
         if case .privateParty = templateConfiguration, accessMode != .privateApproval { return "Private Parties require host approval." }
-        if case .popUp(.afterApproval) = templateConfiguration, (locationDisclosure != .afterApproval || accessMode != .privateApproval) { return "Hidden Pop-Up locations require host approval." }
-        if locationDisclosure == .afterApproval && accessMode != .privateApproval { return "Locations revealed after approval require host approval." }
+        if case .popUp(.afterApproval) = templateConfiguration, (locationDisclosure != .afterApproval || accessMode != .privateApproval) { return "Hidden Pop-Up hides the venue until you approve a guest, so the door must be Private Approval. Change the format, or switch the door to Private Approval." }
+        // Names both controls and the fix: the disclosure was chosen on an
+        // earlier step, so a host reading this on the door screen cannot see
+        // what is conflicting with the mode they just picked.
+        if locationDisclosure == .afterApproval && accessMode != .privateApproval { return "Location on Party Pass is set to \u{201C}After approval\u{201D}, which needs someone to approve guests. Set it to \u{201C}Public\u{201D} on the location step, or switch the door to Private Approval." }
         if accessMode == .paidTicket && !ticketTiers.contains(where: { $0.priceCents > 0 }) { return "Paid parties need a ticket price." }
         if accessMode != .paidTicket && ticketTiers.contains(where: { $0.priceCents > 0 }) { return "Only paid parties can include paid tickets." }
         if cohosts.contains(where: { $0.role == .owner || !$0.email.contains("@") }) { return "Add a valid teammate email and role." }

@@ -62,7 +62,7 @@ in order:
 ### 3. Progress
 
 - Points earned by verified check-in
-- Membership state as a status line or CTA, not a disconnected card: an active tier reads as its label, and a member without a paid tier gets the upgrade CTA
+- Membership state as a status line, not a disconnected card: a tier reads as its label. No upgrade CTA is offered while nothing in the app can complete a purchase
 
 ### 4. Social
 
@@ -116,12 +116,13 @@ obtained through a subscription. There is no other path to premium access.
 - Server truth is `subscription.status`, which returns `membershipTier` and
   `isPremium`; the client mirrors it in `NativeMembershipTierStore`. Never infer
   a tier from a purchase, a pass, or a local flag.
-- `Green` is the entry tier and carries no paid entitlement, so Progress shows the
-  upgrade CTA for `Green` and the tier label for `Platinum` and `Black`.
+- `Green` is the entry tier and carries no paid entitlement. Every tier shows its
+  label only. No upgrade is offered from the Passport: no surface in the app can
+  take payment, so a CTA promising one would be a dead end.
 - Tier gates feature eligibility only. It never implies a venue is available, a
   door is open, or occupancy is live.
-- Guests have no tier. Show no tier label and no upgrade CTA until sign-in,
-  rather than implying a signed-out visitor is on `Green`.
+- Guests have no tier. Show no tier label until sign-in, rather than implying a
+  signed-out visitor is on `Green`.
 
 ## Theme Placement Contract
 
@@ -215,10 +216,12 @@ A 44 pt minimum hit target applies to every interactive element. Where a
 wireframe shows a control smaller than 44 pt, the tappable area is padded to
 44 pt without changing the drawn size.
 
-## Upgrade Membership Wireframe v1
+## Upgrade Membership Wireframe v1 — not implemented
 
-Reached from Progress on `Green` only. `Platinum` and `Black` see the tier
-label, never this CTA. Guests see neither until sign-in.
+Held until a purchase path exists. The Passport states the tier and offers no
+upgrade, because no surface in the app can complete a payment; the entry point
+described below is deliberately absent rather than pending. The wireframe is
+retained as the design to build against once the payment mechanism is settled.
 
 ```text
 [SHEET · presented over Profile · 393 pt wide]

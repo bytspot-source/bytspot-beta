@@ -1940,7 +1940,6 @@ final class NativeProfileDataAPITests: XCTestCase {
         // A guest holds no membership, so no tier may be implied for them.
         for tier in BytspotTier.allCases {
             XCTAssertNil(NativeProfileWireframeGuard.passportTierLabel(isAuthenticated: false, tier: tier))
-            XCTAssertFalse(NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: false, tier: tier))
         }
     }
 
@@ -1980,10 +1979,10 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertFalse(NativePresenceSummary(scope: "area", count: 42, windowMs: 86400000, area: "Midtown").chipLabel?.lowercased().contains("live") ?? true)
     }
 
-    func testOnlyTheEntryTierIsOfferedTheMembershipUpgrade() {
-        XCTAssertTrue(NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: true, tier: .green))
-        XCTAssertFalse(NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: true, tier: .platinum))
-        XCTAssertFalse(NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: true, tier: .black))
+    func testPassportOffersNoUpgradeWhileNothingCanCompleteAPurchase() {
+        // The tier is stated, never sold: no surface in the app can take payment,
+        // so an upgrade CTA would promise what it cannot deliver.
+        XCTAssertFalse(NativeProfileWireframeGuard.offersMembershipUpgrade)
     }
 
     func testNativeNetworkHasExactlyPeopleCirclesInvitationsAndPeopleMet() {

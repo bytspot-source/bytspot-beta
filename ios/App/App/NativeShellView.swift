@@ -1152,7 +1152,6 @@ private struct NativeProfileStat: View {
 private struct NativeProfileHeaderCard: View {
     let sessionStore: BytspotSessionStore
     let socialCircleSnapshot: NativeSocialCircleSnapshot
-    let openAccess: () -> Void
 
     @EnvironmentObject private var membershipStore: NativeMembershipTierStore
     @AppStorage(NativeSignedInIdentity.displayNameKey) private var signedInDisplayName = ""
@@ -1221,13 +1220,6 @@ private struct NativeProfileHeaderCard: View {
                     }
                     .padding(.top, 16)
                 }
-                if showsUpgradeCTA {
-                    Button(action: openAccess) {
-                        NativeCTA(title: "Upgrade membership", color: NativeTheme.purple, foreground: NativeProfileStyle.onVibrant)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("native-profile-membership-upgrade")
-                }
             }
             .padding(22)
         }
@@ -1239,9 +1231,6 @@ private struct NativeProfileHeaderCard: View {
         NativeProfileWireframeGuard.passportTierLabel(isAuthenticated: sessionStore.isAuthenticated, tier: membershipStore.tier)
     }
 
-    private var showsUpgradeCTA: Bool {
-        NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: sessionStore.isAuthenticated, tier: membershipStore.tier)
-    }
 }
 
 private struct NativeProfileAccountView: View {
@@ -1261,7 +1250,7 @@ private struct NativeProfileAccountView: View {
 
     var body: some View {
         VStack(spacing: NativeProfileStyle.cardSpacing) {
-            NativeProfileHeaderCard(sessionStore: sessionStore, socialCircleSnapshot: socialCircleSnapshot, openAccess: { activePanel = .access })
+            NativeProfileHeaderCard(sessionStore: sessionStore, socialCircleSnapshot: socialCircleSnapshot)
             NativeProfileIAHeader(title: "Quick actions", subtitle: "The four things people open Profile for most.")
             NativeProfileCommandGrid(openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Account Essentials", subtitle: "Identity, payment, and vehicles used at arrival.")
@@ -1630,11 +1619,9 @@ enum NativeProfileWireframeGuard {
         passportTierLabel(isAuthenticated: isAuthenticated, tier: tier) ?? "Guest"
     }
 
-    /// Only the entry tier carries no paid entitlement, so only it is offered the
-    /// upgrade CTA.
-    static func showsUpgradeCTA(isAuthenticated: Bool, tier: BytspotTier) -> Bool {
-        isAuthenticated && tier == .green
-    }
+    /// No upgrade is offered anywhere in the Passport: nothing in the app can
+    /// complete a purchase, so a CTA promising one would be a dead end.
+    static let offersMembershipUpgrade = false
 }
 
 private enum NativeArrivalLedgerContract {

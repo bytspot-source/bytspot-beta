@@ -21,6 +21,59 @@ enum ClipVerifyState: Equatable {
     case unavailable(message: String)
 }
 
+/// Card system tokens. One accent, hairline borders, no weight above semibold.
+/// Luxury reads as restraint here, not as effect — the vendor catalog has no
+/// photography of its own, so the type carries the whole surface.
+enum ClipLuxe {
+    static let champagne = Color(red: 0.784, green: 0.663, blue: 0.420) // #C8A96B
+    static let paper = Color.white
+    static let sand = Color(red: 0.788, green: 0.761, blue: 0.714) // #C9C2B6
+    static let gray70 = Color.white.opacity(0.70)
+    static let gray45 = Color.white.opacity(0.45)
+    static let gray22 = Color.white.opacity(0.22)
+    static let hairline = Color.white.opacity(0.09)
+    static let inkRaised = Color(red: 0.039, green: 0.039, blue: 0.043) // #0A0A0B
+
+    /// Shown in place of a price the backend never published. Naming the
+    /// absence is the point: a blank slot reads as a loading bug, and a
+    /// curated number reads as an offer we cannot honour.
+    static let unpricedLabel = "Pricing not published"
+    static let unavailableLabel = "UNAVAILABLE"
+    static let notBookableReason = "Not bookable in this Clip yet."
+}
+
+extension View {
+    /// Eyebrow: 10pt, wide tracking, serif small-caps for the accent line.
+    func luxeLabel(_ color: Color = ClipLuxe.gray45) -> some View {
+        font(.system(size: 10, weight: .semibold)).tracking(1.4).foregroundColor(color)
+    }
+
+    func luxeSurface(radius: CGFloat = 20) -> some View {
+        background(ClipLuxe.inkRaised)
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(ClipLuxe.hairline, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+    }
+}
+
+/// Price slot for any offer surface. Verified pricing prints the number;
+/// unverified prints why there is no number and never renders a call to action.
+struct ClipPriceSlot: View {
+    let priceLabel: String?
+    let isVerified: Bool
+    var alignment: HorizontalAlignment = .leading
+
+    var body: some View {
+        VStack(alignment: alignment, spacing: 2) {
+            if isVerified, let priceLabel {
+                Text(priceLabel).font(.system(size: 17, weight: .semibold)).foregroundColor(ClipLuxe.paper)
+            } else {
+                Text("—").font(.system(size: 17, weight: .semibold)).foregroundColor(ClipLuxe.gray22)
+                Text(ClipLuxe.unpricedLabel).luxeLabel()
+            }
+        }
+    }
+}
+
 enum ClipTheme {
     // Canonical Bytspot brand palette from src/BRAND_COLORS.md + LOGO_BEFORE_AFTER.md.
     // Brand identity: Cyan → Purple → Pink/Magenta on an iOS dark glass base.
@@ -2448,11 +2501,7 @@ struct ClipCatalogView: View {
                     .font(.system(size: 15.5, weight: .heavy))
                     .foregroundColor(.white)
                     .lineLimit(1)
-                if let price = service.priceLabel {
-                    Text(price)
-                        .font(.system(size: 12, weight: .black, design: .monospaced))
-                        .foregroundColor(service.tintColor)
-                }
+                ClipPriceSlot(priceLabel: service.priceLabel, isVerified: service.hasVerifiedPricing)
                 if let context = serviceTileContext(service) {
                     Text(context)
                         .font(.system(size: 10.5, weight: .black))
@@ -2751,9 +2800,13 @@ struct ClipVendorListView: View {
                             .foregroundColor(.white)
                         Text(vendor.name).font(.system(size: 20, weight: .heavy)).foregroundColor(.white).lineLimit(2)
                     }
-                    Text("\(vendor.priceFromLabel) • \(vendor.availability)")
-                        .font(.system(size: 12.5, weight: .black, design: .monospaced))
-                        .foregroundColor(service.tintColor)
+                    if vendor.hasVerifiedPricing {
+                        Text("\(vendor.priceFromLabel) • \(vendor.availability)")
+                            .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                            .foregroundColor(service.tintColor)
+                    } else {
+                        Text(ClipLuxe.unpricedLabel).luxeLabel()
+                    }
                 }
                 .padding(12)
             }
@@ -2863,7 +2916,11 @@ struct ClipVendorListView: View {
                         Text(formatEtaLabel(eta, for: service)).font(.system(size: 10.5, weight: .black)).foregroundColor(.white.opacity(0.78))
                     }
                     Spacer()
-                    Text(vendor.priceFromLabel).font(.system(size: 12.5, weight: .black, design: .monospaced)).foregroundColor(ClipTheme.gold)
+                    if vendor.hasVerifiedPricing {
+                        Text(vendor.priceFromLabel).font(.system(size: 12.5, weight: .semibold, design: .monospaced)).foregroundColor(ClipLuxe.champagne)
+                    } else {
+                        Text(ClipLuxe.unpricedLabel).luxeLabel()
+                    }
                 }
             }
             Image(systemName: "chevron.right").font(.system(size: 13, weight: .black)).foregroundColor(ClipTheme.gold.opacity(0.72))
@@ -2945,9 +3002,13 @@ struct ClipCheckoutView: View {
                 includedCard
                 if hasLineItems { lineItemsPicker } else { guestPicker }
                 bookingDetailsCard
-                totalRow
-                applePayBlock
-                cardFallback
+                if vendor.hasVerifiedPricing {
+                    totalRow
+                    applePayBlock
+                    cardFallback
+                } else {
+                    unbookableBlock
+                }
             }
             .padding(.horizontal, 18)
             .padding(.top, 14)
@@ -3307,6 +3368,21 @@ struct ClipCheckoutView: View {
                 .clipShape(Capsule())
                 .overlay(Capsule().stroke(ClipTheme.emerald.opacity(0.4), lineWidth: 1))
         }
+    }
+
+    /// Unbookable vendors never reach Apple Pay. Authorizing first and failing
+    /// afterwards would take a Face ID confirmation for a hold that cannot be
+    /// placed, which is a worse outcome than saying so up front.
+    private var unbookableBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(ClipLuxe.unavailableLabel).luxeLabel(ClipLuxe.champagne)
+            Text(ClipLuxe.notBookableReason).font(.system(size: 14)).foregroundColor(ClipLuxe.gray70)
+            Text("This listing is a curated preview. Bytspot has not published pricing or availability for it.")
+                .font(.system(size: 12)).foregroundColor(ClipLuxe.gray45).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+        .luxeSurface()
     }
 
     private var applePayBlock: some View {

@@ -114,6 +114,29 @@ enum BytspotAviationFallbackTests {
         assertHostStudioPartyMappingContract()
         assertPartyPassPreviewContract()
         assertPartnerCardParity()
+        assertCuratedFixturesNeverClaimVerifiedPricing()
+    }
+
+    /// The curated catalog exists so the Clip has something to render before a
+    /// backend answers. None of it is bookable: `vendors.getByPatch`,
+    /// `vendors.searchServices` and `booking.authorizeApplePayHold` do not exist
+    /// yet. So no fixture may report verified pricing, or the UI would print a
+    /// price and a buy button for an offer that cannot settle.
+    private static func assertCuratedFixturesNeverClaimVerifiedPricing() {
+        for tier in [BytspotTier.green, .platinum, .black] {
+            for service in ClipLocalService.fallbacks(for: tier) {
+                precondition(
+                    !service.hasVerifiedPricing,
+                    "BytspotAviationFallbackTests: curated service '\(service.id)' claims verified pricing; a fixture price would render as a real offer."
+                )
+                for vendor in ClipVendor.fallbacks(for: service, tier: tier) {
+                    precondition(
+                        !vendor.hasVerifiedPricing,
+                        "BytspotAviationFallbackTests: curated vendor '\(vendor.id)' claims verified pricing. `control` is not an origin signal — GH Akwaaba and Broni hardcode control: \"vendor\"."
+                    )
+                }
+            }
+        }
     }
 
     private static func runPhase3LuxuryFlowContract() {

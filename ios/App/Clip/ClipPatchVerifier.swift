@@ -226,6 +226,10 @@ struct ClipLocalService: Identifiable, Equatable {
 
     var displayPosterURL: URL? { thumbnailURL ?? heroImageURL }
     var hasPlayableVideo: Bool { videoURL != nil }
+    /// Only `normalizeService` stamps "live"; every curated fixture is "curated".
+    /// A curated price is a number we cannot honour, so it must never be shown
+    /// as an offer — the same rule that keeps Typical from being labelled Live.
+    var hasVerifiedPricing: Bool { source == "live" }
 
     static let fallbacks: [ClipLocalService] = ClipLocalService.fallbacks(for: .black)
     static let ghAkwaabaFifaThumbnailURL = URL(string: "https://bytspot.app/media/gh-akwaaba-fifa-ghana-thumbnail.png")
@@ -394,6 +398,10 @@ struct ClipVendor: Identifiable, Equatable {
     var control: String = "local"
 
     var isControlledVendor: Bool { control == "vendor" }
+    /// Set to "live" only by the backend normalizer. `control` cannot stand in
+    /// for this: two curated fixtures hardcode `control: "vendor"`.
+    var origin: String = "curated"
+    var hasVerifiedPricing: Bool { origin == "live" }
     var videoURL: URL? = nil
     var thumbnailURL: URL? = nil
     var heroBannerURL: URL? = nil
@@ -1232,6 +1240,7 @@ struct ClipPatchVerifier {
             items: resolvedItems.isEmpty && isGhAkwaaba ? ClipLineItem.ghAkwaabaDefaults(ticketCents: priceCents) : parsedItems,
             control: "vendor"
         )
+        vendorModel.origin = "live"
         let rowVideo = Self.url(row["videoUrl"])
             ?? Self.url(row["videoURL"])
             ?? Self.url(row["hlsUrl"])

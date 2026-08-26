@@ -167,7 +167,13 @@ struct PartyPassClipView: View {
     /// scene transition until the current active scene has a fresh response.
     @State private var passResolverGeneration = UUID()
 
-    private var accent: Color { ClipTheme.accent(for: invite.tier) }
+    /// Confirmed access turns the whole surface emerald: the guest is past the
+    /// door decision, so the tier accent — which advertises what they had to
+    /// clear — stops being the useful signal. Gated on the same fail-closed
+    /// `effectiveAction` the QR uses, never on `passState.accessGranted` alone.
+    private var accent: Color {
+        effectiveAction == .viewPass ? ClipTheme.emerald : ClipTheme.accent(for: invite.tier)
+    }
     private var ctaForeground: Color { ClipTheme.background }
     private var tierPresentation: PartyInvitationTierPresentation { PartyInvitationTierPresentation(for: invite.tier) }
     private var partyBookingContext: ClipBookingContext? {
@@ -439,25 +445,33 @@ struct PartyPassClipView: View {
         }
     }
 
-    /// Searches Maps by the published venue name rather than routing to a fixed
-    /// point: the invite carries no coordinates, so the name is all we honestly
-    /// have, and Maps lets the guest confirm the place before starting to drive.
+    /// Routes to the venue's actual point when the server published one, and
+    /// falls back to a name search when it did not. `q` is always sent so Maps
+    /// labels the pin with the place rather than a bare coordinate, and the
+    /// guest can confirm where they are going before driving.
     private func openInMapsButton(venue: String) -> some View {
-        Button {
+        let coordinate = invite.routableCoordinate
+        return Button {
             impactLight()
             var components = URLComponents(string: "http://maps.apple.com/")!
-            components.queryItems = [URLQueryItem(name: "q", value: venue)]
+            var items: [URLQueryItem] = []
+            if let coordinate {
+                items.append(URLQueryItem(name: "ll", value: "\(coordinate.latitude),\(coordinate.longitude)"))
+            }
+            items.append(URLQueryItem(name: "q", value: venue))
+            items.append(URLQueryItem(name: "dirflg", value: "d"))
+            components.queryItems = items
             if let url = components.url { openURL(url) }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: "map.fill").font(.system(size: 12, weight: .black))
-                Text("Open in Maps").font(.system(size: 13, weight: .black, design: .rounded))
+                Image(systemName: coordinate == nil ? "map.fill" : "location.fill").font(.system(size: 12, weight: .black))
+                Text(coordinate == nil ? "Open in Maps" : "Directions").font(.system(size: 13, weight: .black, design: .rounded))
             }
             .foregroundColor(.white)
             .padding(.vertical, 10).padding(.horizontal, 14)
             .background(Color.white.opacity(0.12), in: Capsule())
         }
-        .accessibilityLabel("Open \(venue) in Maps")
+        .accessibilityLabel(coordinate == nil ? "Open \(venue) in Maps" : "Driving directions to \(venue)")
     }
 
     @ViewBuilder private var hostDestinations: some View {

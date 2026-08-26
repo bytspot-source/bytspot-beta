@@ -230,6 +230,10 @@ struct PartyPassInvite: Equatable {
     let locationLabel: String
     let locationDisclosure: String
     let locationIsWithheld: Bool
+    /// Present only for a published venue the server could resolve to a real
+    /// point. Never populated for an after-approval or withheld Party.
+    let latitude: Double?
+    let longitude: Double?
     let accessMode: String
     let capacity: Int?
     let attendeeCount: Int
@@ -251,6 +255,17 @@ struct PartyPassInvite: Equatable {
     var routableVenueName: String? {
         guard !locationIsWithheld, locationLabel != Self.unnamedVenueLabel else { return nil }
         return locationLabel
+    }
+
+    /// A routable point, and only alongside a routable name. The name gate is
+    /// re-applied here so a coordinate can never survive a disclosure the label
+    /// already refused — two independent checks, not one shared assumption.
+    var routableCoordinate: (latitude: Double, longitude: Double)? {
+        guard routableVenueName != nil, let latitude, let longitude,
+              latitude.isFinite, longitude.isFinite,
+              (-90...90).contains(latitude), (-180...180).contains(longitude),
+              !(latitude == 0 && longitude == 0) else { return nil }
+        return (latitude, longitude)
     }
 
     var displayPosterURL: URL? { thumbnailURL ?? heroImageURL }
@@ -303,6 +318,8 @@ struct PartyPassInvite: Equatable {
             locationLabel: locationIsPublic ? (string(row["locationLabel"]) ?? Self.unnamedVenueLabel) : locationDisclosure == "after-approval" ? "Location shared after approval" : "Location withheld by host",
             locationDisclosure: locationDisclosure,
             locationIsWithheld: !locationIsPublic,
+            latitude: locationIsPublic ? double(row["latitude"]) : nil,
+            longitude: locationIsPublic ? double(row["longitude"]) : nil,
             accessMode: string(row["accessMode"]) ?? "free-rsvp",
             capacity: int(row["capacity"]), attendeeCount: int(row["participantCount"]) ?? 0,
             ticketTiers: (row["ticketTiers"] as? [Any])?.compactMap(ClipPartyTicketTier.from) ?? [],
@@ -324,6 +341,11 @@ struct PartyPassInvite: Equatable {
     private static func int(_ value: Any?) -> Int? {
         if let value = value as? Int { return value }
         if let value = value as? NSNumber { return value.intValue }
+        return nil
+    }
+    private static func double(_ value: Any?) -> Double? {
+        if let value = value as? Double { return value }
+        if let value = value as? NSNumber { return value.doubleValue }
         return nil
     }
     private static func object(_ value: Any?) -> [String: Any]? { value as? [String: Any] }
@@ -842,6 +864,9 @@ final class ClipInvocationModel: ObservableObject {
 
     /// Universal Link used when the Clip hands off to the installed full app.
     /// If the full app is not installed, the view layer falls back to SKOverlay.
+    /// `handoff=1` is already carried by `handoffURL`; the wallet intent is added
+    /// only on the ticket path, so a plain "Open in Bytspot" never claims a save
+    /// the guest did not ask for.
     var mainAppHandoffURL: URL? {
         if case .party(let invite) = flow {
             guard var components = URLComponents(url: invite.handoffURL ?? URL(string: "https://bytspot.app/party/")!, resolvingAgainstBaseURL: false),
@@ -851,8 +876,15 @@ final class ClipInvocationModel: ObservableObject {
             queryItems.append(contentsOf: [
                 URLQueryItem(name: "ticketTier", value: selectedPartyTicketTier.name),
                 URLQueryItem(name: "ticketTierCents", value: String(selectedPartyTicketTier.priceCents)),
-                URLQueryItem(name: "ticketTierAccess", value: selectedPartyTicketTier.requiredMembershipTier)
+                URLQueryItem(name: "ticketTierAccess", value: selectedPartyTicketTier.requiredMembershipTier),
+                URLQueryItem(name: "intent", value: "save_to_wallet")
             ])
+            if let coordinate = invite.routableCoordinate {
+                queryItems.append(contentsOf: [
+                    URLQueryItem(name: "lat", value: String(coordinate.latitude)),
+                    URLQueryItem(name: "lng", value: String(coordinate.longitude))
+                ])
+            }
             components.queryItems = queryItems
             return components.url
         }

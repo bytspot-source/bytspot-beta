@@ -234,6 +234,26 @@ enum BytspotAviationFallbackTests {
         precondition(invite?.itinerary == ["Doors open"] && invite?.ticketTiers.count == 1, "Party Loop: server activity highlights and ticket tiers must reach the Party Pass.")
         precondition(invite?.hostDestinations.map(\.kind) == [.music, .merch, .website, .social] && invite?.hostDestinations.last?.label == "Instagram", "Party Loop: only the host-selected official destinations may reach recipients.")
         precondition(invite?.photoURLs.count == 1, "Party Loop: host-selected album media must reach the Party Pass.")
+
+        // Arrival coordinates: routable only for a published venue, and never a
+        // stronger claim than the label the host chose.
+        var coordinateDTO = dto
+        coordinateDTO["latitude"] = 33.7841
+        coordinateDTO["longitude"] = -84.3830
+        let routable = PartyPassInvite.fromPayload(coordinateDTO)
+        precondition(routable?.latitude == 33.7841 && routable?.longitude == -84.3830, "Party Loop: a published venue's coordinates must reach the Party Pass.")
+        precondition(routable?.routableCoordinate != nil, "Party Loop: a published, named venue with coordinates must be routable.")
+        precondition(PartyPassInvite.fromPayload(dto)?.routableCoordinate == nil, "Party Loop: a Party without server coordinates must fall back to a name search.")
+        for disclosure in ["after-approval", "withheld"] {
+            var hiddenDTO = coordinateDTO
+            hiddenDTO["locationDisclosure"] = disclosure
+            let hidden = PartyPassInvite.fromPayload(hiddenDTO)
+            precondition(hidden?.latitude == nil && hidden?.longitude == nil, "Party Loop: \(disclosure) must not carry coordinates.")
+            precondition(hidden?.routableCoordinate == nil && hidden?.routableVenueName == nil, "Party Loop: \(disclosure) must be unroutable by point and by name.")
+        }
+        var unnamedDTO = coordinateDTO
+        unnamedDTO["locationLabel"] = nil
+        precondition(PartyPassInvite.fromPayload(unnamedDTO)?.routableCoordinate == nil, "Party Loop: a pending venue name must not route by coordinate.")
         var genericSocialDTO = dto
         genericSocialDTO["host"] = ["destinations": ["socialUrl": "https://social.example.com/unapproved", "social": ["platform": "Unapproved", "url": "https://social.example.com/unapproved"]]]
         precondition(PartyPassInvite.fromPayload(genericSocialDTO)?.hostDestinations.contains(where: { $0.kind == .social }) == false, "Party Loop: generic social aliases must not reach recipients without a primary host selection.")

@@ -462,25 +462,20 @@ final class BytspotTrustEngineTests: XCTestCase {
         NativeVenueSummary(id: name.lowercased().replacingOccurrences(of: " ", with: "-"), name: name, category: category, address: address, distance: "0.4 mi", rating: 4.9, latitude: 33.7866, longitude: -84.3833, crowd: NativeCrowdSummary(level: 2, label: "Open", waitMins: nil), parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Free"), verifiedPatchId: patchId, imageUrl: nil)
     }
 
-    // MARK: - Premium Map Functions entitlement matrix (WS-B)
+    // MARK: - Map Functions entitlement matrix (WS-B)
     // Mirrors contracts/native-trust-contract.json mapFunctions.
 
-    func testPremiumMapFunctionTokensMatchContract() {
-        XCTAssertEqual(BytspotMapFunctionCatalog.premiumFunctionTokens, ["ai-navigation", "spot-radar", "traffic-intelligence"])
+    func testEveryMapFunctionIsFree() {
+        XCTAssertEqual(BytspotMapFunctionCatalog.freeFunctions, ["smart-parking", "live-venue-data", "trending-hotspots", "ai-navigation", "spot-radar", "traffic-intelligence"])
     }
 
-    func testFreeMapFunctionTokensMatchContract() {
-        XCTAssertEqual(BytspotMapFunctionCatalog.freeFunctions, ["smart-parking", "live-venue-data", "trending-hotspots"])
-    }
-
-    func testFreeAndPremiumFunctionSetsAreDisjoint() {
-        let free = Set(BytspotMapFunctionCatalog.freeFunctions)
-        let premium = Set(BytspotMapFunctionCatalog.premiumFunctionTokens)
-        XCTAssertTrue(free.isDisjoint(with: premium), "A map function must not be both free and premium.")
-    }
-
-    func testPremiumFunctionsRequirePlatinumMembership() {
-        XCTAssertEqual(BytspotMapFunctionCatalog.requiredMembershipTier, .platinum)
+    func testNoMapFunctionIsGatedBehindMembership() {
+        // Membership buys real-world access, not map intelligence. Gating a map
+        // function is what would pull the subscription under Apple's IAP rule.
+        XCTAssertTrue(BytspotMapFunctionCatalog.gatedFunctionTokens.isEmpty)
+        for token in BytspotMapFunctionCatalog.intelligenceFunctionTokens {
+            XCTAssertTrue(BytspotMapFunctionCatalog.freeFunctions.contains(token), "\(token) must be free.")
+        }
     }
 
     func testCanonicalMembershipAccess() {
@@ -1509,16 +1504,15 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(estimate.durationText.hasPrefix("~"))
     }
 
-    func testPremiumFunctionsLockedWithoutEntitlement() {
-        for function in BytspotPremiumMapFunction.allCases {
-            XCTAssertFalse(BytspotMapFunctionCatalog.isUnlocked(function, for: .green), "\(function.rawValue) must stay locked for Green membership.")
-            XCTAssertTrue(BytspotMapFunctionCatalog.isUnlocked(function, for: .platinum), "\(function.rawValue) must unlock for Platinum membership.")
-            XCTAssertTrue(BytspotMapFunctionCatalog.isUnlocked(function, for: .black), "\(function.rawValue) must unlock for Black membership.")
+    func testIntelligenceFunctionsAreAvailableToEveryTier() {
+        // Green sees exactly what Black sees on the map; the tier changes nothing here.
+        for tier in BytspotTier.allCases {
+            XCTAssertTrue(BytspotMapFunctionCatalog.gatedFunctionTokens.isEmpty, "\(tier) must not face a gated map function.")
         }
     }
 
-    func testPremiumFunctionEnumCoversExactlyTheGatedTokens() {
-        XCTAssertEqual(Set(BytspotPremiumMapFunction.allCases.map(\.rawValue)), Set(BytspotMapFunctionCatalog.premiumFunctionTokens))
+    func testIntelligenceFunctionEnumMatchesTheCatalogTokens() {
+        XCTAssertEqual(Set(BytspotMapIntelligenceFunction.allCases.map(\.rawValue)), Set(BytspotMapFunctionCatalog.intelligenceFunctionTokens))
     }
 
     private func serviceHereContext(
@@ -1940,7 +1934,6 @@ final class NativeProfileDataAPITests: XCTestCase {
         // A guest holds no membership, so no tier may be implied for them.
         for tier in BytspotTier.allCases {
             XCTAssertNil(NativeProfileWireframeGuard.passportTierLabel(isAuthenticated: false, tier: tier))
-            XCTAssertFalse(NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: false, tier: tier))
         }
     }
 
@@ -1980,10 +1973,10 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertFalse(NativePresenceSummary(scope: "area", count: 42, windowMs: 86400000, area: "Midtown").chipLabel?.lowercased().contains("live") ?? true)
     }
 
-    func testOnlyTheEntryTierIsOfferedTheMembershipUpgrade() {
-        XCTAssertTrue(NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: true, tier: .green))
-        XCTAssertFalse(NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: true, tier: .platinum))
-        XCTAssertFalse(NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: true, tier: .black))
+    func testPassportOffersNoUpgradeWhileNothingCanCompleteAPurchase() {
+        // The tier is stated, never sold: no surface in the app can take payment,
+        // so an upgrade CTA would promise what it cannot deliver.
+        XCTAssertFalse(NativeProfileWireframeGuard.offersMembershipUpgrade)
     }
 
     func testNativeNetworkHasExactlyPeopleCirclesInvitationsAndPeopleMet() {

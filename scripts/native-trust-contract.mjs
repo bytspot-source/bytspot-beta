@@ -94,9 +94,12 @@ const mapFunctionTokens = matchUnion(SRC.mapTypes, mt, 'type MapFunction');
 // Traffic Intelligence are reserved as premium privileges. The token sets are a
 // native design decision (no single React leaf), so they are validated against
 // the verbatim MapFunction union below rather than copied blind.
-const freeMapFunctions = ['smart-parking', 'live-venue-data', 'trending-hotspots'];
-const premiumMapFunctions = ['ai-navigation', 'spot-radar', 'traffic-intelligence'];
-const requiredMembershipTier = 'platinum';
+// Intelligence is free; membership buys real-world access, not map features.
+// Gating these behind a paid tier is what would pull the subscription under
+// Apple's in-app purchase rule, so the premium set is deliberately empty.
+const freeMapFunctions = ['smart-parking', 'live-venue-data', 'trending-hotspots', 'ai-navigation', 'spot-radar', 'traffic-intelligence'];
+const premiumMapFunctions = [];
+const requiredMembershipTier = null;
 
 // Every gated/free function MUST be a real MapFunction token, and the two sets
 // must be disjoint — otherwise the native sheet could gate (or free) a function

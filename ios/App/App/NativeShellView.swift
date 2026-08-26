@@ -1152,7 +1152,6 @@ private struct NativeProfileStat: View {
 private struct NativeProfileHeaderCard: View {
     let sessionStore: BytspotSessionStore
     let socialCircleSnapshot: NativeSocialCircleSnapshot
-    let openAccess: () -> Void
 
     @EnvironmentObject private var membershipStore: NativeMembershipTierStore
     @AppStorage(NativeSignedInIdentity.displayNameKey) private var signedInDisplayName = ""
@@ -1221,13 +1220,6 @@ private struct NativeProfileHeaderCard: View {
                     }
                     .padding(.top, 16)
                 }
-                if showsUpgradeCTA {
-                    Button(action: openAccess) {
-                        NativeCTA(title: "Upgrade membership", color: NativeTheme.purple, foreground: NativeProfileStyle.onVibrant)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("native-profile-membership-upgrade")
-                }
             }
             .padding(22)
         }
@@ -1239,9 +1231,6 @@ private struct NativeProfileHeaderCard: View {
         NativeProfileWireframeGuard.passportTierLabel(isAuthenticated: sessionStore.isAuthenticated, tier: membershipStore.tier)
     }
 
-    private var showsUpgradeCTA: Bool {
-        NativeProfileWireframeGuard.showsUpgradeCTA(isAuthenticated: sessionStore.isAuthenticated, tier: membershipStore.tier)
-    }
 }
 
 private struct NativeProfileAccountView: View {
@@ -1261,7 +1250,7 @@ private struct NativeProfileAccountView: View {
 
     var body: some View {
         VStack(spacing: NativeProfileStyle.cardSpacing) {
-            NativeProfileHeaderCard(sessionStore: sessionStore, socialCircleSnapshot: socialCircleSnapshot, openAccess: { activePanel = .access })
+            NativeProfileHeaderCard(sessionStore: sessionStore, socialCircleSnapshot: socialCircleSnapshot)
             NativeProfileIAHeader(title: "Quick actions", subtitle: "The four things people open Profile for most.")
             NativeProfileCommandGrid(openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Account Essentials", subtitle: "Identity, payment, and vehicles used at arrival.")
@@ -1630,11 +1619,9 @@ enum NativeProfileWireframeGuard {
         passportTierLabel(isAuthenticated: isAuthenticated, tier: tier) ?? "Guest"
     }
 
-    /// Only the entry tier carries no paid entitlement, so only it is offered the
-    /// upgrade CTA.
-    static func showsUpgradeCTA(isAuthenticated: Bool, tier: BytspotTier) -> Bool {
-        isAuthenticated && tier == .green
-    }
+    /// No upgrade is offered anywhere in the Passport: nothing in the app can
+    /// complete a purchase, so a CTA promising one would be a dead end.
+    static let offersMembershipUpgrade = false
 }
 
 private enum NativeArrivalLedgerContract {
@@ -13036,7 +13023,6 @@ private struct NativeMapExploreView: View {
     @State private var showVerifiedOnly = false
     @State private var showTrafficIntel = false
     @State private var trafficIntelVenue: NativeVenueSummary?
-    @State private var premiumUpsellFunction: BytspotPremiumMapFunction?
     @State private var showServiceHereSheet = false
     @State private var didAutoOpenServiceHere = false
     @State private var pendingServiceHereAction: NativeServiceHereActionKind?
@@ -13418,19 +13404,6 @@ private struct NativeMapExploreView: View {
             if #available(iOS 16.0, *) {
                 sheet
                     .presentationDetents([.medium, .large])
-                    .presentationDragIndicator(.visible)
-            } else {
-                sheet
-            }
-        }
-        .sheet(item: $premiumUpsellFunction) { function in
-            let sheet = NativePremiumUpsellSheet(function: function) {
-                premiumUpsellFunction = nil
-                openNativeProfile(.access)
-            }
-            if #available(iOS 16.0, *) {
-                sheet
-                    .presentationDetents([.medium])
                     .presentationDragIndicator(.visible)
             } else {
                 sheet
@@ -14645,9 +14618,9 @@ private struct NativeMapExploreView: View {
             functionFeatureRow(icon: "arrow.up.right", title: Self.functionRowCopy[2][0], subtitle: Self.functionRowCopy[2][1], colors: [NativeTheme.orange.opacity(0.10), NativePolish.mapPanelSurface], accent: NativeTheme.orange) {
                 openTrafficIntel()
             }
-            premiumFunctionsHeader
-            ForEach(BytspotMapFunctionCatalog.premiumFunctions) { function in
-                premiumFunctionRow(function)
+            intelligenceFunctionsHeader
+            ForEach(BytspotMapFunctionCatalog.intelligenceFunctions) { function in
+                intelligenceFunctionRow(function)
             }
         }
     }
@@ -14706,43 +14679,35 @@ private struct NativeMapExploreView: View {
         }
     }
 
-    /// Section divider that frames the premium block — present whether or not the
-    /// parker holds the entitlement, so the upgrade surface is always discoverable.
-    private var premiumFunctionsHeader: some View {
+    /// Section divider for the intelligence block. It names the group and nothing
+    /// more: no tier, no crown, no lock, because none of it is for sale.
+    private var intelligenceFunctionsHeader: some View {
         HStack(spacing: 8) {
-            Image(systemName: membershipTier.hasPlatinumAccess ? "crown.fill" : "lock.fill")
+            Image(systemName: "sparkles")
                 .font(.system(size: 12, weight: .black))
-                .foregroundColor(membershipTier.hasPlatinumAccess ? NativeTheme.orange : NativeTheme.textSecondary)
-            Text(membershipTier.hasPlatinumAccess ? "PLATINUM · UNLOCKED" : "PLATINUM MEMBERSHIP")
+                .foregroundColor(NativeTheme.textSecondary)
+            Text("MORE FUNCTIONS")
                 .font(.system(size: 11.5, weight: .black, design: .monospaced))
                 .tracking(1.1)
                 .foregroundColor(NativeTheme.textSecondary)
             Spacer(minLength: 0)
         }
         .padding(.top, 4)
-        .accessibilityIdentifier("native-map-premium-functions-header")
+        .accessibilityIdentifier("native-map-intelligence-functions-header")
     }
 
-    /// One premium Map Function row. When the parker holds the entitlement it routes
-    /// to the live action; otherwise it renders a lock chip and opens the upgrade
-    /// nudge instead. Unlock authority is the single `BytspotMapFunctionCatalog`
-    /// source so UI and parity self-tests can never disagree.
-    private func premiumFunctionRow(_ function: BytspotPremiumMapFunction) -> some View {
-        let unlocked = BytspotMapFunctionCatalog.isUnlocked(function, for: membershipTier)
-        return Button(action: {
+    /// One map intelligence row. Every function routes straight to its action:
+    /// intelligence is not sold, so there is no entitlement to consult.
+    private func intelligenceFunctionRow(_ function: BytspotMapIntelligenceFunction) -> some View {
+        Button(action: {
             nativeImpactLight()
-            if unlocked {
-                runPremiumFunction(function)
-            } else {
-                premiumUpsellFunction = function
-            }
+            runIntelligenceFunction(function)
         }) {
             HStack(spacing: 14) {
                 ZStack {
                     Rectangle()
                         .fill(LinearGradient(colors: [function.accent, NativeTheme.purple.opacity(0.82)], startPoint: .topLeading, endPoint: .bottomTrailing))
                         .frame(width: 64, height: 78)
-                        .opacity(unlocked ? 1 : 0.5)
                     Image(systemName: function.systemImage)
                         .font(.system(size: 23, weight: .black))
                         .foregroundColor(.white)
@@ -14760,39 +14725,23 @@ private struct NativeMapExploreView: View {
                         .minimumScaleFactor(0.75)
                 }
                 Spacer(minLength: 0)
-                if unlocked {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 26, weight: .black))
-                        .foregroundColor(function.accent.opacity(0.68))
-                } else {
-                    premiumLockChip
-                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 26, weight: .black))
+                    .foregroundColor(function.accent.opacity(0.68))
             }
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
             .frame(height: NativePolish.mapFunctionRowHeight)
-            .background(LinearGradient(colors: [function.accent.opacity(unlocked ? 0.12 : 0.06), NativePolish.mapPanelSurface], startPoint: .leading, endPoint: .trailing))
+            .background(LinearGradient(colors: [function.accent.opacity(0.12), NativePolish.mapPanelSurface], startPoint: .leading, endPoint: .trailing))
             .overlay(Rectangle().stroke(NativePolish.softBorder, lineWidth: 1.1))
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("native-map-premium-function-\(function.rawValue)\(unlocked ? "-unlocked" : "-locked")")
+        .accessibilityIdentifier("native-map-intelligence-function-\(function.rawValue)")
     }
 
-    private var premiumLockChip: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "lock.fill").font(.system(size: 12, weight: .black))
-            Text("UPGRADE").font(.system(size: 11, weight: .black, design: .monospaced)).tracking(0.8)
-        }
-        .foregroundColor(.black)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(NativeTheme.orange)
-        .clipShape(Capsule())
-    }
-
-    /// Live action for an unlocked premium function — routes into the existing native
+    /// Live action for a map intelligence function — routes into the existing native
     /// surfaces rather than re-implementing them.
-    private func runPremiumFunction(_ function: BytspotPremiumMapFunction) {
+    private func runIntelligenceFunction(_ function: BytspotMapIntelligenceFunction) {
         showFunctionSheet = false
         switch function {
         case .aiNavigation:
@@ -15667,81 +15616,6 @@ private struct NativeTrafficIntelSheet: View {
         case 7...20: return NativeTheme.orange
         default: return NativeTheme.emerald
         }
-    }
-}
-
-/// Upgrade nudge shown when a parker without the premium entitlement taps a locked
-/// Map Function. Names the function they reached for, lists the premium privilege
-/// set, and routes to the native Account Center access panel. The
-/// native billing surface is still preview-grade, but the handoff stays inside Swift.
-private struct NativePremiumUpsellSheet: View {
-    let function: BytspotPremiumMapFunction
-    let onUpgrade: () -> Void
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 13) {
-                ZStack {
-                    Circle().fill(function.accent.opacity(colorScheme == .dark ? 0.22 : 0.16))
-                    Image(systemName: function.systemImage)
-                        .font(.system(size: 21, weight: .black))
-                        .foregroundColor(function.accent)
-                }
-                .frame(width: 50, height: 50)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Unlock \(function.title)")
-                        .font(.system(size: 21, weight: .black))
-                        .foregroundColor(NativeTheme.textPrimary)
-                    Text(function.subtitle)
-                        .font(.system(size: 13.5, weight: .bold))
-                        .foregroundColor(NativeTheme.textSecondary)
-                }
-                Spacer(minLength: 0)
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(BytspotPremiumMapFunction.allCases) { privilege in
-                    HStack(spacing: 10) {
-                        Image(systemName: privilege == function ? "checkmark.seal.fill" : "checkmark.circle.fill")
-                            .font(.system(size: 15, weight: .black))
-                            .foregroundColor(privilege.accent)
-                        Text(privilege.title)
-                            .font(.system(size: 15, weight: .black))
-                            .foregroundColor(NativeTheme.textPrimary)
-                        Spacer(minLength: 0)
-                    }
-                }
-            }
-            .padding(14)
-            .background(NativePolish.elevatedSurface)
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            Spacer(minLength: 0)
-            Button(action: onUpgrade) {
-                HStack(spacing: 8) {
-                    Image(systemName: "crown.fill").font(.system(size: 15, weight: .black))
-                    Text("Upgrade to Platinum").font(.system(size: 16, weight: .black))
-                }
-                .foregroundColor(.black)
-                .frame(maxWidth: .infinity)
-                .frame(height: 54)
-                .background(LinearGradient(colors: [NativeTheme.orange, NativeTheme.pink], startPoint: .leading, endPoint: .trailing))
-                .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            Button(action: { dismiss() }) {
-                Text("Not now")
-                    .font(.system(size: 14, weight: .black))
-                    .foregroundColor(NativeTheme.textSecondary)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(22)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(NativePolish.screenBackground.ignoresSafeArea())
-        .accessibilityIdentifier("native-map-premium-upsell-\(function.rawValue)")
     }
 }
 
@@ -17093,7 +16967,7 @@ extension BytspotTier {
 /// to contracts/native-trust-contract.json mapFunctions.premium. Each requires an
 /// Platinum or Black membership; Green renders a lock and
 /// routes to the upgrade nudge instead of the action.
-enum BytspotPremiumMapFunction: String, CaseIterable, Identifiable {
+enum BytspotMapIntelligenceFunction: String, CaseIterable, Identifiable {
     case aiNavigation = "ai-navigation"
     case spotRadar = "spot-radar"
     case trafficIntelligence = "traffic-intelligence"
@@ -17134,19 +17008,18 @@ enum BytspotPremiumMapFunction: String, CaseIterable, Identifiable {
 }
 
 /// Single native authority for the Map Functions catalog, mirroring the contract's
-/// mapFunctions block. `free` functions surface without an entitlement; `premium`
-/// requires Platinum membership. The sheet UI and the parity self-tests both
-/// read from here so the lock affordance can never disagree with the contract.
+/// mapFunctions block. Every function is free: membership buys real-world access —
+/// doors, passes, arrival — not map intelligence. The sheet UI and the parity
+/// self-tests both read from here so no lock affordance can reappear unilaterally.
 enum BytspotMapFunctionCatalog {
-    static let freeFunctions = ["smart-parking", "live-venue-data", "trending-hotspots"]
-    static let premiumFunctions = BytspotPremiumMapFunction.allCases
-    static let requiredMembershipTier: BytspotTier = .platinum
+    static let freeFunctions = ["smart-parking", "live-venue-data", "trending-hotspots", "ai-navigation", "spot-radar", "traffic-intelligence"]
+    static let intelligenceFunctions = BytspotMapIntelligenceFunction.allCases
 
-    static var premiumFunctionTokens: [String] { premiumFunctions.map(\.rawValue) }
+    static var intelligenceFunctionTokens: [String] { intelligenceFunctions.map(\.rawValue) }
 
-    static func isUnlocked(_ function: BytspotPremiumMapFunction, for tier: BytspotTier) -> Bool {
-        tier.hasPlatinumAccess
-    }
+    /// No map function is gated. Kept as the single authority so a future gate has
+    /// one place to be added, and one place to be argued with.
+    static let gatedFunctionTokens: [String] = []
 }
 
 /// Internal, test-reachable façade over the pure, load-bearing L2 trust gate that
@@ -17878,12 +17751,10 @@ enum NativeMapParitySelfTests {
         precondition(NativeMapExploreView.showsFloatingTapScanCTA == false, "NativeMapParitySelfTests: floating Tap / Scan viewport CTA must remain hidden.")
         precondition(NativeMapExploreView.tapScanTitle == "Tap / Scan" && NativeMapExploreView.tapScanSubtitle == "Open Virtual Patch", "NativeMapParitySelfTests: contextual Tap / Scan copy drifted from React MapSection.")
         precondition(NativeMapExploreView.functionSheetTitle == "Map Functions" && NativeMapExploreView.emptyTapZoneCopy == "No Partnered Tap Zones nearby yet.", "NativeMapParitySelfTests: Map sheet/no-result copy drifted.")
-        // Premium-gated Map Functions matrix (WS-B). Mirrors native-trust-contract.json mapFunctions.
-        precondition(BytspotMapFunctionCatalog.premiumFunctionTokens == ["ai-navigation", "spot-radar", "traffic-intelligence"], "NativeMapParitySelfTests: premium Map Function tokens drifted from contract mapFunctions.premium.")
-        precondition(BytspotMapFunctionCatalog.freeFunctions == ["smart-parking", "live-venue-data", "trending-hotspots"], "NativeMapParitySelfTests: free Map Function tokens drifted from contract mapFunctions.free.")
-        precondition(Set(BytspotMapFunctionCatalog.freeFunctions).isDisjoint(with: Set(BytspotMapFunctionCatalog.premiumFunctionTokens)), "NativeMapParitySelfTests: a Map Function must not be both free and premium.")
-        precondition(BytspotMapFunctionCatalog.requiredMembershipTier == .platinum, "NativeMapParitySelfTests: premium functions must require canonical Platinum membership.")
-        precondition(BytspotPremiumMapFunction.allCases.allSatisfy { !BytspotMapFunctionCatalog.isUnlocked($0, for: .green) && BytspotMapFunctionCatalog.isUnlocked($0, for: .platinum) && BytspotMapFunctionCatalog.isUnlocked($0, for: .black) }, "NativeMapParitySelfTests: premium functions must lock for Green and unlock for Platinum or Black.")
+        // Map Functions matrix (WS-B). Mirrors native-trust-contract.json mapFunctions.
+        precondition(BytspotMapFunctionCatalog.freeFunctions == ["smart-parking", "live-venue-data", "trending-hotspots", "ai-navigation", "spot-radar", "traffic-intelligence"], "NativeMapParitySelfTests: free Map Function tokens drifted from contract mapFunctions.free.")
+        precondition(BytspotMapFunctionCatalog.gatedFunctionTokens.isEmpty, "NativeMapParitySelfTests: no map function may be gated — membership buys access, not intelligence.")
+        precondition(BytspotMapIntelligenceFunction.allCases.allSatisfy { BytspotMapFunctionCatalog.freeFunctions.contains($0.rawValue) }, "NativeMapParitySelfTests: every intelligence function must be listed free.")
         let pins = NativeMapPin.samples
         precondition(pins.contains { $0.kind == .parking }, "NativeMapParitySelfTests: Smart Parking sample pin missing.")
         precondition(pins.contains { $0.kind == .partner }, "NativeMapParitySelfTests: partnered tap-zone sample pin missing.")

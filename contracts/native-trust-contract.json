@@ -133,14 +133,13 @@
     "free": [
       "smart-parking",
       "live-venue-data",
-      "trending-hotspots"
-    ],
-    "premium": [
+      "trending-hotspots",
       "ai-navigation",
       "spot-radar",
       "traffic-intelligence"
     ],
-    "requiredMembershipTier": "platinum"
+    "premium": [],
+    "requiredMembershipTier": null
   },
   "venueDetail": {
     "surfaceCapability": "viewVenue",

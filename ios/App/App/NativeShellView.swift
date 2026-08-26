@@ -13411,10 +13411,7 @@ private struct NativeMapExploreView: View {
             }
         }
         .sheet(item: $premiumUpsellFunction) { function in
-            let sheet = NativePremiumUpsellSheet(function: function) {
-                premiumUpsellFunction = nil
-                openNativeProfile(.access)
-            }
+            let sheet = NativePremiumUpsellSheet(function: function)
             if #available(iOS 16.0, *) {
                 sheet
                     .presentationDetents([.medium])
@@ -15657,13 +15654,12 @@ private struct NativeTrafficIntelSheet: View {
     }
 }
 
-/// Upgrade nudge shown when a parker without the premium entitlement taps a locked
-/// Map Function. Names the function they reached for, lists the premium privilege
-/// set, and routes to the native Account Center access panel. The
-/// native billing surface is still preview-grade, but the handoff stays inside Swift.
+/// Explains why a Map Function is locked when a parker without the premium
+/// entitlement taps it: names the function they reached for and lists the tier's
+/// privilege set. It offers no upgrade, because no surface in the app can take
+/// payment; a purchase CTA here would name an outcome it cannot produce.
 private struct NativePremiumUpsellSheet: View {
     let function: BytspotPremiumMapFunction
-    let onUpgrade: () -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
 
@@ -15678,7 +15674,7 @@ private struct NativePremiumUpsellSheet: View {
                 }
                 .frame(width: 50, height: 50)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Unlock \(function.title)")
+                    Text("\(function.title) is Platinum")
                         .font(.system(size: 21, weight: .black))
                         .foregroundColor(NativeTheme.textPrimary)
                     Text(function.subtitle)
@@ -15705,20 +15701,8 @@ private struct NativePremiumUpsellSheet: View {
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             Spacer(minLength: 0)
-            Button(action: onUpgrade) {
-                HStack(spacing: 8) {
-                    Image(systemName: "crown.fill").font(.system(size: 15, weight: .black))
-                    Text("Upgrade to Platinum").font(.system(size: 16, weight: .black))
-                }
-                .foregroundColor(.black)
-                .frame(maxWidth: .infinity)
-                .frame(height: 54)
-                .background(LinearGradient(colors: [NativeTheme.orange, NativeTheme.pink], startPoint: .leading, endPoint: .trailing))
-                .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
             Button(action: { dismiss() }) {
-                Text("Not now")
+                Text("Got it")
                     .font(.system(size: 14, weight: .black))
                     .foregroundColor(NativeTheme.textSecondary)
                     .frame(maxWidth: .infinity)

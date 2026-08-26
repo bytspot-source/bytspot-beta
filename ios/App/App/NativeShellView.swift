@@ -351,7 +351,7 @@ struct BytspotNativeShellView: View {
                     case .discover:
                         NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
-                        NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membershipTier: membershipStore.tier, plainOpenGeneration: plainMapOpenGeneration)
+                        NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membershipTier: membershipStore.tier, plainOpenGeneration: plainMapOpenGeneration, handoffMapCenter: navigation.requestedMapCenter)
                             .environmentObject(pairingStore)
                             .environmentObject(directMapRouteStore)
                     case .concierge:
@@ -12997,7 +12997,10 @@ private struct NativeMapExploreView: View {
     /// Canonical membership tier that gates Platinum Map Functions.
     var membershipTier: BytspotTier = .green
     var plainOpenGeneration: Int = 0
+    /// Venue point carried over by an App Clip handoff. Centres the camera once.
+    var handoffMapCenter: NativeLocationCoordinate?
     @State private var region = NativeMapRegionPresentation.region(for: .midtown)
+    @State private var consumedHandoffMapCenter: NativeLocationCoordinate?
     @State private var selectedMode = modeTitles[0]
     @State private var selectedPin: NativeMapPin?
     @State private var routeFocusedPinID: String?
@@ -13430,6 +13433,8 @@ private struct NativeMapExploreView: View {
         .accessibilityIdentifier("native-map-explore")
         .onAppear { handleMapAppear() }
         .onChange(of: plainOpenGeneration) { _ in consumePlainMapOpenIfNeeded() }
+        .onAppear { consumeHandoffMapCenterIfNeeded() }
+        .onChange(of: handoffMapCenter) { _ in consumeHandoffMapCenterIfNeeded() }
         .onChange(of: onboardingMapDestination) { _ in applyOnboardingMapHandoffIfRequested() }
         .onChange(of: mapFocusRequestID) { _ in applyNativeMapFocusHandoffIfRequested() }
         .onChange(of: directMapRouteStore.pendingRoute?.id) { _ in _ = applyDirectMapRouteIfRequested() }
@@ -13690,6 +13695,18 @@ private struct NativeMapExploreView: View {
             guard isPlainMapOpen else { return }
             resetPlainMapState()
         }
+    }
+
+    /// Centres the camera on a Clip handoff point exactly once. Idempotent so a
+    /// re-render cannot yank the camera back after the guest has panned away.
+    @discardableResult
+    private func consumeHandoffMapCenterIfNeeded() -> Bool {
+        guard let handoffMapCenter, handoffMapCenter != consumedHandoffMapCenter else { return false }
+        consumedHandoffMapCenter = handoffMapCenter
+        withAnimation(.easeInOut(duration: 0.4)) {
+            region = NativeMapRegionPresentation.region(for: handoffMapCenter)
+        }
+        return true
     }
 
     @discardableResult

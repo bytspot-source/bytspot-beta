@@ -66,6 +66,26 @@ enum NativeContextualDestination: Identifiable, Equatable {
 /// scheme or production universal-link host; legacy `/group` is never a Party.
 struct NativePartyPassRoute: Equatable {
     let partyID: String
+    /// Set by the App Clip when it hands the guest to the installed app.
+    private(set) var isHandoff = false
+    /// Only ever present when the Clip already held a public, routable point.
+    private(set) var latitude: Double?
+    private(set) var longitude: Double?
+    private(set) var intent: String?
+
+    /// A handoff coordinate is worth centring the map on only when it is a real,
+    /// in-range point. Anything else routes to the Party Pass without a camera move.
+    var handoffCoordinate: NativeLocationCoordinate? {
+        guard isHandoff, let latitude, let longitude,
+              latitude.isFinite, longitude.isFinite,
+              (-90...90).contains(latitude), (-180...180).contains(longitude),
+              !(latitude == 0 && longitude == 0) else { return nil }
+        // `isFallback: true` on purpose. This is a venue point the Clip carried
+        // over, not a device fix, so it must never become check-in evidence that
+        // the member is standing here. NativeVenueDetailContract.checkinInput
+        // drops fallback coordinates, which keeps that guarantee automatic.
+        return NativeLocationCoordinate(latitude: latitude, longitude: longitude, isFallback: true)
+    }
     let url: URL
 
     init?(url: URL) {
@@ -86,6 +106,14 @@ struct NativePartyPassRoute: Equatable {
         guard !partyID.isEmpty, partyID.count <= 200, !partyID.contains("/") else { return nil }
         self.partyID = partyID
         self.url = url
+        let queryItems = components.queryItems ?? []
+        func value(_ name: String) -> String? {
+            queryItems.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
+        }
+        self.isHandoff = value("handoff") == "1"
+        self.intent = ["save_to_wallet"].first { $0 == value("intent") }
+        self.latitude = value("lat").flatMap(Double.init)
+        self.longitude = value("lng").flatMap(Double.init)
     }
 }
 
@@ -104,6 +132,8 @@ enum NativePatchScanSource: String, CaseIterable, Equatable {
 final class NativeNavigationCoordinator: ObservableObject {
     @Published var requestedTab: BytspotNativeTab?
     @Published var requestedDestination: NativeContextualDestination?
+    /// Consumed once by the Map surface to centre its camera after a Clip handoff.
+    @Published var requestedMapCenter: NativeLocationCoordinate?
     @Published private(set) var lastURL: URL?
     @Published private(set) var lastScanSource: NativePatchScanSource?
 
@@ -130,7 +160,14 @@ final class NativeNavigationCoordinator: ObservableObject {
         if path == "profile" || path.hasPrefix("profile/") { requestedTab = .home; requestedDestination = .profile; return true }
         if path == "access" { requestedTab = .home; requestedDestination = .accessWallet; return true }
         if let partyRoute = NativePartyPassRoute(url: url) {
-            requestedTab = .home
+            // A Clip handoff that carried a public point opens the map on it, so the
+            // guest lands on where they are going rather than on a card about it.
+            if let coordinate = partyRoute.handoffCoordinate {
+                requestedMapCenter = coordinate
+                requestedTab = .map
+            } else {
+                requestedTab = .home
+            }
             requestedDestination = .party(partyRoute)
             return true
         }

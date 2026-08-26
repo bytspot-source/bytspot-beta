@@ -331,6 +331,19 @@ enum BytspotAviationFallbackTests {
         withheldLocation["locationLabel"] = "Do not expose"
         let withheldInvite = PartyPassInvite.fromPayload(withheldLocation)
         precondition(withheldInvite?.locationIsWithheld == true && withheldInvite?.locationLabel == "Location withheld by host", "Party Loop: host-withheld locations must remain redacted.")
+        // Only a published, named venue may reach Maps. Every redacted state
+        // must refuse to route, or the query leaks what the label withholds.
+        precondition(withheldInvite?.routableVenueName == nil, "Party Loop: a withheld venue must never be routable in Maps.")
+        precondition(protectedInvite?.routableVenueName == nil, "Party Loop: an after-approval venue must never be routable in Maps.")
+        precondition(whitespaceInvite?.routableVenueName == nil, "Party Loop: only the exact public disclosure may make a venue routable.")
+        var unnamedPublic = dto
+        unnamedPublic["locationDisclosure"] = "public"
+        unnamedPublic.removeValue(forKey: "locationLabel")
+        precondition(PartyPassInvite.fromPayload(unnamedPublic)?.routableVenueName == nil, "Party Loop: the unnamed-venue placeholder names no place and must not be routable.")
+        var namedPublic = dto
+        namedPublic["locationDisclosure"] = "public"
+        namedPublic["locationLabel"] = "Republic Lounge"
+        precondition(PartyPassInvite.fromPayload(namedPublic)?.routableVenueName == "Republic Lounge", "Party Loop: a published venue must stay routable for arrival.")
         precondition(PartyPassInvite.partyID(from: ["party", "party-1"]) == "party-1", "Party Loop: Party route must resolve authoritatively.")
         precondition(PartyPassInvite.partyID(from: ["group", "party-1"]) == nil, "Party Loop: legacy group routes must never masquerade as Party routes.")
         precondition(ClipInvocationModel.partyRoute(from: ["party", "party-1"]) == .party(id: "party-1"), "Party Loop: /party/<id> must route to the Party Pass.")

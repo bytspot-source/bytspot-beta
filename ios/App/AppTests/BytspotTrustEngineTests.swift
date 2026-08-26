@@ -2540,6 +2540,49 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(proven.trustLabel, "Location checked")
     }
 
+    func testDisclosureAttributesTheDoorItWroteAndOnlyThatDoor() {
+        // Choosing "after approval" from a public door moves the door, and that
+        // move is the host's to be told about.
+        let moved = NativeHostDoorAttribution.applyDisclosure(
+            .afterApproval,
+            to: .init(accessMode: .freeRSVP, setByDisclosure: false),
+        )
+        XCTAssertEqual(moved.accessMode, .privateApproval)
+        XCTAssertTrue(NativeHostDoorAttribution.showsAttribution(moved))
+
+        // A host already on Private Approval had nothing written for them, so
+        // there is nothing to attribute.
+        let untouched = NativeHostDoorAttribution.applyDisclosure(
+            .afterApproval,
+            to: .init(accessMode: .privateApproval, setByDisclosure: false),
+        )
+        XCTAssertEqual(untouched.accessMode, .privateApproval)
+        XCTAssertFalse(NativeHostDoorAttribution.showsAttribution(untouched))
+    }
+
+    func testAttributionClearsWhenTheHostTakesTheDoorBack() {
+        let auto = NativeHostDoorAttribution.applyDisclosure(
+            .afterApproval,
+            to: .init(accessMode: .freeRSVP, setByDisclosure: false),
+        )
+        XCTAssertTrue(NativeHostDoorAttribution.showsAttribution(auto))
+
+        // Re-picking the same door by hand makes it the host's choice, so the
+        // note must stop claiming the app made it.
+        let owned = NativeHostDoorAttribution.applyHostChoice(.privateApproval)
+        XCTAssertEqual(owned.accessMode, .privateApproval)
+        XCTAssertFalse(NativeHostDoorAttribution.showsAttribution(owned))
+
+        // Moving disclosure off after-approval also ends the attribution, even
+        // though the door it wrote stays put.
+        let released = NativeHostDoorAttribution.applyDisclosure(
+            .public,
+            to: .init(accessMode: .privateApproval, setByDisclosure: true),
+        )
+        XCTAssertEqual(released.accessMode, .privateApproval)
+        XCTAssertFalse(NativeHostDoorAttribution.showsAttribution(released))
+    }
+
     @MainActor
     func testPartySharePresentationAnchorsPopoverToPresenterView() throws {
         let presenter = UIViewController()

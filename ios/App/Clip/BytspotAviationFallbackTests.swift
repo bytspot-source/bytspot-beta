@@ -154,6 +154,32 @@ enum BytspotAviationFallbackTests {
                 && ClipInvocationModel.patchCandidate("patch-abc123") == "patch-abc123",
             "Party Loop: a bundle identifier must never reach the patch lookup."
         )
+        // The reported symptom: the Clip bundle id must never be read as a
+        // patch, and must not be tier-coded at all - not Black, not anything.
+        precondition(
+            BytspotTier.codedTier(bundleID) == nil
+                && BytspotTier.codedTier("com.bytspot.app") == nil
+                && ClipInvocationModel.patchCandidate("com.bytspot.app") == nil,
+            "Party Loop: a Bytspot bundle identifier must never code a tier or a patch."
+        )
+        // An uncoded invocation must be reported as uncoded. `detect` still
+        // defaults to Black for the patch surface, so only `detectIfCoded` can
+        // tell a genuine Black link apart from an invocation with no markers.
+        precondition(
+            BytspotTier.detectIfCoded(url: URL(string: "https://appclip.apple.com/id?p=\(bundleID)&partyId=party-1"), patchId: nil) == nil,
+            "Party Loop: a party invocation must not be reported as tier-coded."
+        )
+        // The unified contract must keep honoring every historical patch code.
+        precondition(
+            BytspotTier.codedTier("BLACK-123") == .black
+                && BytspotTier.codedTier("BYT-B-123") == .black
+                && BytspotTier.codedTier("BYT424-0301-B") == .black
+                && BytspotTier.codedTier("PATCH_P") == .platinum
+                && BytspotTier.codedTier("PATCH.G") == .green
+                && BytspotTier.codedTier("GREEN-XYZ") == .green
+                && BytspotTier.codedTier("VENUE-1234") == nil,
+            "Party Loop: the unified tier contract must preserve existing patch codes."
+        )
         // An empty party parameter must not shadow the real one.
         precondition(
             ClipInvocationModel.partyRoute(

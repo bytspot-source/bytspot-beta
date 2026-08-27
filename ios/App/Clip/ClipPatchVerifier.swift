@@ -146,13 +146,43 @@ enum BytspotTier: String, Equatable, CaseIterable {
         }
     }
 
+    /// Tokens that code this tier inside a patch identifier. One list per tier,
+    /// replacing the prefix/suffix pairs that previously had to be kept in sync
+    /// across six separate string literals each.
+    var codeTokens: [String] {
+        switch self {
+        case .black: return ["BLACK", "B"]
+        case .platinum: return ["PLATINUM", "P"]
+        case .green: return ["GREEN", "G"]
+        }
+    }
+
+    /// Single tier-coding contract for patch identifiers.
+    ///
+    /// A patch id is a separator-delimited identifier (`-`, `_`, `.`), and it is
+    /// tier-coded when its first or last segment is a tier token, or when it is
+    /// a `BYT-<token>-…` batch id. This replaces matching bare prefixes and
+    /// suffixes against the raw string, which could not distinguish a tier
+    /// marker from any identifier that merely happened to end in those letters.
+    nonisolated static func codedTier(_ value: String) -> BytspotTier? {
+        let segments = value.uppercased()
+            .split(whereSeparator: { $0 == "-" || $0 == "_" || $0 == "." })
+            .map(String.init)
+        guard let first = segments.first, let last = segments.last else { return nil }
+        for tier in [BytspotTier.black, .platinum, .green] {
+            let tokens = tier.codeTokens
+            if tokens.contains(first) || tokens.contains(last) { return tier }
+            if segments.count >= 2, first == "BYT", tokens.contains(segments[1]) { return tier }
+        }
+        return nil
+    }
+
     /// Resolve a tier from any Bytspot patch URL or patchId. Inspection order:
     /// (1) `?tier=` query, (2) `?invite=BLACK-…` prefix, (3) `/p/<tier>-…`,
-    /// (4) `/black|/platinum|/green/<slug>` path, (5) `BLACK-/PLATINUM-/GREEN-`
-    /// or `BYT-B-/BYT-P-/BYT-G-` patchId prefix, (6) NTAG424 batch suffixes like
-    /// `BYT424-0301-B/P/G`. Defaults to `.black` so the existing Clip surface
-    /// preserves its luxury default when no markers are present.
-    static func detect(url: URL?, patchId: String?) -> BytspotTier {
+    /// (4) `/black|/platinum|/green/<slug>` path, (5) the patchId tier-coding
+    /// contract above. Returns nil when nothing in the invocation codes a tier,
+    /// so callers can tell "no markers" apart from a deliberate Black link.
+    static func detectIfCoded(url: URL?, patchId: String?) -> BytspotTier? {
         if let url, let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
             let items = components.queryItems ?? []
             if let raw = items.first(where: { $0.name.lowercased() == "tier" })?.value,
@@ -177,16 +207,15 @@ enum BytspotTier: String, Equatable, CaseIterable {
                 if first == "green" { return .green }
             }
         }
-        if let patchId = patchId?.uppercased() {
-            if Self.isTierCoded(patchId, prefixes: ["BLACK-", "BYT-B-"], suffixes: ["-B", "_B", ".B", "-BLACK", "_BLACK", ".BLACK"]) { return .black }
-            if Self.isTierCoded(patchId, prefixes: ["PLATINUM-", "BYT-P-"], suffixes: ["-P", "_P", ".P", "-PLATINUM", "_PLATINUM", ".PLATINUM"]) { return .platinum }
-            if Self.isTierCoded(patchId, prefixes: ["GREEN-", "BYT-G-"], suffixes: ["-G", "_G", ".G", "-GREEN", "_GREEN", ".GREEN"]) { return .green }
-        }
-        return .black
+        if let patchId, let tier = Self.codedTier(patchId) { return tier }
+        return nil
     }
 
-    private static func isTierCoded(_ value: String, prefixes: [String], suffixes: [String]) -> Bool {
-        prefixes.contains(where: { value.hasPrefix($0) }) || suffixes.contains(where: { value.hasSuffix($0) })
+    /// Tier for surfaces that must render something. An uncoded invocation still
+    /// defaults to `.black` so the existing patch surface keeps its luxury
+    /// default, but callers that can fail honestly should use `detectIfCoded`.
+    static func detect(url: URL?, patchId: String?) -> BytspotTier {
+        detectIfCoded(url: url, patchId: patchId) ?? .black
     }
 }
 

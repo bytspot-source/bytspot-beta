@@ -336,12 +336,34 @@ enum BytspotTier: String, Equatable, CaseIterable, Codable {
                 if first == "green" { return .green }
             }
         }
-        if let patchId = patchId?.uppercased() {
-            if patchId.hasPrefix("BLACK-") || patchId.hasPrefix("BYT-B-") || patchId.hasSuffix("-B") || patchId.hasSuffix(".B") || patchId.hasSuffix("_B") || patchId.hasSuffix("-BLACK") { return .black }
-            if patchId.hasPrefix("PLATINUM-") || patchId.hasPrefix("BYT-P-") || patchId.hasSuffix("-P") || patchId.hasSuffix(".P") || patchId.hasSuffix("_P") || patchId.hasSuffix("-PLATINUM") { return .platinum }
-            if patchId.hasPrefix("GREEN-") || patchId.hasPrefix("BYT-G-") || patchId.hasSuffix("-G") || patchId.hasSuffix(".G") || patchId.hasSuffix("_G") || patchId.hasSuffix("-GREEN") { return .green }
-        }
+        if let patchId, let tier = Self.codedTier(patchId) { return tier }
         return .black
+    }
+
+    /// Tokens that code this tier inside a patch identifier.
+    var codeTokens: [String] {
+        switch self {
+        case .black: return ["BLACK", "B"]
+        case .platinum: return ["PLATINUM", "P"]
+        case .green: return ["GREEN", "G"]
+        }
+    }
+
+    /// Single tier-coding contract for patch identifiers, matching the Clip.
+    /// A patch id is separator-delimited, and a tier is coded by its first or
+    /// last segment or a `BYT-<token>-` batch prefix, so an identifier that
+    /// merely ends in those letters is no longer mistaken for a tier marker.
+    static func codedTier(_ value: String) -> BytspotTier? {
+        let segments = value.uppercased()
+            .split(whereSeparator: { $0 == "-" || $0 == "_" || $0 == "." })
+            .map(String.init)
+        guard let first = segments.first, let last = segments.last else { return nil }
+        for tier in [BytspotTier.black, .platinum, .green] {
+            let tokens = tier.codeTokens
+            if tokens.contains(first) || tokens.contains(last) { return tier }
+            if segments.count >= 2, first == "BYT", tokens.contains(segments[1]) { return tier }
+        }
+        return nil
     }
 }
 
@@ -361,8 +383,14 @@ private struct NativePatchRoute: Equatable {
         if parts.count >= 2, routeNames.contains(parts[0]) { fromPath = parts[1] }
         else if parts.count == 1, parts[0].uppercased().hasPrefix("BYT") { fromPath = parts[0] }
         else { fromPath = nil }
-        let fromQuery = query.first(where: { ["patch", "patchId", "p"].contains($0.name) })?.value
-        guard let patchId = fromPath ?? fromQuery, !patchId.isEmpty else { return nil }
+        // On Apple's default App Clip link the `p` query is the Clip bundle id,
+        // not a patch. Reading it as one is what routed a Party Pass tap into
+        // the Black patch surface once the full app took over the invocation.
+        let isDefaultAppClipLink = (components.host ?? "").lowercased().hasSuffix("appclip.apple.com")
+        let patchQueryNames = isDefaultAppClipLink ? ["patch", "patchId"] : ["patch", "patchId", "p"]
+        let fromQuery = query.first(where: { patchQueryNames.contains($0.name) })?.value
+        guard let patchId = fromPath ?? fromQuery, !patchId.isEmpty,
+              !patchId.lowercased().hasPrefix("com.bytspot.") else { return nil }
         self.url = url
         self.patchId = patchId
         self.token = query.first(where: { ["t", "token"].contains($0.name) })?.value

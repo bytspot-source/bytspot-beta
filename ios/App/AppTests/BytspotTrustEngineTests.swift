@@ -96,6 +96,41 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertNil(NativePartyPassRoute(url: try XCTUnwrap(URL(string: "https://example.com/party/party-1"))))
     }
 
+    /// A default App Clip link opens the full app whenever it is installed, so
+    /// the app must read the same party the Clip reads instead of treating the
+    /// Clip bundle id in `p` as a Black patch.
+    @MainActor
+    func testDefaultAppClipLinkOpensPartyRatherThanBlackPatch() throws {
+        let bundleID = "com.bytspot.app.Clip"
+        let openPass = try XCTUnwrap(URL(string: "https://appclip.apple.com/id?p=\(bundleID)&partyId=party-1"))
+
+        let route = try XCTUnwrap(NativePartyPassRoute(url: openPass))
+        XCTAssertEqual(route.partyID, "party-1")
+
+        let coordinator = NativeNavigationCoordinator()
+        XCTAssertTrue(coordinator.handle(url: openPass))
+        guard case .party(let handled) = coordinator.requestedDestination else { return XCTFail("Expected Party destination") }
+        XCTAssertEqual(handled.partyID, "party-1")
+
+        // www-prefixed variant must resolve identically.
+        XCTAssertEqual(NativePartyPassRoute(url: try XCTUnwrap(URL(string: "https://www.appclip.apple.com/id?p=\(bundleID)&partyId=party-2")))?.partyID, "party-2")
+        // Without a party the link is not a party route; it must not invent one.
+        XCTAssertNil(NativePartyPassRoute(url: try XCTUnwrap(URL(string: "https://appclip.apple.com/id?p=\(bundleID)"))))
+    }
+
+    /// The unified tier contract must never read a Bytspot bundle id as a tier,
+    /// while still honouring every historical patch code.
+    func testBundleIdentifierNeverCodesATier() {
+        XCTAssertNil(BytspotTier.codedTier("com.bytspot.app.Clip"))
+        XCTAssertNil(BytspotTier.codedTier("com.bytspot.app"))
+        XCTAssertNil(BytspotTier.codedTier("VENUE-1234"))
+        XCTAssertEqual(BytspotTier.codedTier("BLACK-123"), .black)
+        XCTAssertEqual(BytspotTier.codedTier("BYT-B-123"), .black)
+        XCTAssertEqual(BytspotTier.codedTier("BYT424-0301-B"), .black)
+        XCTAssertEqual(BytspotTier.codedTier("PATCH_P"), .platinum)
+        XCTAssertEqual(BytspotTier.codedTier("PATCH.G"), .green)
+    }
+
     func testPartyPassContinuationBypassesFirstRunLaunchFlow() throws {
         let partyURL = try XCTUnwrap(URL(string: "https://bytspot.app/party/party-1?checkout=success"))
         let partyRoute = try XCTUnwrap(NativePartyPassRoute(url: partyURL))

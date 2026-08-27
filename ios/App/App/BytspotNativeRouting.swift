@@ -92,8 +92,17 @@ struct NativePartyPassRoute: Equatable {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
         let scheme = url.scheme?.lowercased()
         let isCustomScheme = scheme == "bytspot"
-        let isUniversalLink = scheme == "https" && components.host?.lowercased() == "bytspot.app"
-        guard isCustomScheme || isUniversalLink else { return nil }
+        let host = components.host?.lowercased() ?? ""
+        let isUniversalLink = scheme == "https" && host == "bytspot.app"
+        // A default App Clip link opens the full app whenever it is installed,
+        // so the app has to read the same `partyId` the Clip reads. Without
+        // this the party is dropped and the invocation falls to the patch route.
+        let isDefaultAppClipLink = scheme == "https" && (host == "appclip.apple.com" || host.hasSuffix(".appclip.apple.com"))
+        guard isCustomScheme || isUniversalLink || isDefaultAppClipLink else { return nil }
+
+        let queryPartyID = (components.queryItems ?? []).first {
+            ["partyid", "party"].contains($0.name.lowercased())
+        }?.value?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let pathComponents: [Substring]
         if isCustomScheme, let host = components.host, !host.isEmpty {
@@ -101,8 +110,10 @@ struct NativePartyPassRoute: Equatable {
         } else {
             pathComponents = components.path.split(separator: "/")
         }
-        guard pathComponents.count == 2, pathComponents[0].lowercased() == "party" else { return nil }
-        let partyID = String(pathComponents[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let pathPartyID: String? = (pathComponents.count == 2 && pathComponents[0].lowercased() == "party")
+            ? String(pathComponents[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            : nil
+        guard let partyID = pathPartyID ?? (isDefaultAppClipLink ? queryPartyID : nil) else { return nil }
         guard !partyID.isEmpty, partyID.count <= 200, !partyID.contains("/") else { return nil }
         self.partyID = partyID
         self.url = url

@@ -137,6 +137,32 @@ enum BytspotAviationFallbackTests {
             ClipInvocationModel.partyRoute(from: ["id"], queryItems: [URLQueryItem(name: "p", value: bundleID)], isDefaultAppClipLink: true) == .none,
             "Party Loop: a default App Clip link without a party must not be treated as one."
         )
+        // In-app browsers can normalize the handoff URL (www., case changes).
+        // Missing the host used to send party guests to the vendor catalog.
+        precondition(
+            ClipInvocationModel.isDefaultAppClipLinkHost("APPCLIP.Apple.com")
+                && ClipInvocationModel.isDefaultAppClipLinkHost("www.appclip.apple.com")
+                && !ClipInvocationModel.isDefaultAppClipLinkHost("evil-appclip.apple.com.attacker.io")
+                && !ClipInvocationModel.isDefaultAppClipLinkHost("bytspot.app"),
+            "Party Loop: default App Clip link host detection must survive URL normalization."
+        )
+        // Even if host detection misses, the Clip's bundle id must never be
+        // treated as a patch - that is what routed guests to the vendor view.
+        precondition(
+            ClipInvocationModel.patchCandidate(bundleID) == nil
+                && ClipInvocationModel.patchCandidate("COM.BYTSPOT.APP.CLIP") == nil
+                && ClipInvocationModel.patchCandidate("patch-abc123") == "patch-abc123",
+            "Party Loop: a bundle identifier must never reach the patch lookup."
+        )
+        // An empty party parameter must not shadow the real one.
+        precondition(
+            ClipInvocationModel.partyRoute(
+                from: ["id"],
+                queryItems: [URLQueryItem(name: "party", value: ""), URLQueryItem(name: "partyId", value: "party-1")],
+                isDefaultAppClipLink: true
+            ) == .party(id: "party-1"),
+            "Party Loop: an empty party parameter must not shadow the real party id."
+        )
     }
 
     /// The curated catalog exists so the Clip has something to render before a

@@ -814,12 +814,12 @@ final class ClipInvocationModel: ObservableObject {
         // only invocation a shared web link can reliably produce, because a link
         // on bytspot.app cannot open a Clip for bytspot.app. On that host `p` is
         // the Clip bundle ID, not a patch, so it must not be read as one.
-        let isDefaultAppClipLink = components.host?.lowercased() == Self.appClipDefaultLinkHost
+        let isDefaultAppClipLink = Self.isDefaultAppClipLinkHost(components.host)
         venueSlug = Self.queryValue(in: items, names: ["venue", "venuename", "v"])
-        patchId = (isDefaultAppClipLink
+        patchId = Self.patchCandidate((isDefaultAppClipLink
             ? Self.queryValue(in: items, names: ["patch", "patchid"])
             : Self.queryValue(in: items, names: ["patch", "patchid", "p"]))
-            ?? Self.patchId(from: pathParts)
+            ?? Self.patchId(from: pathParts))
         token = Self.queryValue(in: items, names: ["t", "token"])
 
         let detectedTier = BytspotTier.detect(url: url, patchId: patchId)
@@ -1285,6 +1285,25 @@ final class ClipInvocationModel: ObservableObject {
     }
 
     static let appClipDefaultLinkHost = "appclip.apple.com"
+    static let clipBundleID = "com.bytspot.app.Clip"
+
+    /// Suffix match, not equality: some in-app browsers normalize the URL
+    /// during handoff (e.g. prepending www.), and missing the host here used to
+    /// collapse both guards at once - `p` became a patch id and the partyId
+    /// query was ignored - landing the guest in the vendor catalog.
+    nonisolated static func isDefaultAppClipLinkHost(_ host: String?) -> Bool {
+        guard let host = host?.lowercased() else { return false }
+        return host == appClipDefaultLinkHost || host.hasSuffix("." + appClipDefaultLinkHost)
+    }
+
+    /// A bundle identifier is never a patch. Apple's default link names the
+    /// Clip in `p`, so even if host detection misses, the bundle id must not
+    /// reach the patch/vendor lookup.
+    nonisolated static func patchCandidate(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        if value.caseInsensitiveCompare(clipBundleID) == .orderedSame { return nil }
+        return value
+    }
 
     nonisolated static func partyRoute(
         from pathParts: [String],
@@ -1293,9 +1312,17 @@ final class ClipInvocationModel: ObservableObject {
     ) -> PartyPassInvite.Route {
         // A default App Clip link carries no /party/ path, so the party is named
         // by query parameter instead. Social shares reach the Clip this way.
-        if isDefaultAppClipLink, let raw = queryValue(in: queryItems, names: ["partyid", "party"]) {
-            let id = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            return id.isEmpty || id.count > 200 ? .invalid : .party(id: id)
+        // First non-empty wins: an empty `party=` must not shadow `partyId=X`.
+        if isDefaultAppClipLink {
+            let raw = queryItems.first {
+                ["partyid", "party"].contains($0.name.lowercased())
+                    && !($0.value ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }?.value
+            if let raw {
+                let id = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                return id.count > 200 ? .invalid : .party(id: id)
+            }
+            return .none
         }
         guard pathParts.first?.lowercased() == "party" else { return .none }
         guard let partyID = PartyPassInvite.partyID(from: pathParts) else { return .invalid }

@@ -478,6 +478,7 @@ struct PartyPassClipView: View {
                 }
                 ClipPersonalAttendeeQR(value: attendeeCredential.value)
                     .frame(maxWidth: .infinity).padding(.top, 4)
+                arrivalDetails
             }
         } else if isLoadingAttendeeCredential {
             PartyGlassCard(variant: .access(accent: accent)) {
@@ -491,6 +492,23 @@ struct PartyPassClipView: View {
                 Text(attendeeCredentialMessage).font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.74))
             }
         }
+    }
+
+    /// Arrival lives on the pass itself: at the door the guest has this card
+    /// open, and scrolling back to the invitation to check the time or the
+    /// host's instructions is the one thing they cannot do while queueing.
+    @ViewBuilder private var arrivalDetails: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider().overlay(Color.white.opacity(0.12))
+            PartyDetailRow(icon: "calendar.badge.clock", label: "ARRIVE", value: invite.scheduledDate)
+            if !invite.locationIsWithheld {
+                PartyDetailRow(icon: "mappin.and.ellipse", label: "WHERE", value: invite.locationLabel)
+            }
+            if let note = invite.note?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty {
+                PartyDetailRow(icon: "text.bubble.fill", label: "FROM THE HOST", value: note)
+            }
+        }
+        .padding(.top, 2)
     }
 
     private var details: some View {
@@ -844,10 +862,67 @@ struct PartyPassClipView: View {
                 return
             }
             statusMessage = "Opening secure checkout…"
-            openURL(validatedCheckoutURL)
+            let presented = ClipCheckoutBrowser.present(validatedCheckoutURL) {
+                Task { await confirmTicketPurchase() }
+            }
+            if !presented { openURL(validatedCheckoutURL) }
         } catch {
             statusMessage = "Checkout could not be started. Please try again."
         }
+    }
+
+    /// Stripe confirms by webhook, so the pass is not granted the instant the
+    /// sheet closes. Poll the server rather than trusting the client's return:
+    /// the pass must only appear once `accessGranted` is true server-side.
+    @MainActor private func confirmTicketPurchase() async {
+        statusMessage = "Confirming payment…"
+        for attempt in 0..<8 {
+            if attempt > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+            await resolvePass()
+            if effectiveAction == .viewPass { return }
+        }
+        if effectiveAction != .viewPass {
+            statusMessage = "Payment is still confirming. Reopen this pass in a moment."
+        }
+    }
+}
+
+/// Presents Stripe Checkout inside the Clip.
+///
+/// `openURL` hands the session to Safari, which backgrounds the Clip; App Clips
+/// are terminated aggressively, and Stripe's `success_url` lands on the web
+/// page, from which no link can return to the Clip. Keeping checkout in an
+/// `SFSafariViewController` means the Clip is still alive to re-resolve the
+/// pass when the sheet closes.
+@MainActor
+enum ClipCheckoutBrowser {
+    private final class Delegate: NSObject, SFSafariViewControllerDelegate {
+        private let onFinish: () -> Void
+        init(onFinish: @escaping () -> Void) { self.onFinish = onFinish }
+        func safariViewControllerDidFinish(_ controller: SFSafariViewController) { onFinish() }
+    }
+
+    private static var retainedDelegate: Delegate?
+
+    static func topPresenter() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first,
+              let root = scene.windows.first(where: \.isKeyWindow)?.rootViewController else { return nil }
+        var top = root
+        while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
+        return top
+    }
+
+    @discardableResult
+    static func present(_ url: URL, onFinish: @escaping () -> Void) -> Bool {
+        guard let presenter = topPresenter() else { return false }
+        let controller = SFSafariViewController(url: url)
+        controller.dismissButtonStyle = .done
+        let delegate = Delegate(onFinish: onFinish)
+        retainedDelegate = delegate
+        controller.delegate = delegate
+        presenter.present(controller, animated: true)
+        return true
     }
 }
 
@@ -2082,7 +2157,10 @@ struct ClipInviteView: View {
                     return
                 }
                 statusMessage = "Secure checkout opened. We'll refresh your Party Pass when you return."
-                openURL(validatedCheckoutURL)
+                let presented = ClipCheckoutBrowser.present(validatedCheckoutURL) {
+                    Task { await confirmPartyTicketPurchase() }
+                }
+                if !presented { openURL(validatedCheckoutURL) }
             } catch {
                 statusMessage = joinErrorText(from: error)
             }
@@ -2090,6 +2168,20 @@ struct ClipInviteView: View {
     }
 
     // Sign in with Apple -> auth.appleSignIn (persists the JWT) -> groupEvents.join.
+    /// Stripe settles by webhook, so a closed sheet does not mean a granted
+    /// pass. Poll `events.pass.resolve` instead of inferring success locally.
+    @MainActor private func confirmPartyTicketPurchase() async {
+        statusMessage = "Confirming payment…"
+        for attempt in 0..<8 {
+            if attempt > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+            await refreshPartyPass()
+            if partyPass?.action == .viewPass { return }
+        }
+        if partyPass?.action != .viewPass {
+            statusMessage = "Payment is still confirming. Reopen this pass in a moment."
+        }
+    }
+
     // Open events return "joined"; approval-gated events return "pending". A guest
     // the host previously declined stays "declined" on re-join (no fall-through).
     private func joinGroup() {

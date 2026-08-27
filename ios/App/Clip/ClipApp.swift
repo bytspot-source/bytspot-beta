@@ -834,7 +834,15 @@ final class ClipInvocationModel: ObservableObject {
             flow = .partyFailed(partyID: "", message: "This Party Pass link is invalid. Ask the host for a fresh link.")
             return
         case .none:
-            break
+            // A default App Clip link names a party and nothing else. If the
+            // party is missing the invocation is incomplete - most often the
+            // App Store Connect default experience is not passing parameters -
+            // and falling through would strand the guest in the vendor catalog
+            // instead of telling them the link did not carry their pass.
+            if isDefaultAppClipLink, patchId == nil {
+                flow = .partyFailed(partyID: "", message: "This link didn't carry a Party Pass. Ask the host for a fresh link.")
+                return
+            }
         }
         // Reset catalog/vendor caches when the tier changes so stale luxury
         // entries never leak into a Green/Platinum invocation.
@@ -1302,6 +1310,11 @@ final class ClipInvocationModel: ObservableObject {
     nonisolated static func patchCandidate(_ value: String?) -> String? {
         guard let value, !value.isEmpty else { return nil }
         if value.caseInsensitiveCompare(clipBundleID) == .orderedSame { return nil }
+        // Any reverse-DNS Bytspot identifier is an app/Clip bundle id, never a
+        // patch. Matching the exact string alone would miss the App bundle id
+        // and any future Clip target suffix.
+        let lowered = value.lowercased()
+        if lowered.hasPrefix("com.bytspot.") { return nil }
         return value
     }
 

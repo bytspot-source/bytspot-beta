@@ -21,6 +21,65 @@ enum ClipVerifyState: Equatable {
     case unavailable(message: String)
 }
 
+/// Card system tokens. One accent, hairline borders, no weight above semibold.
+/// Luxury reads as restraint here, not as effect — the vendor catalog has no
+/// photography of its own, so the type carries the whole surface.
+enum ClipLuxe {
+    static let champagne = Color(red: 0.784, green: 0.663, blue: 0.420) // #C8A96B
+    static let paper = Color.white
+    static let sand = Color(red: 0.788, green: 0.761, blue: 0.714) // #C9C2B6
+    static let gray70 = Color.white.opacity(0.70)
+    static let gray45 = Color.white.opacity(0.45)
+    static let gray22 = Color.white.opacity(0.22)
+    static let hairline = Color.white.opacity(0.09)
+    static let inkRaised = Color(red: 0.039, green: 0.039, blue: 0.043) // #0A0A0B
+
+    /// Shown in place of a price the backend never published. Naming the
+    /// absence is the point: a blank slot reads as a loading bug, and a
+    /// curated number reads as an offer we cannot honour.
+    static let unpricedLabel = "Pricing not published"
+    /// For rows that already carry an ETA or availability string; the full
+    /// sentence wraps to two lines and crowds them.
+    static let unpricedShortLabel = "Not published"
+    static let unavailableLabel = "UNAVAILABLE"
+    static let notBookableReason = "Not bookable in this Clip yet."
+}
+
+extension Text {
+    /// Eyebrow: 10pt, wide tracking. Declared on `Text` rather than `View` so
+    /// `tracking` resolves against `Text`, which the deployment target allows.
+    func luxeLabel(_ color: Color = ClipLuxe.gray45) -> some View {
+        font(.system(size: 10, weight: .semibold)).tracking(1.4).foregroundColor(color)
+    }
+}
+
+extension View {
+    func luxeSurface(radius: CGFloat = 20) -> some View {
+        background(ClipLuxe.inkRaised)
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(ClipLuxe.hairline, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+    }
+}
+
+/// Price slot for any offer surface. Verified pricing prints the number;
+/// unverified prints why there is no number and never renders a call to action.
+struct ClipPriceSlot: View {
+    let priceLabel: String?
+    let isVerified: Bool
+    var alignment: HorizontalAlignment = .leading
+
+    var body: some View {
+        VStack(alignment: alignment, spacing: 2) {
+            if isVerified, let priceLabel {
+                Text(priceLabel).font(.system(size: 17, weight: .semibold)).foregroundColor(ClipLuxe.paper)
+            } else {
+                Text("—").font(.system(size: 17, weight: .semibold)).foregroundColor(ClipLuxe.gray22)
+                Text(ClipLuxe.unpricedLabel).luxeLabel()
+            }
+        }
+    }
+}
+
 enum ClipTheme {
     // Canonical Bytspot brand palette from src/BRAND_COLORS.md + LOGO_BEFORE_AFTER.md.
     // Brand identity: Cyan → Purple → Pink/Magenta on an iOS dark glass base.
@@ -419,6 +478,7 @@ struct PartyPassClipView: View {
                 }
                 ClipPersonalAttendeeQR(value: attendeeCredential.value)
                     .frame(maxWidth: .infinity).padding(.top, 4)
+                arrivalDetails
             }
         } else if isLoadingAttendeeCredential {
             PartyGlassCard(variant: .access(accent: accent)) {
@@ -432,6 +492,23 @@ struct PartyPassClipView: View {
                 Text(attendeeCredentialMessage).font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.74))
             }
         }
+    }
+
+    /// Arrival lives on the pass itself: at the door the guest has this card
+    /// open, and scrolling back to the invitation to check the time or the
+    /// host's instructions is the one thing they cannot do while queueing.
+    @ViewBuilder private var arrivalDetails: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider().overlay(Color.white.opacity(0.12))
+            PartyDetailRow(icon: "calendar.badge.clock", label: "ARRIVE", value: invite.scheduledDate)
+            if !invite.locationIsWithheld {
+                PartyDetailRow(icon: "mappin.and.ellipse", label: "WHERE", value: invite.locationLabel)
+            }
+            if let note = invite.note?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty {
+                PartyDetailRow(icon: "text.bubble.fill", label: "FROM THE HOST", value: note)
+            }
+        }
+        .padding(.top, 2)
     }
 
     private var details: some View {
@@ -785,10 +862,67 @@ struct PartyPassClipView: View {
                 return
             }
             statusMessage = "Opening secure checkout…"
-            openURL(validatedCheckoutURL)
+            let presented = ClipCheckoutBrowser.present(validatedCheckoutURL) {
+                Task { await confirmTicketPurchase() }
+            }
+            if !presented { openURL(validatedCheckoutURL) }
         } catch {
             statusMessage = "Checkout could not be started. Please try again."
         }
+    }
+
+    /// Stripe confirms by webhook, so the pass is not granted the instant the
+    /// sheet closes. Poll the server rather than trusting the client's return:
+    /// the pass must only appear once `accessGranted` is true server-side.
+    @MainActor private func confirmTicketPurchase() async {
+        statusMessage = "Confirming payment…"
+        for attempt in 0..<8 {
+            if attempt > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+            await resolvePass()
+            if effectiveAction == .viewPass { return }
+        }
+        if effectiveAction != .viewPass {
+            statusMessage = "Payment is still confirming. Reopen this pass in a moment."
+        }
+    }
+}
+
+/// Presents Stripe Checkout inside the Clip.
+///
+/// `openURL` hands the session to Safari, which backgrounds the Clip; App Clips
+/// are terminated aggressively, and Stripe's `success_url` lands on the web
+/// page, from which no link can return to the Clip. Keeping checkout in an
+/// `SFSafariViewController` means the Clip is still alive to re-resolve the
+/// pass when the sheet closes.
+@MainActor
+enum ClipCheckoutBrowser {
+    private final class Delegate: NSObject, SFSafariViewControllerDelegate {
+        private let onFinish: () -> Void
+        init(onFinish: @escaping () -> Void) { self.onFinish = onFinish }
+        func safariViewControllerDidFinish(_ controller: SFSafariViewController) { onFinish() }
+    }
+
+    private static var retainedDelegate: Delegate?
+
+    static func topPresenter() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first,
+              let root = scene.windows.first(where: \.isKeyWindow)?.rootViewController else { return nil }
+        var top = root
+        while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
+        return top
+    }
+
+    @discardableResult
+    static func present(_ url: URL, onFinish: @escaping () -> Void) -> Bool {
+        guard let presenter = topPresenter() else { return false }
+        let controller = SFSafariViewController(url: url)
+        controller.dismissButtonStyle = .done
+        let delegate = Delegate(onFinish: onFinish)
+        retainedDelegate = delegate
+        controller.delegate = delegate
+        presenter.present(controller, animated: true)
+        return true
     }
 }
 
@@ -2023,7 +2157,10 @@ struct ClipInviteView: View {
                     return
                 }
                 statusMessage = "Secure checkout opened. We'll refresh your Party Pass when you return."
-                openURL(validatedCheckoutURL)
+                let presented = ClipCheckoutBrowser.present(validatedCheckoutURL) {
+                    Task { await confirmPartyTicketPurchase() }
+                }
+                if !presented { openURL(validatedCheckoutURL) }
             } catch {
                 statusMessage = joinErrorText(from: error)
             }
@@ -2031,6 +2168,20 @@ struct ClipInviteView: View {
     }
 
     // Sign in with Apple -> auth.appleSignIn (persists the JWT) -> groupEvents.join.
+    /// Stripe settles by webhook, so a closed sheet does not mean a granted
+    /// pass. Poll `events.pass.resolve` instead of inferring success locally.
+    @MainActor private func confirmPartyTicketPurchase() async {
+        statusMessage = "Confirming payment…"
+        for attempt in 0..<8 {
+            if attempt > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+            await refreshPartyPass()
+            if partyPass?.action == .viewPass { return }
+        }
+        if partyPass?.action != .viewPass {
+            statusMessage = "Payment is still confirming. Reopen this pass in a moment."
+        }
+    }
+
     // Open events return "joined"; approval-gated events return "pending". A guest
     // the host previously declined stays "declined" on re-join (no fall-through).
     private func joinGroup() {
@@ -2448,11 +2599,7 @@ struct ClipCatalogView: View {
                     .font(.system(size: 15.5, weight: .heavy))
                     .foregroundColor(.white)
                     .lineLimit(1)
-                if let price = service.priceLabel {
-                    Text(price)
-                        .font(.system(size: 12, weight: .black, design: .monospaced))
-                        .foregroundColor(service.tintColor)
-                }
+                ClipPriceSlot(priceLabel: service.priceLabel, isVerified: service.hasVerifiedPricing)
                 if let context = serviceTileContext(service) {
                     Text(context)
                         .font(.system(size: 10.5, weight: .black))
@@ -2501,7 +2648,7 @@ struct ClipCatalogView: View {
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             VStack(alignment: .leading, spacing: 4) {
                 Text(service.title).font(.system(size: 15.5, weight: .heavy)).foregroundColor(.white).lineLimit(1)
-                Text(service.priceLabel ?? "Quote ready").font(.system(size: 12, weight: .black, design: .monospaced)).foregroundColor(ClipTheme.gold)
+                ClipPriceSlot(priceLabel: service.priceLabel, isVerified: service.hasVerifiedPricing)
                 Text(serviceTileContext(service) ?? "Aircraft, catering, ground transport, and concierge clearance.").font(.system(size: 11.5, weight: .semibold)).foregroundColor(.white.opacity(0.68)).lineLimit(2).padding(.top, 1)
             }.padding(12)
         }
@@ -2751,9 +2898,13 @@ struct ClipVendorListView: View {
                             .foregroundColor(.white)
                         Text(vendor.name).font(.system(size: 20, weight: .heavy)).foregroundColor(.white).lineLimit(2)
                     }
-                    Text("\(vendor.priceFromLabel) • \(vendor.availability)")
-                        .font(.system(size: 12.5, weight: .black, design: .monospaced))
-                        .foregroundColor(service.tintColor)
+                    if vendor.hasVerifiedPricing {
+                        Text("\(vendor.priceFromLabel) • \(vendor.availability)")
+                            .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                            .foregroundColor(service.tintColor)
+                    } else {
+                        Text(ClipLuxe.unpricedShortLabel).luxeLabel()
+                    }
                 }
                 .padding(12)
             }
@@ -2863,7 +3014,11 @@ struct ClipVendorListView: View {
                         Text(formatEtaLabel(eta, for: service)).font(.system(size: 10.5, weight: .black)).foregroundColor(.white.opacity(0.78))
                     }
                     Spacer()
-                    Text(vendor.priceFromLabel).font(.system(size: 12.5, weight: .black, design: .monospaced)).foregroundColor(ClipTheme.gold)
+                    if vendor.hasVerifiedPricing {
+                        Text(vendor.priceFromLabel).font(.system(size: 12.5, weight: .semibold, design: .monospaced)).foregroundColor(ClipLuxe.champagne)
+                    } else {
+                        Text(ClipLuxe.unpricedShortLabel).luxeLabel()
+                    }
                 }
             }
             Image(systemName: "chevron.right").font(.system(size: 13, weight: .black)).foregroundColor(ClipTheme.gold.opacity(0.72))
@@ -2944,10 +3099,14 @@ struct ClipCheckoutView: View {
                 vendorHero
                 includedCard
                 if hasLineItems { lineItemsPicker } else { guestPicker }
-                bookingDetailsCard
-                totalRow
-                applePayBlock
-                cardFallback
+                if vendor.hasVerifiedPricing {
+                    bookingDetailsCard
+                    totalRow
+                    applePayBlock
+                    cardFallback
+                } else {
+                    unbookableBlock
+                }
             }
             .padding(.horizontal, 18)
             .padding(.top, 14)
@@ -3307,6 +3466,21 @@ struct ClipCheckoutView: View {
                 .clipShape(Capsule())
                 .overlay(Capsule().stroke(ClipTheme.emerald.opacity(0.4), lineWidth: 1))
         }
+    }
+
+    /// Unbookable vendors never reach Apple Pay. Authorizing first and failing
+    /// afterwards would take a Face ID confirmation for a hold that cannot be
+    /// placed, which is a worse outcome than saying so up front.
+    private var unbookableBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(ClipLuxe.unavailableLabel).luxeLabel(ClipLuxe.champagne)
+            Text(ClipLuxe.notBookableReason).font(.system(size: 14)).foregroundColor(ClipLuxe.gray70)
+            Text("This listing is a curated preview. Bytspot has not published pricing or availability for it.")
+                .font(.system(size: 12)).foregroundColor(ClipLuxe.gray45).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+        .luxeSurface()
     }
 
     private var applePayBlock: some View {

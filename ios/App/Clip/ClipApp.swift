@@ -810,14 +810,21 @@ final class ClipInvocationModel: ObservableObject {
         }
         #endif
 
+        // Apple's default App Clip link (appclip.apple.com/id?p=<bundleID>) is the
+        // only invocation a shared web link can reliably produce, because a link
+        // on bytspot.app cannot open a Clip for bytspot.app. On that host `p` is
+        // the Clip bundle ID, not a patch, so it must not be read as one.
+        let isDefaultAppClipLink = components.host?.lowercased() == Self.appClipDefaultLinkHost
         venueSlug = Self.queryValue(in: items, names: ["venue", "venuename", "v"])
-        patchId = Self.queryValue(in: items, names: ["patch", "patchid", "p"])
+        patchId = (isDefaultAppClipLink
+            ? Self.queryValue(in: items, names: ["patch", "patchid"])
+            : Self.queryValue(in: items, names: ["patch", "patchid", "p"]))
             ?? Self.patchId(from: pathParts)
         token = Self.queryValue(in: items, names: ["t", "token"])
 
         let detectedTier = BytspotTier.detect(url: url, patchId: patchId)
         tier = detectedTier
-        switch Self.partyRoute(from: pathParts) {
+        switch Self.partyRoute(from: pathParts, queryItems: items, isDefaultAppClipLink: isDefaultAppClipLink) {
         case .party(let partyID):
             flow = .partyLoading(partyID: partyID)
             isLoadingContext = true
@@ -1277,7 +1284,19 @@ final class ClipInvocationModel: ObservableObject {
         return nil
     }
 
-    nonisolated static func partyRoute(from pathParts: [String]) -> PartyPassInvite.Route {
+    static let appClipDefaultLinkHost = "appclip.apple.com"
+
+    nonisolated static func partyRoute(
+        from pathParts: [String],
+        queryItems: [URLQueryItem] = [],
+        isDefaultAppClipLink: Bool = false
+    ) -> PartyPassInvite.Route {
+        // A default App Clip link carries no /party/ path, so the party is named
+        // by query parameter instead. Social shares reach the Clip this way.
+        if isDefaultAppClipLink, let raw = queryValue(in: queryItems, names: ["partyid", "party"]) {
+            let id = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return id.isEmpty || id.count > 200 ? .invalid : .party(id: id)
+        }
         guard pathParts.first?.lowercased() == "party" else { return .none }
         guard let partyID = PartyPassInvite.partyID(from: pathParts) else { return .invalid }
         return .party(id: partyID)
@@ -1292,7 +1311,9 @@ final class ClipInvocationModel: ObservableObject {
         return parts
     }
 
-    private static func queryValue(in items: [URLQueryItem], names: Set<String>) -> String? {
+    // Pure query-string lookup with no actor state; `partyRoute` is nonisolated
+    // so route parsing stays testable off the main actor.
+    nonisolated private static func queryValue(in items: [URLQueryItem], names: Set<String>) -> String? {
         items.first { names.contains($0.name.lowercased()) }?.value
     }
 }

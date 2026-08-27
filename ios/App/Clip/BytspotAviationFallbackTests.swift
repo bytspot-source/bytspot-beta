@@ -114,6 +114,51 @@ enum BytspotAviationFallbackTests {
         assertHostStudioPartyMappingContract()
         assertPartyPassPreviewContract()
         assertPartnerCardParity()
+        assertCuratedFixturesNeverClaimVerifiedPricing()
+        assertDefaultAppClipLinkRoutesToParty()
+    }
+
+    /// A shared link opens the Clip through Apple's default App Clip link,
+    /// because iOS will not invoke a Clip from a link on the page's own domain.
+    /// That URL names the party by query parameter and reserves `p` for the
+    /// Clip bundle ID, which the patch parser would otherwise claim.
+    private static func assertDefaultAppClipLinkRoutesToParty() {
+        let bundleID = "com.bytspot.app.Clip"
+        let items = [URLQueryItem(name: "p", value: bundleID), URLQueryItem(name: "partyId", value: "party-1")]
+        precondition(
+            ClipInvocationModel.partyRoute(from: ["id"], queryItems: items, isDefaultAppClipLink: true) == .party(id: "party-1"),
+            "Party Loop: a default App Clip link must route to its party."
+        )
+        precondition(
+            ClipInvocationModel.partyRoute(from: ["party", "party-1"]) == .party(id: "party-1"),
+            "Party Loop: a /party/<id> share link must still route to its party."
+        )
+        precondition(
+            ClipInvocationModel.partyRoute(from: ["id"], queryItems: [URLQueryItem(name: "p", value: bundleID)], isDefaultAppClipLink: true) == .none,
+            "Party Loop: a default App Clip link without a party must not be treated as one."
+        )
+    }
+
+    /// The curated catalog exists so the Clip has something to render before a
+    /// backend answers. None of it is bookable: `vendors.getByPatch`,
+    /// `vendors.searchServices` and `booking.authorizeApplePayHold` do not exist
+    /// yet. So no fixture may report verified pricing, or the UI would print a
+    /// price and a buy button for an offer that cannot settle.
+    private static func assertCuratedFixturesNeverClaimVerifiedPricing() {
+        for tier in [BytspotTier.green, .platinum, .black] {
+            for service in ClipLocalService.fallbacks(for: tier) {
+                precondition(
+                    !service.hasVerifiedPricing,
+                    "BytspotAviationFallbackTests: curated service '\(service.id)' claims verified pricing; a fixture price would render as a real offer."
+                )
+                for vendor in ClipVendor.fallbacks(for: service, tier: tier) {
+                    precondition(
+                        !vendor.hasVerifiedPricing,
+                        "BytspotAviationFallbackTests: curated vendor '\(vendor.id)' claims verified pricing. `control` is not an origin signal — GH Akwaaba and Broni hardcode control: \"vendor\"."
+                    )
+                }
+            }
+        }
     }
 
     private static func runPhase3LuxuryFlowContract() {

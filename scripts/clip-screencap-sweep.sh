@@ -34,7 +34,11 @@ fi
 echo "[sweep] Using simulator: $SIM_UDID"
 
 CLIP_APP="ios/App/build/SimDD/Build/Products/Debug-iphonesimulator/App.app/AppClips/Clip.app"
-if [[ ! -d "$CLIP_APP" || "${REBUILD:-0}" == "1" ]]; then
+# Rebuild by default. Reusing a stale Clip.app silently produces screenshots of
+# a previous commit, which is worse than a slow sweep: the reviewer sees the old
+# UI and signs off on it. Opt out with SKIP_BUILD=1 only when the binary is
+# known to match the working tree.
+if [[ ! -d "$CLIP_APP" || "${SKIP_BUILD:-0}" != "1" ]]; then
     echo "[sweep] Building App scheme (Debug)"
     (cd ios/App && xcodebuild \
         -project App.xcodeproj \

@@ -1311,7 +1311,9 @@ final class ClipInvocationModel: ObservableObject {
         return parts
     }
 
-    private static func queryValue(in items: [URLQueryItem], names: Set<String>) -> String? {
+    // Pure query-string lookup with no actor state; `partyRoute` is nonisolated
+    // so route parsing stays testable off the main actor.
+    nonisolated private static func queryValue(in items: [URLQueryItem], names: Set<String>) -> String? {
         items.first { names.contains($0.name.lowercased()) }?.value
     }
 }

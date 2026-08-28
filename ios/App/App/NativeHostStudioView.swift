@@ -703,7 +703,7 @@ struct NativeHostStudioView: View {
             // publish attempt fails.
             .onChange(of: scenePhase) { phase in
                 guard phase == .active, payoutStatus?.ready == false else { return }
-                Task { payoutStatus = try? await api.refreshPayoutStatus() }
+                Task { await refreshPayoutStatus() }
             }
         } else {
             Color.clear.frame(height: 0).task { await loadPayoutStatus() }
@@ -711,8 +711,21 @@ struct NativeHostStudioView: View {
     }
 
     @MainActor private func loadPayoutStatus() async {
-        guard accessMode == .paidTicket, sessionStore.isAuthenticated, sessionStore.canAttachBearerToken else { return }
+        guard accessMode == .paidTicket, let api = payoutAPI() else { return }
         payoutStatus = try? await api.payoutStatus()
+    }
+
+    /// Pulls Stripe's verdict rather than the mirror, which is what a host who
+    /// just finished onboarding is waiting on. Keeps the last known status on
+    /// failure: a dropped connection is not evidence that setup came undone.
+    @MainActor private func refreshPayoutStatus() async {
+        guard let api = payoutAPI() else { return }
+        payoutStatus = (try? await api.refreshPayoutStatus()) ?? payoutStatus
+    }
+
+    private func payoutAPI() -> NativePartyStudioAPI? {
+        guard sessionStore.isAuthenticated, sessionStore.canAttachBearerToken, let token = sessionStore.token else { return nil }
+        return NativePartyStudioAPI(client: BytspotAPIClient(tokenProvider: { token }))
     }
 
     /// Stripe's hosted onboarding runs in Safari, not in a web view: it asks
@@ -725,6 +738,7 @@ struct NativeHostStudioView: View {
         Task { @MainActor in
             defer { isOpeningPayoutOnboarding = false }
             do {
+                guard let api = payoutAPI() else { payoutMessage = "Sign in before setting up payouts."; return }
                 let url = try await api.startPayoutOnboarding()
                 _ = await UIApplication.shared.open(url)
             } catch {
@@ -855,7 +869,7 @@ struct NativeHostStudioView: View {
             // door step where the setup button lives instead of leaving them on
             // a message they cannot act on.
             if NativePartyStudioError.payoutSetupRequired(for: error) {
-                payoutStatus = (try? await api.refreshPayoutStatus()) ?? payoutStatus
+                await refreshPayoutStatus()
                 step = .door
                 publishPresentation.message = "This party sells tickets, so payouts have to be set up first."
                 return

@@ -412,6 +412,14 @@ enum BytspotAviationFallbackTests {
         precondition(!PartyPassClipView.canCommitAttendeeCredential(requestGeneration: requestGeneration, currentGeneration: requestGeneration, scenePhase: .background, passState: authorizedPass, credential: attendeePass, expectedPartyID: "party-1"), "Party Loop: backgrounded requests must not restore a QR.")
         precondition(!PartyPassClipView.canCommitAttendeeCredential(requestGeneration: requestGeneration, currentGeneration: requestGeneration, scenePhase: .active, passState: ClipPartyPassState(partyID: "party-1", action: .viewPass, guestStatus: "joined", accessGranted: false), credential: attendeePass, expectedPartyID: "party-1"), "Party Loop: explicitly denied access must not render a QR.")
         let resolverGeneration = UUID()
+        // A paid pass must present its QR without a second tap: the guest has
+        // already paid, so resolution fetches the credential the moment access
+        // turns true, and stops once one is held.
+        precondition(PartyPassClipView.shouldAutoLoadAttendeeCredential(scenePhase: .active, passState: authorizedPass, hasCredential: false), "Party Loop: an authorized pass must fetch its door QR without a tap.")
+        precondition(!PartyPassClipView.shouldAutoLoadAttendeeCredential(scenePhase: .active, passState: authorizedPass, hasCredential: true), "Party Loop: a held credential must not be refetched on every resolution.")
+        precondition(!PartyPassClipView.shouldAutoLoadAttendeeCredential(scenePhase: .active, passState: ClipPartyPassState(partyID: "party-1", action: .ticket, guestStatus: "invited", accessGranted: false), hasCredential: false), "Party Loop: an unpaid pass must never fetch a door QR.")
+        precondition(!PartyPassClipView.shouldAutoLoadAttendeeCredential(scenePhase: .background, passState: authorizedPass, hasCredential: false), "Party Loop: a backgrounded Clip must not fetch a door QR.")
+
         precondition(PartyPassClipView.canCommitPassResolution(resolverGeneration: resolverGeneration, currentResolverGeneration: resolverGeneration, scenePhase: .active), "Party Loop: only the current active resolver may update the Party Pass.")
         precondition(!PartyPassClipView.canCommitPassResolution(resolverGeneration: resolverGeneration, currentResolverGeneration: UUID(), scenePhase: .active), "Party Loop: an older resolver response must not restore Party access.")
         precondition(!PartyPassClipView.canCommitPassResolution(resolverGeneration: resolverGeneration, currentResolverGeneration: resolverGeneration, scenePhase: .background), "Party Loop: a backgrounded resolver response must not restore Party access.")

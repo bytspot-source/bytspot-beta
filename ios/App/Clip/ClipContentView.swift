@@ -690,6 +690,7 @@ struct PartyPassClipView: View {
                 clearAttendeeCredential()
             }
             statusMessage = ""
+            await loadAttendeeCredentialIfPassIsViewable()
             return
         }
         #endif
@@ -705,6 +706,7 @@ struct PartyPassClipView: View {
                 clearAttendeeCredential()
             }
             statusMessage = ""
+            await loadAttendeeCredentialIfPassIsViewable()
         } catch {
             guard Self.canCommitPassResolution(
                 resolverGeneration: generation,
@@ -731,8 +733,34 @@ struct PartyPassClipView: View {
         attendeeCredentialMessage = ""
         isLoadingAttendeeCredential = false
     }
+    /// The door QR is the whole point of a paid pass, so it is fetched as soon
+    /// as the pass turns viewable rather than waiting for a tap. Resolution runs
+    /// on every foreground and after checkout, so this stays idempotent: it is a
+    /// no-op once a credential is in memory, and the button remains for refresh.
+    @MainActor private func loadAttendeeCredentialIfPassIsViewable() async {
+        guard Self.shouldAutoLoadAttendeeCredential(
+            scenePhase: scenePhase,
+            passState: passState,
+            hasCredential: attendeeCredential != nil
+        ) else { return }
+        await loadAttendeeCredential()
+    }
+
+    static func shouldAutoLoadAttendeeCredential(
+        scenePhase: ScenePhase,
+        passState: ClipPartyPassState?,
+        hasCredential: Bool
+    ) -> Bool {
+        !hasCredential && canRequestAttendeeCredential(scenePhase: scenePhase, passState: passState)
+    }
+
+    // Gated on `isPerformingAction` rather than `isBusy` on purpose. `isBusy`
+    // includes `isResolving`, and the automatic fetch runs from inside pass
+    // resolution, so an `isBusy` guard would reject every automatic attempt
+    // while it is the resolver's own work in flight. A user-initiated action
+    // still blocks it, and the button keeps the wider `isBusy` guard.
     @MainActor private func loadAttendeeCredential() async {
-        guard !isBusy, !isLoadingAttendeeCredential,
+        guard !isPerformingAction, !isLoadingAttendeeCredential,
               Self.canRequestAttendeeCredential(scenePhase: scenePhase, passState: passState) else { return }
         let requestGeneration = UUID()
         attendeeCredentialGeneration = requestGeneration

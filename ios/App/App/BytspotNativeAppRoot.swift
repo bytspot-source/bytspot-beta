@@ -841,7 +841,7 @@ private struct NativeLandingScreen: View {
                 NativeBytspotMark(size: sizing.landingMark, showGlow: true)
                     .position(x: centerX, y: proxy.size.height * 0.286)
                 VStack(spacing: 8) {
-                    NativeLaunchHeadline(size: 32)
+                    NativeLaunchHeadline(size: sizing.landingTitle)
                     Text(NativeAuthLaunchContract.landingSubtitle(for: location)).font(.system(size: 15, weight: .regular)).foregroundColor(.white.opacity(0.60)).multilineTextAlignment(.center).lineSpacing(6)
                 }
                 .frame(width: contentWidth)

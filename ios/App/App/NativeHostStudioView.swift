@@ -958,7 +958,9 @@ struct NativeHostStudioView: View {
     }
 
     private func accessDetail(_ mode: NativePartyAccessMode) -> String { mode == .freeRSVP ? "Fastest way to fill the room." : mode == .paidTicket ? "Sell a limited first drop." : "You approve every guest." }
-    private var roleSummary: String { teammateRole == .cohost ? "Edit, invite, and check-in access." : teammateRole == .door ? "Check-in access only." : "Refund and payout access only." }
+    // Finance says refund only: this build ships without a payout rail, so
+    // promising payout access would be a capability the app does not have.
+    private var roleSummary: String { teammateRole == .cohost ? "Edit, invite, and check-in access." : teammateRole == .door ? "Check-in access only." : "Refund access only." }
 
     private func setCoverImage(_ image: UIImage?) {
         guard let image, let media = NativePartyPendingImage(image: image) else { if image != nil { publishPresentation.message = "That cover could not be prepared." }; return }

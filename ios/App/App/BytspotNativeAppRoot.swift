@@ -845,7 +845,9 @@ private struct NativeLandingScreen: View {
                 // 10pt on a 393x852 one, with two runs of white text overprinted.
                 VStack(spacing: 0) {
                     Spacer().frame(height: proxy.size.height * sizing.landingTopFraction)
-                    NativeBytspotMark(size: sizing.landingMark, showGlow: true)
+                    // No halo: the app icon is the design of record and carries
+                    // none. The background orbs still light the screen.
+                    NativeBytspotMark(size: sizing.landingMark, showGlow: false)
                     VStack(spacing: 8) {
                         NativeLaunchHeadline(size: sizing.landingTitle)
                         Text(NativeAuthLaunchContract.landingSubtitle(for: location)).font(.system(size: 15, weight: .regular)).foregroundColor(.white.opacity(0.60)).multilineTextAlignment(.center).lineSpacing(6)

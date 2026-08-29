@@ -838,7 +838,7 @@ private struct NativeLandingScreen: View {
                 landingOrb(color: theme.primary, size: 500, x: centerX, y: proxy.size.height * 0.15 + 250, intensity: theme.glowOpacity)
                 landingOrb(color: theme.secondary, size: 400, x: centerX, y: proxy.size.height * 0.90 - 200, intensity: theme.glowOpacity * 0.82)
                 landingOrb(color: theme.tertiary, size: 300, x: proxy.size.width * 0.95 - 150, y: proxy.size.height * 0.50, intensity: theme.glowOpacity * 0.56)
-                NativeBytspotMark(size: 100)
+                NativeBytspotMark(size: sizing.landingMark, showGlow: true)
                     .position(x: centerX, y: proxy.size.height * 0.286)
                 VStack(spacing: 8) {
                     NativeLaunchHeadline(size: 32)

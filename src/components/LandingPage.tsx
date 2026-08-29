@@ -44,7 +44,7 @@ export function LandingPage({ isDarkMode, onGetStarted }: LandingPageProps) {
           {/* Feature pills */}
           <div className="flex flex-col gap-3">
             {[
-              { icon: <Radio className="w-4 h-4 text-red-400" />, label: 'Typical occupancy at Midtown venues' },
+              { icon: <Radio className="w-4 h-4 text-fuchsia-400" />, label: 'Typical occupancy at Midtown venues' },
               { icon: <Car className="w-4 h-4 text-cyan-400" />, label: 'Smart parking with listed spot availability' },
               { icon: <Clock className="w-4 h-4 text-purple-400" />, label: 'Ride ETAs & valet options nearby' },
             ].map(({ icon, label }) => (

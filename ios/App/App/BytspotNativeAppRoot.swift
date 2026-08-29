@@ -662,7 +662,7 @@ private struct NativeLaunchSizing {
     var splashMark: CGFloat { compactHeight ? 140 : 156 }
     var splashTitle: CGFloat { narrowWidth ? 50 : 54 }
     var landingMark: CGFloat { compactHeight ? 88 : 100 }
-    var landingMarkCentreFraction: CGFloat { compactHeight ? 0.24 : 0.273 }
+    var landingTopFraction: CGFloat { compactHeight ? 0.15 : 0.214 }
     var landingMarkGap: CGFloat { compactHeight ? 20 : 28 }
     var landingCopyGap: CGFloat { compactHeight ? 20 : 26 }
     var landingFeatureGap: CGFloat { compactHeight ? 22 : 32 }
@@ -833,11 +833,6 @@ private struct NativeLandingScreen: View {
             let contentWidth = railWidth - (sizing.horizontalPadding * 2)
             let theme = NativeJourneyTheme.current()
             let centerX = proxy.size.width * 0.5
-            // proxy.size excludes the safe areas, so a fraction of it drifts by
-            // the top inset. Work back from the full screen to land the mark's
-            // centre where the reference render puts it.
-            let fullHeight = proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom
-            let markTopInset = max(0, (fullHeight * sizing.landingMarkCentreFraction) - proxy.safeAreaInsets.top - (sizing.landingMark * 0.5))
             ZStack {
                 theme.background.ignoresSafeArea()
                 landingOrb(color: theme.primary, size: 500, x: centerX, y: proxy.size.height * 0.15 + 250, intensity: theme.glowOpacity)
@@ -848,7 +843,7 @@ private struct NativeLandingScreen: View {
                 // straight into the pills: 34pt of overlap on a 375x667 screen,
                 // 10pt on a 393x852 one, with two runs of white text overprinted.
                 VStack(spacing: 0) {
-                    Spacer().frame(height: markTopInset)
+                    Spacer().frame(height: proxy.size.height * sizing.landingTopFraction)
                     NativeBytspotMark(size: sizing.landingMark, showGlow: true)
                     VStack(spacing: 8) {
                         NativeLaunchHeadline(size: sizing.landingTitle)
@@ -1092,7 +1087,7 @@ private struct NativeLaunchHeadline: View {
 private struct NativeLaunchFeaturePill: View {
     let title: String
     let compact: Bool
-    var body: some View { HStack(spacing: 12) { ZStack { Circle().fill(Color.white.opacity(0.08)); Image(systemName: icon).font(.system(size: 16, weight: .regular)).foregroundColor(color) }.frame(width: 32, height: 32).accessibilityHidden(true); Text(title).font(.system(size: 14, weight: .medium)).foregroundColor(.white.opacity(0.80)).fixedSize(horizontal: false, vertical: true); Spacer(minLength: 0) }.padding(.horizontal, 16).padding(.vertical, 12).frame(minHeight: compact ? 56 : 60).nativeLaunchTransparentCard(radius: 14).accessibilityElement(children: .combine).accessibilityLabel(title) }
+    var body: some View { HStack(spacing: 12) { ZStack { Circle().fill(Color.white.opacity(0.08)); Image(systemName: icon).font(.system(size: 16, weight: .regular)).foregroundColor(color) }.frame(width: 32, height: 32).accessibilityHidden(true); Text(title).font(.system(size: 14, weight: .medium)).foregroundColor(.white.opacity(0.80)); Spacer(minLength: 0) }.padding(.horizontal, 16).padding(.vertical, 12).frame(minHeight: compact ? 56 : 60).nativeLaunchTransparentCard(radius: 14).accessibilityElement(children: .combine).accessibilityLabel(title) }
     private var icon: String { title.contains("parking") ? "car" : title.contains("Ride") ? "clock" : "dot.radiowaves.left.and.right" }
     private var color: Color { title.contains("parking") ? NativeLaunchTheme.cyan400 : title.contains("Ride") ? NativeLaunchTheme.purple400 : NativeLaunchTheme.magenta }
 }

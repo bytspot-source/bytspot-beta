@@ -469,6 +469,12 @@ private enum NativeLaunchTheme {
     static let brandGradient = LinearGradient(colors: [cyan, purple, magenta], startPoint: .leading, endPoint: .trailing)
     static let beforeGradient = LinearGradient(colors: [purple400, cyan400], startPoint: .leading, endPoint: .trailing)
     static let landingCTAGradient = LinearGradient(colors: [purple, cyan500], startPoint: .topLeading, endPoint: .bottomTrailing)
+    /// The logo lockup is defined on near-black in BrandLogo.tsx, and the mark's
+    /// own gradients are the only colours it is allowed to carry. Brand surfaces
+    /// read these directly instead of the journey theme, whose accents change
+    /// with intent and time of day.
+    static let brandBackground = LinearGradient(colors: [Color.black, Color(hex: 0x140825), Color(hex: 0x020617)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    static let brandGlowPalette: [Color] = [cyan, purple, magenta]
 }
 
 enum NativeJourneyAtmosphere: String, CaseIterable {
@@ -672,11 +678,19 @@ enum NativeJourneyThemeSelfTests {
         precondition(NativeJourneyTheme.resolve(atmosphere: .daylight, intent: "parking").intent == "parking", "NativeJourneyThemeSelfTests: intent should pass through resolver.")
         precondition(NativeJourneyTheme.resolve(atmosphere: .nightlight, intent: "").intent == "brand", "NativeJourneyThemeSelfTests: empty intent should resolve to brand.")
         precondition(NativeJourneyTheme.resolve(atmosphere: .daylight, intent: "parking").glowOpacity < NativeJourneyTheme.resolve(atmosphere: .nightlight, intent: "parking").glowOpacity, "NativeJourneyThemeSelfTests: nightlight should carry stronger glow.")
+        // The logo lockup carries only the mark's own colours. The journey theme
+        // is deliberately intent- and time-of-day dependent, so the splash must
+        // not read from it: in daylight its tertiary is emerald and its accents
+        // follow the stored intent, which put a green glow and an hour-dependent
+        // wordmark gradient beside a fixed cyan/purple/magenta mark.
+        precondition(NativeLaunchTheme.brandGlowPalette == [NativeLaunchTheme.cyan, NativeLaunchTheme.purple, NativeLaunchTheme.magenta], "NativeJourneyThemeSelfTests: brand palette drifted from the mark.")
+        precondition(![NativeLaunchTheme.orange, NativeLaunchTheme.red400, NativeLaunchTheme.emerald].contains(where: NativeLaunchTheme.brandGlowPalette.contains), "NativeJourneyThemeSelfTests: an intent accent leaked into the brand palette.")
     }
 }
 #endif
 
 private struct NativeSplashScreen: View {
+    static let glowOpacity: Double = 0.26
     let freeze: Bool
     let onComplete: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -685,21 +699,24 @@ private struct NativeSplashScreen: View {
     var body: some View {
         GeometryReader { proxy in
             let sizing = NativeLaunchSizing(size: proxy.size)
-            let theme = NativeJourneyTheme.current()
             let centerX = proxy.size.width * 0.5
             let centerY = proxy.size.height * 0.5
             ZStack {
-                theme.background.ignoresSafeArea()
-                splashOrb(color: theme.primary, size: 420, x: centerX, y: centerY, intensity: theme.glowOpacity)
-                splashOrb(color: theme.secondary, size: 320, x: centerX, y: proxy.size.height * 0.68, intensity: theme.glowOpacity * 0.70)
-                splashOrb(color: theme.tertiary, size: 280, x: proxy.size.width * 0.82, y: centerY * 0.96, intensity: theme.glowOpacity * 0.46)
+                // Fixed brand palette, not the journey theme: in daylight the
+                // theme's tertiary is emerald and its accents follow the stored
+                // intent, so the first screen of the app rendered a green glow
+                // and a different wordmark gradient depending on the hour.
+                NativeLaunchTheme.brandBackground.ignoresSafeArea()
+                splashOrb(color: NativeLaunchTheme.cyan, size: 420, x: centerX, y: centerY, intensity: NativeSplashScreen.glowOpacity)
+                splashOrb(color: NativeLaunchTheme.purple, size: 320, x: centerX, y: proxy.size.height * 0.68, intensity: NativeSplashScreen.glowOpacity * 0.70)
+                splashOrb(color: NativeLaunchTheme.magenta, size: 280, x: proxy.size.width * 0.82, y: centerY * 0.96, intensity: NativeSplashScreen.glowOpacity * 0.46)
                 VStack(spacing: sizing.splashSpacing) {
                     NativeBytspotMark(size: sizing.splashMark, showGlow: true)
                         .scaleEffect(animate && !reduceMotion ? 1.025 : 1)
                     Text("BYTSPOT")
                         .font(.system(size: sizing.splashTitle, weight: .bold))
-                        .foregroundStyle(theme.ctaGradient)
-                    HStack(spacing: 8) { ForEach([theme.primary, theme.secondary, theme.tertiary], id: \.description) { Circle().fill($0).frame(width: 8.5, height: 8.5).opacity(animate && !reduceMotion ? 0.95 : 0.45).scaleEffect(animate && !reduceMotion ? 1.12 : 1) } }
+                        .foregroundStyle(NativeLaunchTheme.brandGradient)
+                    HStack(spacing: 8) { ForEach(NativeLaunchTheme.brandGlowPalette, id: \.description) { Circle().fill($0).frame(width: 8.5, height: 8.5).opacity(animate && !reduceMotion ? 0.95 : 0.45).scaleEffect(animate && !reduceMotion ? 1.12 : 1) } }
                     Text(NativeAuthLaunchContract.splashTagline)
                         .font(.system(size: 17, weight: .bold, design: .rounded))
                         .foregroundColor(.white.opacity(0.76))
@@ -718,7 +735,7 @@ private struct NativeSplashScreen: View {
                     if freeze {
                         VStack(spacing: 8) {
                             Button(action: { nativeAuthImpactLight(); onComplete() }) {
-                                NativeLaunchCTA(title: NativeAuthLaunchContract.splashStartTitle, color: theme.ctaGradient, foreground: .white, height: sizing.compactHeight ? 50 : 54, cornerRadius: 17, showArrow: true)
+                                NativeLaunchCTA(title: NativeAuthLaunchContract.splashStartTitle, color: NativeLaunchTheme.brandGradient, foreground: .white, height: sizing.compactHeight ? 50 : 54, cornerRadius: 17, showArrow: true)
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("native-launch-splash-start")
@@ -1020,7 +1037,7 @@ private struct NativeLaunchFeaturePill: View {
     let compact: Bool
     var body: some View { HStack(spacing: 12) { ZStack { Circle().fill(Color.white.opacity(0.08)); Image(systemName: icon).font(.system(size: 16, weight: .regular)).foregroundColor(color) }.frame(width: 32, height: 32).accessibilityHidden(true); Text(title).font(.system(size: 14, weight: .medium)).foregroundColor(.white.opacity(0.80)); Spacer(minLength: 0) }.padding(.horizontal, 16).padding(.vertical, 12).frame(minHeight: compact ? 56 : 60).nativeLaunchTransparentCard(radius: 14).accessibilityElement(children: .combine).accessibilityLabel(title) }
     private var icon: String { title.contains("parking") ? "car" : title.contains("Ride") ? "clock" : "dot.radiowaves.left.and.right" }
-    private var color: Color { title.contains("parking") ? NativeLaunchTheme.cyan400 : title.contains("Ride") ? NativeLaunchTheme.purple400 : NativeLaunchTheme.red400 }
+    private var color: Color { title.contains("parking") ? NativeLaunchTheme.cyan400 : title.contains("Ride") ? NativeLaunchTheme.purple400 : NativeLaunchTheme.magenta }
 }
 
 enum NativeLaunchQuizContext {

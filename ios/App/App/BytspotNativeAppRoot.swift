@@ -662,6 +662,10 @@ private struct NativeLaunchSizing {
     var splashMark: CGFloat { compactHeight ? 140 : 156 }
     var splashTitle: CGFloat { narrowWidth ? 50 : 54 }
     var landingMark: CGFloat { compactHeight ? 88 : 100 }
+    var landingTopFraction: CGFloat { compactHeight ? 0.15 : 0.214 }
+    var landingMarkGap: CGFloat { compactHeight ? 20 : 28 }
+    var landingCopyGap: CGFloat { compactHeight ? 20 : 26 }
+    var landingFeatureGap: CGFloat { compactHeight ? 22 : 32 }
     var landingTitle: CGFloat { narrowWidth ? 28 : 32 }
     var landingCTAHeight: CGFloat { compactHeight ? 56 : 60 }
     var sheetHorizontalInset: CGFloat { narrowWidth ? 14 : 18 }
@@ -829,33 +833,34 @@ private struct NativeLandingScreen: View {
             let contentWidth = railWidth - (sizing.horizontalPadding * 2)
             let theme = NativeJourneyTheme.current()
             let centerX = proxy.size.width * 0.5
-            let featureY = proxy.size.height * 0.602
-            let featurePillHeight: CGFloat = sizing.compactHeight ? 56 : 60
-            let featureGroupHeight = (featurePillHeight * 3) + (12 * 2)
-            let ctaY = featureY + (featureGroupHeight * 0.5) + 40 + (sizing.landingCTAHeight * 0.5)
             ZStack {
                 theme.background.ignoresSafeArea()
                 landingOrb(color: theme.primary, size: 500, x: centerX, y: proxy.size.height * 0.15 + 250, intensity: theme.glowOpacity)
                 landingOrb(color: theme.secondary, size: 400, x: centerX, y: proxy.size.height * 0.90 - 200, intensity: theme.glowOpacity * 0.82)
                 landingOrb(color: theme.tertiary, size: 300, x: proxy.size.width * 0.95 - 150, y: proxy.size.height * 0.50, intensity: theme.glowOpacity * 0.56)
-                NativeBytspotMark(size: sizing.landingMark, showGlow: true)
-                    .position(x: centerX, y: proxy.size.height * 0.286)
-                VStack(spacing: 8) {
-                    NativeLaunchHeadline(size: sizing.landingTitle)
-                    Text(NativeAuthLaunchContract.landingSubtitle(for: location)).font(.system(size: 15, weight: .regular)).foregroundColor(.white.opacity(0.60)).multilineTextAlignment(.center).lineSpacing(6)
+                // One flow, not five independent .position() calls. The copy block
+                // grows when the subtitle wraps, and at fixed fractions it grew
+                // straight into the pills: 34pt of overlap on a 375x667 screen,
+                // 10pt on a 393x852 one, with two runs of white text overprinted.
+                VStack(spacing: 0) {
+                    Spacer().frame(height: proxy.size.height * sizing.landingTopFraction)
+                    NativeBytspotMark(size: sizing.landingMark, showGlow: true)
+                    VStack(spacing: 8) {
+                        NativeLaunchHeadline(size: sizing.landingTitle)
+                        Text(NativeAuthLaunchContract.landingSubtitle(for: location)).font(.system(size: 15, weight: .regular)).foregroundColor(.white.opacity(0.60)).multilineTextAlignment(.center).lineSpacing(6)
+                    }
+                    .padding(.top, sizing.landingMarkGap)
+                    VStack(spacing: 12) { ForEach(Array(NativeAuthLaunchContract.landingFeatures(for: location).enumerated()), id: \.offset) { _, feature in NativeLaunchFeaturePill(title: feature, compact: sizing.compactHeight) } }
+                        .padding(.top, sizing.landingCopyGap)
+                    Button(action: { nativeAuthImpactLight(); onGetStarted() }) { NativeLaunchCTA(title: "Get Started", color: theme.ctaGradient, foreground: .white, height: sizing.landingCTAHeight, cornerRadius: 16, showArrow: true) }
+                        .buttonStyle(.plain)
+                        .padding(.top, sizing.landingFeatureGap)
+                        .accessibilityHint("Explains location benefits before starting personalization.")
+                    Spacer(minLength: 16)
+                    Text("By continuing, you agree to our Terms & Privacy").font(.system(size: 12, weight: .regular)).foregroundColor(.white.opacity(0.30))
                 }
-                .frame(width: contentWidth)
-                .position(x: centerX, y: proxy.size.height * 0.426)
-                VStack(spacing: 12) { ForEach(Array(NativeAuthLaunchContract.landingFeatures(for: location).enumerated()), id: \.offset) { _, feature in NativeLaunchFeaturePill(title: feature, compact: sizing.compactHeight) } }
-                    .frame(width: contentWidth)
-                    .position(x: centerX, y: featureY)
-                Button(action: { nativeAuthImpactLight(); onGetStarted() }) { NativeLaunchCTA(title: "Get Started", color: theme.ctaGradient, foreground: .white, height: sizing.landingCTAHeight, cornerRadius: 16, showArrow: true) }
-                    .buttonStyle(.plain)
-                    .frame(width: contentWidth)
-                    .position(x: centerX, y: ctaY)
-                    .accessibilityHint("Explains location benefits before starting personalization.")
-                Text("By continuing, you agree to our Terms & Privacy").font(.system(size: 12, weight: .regular)).foregroundColor(.white.opacity(0.30))
-                    .position(x: centerX, y: proxy.size.height * 0.938)
+                .frame(width: contentWidth, height: proxy.size.height, alignment: .top)
+                .position(x: centerX, y: proxy.size.height * 0.5)
             }
             .accessibilityIdentifier("native-launch-landing")
         }

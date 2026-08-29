@@ -57,14 +57,14 @@ export function BrandLogo({ size = 120, animated = false, showGlow = false }: Br
         
         {/* Central hexagon - filled with gradient */}
         <path
-          d="M60 30 L86 45 L86 75 L60 90 L34 75 L34 45 Z"
+          d="M60 32 L74 41 L74 59 L60 68 L46 59 L46 41 Z"
           fill="url(#gradient-hexagon)"
           opacity="0.95"
         />
         
         {/* Hexagon border - bright accent */}
         <path
-          d="M60 30 L86 45 L86 75 L60 90 L34 75 L34 45 Z"
+          d="M60 32 L74 41 L74 59 L60 68 L46 59 L46 41 Z"
           stroke="url(#gradient-hex-border)"
           strokeWidth="1.5"
           fill="none"
@@ -74,7 +74,7 @@ export function BrandLogo({ size = 120, animated = false, showGlow = false }: Br
         {/* Center dot - location pin indicator */}
         <circle 
           cx="60" 
-          cy="60" 
+          cy="50" 
           r="8" 
           fill="url(#gradient-center-dot)"
         />
@@ -82,7 +82,7 @@ export function BrandLogo({ size = 120, animated = false, showGlow = false }: Br
         {/* Inner glow around center dot */}
         <circle 
           cx="60" 
-          cy="60" 
+          cy="50" 
           r="12" 
           fill="url(#gradient-center-glow)"
           opacity="0.3"

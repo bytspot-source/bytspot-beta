@@ -23,6 +23,14 @@ struct NativePartyControlSummary: Codable {
 struct NativePartyControlGuest: Codable, Identifiable {
     struct Person: Codable { let userId: String; let name: String; let profileImage: String? }
     let id: String; let status: String; let source: String; let ticketTierName: String?; let checkedInAt: String?; let person: Person
+    // Optional so a build can outlive an API that predates the field: absent
+    // is read as no access, which is the safe reading for a door list.
+    let accessGranted: Bool?
+
+    /// Paid and still holding the pass. A refund-required guest also paid, but
+    /// their access was revoked, so counting them here would tell a host the
+    /// room is fuller than it is.
+    var isPaidAndAdmitted: Bool { source == "ticket" && accessGranted == true && status != "refund-required" }
 }
 
 struct NativePartyControlGuestList: Codable { let guests: [NativePartyControlGuest] }
@@ -183,6 +191,7 @@ struct NativePartyControlView: View {
             if showingDoor { doorMode }
             if !message.isEmpty { Text(message).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.emerald) }
             pendingGuests
+            paidGuests
             guestList
         }.padding(18) } }
         .preferredColorScheme(.dark).task { await reload() }.sheet(isPresented: $scanning) {
@@ -276,6 +285,32 @@ struct NativePartyControlView: View {
     private func metric(_ label: String, _ value: String) -> some View { VStack(alignment: .leading, spacing: 3) { Text(value).font(.system(size: 20, weight: .black)); Text(label.uppercased()).font(.system(size: 8.5, weight: .black)).foregroundColor(.white.opacity(0.52)) }.frame(maxWidth: .infinity, alignment: .leading) }
     private var doorMode: some View { VStack(alignment: .leading, spacing: 10) { Text("DOOR MODE").partyControlLabel(); Text("Scan a personal attendee QR. A checked-in pass cannot be used again.").font(.system(size: 11, weight: .semibold)).foregroundColor(.white.opacity(0.55)); HStack { TextField("Paste attendee QR pass", text: $passText).textInputAutocapitalization(.never).autocorrectionDisabled(); Button(action: { scanning = true }) { Image(systemName: "qrcode.viewfinder") }.accessibilityLabel("Scan attendee QR pass") }.padding(12).partyControlSurface(); Button(isCheckingIn ? "Checking in…" : "Check in attendee") { Task { await checkIn(passText) } }.disabled(isCheckingIn).controlButton(color: NativeTheme.emerald) }.padding(14).partyControlSurface() }
     private var pendingGuests: some View { let pending = guests.filter { $0.status == "pending" }; return Group { if !pending.isEmpty { VStack(alignment: .leading, spacing: 10) { Text("PENDING APPROVAL · \(pending.count)").partyControlLabel(); ForEach(pending) { guest in HStack { Text(guest.person.name).font(.system(size: 13, weight: .bold)); Spacer(); Button("Decline") { Task { await decide(guest, false) } }.foregroundColor(NativeTheme.orange); Button("Approve") { Task { await decide(guest, true) } }.foregroundColor(NativeTheme.emerald) } } }.padding(14).partyControlSurface() } } }
+    /// Separated from the main list because it answers a different question:
+    /// not who is coming, but who has paid. Silent when nobody has, so a free
+    /// party never shows an empty money section.
+    @ViewBuilder private var paidGuests: some View {
+        let paid = guests.filter(\.isPaidAndAdmitted)
+        if !paid.isEmpty {
+            VStack(alignment: .leading, spacing: 9) {
+                Text("PAID GUESTS · \(paid.count)").partyControlLabel()
+                ForEach(paid) { guest in
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(guest.person.name).font(.system(size: 13, weight: .bold))
+                            Text(guest.ticketTierName ?? "Ticket").font(.system(size: 9, weight: .black)).foregroundColor(.white.opacity(0.48))
+                        }
+                        Spacer(minLength: 0)
+                        if guest.status == "checked-in" {
+                            Image(systemName: "checkmark.seal.fill").foregroundColor(NativeTheme.emerald)
+                        }
+                    }
+                }
+            }
+            .padding(14).partyControlSurface()
+            .accessibilityIdentifier("native-party-control-paid-guests")
+        }
+    }
+
     private var guestList: some View { VStack(alignment: .leading, spacing: 9) { Text("GUEST LIST · \(guests.count)").partyControlLabel(); ForEach(guests.filter { $0.status != "pending" }) { guest in HStack { VStack(alignment: .leading) { Text(guest.person.name).font(.system(size: 13, weight: .bold)); Text("\(guest.status.replacingOccurrences(of: "-", with: " ").uppercased()) · \(guest.source.uppercased())").font(.system(size: 9, weight: .black)).foregroundColor(.white.opacity(0.48)) }; Spacer(); if guest.status == "checked-in" { Image(systemName: "checkmark.seal.fill").foregroundColor(NativeTheme.emerald) } } } }.padding(14).partyControlSurface() }
     @MainActor private func reload() async { guard let token = sessionStore.token else { return }; do { let api = NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })); async let freshSummary = api.summary(partyID); async let freshGuests = api.guests(partyID); summary = try await freshSummary; guests = try await freshGuests; message = "" } catch { message = "Party Control could not refresh." } }
     @MainActor private func setPaused() async { guard let token = sessionStore.token else { return }; do { try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).pause(partyID, paused: !(summary?.admissionPaused ?? false)); await reload() } catch { message = "Admission status could not change." } }

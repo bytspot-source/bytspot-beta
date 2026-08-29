@@ -1613,6 +1613,64 @@ final class BytspotTrustEngineTests: XCTestCase {
             expectedUserID: "user-a", currentUserID: nil
         ))
     }
+
+    func testPaidGuestListCountsOnlyTicketHoldersWhoStillHoldAccess() throws {
+        // The wire shape Control actually receives, including a paid guest whose
+        // access was revoked and a free RSVP.
+        let json = """
+        {"guests":[
+          {"id":"g1","status":"ticketed","source":"ticket","ticketTierName":"First Drop","checkedInAt":null,"accessGranted":true,"person":{"userId":"u1","name":"Ada","profileImage":null}},
+          {"id":"g2","status":"refund-required","source":"ticket","ticketTierName":"First Drop","checkedInAt":null,"accessGranted":false,"person":{"userId":"u2","name":"Kofi","profileImage":null}},
+          {"id":"g3","status":"rsvp","source":"rsvp","ticketTierName":null,"checkedInAt":null,"accessGranted":true,"person":{"userId":"u3","name":"Lin","profileImage":null}},
+          {"id":"g4","status":"checked-in","source":"ticket","ticketTierName":"First Drop","checkedInAt":"2026-08-10T21:00:00.000Z","accessGranted":true,"person":{"userId":"u4","name":"Sam","profileImage":null}}
+        ]}
+        """
+        let list = try JSONDecoder().decode(NativePartyControlGuestList.self, from: Data(json.utf8))
+        let paid = list.guests.filter(\.isPaidAndAdmitted).map(\.person.name)
+
+        // A guest who paid and was then revoked is not holding a pass, and a
+        // free RSVP never paid: neither belongs in a paid count.
+        XCTAssertEqual(paid, ["Ada", "Sam"])
+    }
+
+    func testPaidGuestFallsBackToNoAccessWhenTheFieldIsAbsent() throws {
+        // An older API that predates accessGranted must not read as admitted.
+        let json = """
+        {"guests":[{"id":"g1","status":"ticketed","source":"ticket","ticketTierName":"First Drop","checkedInAt":null,"person":{"userId":"u1","name":"Ada","profileImage":null}}]}
+        """
+        let list = try JSONDecoder().decode(NativePartyControlGuestList.self, from: Data(json.utf8))
+        XCTAssertEqual(list.guests.count, 1)
+        XCTAssertFalse(list.guests[0].isPaidAndAdmitted)
+    }
+
+    func testHostPayoutStatusSpeaksDifferentlyToUnstartedAndUnfinishedSetup() {
+        // Never begun: explain why a paid party needs this at all.
+        let fresh = NativeHostPayoutStatus(from: ["connected": false, "ready": false])
+        XCTAssertEqual(fresh.headline, "Payouts not set up")
+        XCTAssertEqual(fresh.actionTitle, "Set up payouts")
+
+        // Begun but incomplete is a different sentence: the host has already
+        // done work and is being asked to finish, not to start.
+        let partial = NativeHostPayoutStatus(from: ["connected": true, "chargesEnabled": true, "payoutsEnabled": false, "ready": false])
+        XCTAssertEqual(partial.headline, "Payout setup unfinished")
+        XCTAssertEqual(partial.actionTitle, "Finish payout setup")
+
+        // Ready states what the host actually wants to know: when the money lands.
+        let ready = NativeHostPayoutStatus(from: ["connected": true, "chargesEnabled": true, "payoutsEnabled": true, "ready": true, "payoutDelayDays": 7])
+        XCTAssertEqual(ready.headline, "Payouts ready")
+        XCTAssertTrue(ready.detail.contains("7 days"))
+    }
+
+    func testPublishPayoutBlockIsRecognisedOnlyForItsOwnPreconditionFailure() {
+        // The two payout refusals the API can return must be actionable.
+        XCTAssertTrue(NativePartyStudioError.payoutSetupRequired(for: BytspotAPIClient.APIError.server(status: 412, body: "{\"message\":\"Set up payouts before publishing a paid party.\"}")))
+        XCTAssertTrue(NativePartyStudioError.payoutSetupRequired(for: BytspotAPIClient.APIError.server(status: 412, body: "{\"message\":\"Your payout status could not be verified. Try again shortly.\"}")))
+
+        // An unrelated 412, or the same words at another status, must not send
+        // a host to Stripe for a problem Stripe cannot solve.
+        XCTAssertFalse(NativePartyStudioError.payoutSetupRequired(for: BytspotAPIClient.APIError.server(status: 412, body: "{\"message\":\"This Party is at capacity.\"}")))
+        XCTAssertFalse(NativePartyStudioError.payoutSetupRequired(for: BytspotAPIClient.APIError.server(status: 500, body: "payouts before publishing")))
+    }
 }
 
 final class NativeProfileDataAPITests: XCTestCase {

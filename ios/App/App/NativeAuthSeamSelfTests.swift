@@ -142,7 +142,15 @@ enum NativeAuthSplashSelfTests {
         precondition(NativeAuthLaunchContract.splashTagline == "Your perfect spot awaits" && NativeAuthLaunchContract.splashCapabilities == ["Parking", "Venues", "AI-Powered"], "NativeAuthSplashSelfTests: splash value copy drifted.")
         precondition(NativeAuthLaunchContract.landingHeadline == "Know Before You Go.", "NativeAuthSplashSelfTests: landing headline drifted.")
         precondition(NativeAuthLaunchContract.vibeQuestion == "What kind of night are we shaping?", "NativeAuthSplashSelfTests: vibe question drifted.")
-        precondition(NativeAuthLaunchContract.walkOptions == ["📍 Right nearby", "🚶 A short walk", "🚗 Easy arrival", "🗺️ Show me a hidden gem"], "NativeAuthSplashSelfTests: walk options drifted.")
+        precondition(NativeAuthLaunchContract.vibeOptions == ["Dinner", "A good drink", "Something happening", "Date night"], "NativeAuthSplashSelfTests: vibe options drifted.")
+        precondition(NativeAuthLaunchContract.walkOptions == ["Right nearby", "A short walk", "Across town", "Somewhere new"], "NativeAuthSplashSelfTests: walk options drifted.")
+        precondition(NativeAuthLaunchContract.crewOptions == ["Just me", "Two of us", "A group", "Work"], "NativeAuthSplashSelfTests: crew options drifted.")
+        // Every offered answer must resolve to a real intent. A label that falls
+        // through to the character filter would store a token nothing reads.
+        precondition((NativeAuthLaunchContract.vibeOptions + NativeAuthLaunchContract.walkOptions + NativeAuthLaunchContract.crewOptions).allSatisfy { NativeLaunchPersonalizationStorage.token(for: $0) != $0.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" } }, "NativeAuthSplashSelfTests: an offered answer resolved to no known intent.")
+        // The distance question must never offer an arrival answer: the resolver
+        // reads "arrival" as parking, so the distance would be silently lost.
+        precondition(NativeAuthLaunchContract.walkOptions.allSatisfy { NativeLaunchPersonalizationStorage.token(for: $0) != "parking" }, "NativeAuthSplashSelfTests: a distance option resolved to a parking intent.")
         precondition(NativeLaunchLocationContract.benefits.count == 3, "NativeAuthSplashSelfTests: location value screen must explain the user benefit before prompting.")
         precondition(NativeLaunchRecommendationPresentation.capabilityTitles == ["Discover with context", "Simplify your arrival", "Keep everything together"], "NativeAuthSplashSelfTests: empty recommendations must hand off to a complete product preview.")
         let legacyVariants = [" ladybird grove and mess hall ", "LIVINGSTON", "Lyla   Lila"]
@@ -150,8 +158,12 @@ enum NativeAuthSplashSelfTests {
         let filtered = NativeAuthLaunchContract.launchVenueCandidates(from: legacyVariants.enumerated().map { NativeVenueSummary(id: "legacy-\($0.offset)", name: $0.element, category: "parking", address: "Legacy", distance: "Here", rating: 5, latitude: 33.7866, longitude: -84.3833, crowd: nil, parking: NativeParkingSummary(totalAvailable: 99, priceLabel: "Free"), verifiedPatchId: nil, imageUrl: nil) })
         precondition(filtered.isEmpty, "NativeAuthSplashSelfTests: stale legacy rows must stay empty instead of being replaced with Atlanta fallback venues.")
         precondition(NativeLaunchPersonalizationStorage.vibeKey == "bytspot_native_launch_vibe", "NativeAuthSplashSelfTests: launch vibe storage key drifted.")
+        // The emoji forms are the labels of previous builds: a stored preference
+        // must keep resolving after the wording changed, so both are pinned.
         precondition(NativeLaunchPersonalizationStorage.token(for: "🍸 Keep the night going") == "drinks", "NativeAuthSplashSelfTests: launch vibe token normalization drifted.")
+        precondition(NativeLaunchPersonalizationStorage.token(for: "Keep going") == "drinks", "NativeAuthSplashSelfTests: launch vibe token normalization drifted.")
         precondition(NativeLaunchPersonalizationStorage.token(for: "🚶 A short walk") == "close", "NativeAuthSplashSelfTests: launch walk token normalization drifted.")
+        precondition(NativeLaunchPersonalizationStorage.token(for: "A short walk") == "close", "NativeAuthSplashSelfTests: launch walk token normalization drifted.")
         precondition(ProcessInfo.processInfo.environment["BYT_NATIVE_LAUNCH_AUTORUN"] == nil || NativeAuthLaunchContract.autoRunsLaunchJourney, "NativeAuthSplashSelfTests: launch autorun hook drifted.")
     }
 

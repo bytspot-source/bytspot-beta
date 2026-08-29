@@ -263,11 +263,14 @@ enum NativeAuthLaunchContract {
     static let atlantaLandingSubtitle = "Atlanta discovery made easier — from the right spot to the smoothest arrival."
     static let atlantaLandingFeatures = ["Discover trusted Atlanta places for your moment", "See parking, crowd, and arrival context", "Keep access and reservations together"]
     static let vibeQuestion = "What kind of night are we shaping?"
-    static let vibeOptions = ["🍽️ Dinner with atmosphere", "🍸 A good drink", "🎶 Something happening", "💕 Date-night ready"]
+    static let vibeOptions = ["Dinner", "A good drink", "Something happening", "Date night"]
     static let walkQuestion = "How far are you comfortable going?"
-    static let walkOptions = ["📍 Right nearby", "🚶 A short walk", "🚗 Easy arrival", "🗺️ Show me a hidden gem"]
+    // "Easy arrival" used to sit here, but the resolver reads "arrival" as a
+    // parking intent, so choosing it stored a category where a distance
+    // belonged and the answer was silently lost.
+    static let walkOptions = ["Right nearby", "A short walk", "Across town", "Somewhere new"]
     static let crewQuestion = "Who's coming with you?"
-    static let crewOptions = ["🙋 Just me", "💕 Date-night ready", "👥 A group", "💼 Work or client"]
+    static let crewOptions = ["Just me", "Two of us", "A group", "Work"]
     static let legacyAtlantaPickNames = ["Ladybird Grove & Mess Hall", "Livingston", "Lyla Lila"]
     static let legacyAtlantaPickNameTokens = legacyAtlantaPickNames.map(normalizedAtlantaPickName)
     static let authRoutes = NativeAuthRouteContract.routes
@@ -388,32 +391,33 @@ enum NativeLaunchPersonalizationStorage {
 
     static func token(for option: String) -> String {
         let normalized = option.lowercased()
-        if normalized.contains("drinks") || normalized.contains("good drink") || normalized.contains("keep the night going") { return "drinks" }
+        if normalized.contains("drinks") || normalized.contains("good drink") || normalized.contains("keep the night going") || normalized.contains("keep going") { return "drinks" }
         if normalized.contains("coffee") { return "coffee" }
         if normalized.contains("dinner") { return "food" }
-        if normalized.contains("food") || normalized.contains("proper meal") || normalized.contains("good to eat") { return "food" }
+        if normalized.contains("food") || normalized.contains("real meal") || normalized.contains("something to eat") { return "food" }
         if normalized.contains("fitness") { return "fitness" }
-        if normalized.contains("work") { return "work" }
+        // "Somewhere quiet" is the daytime way of asking to sit and work.
+        if normalized.contains("work") || normalized.contains("somewhere quiet") { return "work" }
         if normalized.contains("event") || normalized.contains("happening") { return "events" }
         if normalized.contains("parking") || normalized.contains("arrival") { return normalized.contains("covered") ? "covered_parking" : "parking" }
-        if normalized.contains("keep going") { return "drinks" }
+        if normalized.contains("place to stay") { return "sleep" }
         if normalized.contains("sleep") { return "sleep" }
         if normalized.contains("stay nearby") || normalized.contains("comfortable stay") { return "sleep" }
         if normalized.contains("ride") { return "ride" }
         if normalized.contains("5 min") || normalized.contains("short walk") { return "close" }
-        if normalized.contains("10 min") { return "medium" }
-        if normalized.contains("open to explore") || normalized.contains("hidden gem") { return "far" }
+        if normalized.contains("10 min") || normalized.contains("across town") { return "medium" }
+        if normalized.contains("open to explore") || normalized.contains("hidden gem") || normalized.contains("somewhere new") { return "far" }
         if normalized.contains("closest") || normalized.contains("right nearby") { return "closest" }
         if normalized.contains("boutique") { return "boutique" }
         if normalized.contains("hotel") { return "hotel" }
         if normalized.contains("apartment") || normalized.contains("private suite") { return "apartment" }
         if normalized.contains("short stay") || normalized.contains("tonight only") { return "short_stay" }
         if normalized.contains("just me") || normalized.contains("solo") { return "solo" }
-        if normalized.contains("date") { return "date_night" }
+        if normalized.contains("date") || normalized.contains("two of us") { return "date_night" }
         if normalized.contains("group") { return "group" }
         if normalized.contains("price") || normalized.contains("value") { return "price" }
         if normalized.contains("rated") || normalized.contains("reviewed") { return "rated" }
-        if normalized.contains("safest") || normalized.contains("comfortable arrival") { return "safe" }
+        if normalized.contains("safest") || normalized.contains("comfortable arrival") || normalized.contains("most comfortable") { return "safe" }
         return normalized.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
     }
 }
@@ -1066,14 +1070,14 @@ private enum NativePersonalizationStep: Equatable {
         switch self {
         case .vibe:
             switch context {
-            case .day: return ["☕ A good coffee stop", "🍔 A proper meal", "💻 A quiet place to settle", "🚗 Easy arrival"]
+            case .day: return ["Coffee", "A real meal", "Somewhere quiet", "Easy parking"]
             case .evening: return NativeAuthLaunchContract.vibeOptions
-            case .lateNight: return ["🍸 Keep the night going", "🍔 Something good to eat", "🛏️ A comfortable stay", "🚕 A smooth ride home"]
+            case .lateNight: return ["Keep going", "Something to eat", "A place to stay", "A ride home"]
             }
         case .walk:
-            return Self.isSleepIntent(selectedIntent) ? ["🏨 Full-service hotel", "✨ Boutique stay", "🏢 Private suite", "⏱️ Tonight only"] : NativeAuthLaunchContract.walkOptions
+            return Self.isSleepIntent(selectedIntent) ? ["Full-service hotel", "Boutique stay", "Private suite", "Tonight only"] : NativeAuthLaunchContract.walkOptions
         case .crew:
-            return Self.isSleepIntent(selectedIntent) ? ["📍 Right nearby", "💸 Best value", "⭐ Best reviewed", "🔒 Most comfortable arrival"] : NativeAuthLaunchContract.crewOptions
+            return Self.isSleepIntent(selectedIntent) ? ["Right nearby", "Best value", "Best reviewed", "Most comfortable"] : NativeAuthLaunchContract.crewOptions
         }
     }
 
@@ -1111,7 +1115,7 @@ private struct NativePersonalizationScreen: View {
                 Text(question).font(.system(size: sizing.questionTitle, weight: .black, design: .rounded)).foregroundColor(.white).multilineTextAlignment(.center)
                 LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
                     ForEach(options, id: \.self) { option in
-                        Button(action: { nativeAuthImpactLight(); onSelect(option) }) { Text(option).font(.system(size: 17, weight: .black)).foregroundColor(.white).minimumScaleFactor(0.82).lineLimit(1).frame(maxWidth: .infinity).frame(minHeight: sizing.compactHeight ? 56 : 62).background(Color.white.opacity(0.075)).overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.primary.opacity(0.24), lineWidth: 2)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }
+                        Button(action: { nativeAuthImpactLight(); onSelect(option) }) { Text(option).font(.system(size: 17, weight: .black)).foregroundColor(.white).multilineTextAlignment(.center).minimumScaleFactor(0.7).lineLimit(2).fixedSize(horizontal: false, vertical: true).padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity).frame(minHeight: sizing.compactHeight ? 56 : 62).background(Color.white.opacity(0.075)).overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.primary.opacity(0.24), lineWidth: 2)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }
                             .buttonStyle(.plain)
                             .accessibilityLabel(option)
                             .accessibilityHint("Selects this answer and moves to the next launch step.")

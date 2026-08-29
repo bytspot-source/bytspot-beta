@@ -3384,6 +3384,34 @@ extension BytspotTrustEngineTests {
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🍸 A good drink"), "drinks")
         XCTAssertTrue(NativeVibeFocusCatalog.offeredIntentTokens.contains("drinks"))
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "👥 A group"), "group")
+
+        // The shortened, emoji-free labels must resolve to the same tokens the
+        // emoji ones did, or every preference saved before the rewording would
+        // read back as a different intent.
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "A group"), "group")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "Coffee"), "coffee")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "A real meal"), "food")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "Somewhere quiet"), "work")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "Easy parking"), "parking")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "Two of us"), "date_night")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "A place to stay"), "sleep")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "Keep going"), "drinks")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "Dinner"), "food")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "A good drink"), "drinks")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "Something happening"), "events")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "Date night"), "date_night")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "Just me"), "solo")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "Work"), "work")
+
+        // Distance answers must stay on the distance axis. "Easy arrival" used
+        // to sit in this question and resolved to parking, so the answer was
+        // stored as a category and the distance was lost.
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "Right nearby"), "closest")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "Across town"), "medium")
+        XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "Somewhere new"), "far")
+        for option in NativeAuthLaunchContract.walkOptions {
+            XCTAssertNotEqual(NativeLaunchPersonalizationStorage.token(for: option), "parking")
+        }
         XCTAssertTrue(NativeVibeFocusCatalog.offeredCrewTokens.contains("group"))
     }
 }

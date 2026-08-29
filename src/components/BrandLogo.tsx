@@ -92,28 +92,28 @@ export function BrandLogo({ size = 120, animated = false, showGlow = false }: Br
           {/* Outer ring gradient - Cyan to Purple */}
           <linearGradient id="gradient-outer-ring" x1="12" y1="12" x2="108" y2="108">
             <stop offset="0%" stopColor="#00BFFF" />
-            <stop offset="50%" stopColor="#A855F7" />
+            <stop offset="50%" stopColor="#00BFFF" />
             <stop offset="100%" stopColor="#00BFFF" />
           </linearGradient>
           
           {/* Middle ring gradient */}
           <linearGradient id="gradient-middle" x1="22" y1="22" x2="98" y2="98">
             <stop offset="0%" stopColor="#A855F7" />
-            <stop offset="100%" stopColor="#D946EF" />
+            <stop offset="100%" stopColor="#A855F7" />
           </linearGradient>
           
           {/* Hexagon fill gradient - Purple to Magenta */}
           <linearGradient id="gradient-hexagon" x1="46" y1="32" x2="74" y2="68">
             <stop offset="0%" stopColor="#A855F7" />
-            <stop offset="50%" stopColor="#D946EF" />
-            <stop offset="100%" stopColor="#FF00FF" />
+            <stop offset="50%" stopColor="#A855F7" />
+            <stop offset="100%" stopColor="#A855F7" />
           </linearGradient>
           
           {/* Hexagon border gradient */}
           <linearGradient id="gradient-hex-border" x1="46" y1="32" x2="74" y2="68">
-            <stop offset="0%" stopColor="#00BFFF" />
-            <stop offset="50%" stopColor="#FF00FF" />
-            <stop offset="100%" stopColor="#00BFFF" />
+            <stop offset="0%" stopColor="#20A9FB" />
+            <stop offset="50%" stopColor="#20A9FB" />
+            <stop offset="100%" stopColor="#20A9FB" />
           </linearGradient>
           
           {/* Center dot gradient - Cyan */}

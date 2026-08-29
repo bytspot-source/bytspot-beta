@@ -20,10 +20,10 @@ function PrintLogo({ size = 64 }: { size?: number }) {
       <circle cx="60" cy="50" r="8" fill="url(#pl-dot)" />
       <circle cx="60" cy="50" r="12" fill="url(#pl-glow)" opacity="0.3" />
       <defs>
-        <linearGradient id="pl-outer" x1="12" y1="12" x2="108" y2="108"><stop offset="0%" stopColor="#00BFFF" /><stop offset="50%" stopColor="#A855F7" /><stop offset="100%" stopColor="#00BFFF" /></linearGradient>
-        <linearGradient id="pl-mid" x1="22" y1="22" x2="98" y2="98"><stop offset="0%" stopColor="#A855F7" /><stop offset="100%" stopColor="#D946EF" /></linearGradient>
-        <linearGradient id="pl-hex" x1="46" y1="32" x2="74" y2="68"><stop offset="0%" stopColor="#A855F7" /><stop offset="50%" stopColor="#D946EF" /><stop offset="100%" stopColor="#FF00FF" /></linearGradient>
-        <linearGradient id="pl-hexb" x1="46" y1="32" x2="74" y2="68"><stop offset="0%" stopColor="#00BFFF" /><stop offset="50%" stopColor="#FF00FF" /><stop offset="100%" stopColor="#00BFFF" /></linearGradient>
+        <linearGradient id="pl-outer" x1="12" y1="12" x2="108" y2="108"><stop offset="0%" stopColor="#00BFFF" /><stop offset="50%" stopColor="#00BFFF" /><stop offset="100%" stopColor="#00BFFF" /></linearGradient>
+        <linearGradient id="pl-mid" x1="22" y1="22" x2="98" y2="98"><stop offset="0%" stopColor="#A855F7" /><stop offset="100%" stopColor="#A855F7" /></linearGradient>
+        <linearGradient id="pl-hex" x1="46" y1="32" x2="74" y2="68"><stop offset="0%" stopColor="#A855F7" /><stop offset="50%" stopColor="#A855F7" /><stop offset="100%" stopColor="#A855F7" /></linearGradient>
+        <linearGradient id="pl-hexb" x1="46" y1="32" x2="74" y2="68"><stop offset="0%" stopColor="#20A9FB" /><stop offset="50%" stopColor="#20A9FB" /><stop offset="100%" stopColor="#20A9FB" /></linearGradient>
         <radialGradient id="pl-dot"><stop offset="0%" stopColor="#00BFFF" /><stop offset="100%" stopColor="#0099CC" /></radialGradient>
         <radialGradient id="pl-glow"><stop offset="0%" stopColor="#00BFFF" /><stop offset="100%" stopColor="transparent" /></radialGradient>
       </defs>

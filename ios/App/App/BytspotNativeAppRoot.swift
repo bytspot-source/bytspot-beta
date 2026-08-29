@@ -458,6 +458,7 @@ private enum NativeLaunchTheme {
     static let purple = Color(red: 168 / 255, green: 85 / 255, blue: 247 / 255)
     static let pink = Color(red: 217 / 255, green: 70 / 255, blue: 239 / 255)
     static let magenta = Color(red: 1, green: 0, blue: 1)
+    static let azure = Color(red: 32 / 255, green: 169 / 255, blue: 251 / 255)
     static let orange = Color(red: 1, green: 69 / 255, blue: 0)
     static let emerald = Color(red: 16 / 255, green: 185 / 255, blue: 129 / 255)
     static let red400 = Color(red: 248 / 255, green: 113 / 255, blue: 113 / 255)
@@ -992,20 +993,16 @@ private struct NativeBytspotMark: View {
     let size: CGFloat
     var showGlow: Bool = false
     private var outerRingGradient: LinearGradient {
-        LinearGradient(colors: [NativeLaunchTheme.cyan, NativeLaunchTheme.purple, NativeLaunchTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(colors: [NativeLaunchTheme.cyan, NativeLaunchTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
     private var middleRingGradient: LinearGradient {
-        LinearGradient(colors: [NativeLaunchTheme.purple, NativeLaunchTheme.pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(colors: [NativeLaunchTheme.purple, NativeLaunchTheme.purple], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
     private var hexFillGradient: LinearGradient {
-        LinearGradient(stops: [
-            .init(color: NativeLaunchTheme.purple, location: 0.0),
-            .init(color: NativeLaunchTheme.pink, location: 0.5),
-            .init(color: NativeLaunchTheme.magenta, location: 1.0)
-        ], startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(colors: [NativeLaunchTheme.purple, NativeLaunchTheme.purple], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
     private var hexBorderGradient: LinearGradient {
-        LinearGradient(colors: [NativeLaunchTheme.cyan, NativeLaunchTheme.magenta, NativeLaunchTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(colors: [NativeLaunchTheme.azure, NativeLaunchTheme.azure], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
     private var centerDotGradient: RadialGradient {
         RadialGradient(colors: [NativeLaunchTheme.cyan, Color(red: 0, green: 153 / 255, blue: 204 / 255)], center: .center, startRadius: 0, endRadius: size * 0.0665)
@@ -1014,7 +1011,11 @@ private struct NativeBytspotMark: View {
         RadialGradient(colors: [NativeLaunchTheme.cyan.opacity(0.30), Color.clear], center: .center, startRadius: 0, endRadius: size * 0.10)
     }
     var body: some View {
-        // Drawn natively to match BrandLogo.tsx geometry (120pt viewBox): the
+        // Drawn natively to match BrandLogo.tsx (120pt viewBox). Flat rings and
+        // a flat gem, as measured off the app icon: no purple midpoint in the
+        // cyan ring, no magenta in the gem. The gem is 28x36 and rides 10 units
+        // above the rings' centre, with the dot and glow at the gem's centre.
+        // Previously: the
         // gem is 28x36 and rides 10 units above the rings' centre, with the dot
         // and glow at the gem's own centre.
         // Asset-catalog SVG rendering drops gradient fills in Release builds,

@@ -34,6 +34,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # The mark is drawn on nine surfaces across two repos and three of this
+      # repo's four had silently fallen a revision behind the favicon.
+      - name: Brand mark geometry
+        run: npm run assert:brand-mark
+
       - name: Unit tests
         run: npm run test:unit
 

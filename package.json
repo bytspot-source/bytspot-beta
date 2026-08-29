@@ -87,6 +87,7 @@
             "postinstall": "node scripts/patch-capacitor-apple-sign-in-spm.mjs",
             "build": "vite build",
             "build:app-store": "vite build --mode app-store && node scripts/assert-app-store-purity.mjs",
+            "assert:brand-mark": "node scripts/assert-brand-mark-geometry.mjs",
             "assert:ios-native-root": "node scripts/assert-ios-native-root.mjs",
             "assert:ios-app-clip-packaging": "node scripts/assert-ios-app-clip-packaging.mjs",
             "gen:native-trust-contract": "node scripts/native-trust-contract.mjs",

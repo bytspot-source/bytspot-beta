@@ -15,10 +15,10 @@ function PrintLogo({ size = 64 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
       <circle cx="60" cy="60" r="48" stroke="url(#pl-outer)" strokeWidth="3" fill="none" />
       <circle cx="60" cy="60" r="38" stroke="url(#pl-mid)" strokeWidth="2" fill="none" opacity="0.4" />
-      <path d="M60 32 L74 41 L74 59 L60 68 L46 59 L46 41 Z" fill="url(#pl-hex)" opacity="0.95" />
-      <path d="M60 32 L74 41 L74 59 L60 68 L46 59 L46 41 Z" stroke="url(#pl-hexb)" strokeWidth="1.5" fill="none" opacity="0.8" />
-      <circle cx="60" cy="50" r="8" fill="url(#pl-dot)" />
-      <circle cx="60" cy="50" r="12" fill="url(#pl-glow)" opacity="0.3" />
+      <path d="M60 30 L86 45 L86 75 L60 90 L34 75 L34 45 Z" fill="url(#pl-hex)" opacity="0.95" />
+      <path d="M60 30 L86 45 L86 75 L60 90 L34 75 L34 45 Z" stroke="url(#pl-hexb)" strokeWidth="1.5" fill="none" opacity="0.8" />
+      <circle cx="60" cy="60" r="8" fill="url(#pl-dot)" />
+      <circle cx="60" cy="60" r="12" fill="url(#pl-glow)" opacity="0.3" />
       <defs>
         <linearGradient id="pl-outer" x1="12" y1="12" x2="108" y2="108"><stop offset="0%" stopColor="#00BFFF" /><stop offset="50%" stopColor="#A855F7" /><stop offset="100%" stopColor="#00BFFF" /></linearGradient>
         <linearGradient id="pl-mid" x1="22" y1="22" x2="98" y2="98"><stop offset="0%" stopColor="#A855F7" /><stop offset="100%" stopColor="#D946EF" /></linearGradient>

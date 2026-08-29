@@ -1009,7 +1009,9 @@ private struct NativeBytspotMark: View {
         RadialGradient(colors: [NativeLaunchTheme.cyan.opacity(0.30), Color.clear], center: .center, startRadius: 0, endRadius: size * 0.10)
     }
     var body: some View {
-        // Drawn natively to match BytspotBrandMark.svg geometry (120pt viewBox).
+        // Drawn natively to match public/favicon.svg geometry (120pt viewBox),
+        // which carries the refined mark: the gem is 52x60 and concentric with
+        // the rings, not 28x36 sitting 10 units above centre.
         // Asset-catalog SVG rendering drops gradient fills in Release builds,
         // so the mark must not depend on the catalog image.
         ZStack {
@@ -1019,16 +1021,13 @@ private struct NativeBytspotMark: View {
                 .frame(width: size * (76.0 / 120.0), height: size * (76.0 / 120.0))
                 .opacity(0.4)
             Hexagon().fill(hexFillGradient)
-                .frame(width: size * (28.0 / 120.0), height: size * (36.0 / 120.0))
+                .frame(width: size * (52.0 / 120.0), height: size * (60.0 / 120.0))
                 .opacity(0.95)
                 .overlay(Hexagon().stroke(hexBorderGradient, lineWidth: size * (1.5 / 120.0)).opacity(0.8))
-                .offset(y: -size * (10.0 / 120.0))
             Circle().fill(centerGlowGradient)
                 .frame(width: size * (24.0 / 120.0), height: size * (24.0 / 120.0))
-                .offset(y: -size * (10.0 / 120.0))
             Circle().fill(centerDotGradient)
                 .frame(width: size * (16.0 / 120.0), height: size * (16.0 / 120.0))
-                .offset(y: -size * (10.0 / 120.0))
         }
         .frame(width: size, height: size)
         .shadow(color: showGlow ? NativeLaunchTheme.cyan.opacity(0.40) : .clear, radius: showGlow ? size * 0.10 : 0)
@@ -1039,7 +1038,7 @@ private struct NativeBytspotMark: View {
 
 private struct Hexagon: Shape {
     func path(in rect: CGRect) -> Path {
-        // Matches BrandLogo.tsx path: M60 32 L74 41 L74 59 L60 68 L46 59 L46 41 Z
+        // Matches BrandLogo.tsx path: M60 30 L86 45 L86 75 L60 90 L34 75 L34 45 Z
         // Vertical-sided hexagon with vertices at (0.5w,0), (w,0.25h), (w,0.75h), (0.5w,h), (0,0.75h), (0,0.25h)
         let w = rect.width, h = rect.height
         let q = h * 0.25

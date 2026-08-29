@@ -88,7 +88,6 @@ struct NativeHostStudioView: View {
     private enum Step: Int, CaseIterable { case spark, build, door, invite }
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     let circles: [NativeSocialCircle]
     let membershipTier: BytspotTier
@@ -107,9 +106,6 @@ struct NativeHostStudioView: View {
     @State private var accessMode: NativePartyAccessMode = .privateApproval
     @State private var requiredTier: BytspotTier = .green
     @State private var ticketPrice = "25"
-    @State private var payoutStatus: NativeHostPayoutStatus?
-    @State private var isOpeningPayoutOnboarding = false
-    @State private var payoutMessage = ""
     @State private var selectedCircleIDs: Set<String> = []
     @State private var teammateEmail = ""
     @State private var teammateRole: NativePartyHostRole = .cohost
@@ -647,10 +643,7 @@ struct NativeHostStudioView: View {
                     .padding(12).studioSurface()
                     .accessibilityIdentifier("native-host-studio-door-auto-set")
             }
-            if accessMode == .paidTicket {
-                field("First Drop price", text: $ticketPrice, icon: "dollarsign.circle.fill", prompt: "25", keyboard: .decimalPad)
-                payoutStatusCard
-            }
+            if accessMode == .paidTicket { field("First Drop price", text: $ticketPrice, icon: "dollarsign.circle.fill", prompt: "25", keyboard: .decimalPad) }
             field("Capacity", text: $capacity, icon: "person.3.fill", prompt: "\(NativeHostTaxonomySelection.recommendedCapacity)", keyboard: .numberPad)
             VStack(alignment: .leading, spacing: 9) {
                 Text("MINIMUM MEMBERSHIP").studioLabel()
@@ -658,92 +651,6 @@ struct NativeHostStudioView: View {
                     ForEach([BytspotTier.green, .platinum, .black], id: \.rawValue) { tier in tierOptionCard(tier) }
                 }
             }.padding(14).studioSurface()
-        }
-    }
-
-    /// Shown wherever a host prices a ticket, because payout setup is the one
-    /// thing that will block publishing and the only one they can fix
-    /// themselves. Silent until the status is known: guessing "not set up"
-    /// would nag a host who is already done.
-    @ViewBuilder private var payoutStatusCard: some View {
-        if let payouts = payoutStatus {
-            VStack(alignment: .leading, spacing: 9) {
-                HStack(spacing: 10) {
-                    Image(systemName: payouts.ready ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                        .foregroundColor(payouts.ready ? NativeTheme.emerald : NativeTheme.cyan)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(payouts.headline).font(.system(size: 13, weight: .black))
-                        Text(payouts.detail).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.55))
-                    }
-                    Spacer(minLength: 0)
-                }
-                if !payouts.ready {
-                    Button {
-                        startPayoutOnboarding()
-                    } label: {
-                        HStack(spacing: 6) {
-                            if isOpeningPayoutOnboarding { ProgressView().controlSize(.mini).tint(.black) }
-                            Text(isOpeningPayoutOnboarding ? "Opening Stripe…" : payouts.actionTitle)
-                                .font(.system(size: 12, weight: .black))
-                        }
-                        .frame(maxWidth: .infinity).padding(.vertical, 10)
-                        .background(NativeTheme.emerald).foregroundColor(.black).clipShape(Capsule())
-                    }
-                    .disabled(isOpeningPayoutOnboarding)
-                    .accessibilityIdentifier("native-host-studio-payout-action")
-                }
-                if !payoutMessage.isEmpty {
-                    Text(payoutMessage).font(.system(size: 10.5, weight: .bold)).foregroundColor(NativeTheme.cyan)
-                }
-            }
-            .padding(14).studioSurface()
-            .accessibilityIdentifier("native-host-studio-payout-status")
-            // A host completes Stripe in Safari and comes back, so the status
-            // has to be re-read on return rather than staying stale until the
-            // publish attempt fails.
-            .onChange(of: scenePhase) { phase in
-                guard phase == .active, payoutStatus?.ready == false else { return }
-                Task { await refreshPayoutStatus() }
-            }
-        } else {
-            Color.clear.frame(height: 0).task { await loadPayoutStatus() }
-        }
-    }
-
-    @MainActor private func loadPayoutStatus() async {
-        guard accessMode == .paidTicket, let api = payoutAPI() else { return }
-        payoutStatus = try? await api.payoutStatus()
-    }
-
-    /// Pulls Stripe's verdict rather than the mirror, which is what a host who
-    /// just finished onboarding is waiting on. Keeps the last known status on
-    /// failure: a dropped connection is not evidence that setup came undone.
-    @MainActor private func refreshPayoutStatus() async {
-        guard let api = payoutAPI() else { return }
-        payoutStatus = (try? await api.refreshPayoutStatus()) ?? payoutStatus
-    }
-
-    private func payoutAPI() -> NativePartyStudioAPI? {
-        guard sessionStore.isAuthenticated, sessionStore.canAttachBearerToken, let token = sessionStore.token else { return nil }
-        return NativePartyStudioAPI(client: BytspotAPIClient(tokenProvider: { token }))
-    }
-
-    /// Stripe's hosted onboarding runs in Safari, not in a web view: it asks
-    /// for identity documents and bank details, and those belong in the
-    /// browser's own trusted surface rather than one Bytspot could observe.
-    private func startPayoutOnboarding() {
-        guard !isOpeningPayoutOnboarding else { return }
-        isOpeningPayoutOnboarding = true
-        payoutMessage = ""
-        Task { @MainActor in
-            defer { isOpeningPayoutOnboarding = false }
-            do {
-                guard let api = payoutAPI() else { payoutMessage = "Sign in before setting up payouts."; return }
-                let url = try await api.startPayoutOnboarding()
-                _ = await UIApplication.shared.open(url)
-            } catch {
-                payoutMessage = "Stripe could not be reached. Try again in a moment."
-            }
         }
     }
 
@@ -865,15 +772,6 @@ struct NativeHostStudioView: View {
         catch is CancellationError { if publishPresentation.message.isEmpty { publishPresentation.message = NativePartyStudioError.sessionChanged.localizedDescription } }
         catch {
             Self.recordPublishFailure(error, stage: publishStage)
-            // A payout block is the host's to clear, so send them back to the
-            // door step where the setup button lives instead of leaving them on
-            // a message they cannot act on.
-            if NativePartyStudioError.payoutSetupRequired(for: error) {
-                await refreshPayoutStatus()
-                step = .door
-                publishPresentation.message = "This party sells tickets, so payouts have to be set up first."
-                return
-            }
             publishPresentation.message = NativePartyStudioError.publishUserMessage(for: error)
         }
     }

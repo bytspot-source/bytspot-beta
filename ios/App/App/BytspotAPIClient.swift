@@ -777,7 +777,7 @@ struct NativePublishedParty: Equatable, Identifiable {
 }
 
 enum NativePartyStudioError: LocalizedError, Equatable {
-    case validation(String), missingDraft, missingPartyMedia, missingPartyPass, sessionChanged, missingPayoutOnboardingLink
+    case validation(String), missingDraft, missingPartyMedia, missingPartyPass, sessionChanged
     var errorDescription: String? {
         switch self {
         case .validation(let message): return message
@@ -785,16 +785,7 @@ enum NativePartyStudioError: LocalizedError, Equatable {
         case .missingPartyMedia: return "The party media upload was not returned."
         case .missingPartyPass: return "The Party Pass was not returned."
         case .sessionChanged: return "Your session changed. Reopen Host Studio to continue."
-        case .missingPayoutOnboardingLink: return "Stripe did not return a payout setup link."
         }
-    }
-
-    /// A paid party blocked on payout setup is the one publish failure a host
-    /// can fix themselves, so it is recognised rather than folded into the
-    /// generic "could not publish" copy.
-    static func payoutSetupRequired(for error: Error) -> Bool {
-        guard case let BytspotAPIClient.APIError.server(status, body) = error, status == 412 else { return false }
-        return body.contains("payouts before publishing") || body.contains("payout status could not be verified")
     }
 
     static func publishUserMessage(for error: Error) -> String {
@@ -815,47 +806,6 @@ enum NativePartyStudioError: LocalizedError, Equatable {
         }
         return (error as? LocalizedError)?.errorDescription ?? "The party could not be published."
     }
-}
-
-/// A host's payout state as Stripe last reported it. `connected` without
-/// `ready` is the common case: onboarding was started but Stripe still wants
-/// something, which is a different sentence to a host than never having begun.
-struct NativeHostPayoutStatus: Equatable {
-    var connected = false
-    var chargesEnabled = false
-    var payoutsEnabled = false
-    var ready = false
-    var payoutDelayDays = 0
-
-    init(connected: Bool = false, chargesEnabled: Bool = false, payoutsEnabled: Bool = false, ready: Bool = false, payoutDelayDays: Int = 0) {
-        self.connected = connected
-        self.chargesEnabled = chargesEnabled
-        self.payoutsEnabled = payoutsEnabled
-        self.ready = ready
-        self.payoutDelayDays = payoutDelayDays
-    }
-
-    init(from row: [String: Any]) {
-        connected = row["connected"] as? Bool ?? false
-        chargesEnabled = row["chargesEnabled"] as? Bool ?? false
-        payoutsEnabled = row["payoutsEnabled"] as? Bool ?? false
-        ready = row["ready"] as? Bool ?? false
-        payoutDelayDays = row["payoutDelayDays"] as? Int ?? 0
-    }
-
-    var headline: String {
-        if ready { return "Payouts ready" }
-        return connected ? "Payout setup unfinished" : "Payouts not set up"
-    }
-
-    var detail: String {
-        if ready { return payoutDelayDays > 0 ? "Ticket money reaches your bank about \(payoutDelayDays) days after the party." : "Ticket money is on its way to your bank." }
-        return connected
-            ? "Stripe still needs a few details before this party can sell tickets."
-            : "Paid parties need a Stripe account so ticket money reaches your bank."
-    }
-
-    var actionTitle: String { connected ? "Finish payout setup" : "Set up payouts" }
 }
 
 struct NativePartyStudioAPI {
@@ -896,24 +846,6 @@ struct NativePartyStudioAPI {
     func saveHostIdentity(_ identity: NativeHostIdentity) async throws {
         if let message = identity.validationMessage { throw NativePartyStudioError.validation(message) }
         _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.hostDestinationsSaveRoute, method: "POST", input: identity.rpcInput)
-    }
-
-    func payoutStatus() async throws -> NativeHostPayoutStatus {
-        NativeHostPayoutStatus(from: Self.objectRow(try await client.trpcPayload(path: NativeLiveContentV2Contract.hostPayoutsStatusRoute)))
-    }
-
-    /// Stripe's account links are short-lived, so a host who abandons the flow
-    /// gets a new link from the same call rather than a second account.
-    func startPayoutOnboarding() async throws -> URL {
-        let payload = try await client.trpcPayload(path: NativeLiveContentV2Contract.hostPayoutsOnboardingRoute, method: "POST", input: ["returnPath": "/host/payouts"])
-        guard let raw = Self.clean(Self.objectRow(payload)["url"]), let url = URL(string: raw), url.scheme?.lowercased() == "https" else {
-            throw NativePartyStudioError.missingPayoutOnboardingLink
-        }
-        return url
-    }
-
-    func refreshPayoutStatus() async throws -> NativeHostPayoutStatus {
-        NativeHostPayoutStatus(from: Self.objectRow(try await client.trpcPayload(path: NativeLiveContentV2Contract.hostPayoutsRefreshRoute, method: "POST", input: [:])))
     }
 
     static func draftCreateInput(_ draft: NativePartyDraftInput, idempotencyKey: String) -> [String: Any] {
@@ -1559,9 +1491,6 @@ enum NativeLiveContentV2Contract {
     static let partyRoleAssignRoute = "/trpc/events.roles.assign"
     static let partyAudienceAttachRoute = "/trpc/events.audiences.attach"
     static let partyControlHostedRoute = "/trpc/events.control.hosted"
-    static let hostPayoutsStatusRoute = "/trpc/events.payouts.status"
-    static let hostPayoutsOnboardingRoute = "/trpc/events.payouts.startOnboarding"
-    static let hostPayoutsRefreshRoute = "/trpc/events.payouts.refresh"
     static let ticketmasterProvider = "ticketmaster"
     static let placesTextSearchRoute = "/trpc/places.textSearch"
     static let placesNearbySearchRoute = "/trpc/places.nearbySearch"

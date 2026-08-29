@@ -145,22 +145,9 @@ enum NativeAuthSplashSelfTests {
         precondition(NativeAuthLaunchContract.vibeOptions == ["Dinner", "A good drink", "Something happening", "Date night"], "NativeAuthSplashSelfTests: vibe options drifted.")
         precondition(NativeAuthLaunchContract.walkOptions == ["Right nearby", "A short walk", "Across town", "Somewhere new"], "NativeAuthSplashSelfTests: walk options drifted.")
         precondition(NativeAuthLaunchContract.crewOptions == ["Just me", "Two of us", "A group", "Work"], "NativeAuthSplashSelfTests: crew options drifted.")
-        // Every offered answer is pinned to the intent it must store. The label
-        // is the storage key -- token(for:) matches substrings of the visible
-        // text -- so a copy edit silently rewrites what the answer means.
-        // Checked as an explicit mapping rather than by detecting fallthrough:
-        // a label can legitimately equal its own token ("Work" -> "work"), so
-        // fallthrough is not observable by comparing the two.
-        let pinnedAnswerIntents: [(String, String)] = [
-            ("Dinner", "food"), ("A good drink", "drinks"), ("Something happening", "events"), ("Date night", "date_night"),
-            ("Right nearby", "closest"), ("A short walk", "close"), ("Across town", "medium"), ("Somewhere new", "far"),
-            ("Just me", "solo"), ("Two of us", "date_night"), ("A group", "group"), ("Work", "work"),
-        ]
-        precondition(pinnedAnswerIntents.map(\.0) == NativeAuthLaunchContract.vibeOptions + NativeAuthLaunchContract.walkOptions + NativeAuthLaunchContract.crewOptions, "NativeAuthSplashSelfTests: an offered answer is missing a pinned intent.")
-        precondition(pinnedAnswerIntents.allSatisfy { NativeLaunchPersonalizationStorage.token(for: $0.0) == $0.1 }, "NativeAuthSplashSelfTests: an offered answer resolved to the wrong intent.")
-        // The distance question must never offer an arrival answer: the resolver
-        // reads "arrival" as parking, so the distance would be silently lost.
-        precondition(NativeAuthLaunchContract.walkOptions.allSatisfy { NativeLaunchPersonalizationStorage.token(for: $0) != "parking" }, "NativeAuthSplashSelfTests: a distance option resolved to a parking intent.")
+        // Intent resolution for every offered answer, including the day,
+        // late-night and sleep variants this file cannot see, is pinned in
+        // NativeLaunchQuizIntentSelfTests.
         precondition(NativeLaunchLocationContract.benefits.count == 3, "NativeAuthSplashSelfTests: location value screen must explain the user benefit before prompting.")
         precondition(NativeLaunchRecommendationPresentation.capabilityTitles == ["Discover with context", "Simplify your arrival", "Keep everything together"], "NativeAuthSplashSelfTests: empty recommendations must hand off to a complete product preview.")
         let legacyVariants = [" ladybird grove and mess hall ", "LIVINGSTON", "Lyla   Lila"]

@@ -131,6 +131,7 @@ struct BytspotNativeAppRoot: View {
         if NativeMigrationConfig.shouldRunDebugSelfTests {
             NativeAuthSeamSelfTests.runIfRequested()
             NativeAuthSplashSelfTests.runIfRequested()
+            NativeLaunchQuizIntentSelfTests.runIfRequested()
             NativeJourneyThemeSelfTests.runIfRequested()
             NativePatchRouteSelfTests.runIfRequested()
             NativePatchBookingSelfTests.runIfRequested()
@@ -671,6 +672,50 @@ private struct NativeLaunchSizing {
 }
 
 #if DEBUG
+enum NativeLaunchQuizIntentSelfTests {
+    /// Every answer the quiz can offer must resolve to an intent, across all
+    /// three steps, all three times of day, and the sleep variants. The visible
+    /// label is the storage key -- token(for:) matches substrings of it -- so a
+    /// copy edit silently rewrites what an answer means, and an answer that
+    /// resolves to nothing stores a token no consumer reads.
+    ///
+    /// Pinned as an explicit table rather than by detecting fallthrough: a label
+    /// can legitimately equal its own token ("Work" -> "work"), so fallthrough is
+    /// not observable by comparing the token against the filtered label.
+    static let pinnedIntents: [String: String] = [
+        "Dinner": "food", "A good drink": "drinks", "Something happening": "events", "Date night": "date_night",
+        "Coffee": "coffee", "A real meal": "food", "Somewhere quiet": "work", "Easy parking": "parking",
+        "Keep going": "drinks", "Something to eat": "food", "A place to stay": "sleep", "A ride home": "ride",
+        "Right nearby": "closest", "A short walk": "close", "Across town": "medium", "Somewhere new": "far",
+        "Just me": "solo", "Two of us": "date_night", "A group": "group", "Work": "work",
+        "Full-service hotel": "hotel", "Boutique stay": "boutique", "Private suite": "apartment", "Tonight only": "short_stay",
+        "Best value": "price", "Best reviewed": "rated", "Most comfortable": "safe",
+    ]
+
+    static func runIfRequested() {
+        guard NativeMigrationConfig.isNativeRootEnabled else { return }
+        var offered: Set<String> = []
+        for step in [NativePersonalizationStep.vibe, .walk, .crew] {
+            for context in [NativeLaunchQuizContext.day, .evening, .lateNight] {
+                for intent in ["", "sleep"] {
+                    offered.formUnion(step.options(context: context, selectedIntent: intent))
+                }
+            }
+        }
+        for option in offered {
+            guard let expected = pinnedIntents[option] else {
+                preconditionFailure("NativeLaunchQuizIntentSelfTests: offered answer \"\(option)\" has no pinned intent.")
+            }
+            precondition(NativeLaunchPersonalizationStorage.token(for: option) == expected, "NativeLaunchQuizIntentSelfTests: offered answer \"\(option)\" resolved to \(NativeLaunchPersonalizationStorage.token(for: option)) instead of \(expected).")
+        }
+        // The distance step must never offer an arrival answer: the resolver
+        // reads "arrival" as parking, so the distance would be silently lost.
+        for context in [NativeLaunchQuizContext.day, .evening, .lateNight] {
+            precondition(NativePersonalizationStep.walk.options(context: context, selectedIntent: "").allSatisfy { NativeLaunchPersonalizationStorage.token(for: $0) != "parking" }, "NativeLaunchQuizIntentSelfTests: a distance option resolved to a parking intent.")
+        }
+    }
+}
+
 enum NativeJourneyThemeSelfTests {
     static func runIfRequested() {
         guard NativeMigrationConfig.isNativeRootEnabled else { return }

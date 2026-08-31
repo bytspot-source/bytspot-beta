@@ -2116,6 +2116,11 @@ final class NativeProfileDataAPITests: XCTestCase {
         """.utf8))
         XCTAssertNil(open.closedAt)
 
+        let omitted = try JSONDecoder().decode(NativePartyControlSummary.self, from: Data("""
+        {"partyId":"party-1","title":"First Listen","admissionPaused":false,"capacity":80,"confirmed":1,"spacesRemaining":79,"pending":0,"checkedIn":0}
+        """.utf8))
+        XCTAssertNil(omitted.closedAt)
+
         let shut = try JSONDecoder().decode(NativePartyControlSummary.self, from: Data("""
         {"partyId":"party-1","title":"First Listen","admissionPaused":false,"capacity":80,"confirmed":1,"spacesRemaining":79,"pending":0,"checkedIn":0,"closedAt":"2026-08-17T06:00:00.000Z"}
         """.utf8))

@@ -3629,6 +3629,11 @@ private struct NativeNetworkHubView: View {
         .sheet(item: $hostedControlTarget) { target in
             NativePartyControlView(partyID: target.id).environmentObject(sessionStore)
         }
+        .onChange(of: hostedControlTarget) { target in
+            if target == nil, sessionStore.isAuthenticated {
+                Task { await refreshRoomsAfterControl() }
+            }
+        }
         .onChange(of: showHostStudio) { isOpen in
             if !isOpen, sessionStore.isAuthenticated {
                 Task { await refreshHostedRooms() }
@@ -3658,7 +3663,7 @@ private struct NativeNetworkHubView: View {
         .accessibilityIdentifier("native-host-studio-launch")
     }
 
-    private struct HostedControlTarget: Identifiable {
+    private struct HostedControlTarget: Identifiable, Equatable {
         let id: String
     }
 
@@ -4129,7 +4134,7 @@ private struct NativeNetworkHubView: View {
 
     private func refreshNetwork() async {
         dismissedContactIDs = NativeNetworkDismissedContacts.load(userID: sessionStore.authenticatedUserID)
-        guard sessionStore.isAuthenticated else { circleSnapshot = .empty; invitations = []; peopleMetPartyID = nil; peopleMetOptedIn = false; peopleMetPeople = []; hostedParties = []; return }
+        guard sessionStore.isAuthenticated else { circleSnapshot = .empty; invitations = []; peopleMetPartyID = nil; peopleMetOptedIn = false; peopleMetPeople = []; hostedParties = []; closedParties = []; showingClosedRooms = false; roomStatusMessage = ""; return }
         await contactSyncStore.refresh(sessionStore: sessionStore)
         circleSnapshot = await api.listSocialCirclesViaRpc()
         invitations = (try? await api.listSocialInvitationsViaRpc()) ?? []
@@ -4138,11 +4143,23 @@ private struct NativeNetworkHubView: View {
     }
 
     private func refreshHostedRooms() async {
-        guard sessionStore.isAuthenticated, let token = sessionStore.token else { hostedParties = []; return }
+        guard sessionStore.isAuthenticated, let token = sessionStore.token else { hostedParties = []; closedParties = []; return }
         do {
             hostedParties = try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).hosted()
         } catch {
             hostedParties = hostedParties
+        }
+    }
+
+    /// After Party Control dismisses, YOUR ROOMS must drop a just-closed room
+    /// and CLOSED ROOMS must drop a just-reopened one. If the disclosure is
+    /// open, refetch; otherwise empty the cache so the next open is fresh.
+    private func refreshRoomsAfterControl() async {
+        await refreshHostedRooms()
+        if showingClosedRooms {
+            await loadClosedRooms()
+        } else {
+            closedParties = []
         }
     }
 

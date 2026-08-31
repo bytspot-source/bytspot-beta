@@ -280,24 +280,26 @@ struct NativePartyControlView: View {
     /// Closing is not deleting: the guest list and payment records stay, the
     /// room simply leaves the host console and stops taking new arrivals.
     @ViewBuilder private var closeRoomControl: some View {
-        if summary?.closedAt == nil {
-            Button("Close Room") { closeConfirmation = true }
-                .controlButton(color: NativeTheme.orange)
-                .accessibilityIdentifier("native-party-control-close-room")
-                .confirmationDialog("Close this room?", isPresented: $closeConfirmation, titleVisibility: .visible) {
-                    Button("Close Room", role: .destructive) { Task { await setClosed(true) } }
-                    Button("Keep it open", role: .cancel) {}
-                } message: {
-                    Text("The room leaves YOUR ROOMS and the share link stops admitting new guests. Nothing is deleted — your guest list, passes, and payments stay, and you can reopen it.")
+        if let summary {
+            if summary.closedAt == nil {
+                Button("Close Room") { closeConfirmation = true }
+                    .controlButton(color: NativeTheme.orange)
+                    .accessibilityIdentifier("native-party-control-close-room")
+                    .confirmationDialog("Close this room?", isPresented: $closeConfirmation, titleVisibility: .visible) {
+                        Button("Close Room", role: .destructive) { Task { await setClosed(true) } }
+                        Button("Keep it open", role: .cancel) {}
+                    } message: {
+                        Text("The room leaves YOUR ROOMS and the share link stops admitting new guests. Nothing is deleted — your guest list, passes, and payments stay, and you can reopen it.")
+                    }
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("ROOM CLOSED").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundColor(NativeTheme.orange)
+                    Button("Reopen Room") { Task { await setClosed(false) } }
+                        .controlButton(color: NativeTheme.cyan)
+                        .accessibilityIdentifier("native-party-control-reopen-room")
+                    Text("Reopening puts the room back on your console. The share link returns to its default — extend it from LINK EXPIRY if you want new arrivals again.")
+                        .font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.55))
                 }
-        } else {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("ROOM CLOSED").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundColor(NativeTheme.orange)
-                Button("Reopen Room") { Task { await setClosed(false) } }
-                    .controlButton(color: NativeTheme.cyan)
-                    .accessibilityIdentifier("native-party-control-reopen-room")
-                Text("Reopening puts the room back on your console. The share link returns to its default — extend it from LINK EXPIRY if you want new arrivals again.")
-                    .font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.55))
             }
         }
     }

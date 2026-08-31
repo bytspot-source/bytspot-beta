@@ -23,47 +23,47 @@ struct NativePartyPassPresentation {
 /// attributed lives here as pure state rather than inside the view, where it
 /// could only be checked by eye.
 enum NativeHostDoorAttribution {
+    /// Who last wrote the door. Two booleans could disagree; one owner cannot.
+    enum Owner: String, Equatable { case host, disclosure, type }
+
     struct State: Equatable {
         var accessMode: NativePartyAccessMode
-        var setByDisclosure: Bool
+        var owner: Owner
     }
 
     /// Only `afterApproval` can move the door, and only a move it actually made
     /// is attributed. A host already on Private Approval is left alone.
     static func applyDisclosure(_ disclosure: NativePartyLocationDisclosure, to state: State) -> State {
         guard disclosure == .afterApproval else {
-            return State(accessMode: state.accessMode, setByDisclosure: false)
+            // The disclosure step gives back only a door it took.
+            return state.owner == .disclosure ? State(accessMode: state.accessMode, owner: .host) : state
         }
         guard state.accessMode != .privateApproval else { return state }
-        return State(accessMode: .privateApproval, setByDisclosure: true)
+        return State(accessMode: .privateApproval, owner: .disclosure)
     }
 
     /// A door the host picked is theirs, so it is never attributed elsewhere.
     static func applyHostChoice(_ mode: NativePartyAccessMode) -> State {
-        State(accessMode: mode, setByDisclosure: false)
+        State(accessMode: mode, owner: .host)
     }
 
-    struct PrinterState: Equatable {
-        var accessMode: NativePartyAccessMode
-        var setByPrinter: Bool
-    }
-
-    /// A printer can also move the door, because Private Party has exactly one
-    /// legal door. A door the printer forced is handed back as soon as the host
-    /// switches to a printer that allows public formats — otherwise the House
-    /// party lock follows them into Nightlife and Ticket/RSVP stay unreachable.
-    static func applyPrinter(allowedAccessModes: [NativePartyAccessMode], releasedDoor: NativePartyAccessMode, to state: PrinterState) -> PrinterState {
-        guard allowedAccessModes.contains(state.accessMode) else {
-            return PrinterState(accessMode: allowedAccessModes.first ?? state.accessMode, setByPrinter: true)
+    /// A type can also move the door, because an approval-only type has exactly
+    /// one legal door. A door the type took is handed back as soon as the host
+    /// switches to a type that allows public formats — otherwise the House party
+    /// lock follows them into Nightlife and Ticket/RSVP stay unreachable. A door
+    /// the host or the disclosure step owns is never moved.
+    static func applyType(allowedDoors: [NativePartyAccessMode], openingDoor: NativePartyAccessMode, to state: State) -> State {
+        guard allowedDoors.contains(state.accessMode) else {
+            return State(accessMode: openingDoor, owner: .type)
         }
-        guard state.setByPrinter, allowedAccessModes.count > 1 else { return state }
-        return PrinterState(accessMode: releasedDoor, setByPrinter: false)
+        guard state.owner == .type, allowedDoors.count > 1 else { return state }
+        return State(accessMode: openingDoor, owner: .type)
     }
 
     /// The note explains a choice the host did not make. It must not appear over
     /// a Private Approval door the host selected themselves.
     static func showsAttribution(_ state: State) -> Bool {
-        state.setByDisclosure && state.accessMode == .privateApproval
+        state.owner == .disclosure && state.accessMode == .privateApproval
     }
 }
 
@@ -131,12 +131,10 @@ struct NativeHostStudioView: View {
     @State private var releaseFormat: NativeReleaseFormat = .single
     @State private var releaseTitle = ""
     @State private var locationDisclosure: NativePartyLocationDisclosure = .public
-    /// True while the door reflects a write made by the disclosure picker rather
-    /// than by the host, so the door step can say why it changed.
-    @State private var doorSetByDisclosure = false
-    /// The opening door comes from the default House party printer, not from the
-    /// host, so it is released the moment they pick a public-capable type.
-    @State private var doorSetByPrinter = true
+    /// Who last wrote the door, so the door step can say why it changed. The
+    /// opening door comes from the default House party type, not from the host,
+    /// so it is released the moment they pick a public-capable type.
+    @State private var doorOwner: NativeHostDoorAttribution.Owner = .type
     @State private var hostIdentity = NativeHostIdentity.empty
     @State private var loadedProfileDestinations = false
     /// True only after a successful profile fetch. A failed load must never
@@ -314,8 +312,8 @@ struct NativeHostStudioView: View {
             }.padding(14).studioSurface()
             VStack(alignment: .leading, spacing: 9) {
                 Text("FORMAT · OPTIONAL").studioLabel()
-                taxonomyChipRow(titles: NativeHostFormat.allCases.map(\.title), selected: taxonomy.format?.title) { title in
-                    let format = NativeHostFormat.allCases.first { $0.title == title }
+                taxonomyChipRow(titles: taxonomy.category.formats.map(\.title), selected: taxonomy.format?.title) { title in
+                    let format = taxonomy.category.formats.first { $0.title == title }
                     taxonomy.format = taxonomy.format == format ? nil : format
                 }
                 Text("AGE · OPTIONAL").studioLabel()
@@ -417,11 +415,10 @@ struct NativeHostStudioView: View {
         .onChange(of: locationDisclosure) { disclosure in
             let next = NativeHostDoorAttribution.applyDisclosure(
                 disclosure,
-                to: .init(accessMode: accessMode, setByDisclosure: doorSetByDisclosure),
+                to: .init(accessMode: accessMode, owner: doorOwner),
             )
             accessMode = next.accessMode
-            doorSetByDisclosure = next.setByDisclosure
-            doorSetByPrinter = false
+            doorOwner = next.owner
         }
     }
 
@@ -641,13 +638,21 @@ struct NativeHostStudioView: View {
 
     private var doorContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeading("SET THE DOOR", "Who gets in?", "Choose RSVP, a paid first drop, or host approval.")
-            ForEach(templateConfiguration.allowedAccessModes) { mode in
+            sectionHeading("SET THE DOOR", "Who gets in?", availableDoors.count > 1 ? "Choose RSVP, a paid first drop, or host approval." : "\(taxonomy.type.name) has one door.")
+            // A single-option list looks like a broken picker unless the rule
+            // that produced it is stated.
+            if availableDoors.count == 1, let reason = taxonomy.type.door.singleDoorExplanation {
+                Label(reason, systemImage: "lock.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.white.opacity(0.62))
+                    .padding(12).studioSurface()
+                    .accessibilityIdentifier("native-host-studio-door-constrained")
+            }
+            ForEach(availableDoors) { mode in
                 Button(action: {
                     let next = NativeHostDoorAttribution.applyHostChoice(mode)
                     accessMode = next.accessMode
-                    doorSetByDisclosure = next.setByDisclosure
-                    doorSetByPrinter = false
+                    doorOwner = next.owner
                 }) {
                     HStack(spacing: 12) { Image(systemName: mode == .paidTicket ? "ticket.fill" : mode == .privateApproval ? "lock.fill" : "person.badge.plus").foregroundColor(tierAccent); VStack(alignment: .leading) { Text(mode.title).font(.system(size: 14, weight: .black)); Text(accessDetail(mode)).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.5)) }; Spacer(); Image(systemName: accessMode == mode ? "checkmark.circle.fill" : "circle").foregroundColor(accessMode == mode ? NativeTheme.emerald : .white.opacity(0.25)) }.padding(14).studioSurface(selected: accessMode == mode, accent: tierAccent)
                 }.buttonStyle(.plain)
@@ -658,7 +663,7 @@ struct NativeHostStudioView: View {
                     .foregroundColor(NativeTheme.orange)
                     .padding(12).studioSurface()
                     .accessibilityIdentifier("native-host-studio-disclosure-conflict")
-            } else if NativeHostDoorAttribution.showsAttribution(.init(accessMode: accessMode, setByDisclosure: doorSetByDisclosure)) {
+            } else if NativeHostDoorAttribution.showsAttribution(.init(accessMode: accessMode, owner: doorOwner)) {
                 Label("Set to Private Approval because your location is revealed after approval. Change either one.", systemImage: "info.circle.fill")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(NativeTheme.cyan)
@@ -718,28 +723,30 @@ struct NativeHostStudioView: View {
 
     private func selectCategory(_ category: NativeHostCategory) {
         taxonomy.select(category: category)
-        applyPrinter(taxonomy.type.printer)
+        applyType(taxonomy.type)
     }
 
     private func selectType(_ type: NativeHostType) {
         taxonomy.select(type: type)
-        applyPrinter(type.printer)
+        applyType(type)
     }
 
-    private func applyPrinter(_ id: NativePartyTemplateID) {
-        templateID = id
-        let next = NativeHostDoorAttribution.applyPrinter(
-            allowedAccessModes: templateConfiguration.allowedAccessModes,
-            releasedDoor: Self.printerReleasedDoor,
-            to: .init(accessMode: accessMode, setByPrinter: doorSetByPrinter)
+    private func applyType(_ type: NativeHostType) {
+        templateID = type.printer
+        let next = NativeHostDoorAttribution.applyType(
+            allowedDoors: type.availableDoors(for: templateConfiguration),
+            openingDoor: type.openingDoor(for: templateConfiguration),
+            to: .init(accessMode: accessMode, owner: doorOwner)
         )
         accessMode = next.accessMode
-        doorSetByPrinter = next.setByPrinter
+        doorOwner = next.owner
     }
 
-    /// Where a released door lands. Free RSVP is the honest public default; the
-    /// host still picks Ticket on the door step.
-    private static let printerReleasedDoor: NativePartyAccessMode = .freeRSVP
+    /// The doors this Party can actually offer: the type's policy narrowed by
+    /// what its printer can express.
+    private var availableDoors: [NativePartyAccessMode] {
+        taxonomy.type.availableDoors(for: templateConfiguration)
+    }
 
     private var navigationButtons: some View {
         HStack(spacing: 10) {

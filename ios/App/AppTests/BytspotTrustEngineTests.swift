@@ -2611,16 +2611,17 @@ final class NativeProfileDataAPITests: XCTestCase {
         // move is the host's to be told about.
         let moved = NativeHostDoorAttribution.applyDisclosure(
             .afterApproval,
-            to: .init(accessMode: .freeRSVP, setByDisclosure: false),
+            to: .init(accessMode: .freeRSVP, owner: .host),
         )
         XCTAssertEqual(moved.accessMode, .privateApproval)
+        XCTAssertEqual(moved.owner, .disclosure)
         XCTAssertTrue(NativeHostDoorAttribution.showsAttribution(moved))
 
         // A host already on Private Approval had nothing written for them, so
         // there is nothing to attribute.
         let untouched = NativeHostDoorAttribution.applyDisclosure(
             .afterApproval,
-            to: .init(accessMode: .privateApproval, setByDisclosure: false),
+            to: .init(accessMode: .privateApproval, owner: .host),
         )
         XCTAssertEqual(untouched.accessMode, .privateApproval)
         XCTAssertFalse(NativeHostDoorAttribution.showsAttribution(untouched))
@@ -2629,7 +2630,7 @@ final class NativeProfileDataAPITests: XCTestCase {
     func testAttributionClearsWhenTheHostTakesTheDoorBack() {
         let auto = NativeHostDoorAttribution.applyDisclosure(
             .afterApproval,
-            to: .init(accessMode: .freeRSVP, setByDisclosure: false),
+            to: .init(accessMode: .freeRSVP, owner: .host),
         )
         XCTAssertTrue(NativeHostDoorAttribution.showsAttribution(auto))
 
@@ -2637,16 +2638,26 @@ final class NativeProfileDataAPITests: XCTestCase {
         // note must stop claiming the app made it.
         let owned = NativeHostDoorAttribution.applyHostChoice(.privateApproval)
         XCTAssertEqual(owned.accessMode, .privateApproval)
+        XCTAssertEqual(owned.owner, .host)
         XCTAssertFalse(NativeHostDoorAttribution.showsAttribution(owned))
 
         // Moving disclosure off after-approval also ends the attribution, even
         // though the door it wrote stays put.
         let released = NativeHostDoorAttribution.applyDisclosure(
             .public,
-            to: .init(accessMode: .privateApproval, setByDisclosure: true),
+            to: .init(accessMode: .privateApproval, owner: .disclosure),
         )
         XCTAssertEqual(released.accessMode, .privateApproval)
+        XCTAssertEqual(released.owner, .host)
         XCTAssertFalse(NativeHostDoorAttribution.showsAttribution(released))
+
+        // Disclosure hands back only a door it took. A type-owned door stays
+        // type-owned so a later type switch can still release it.
+        let typeOwned = NativeHostDoorAttribution.applyDisclosure(
+            .public,
+            to: .init(accessMode: .privateApproval, owner: .type),
+        )
+        XCTAssertEqual(typeOwned.owner, .type)
     }
 
     func testNightlifeAndPublicMeetTypesCanReachTicketAndRSVPDoors() {
@@ -2667,46 +2678,93 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertTrue(nightlife.allSatisfy { $0.printer != .privateParty })
     }
 
-    func testPrinterHandsTheDoorBackWhenTheHostLeavesAPrivateOnlyFormat() {
-        let privateOnly = NativePartyTemplateConfiguration.privateParty(.namedGuests).allowedAccessModes
-        XCTAssertEqual(privateOnly, [.privateApproval])
+    func testTypeHandsTheDoorBackWhenTheHostLeavesAnApprovalOnlyFormat() {
+        let house = NativeHostType.type(id: "house")
+        let club = NativeHostType.type(id: "club")
+        XCTAssertEqual(house?.door.allowedDoors, [.privateApproval])
+        XCTAssertEqual(club?.door.allowedDoors.count, 3)
 
-        // A private-only printer takes the door and is recorded as its owner.
-        let locked = NativeHostDoorAttribution.applyPrinter(
-            allowedAccessModes: privateOnly,
-            releasedDoor: .freeRSVP,
-            to: .init(accessMode: .freeRSVP, setByPrinter: false)
+        // An approval-only type takes the door and is recorded as its owner.
+        let locked = NativeHostDoorAttribution.applyType(
+            allowedDoors: [.privateApproval],
+            openingDoor: .privateApproval,
+            to: .init(accessMode: .freeRSVP, owner: .host)
         )
         XCTAssertEqual(locked.accessMode, .privateApproval)
-        XCTAssertTrue(locked.setByPrinter)
+        XCTAssertEqual(locked.owner, .type)
 
-        // Switching to a public-capable printer must release that lock, or
+        // Switching to a public-capable type must release that lock, or
         // Nightlife inherits the House party door and Ticket stays unreachable.
-        let released = NativeHostDoorAttribution.applyPrinter(
-            allowedAccessModes: NativePartyAccessMode.allCases,
-            releasedDoor: .freeRSVP,
-            to: .init(accessMode: .privateApproval, setByPrinter: true)
+        let released = NativeHostDoorAttribution.applyType(
+            allowedDoors: NativePartyAccessMode.allCases,
+            openingDoor: .freeRSVP,
+            to: .init(accessMode: .privateApproval, owner: .type)
         )
         XCTAssertEqual(released.accessMode, .freeRSVP)
-        XCTAssertFalse(released.setByPrinter)
+        XCTAssertEqual(released.owner, .type)
 
         // A Private Approval door the host picked is theirs and must survive a
-        // printer switch untouched.
-        let hostOwned = NativeHostDoorAttribution.applyPrinter(
-            allowedAccessModes: NativePartyAccessMode.allCases,
-            releasedDoor: .freeRSVP,
-            to: .init(accessMode: .privateApproval, setByPrinter: false)
+        // type switch untouched.
+        let hostOwned = NativeHostDoorAttribution.applyType(
+            allowedDoors: NativePartyAccessMode.allCases,
+            openingDoor: .freeRSVP,
+            to: .init(accessMode: .privateApproval, owner: .host)
         )
         XCTAssertEqual(hostOwned.accessMode, .privateApproval)
-        XCTAssertFalse(hostOwned.setByPrinter)
+        XCTAssertEqual(hostOwned.owner, .host)
 
-        // A paid door survives a switch between two public printers.
-        let paid = NativeHostDoorAttribution.applyPrinter(
-            allowedAccessModes: NativePartyAccessMode.allCases,
-            releasedDoor: .freeRSVP,
-            to: .init(accessMode: .paidTicket, setByPrinter: false)
+        // A paid door the host chose survives a switch between public types.
+        let paid = NativeHostDoorAttribution.applyType(
+            allowedDoors: NativePartyAccessMode.allCases,
+            openingDoor: .freeRSVP,
+            to: .init(accessMode: .paidTicket, owner: .host)
         )
         XCTAssertEqual(paid.accessMode, .paidTicket)
+    }
+
+    func testDoorPolicyLeadsWithTicketButNeverPreselectsAMoneyRail() {
+        // Nightlife reads Ticket first, because that is the format's business.
+        XCTAssertEqual(NativeHostDoorPolicy.ticketedDoor.allowedDoors.first, .paidTicket)
+        XCTAssertEqual(NativeHostDoorPolicy.openDoor.allowedDoors.first, .freeRSVP)
+
+        // This build pays hosts by hand, so no type may preselect Paid Ticket.
+        for policy in [NativeHostDoorPolicy.approvalOnly, .openDoor, .ticketedDoor] {
+            XCTAssertNotEqual(policy.defaultDoor, .paidTicket)
+            XCTAssertTrue(policy.allowedDoors.contains(policy.defaultDoor))
+        }
+        XCTAssertEqual(NativeHostDoorPolicy.approvalOnly.defaultDoor, .privateApproval)
+        XCTAssertNotNil(NativeHostDoorPolicy.approvalOnly.singleDoorExplanation)
+        XCTAssertNil(NativeHostDoorPolicy.ticketedDoor.singleDoorExplanation)
+    }
+
+    func testEveryTypeOffersAtLeastOneDoorItsPrinterCanExpress() {
+        for type in NativeHostType.catalog {
+            let configuration: NativePartyTemplateConfiguration = type.printer == .privateParty
+                ? .privateParty(.namedGuests)
+                : .popUp(.public)
+            let doors = type.availableDoors(for: configuration)
+            XCTAssertFalse(doors.isEmpty, type.id)
+            XCTAssertTrue(doors.contains(type.openingDoor(for: configuration)), type.id)
+            // The private-party printer has one legal door, so only approval-only
+            // types may wear it.
+            if type.printer == .privateParty { XCTAssertEqual(type.door, .approvalOnly, type.id) }
+        }
+    }
+
+    func testFormatChipsAreScopedToTheSelectedCategoryAndClearedOnSwitch() {
+        for category in NativeHostCategory.allCases {
+            XCTAssertFalse(category.formats.isEmpty, category.rawValue)
+        }
+        XCTAssertTrue(NativeHostCategory.cars.formats.contains(.garage))
+        XCTAssertFalse(NativeHostCategory.food.formats.contains(.garage))
+
+        // A format that does not survive the new category must not ride along.
+        var taxonomy = NativeHostTaxonomySelection.default
+        taxonomy.format = .house
+        if let club = NativeHostType.type(id: "club") { taxonomy.select(type: club) }
+        XCTAssertEqual(taxonomy.category, .nightlife)
+        XCTAssertNil(taxonomy.format)
+        XCTAssertNil(taxonomy.rpcTags["hostFormat"])
     }
 
     @MainActor

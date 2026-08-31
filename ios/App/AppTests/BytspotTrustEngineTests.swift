@@ -32,6 +32,22 @@ private final class NativePartyURLProtocolStub: URLProtocol {
     override func stopLoading() {}
 }
 
+private enum NativePartyPendingImageTestSupport {
+    /// Mirrors what PHPicker hands back: `size` in points, with the device
+    /// scale carrying the real pixel count. A points-only reading of this
+    /// image understates its true resolution by `scale`.
+    @MainActor
+    static func image(pixelWidth: Int, pixelHeight: Int, scale: CGFloat) -> UIImage {
+        let points = CGSize(width: CGFloat(pixelWidth) / scale, height: CGFloat(pixelHeight) / scale)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = scale
+        return UIGraphicsImageRenderer(size: points, format: format).image { context in
+            UIColor.systemTeal.setFill()
+            context.fill(CGRect(origin: .zero, size: points))
+        }
+    }
+}
+
 /// CI-runnable promotion of the launch-time `NativeMapParitySelfTests` pure-function
 /// suites for the L2/L3 trust engine. These exercise the same locked, pure API the
 /// `precondition` self-tests do (so drift is caught on every PR, not only when the
@@ -2166,6 +2182,35 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(NativePartyHostDestinations.empty.validationMessage)
         XCTAssertEqual(NativePartyHostDestinations(musicURL: "https://music.example.com", merchURL: "", websiteURL: "", primarySocialPlatform: .instagram, primarySocialURL: "").validationMessage, "Add one primary social link.")
         XCTAssertNil(NativePartyDraftInput(templateID: .comedyNight, title: "No Cameras Comedy", tagline: "One room.", startsAt: Date(), venueName: "Aster Room", capacity: 80, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .standard).rpcInput["hostDestinations"])
+    }
+
+    /// A 4K photo arrives from the picker as 1280x720 points at scale 3. The
+    /// old points-based cap saw 1280 < 1400, skipped resizing, and let the
+    /// renderer's default screen scale emit the full 3840x2160.
+    @MainActor
+    func testPartyMediaDownscalesUsingPixelsNotPoints() throws {
+        let fourK = NativePartyPendingImageTestSupport.image(pixelWidth: 3840, pixelHeight: 2160, scale: 3)
+        let prepared = try XCTUnwrap(NativePartyPendingImage(image: fourK))
+        let longEdge = max(prepared.preview.size.width * prepared.preview.scale, prepared.preview.size.height * prepared.preview.scale)
+
+        XCTAssertEqual(prepared.preview.scale, 1, "the renderer must not reintroduce the screen scale")
+        XCTAssertLessThanOrEqual(longEdge, NativePartyPendingImage.maxPixelDimension)
+        XCTAssertEqual(prepared.preview.size.width / prepared.preview.size.height, 16.0 / 9.0, accuracy: 0.01)
+    }
+
+    @MainActor
+    func testPartyMediaLeavesSmallImagesAloneAndStaysUnderTheByteCeiling() throws {
+        let small = NativePartyPendingImageTestSupport.image(pixelWidth: 600, pixelHeight: 400, scale: 2)
+        let prepared = try XCTUnwrap(NativePartyPendingImage(image: small))
+
+        // 600x400 pixels is already under the ceiling, so it must not be
+        // upscaled to fill it — that would inflate bytes for no visible gain.
+        XCTAssertEqual(prepared.preview.size.width * prepared.preview.scale, 600)
+        XCTAssertEqual(prepared.preview.size.height * prepared.preview.scale, 400)
+
+        let base64 = try XCTUnwrap(prepared.dataURI.components(separatedBy: "base64,").last)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(Data(base64Encoded: base64)).count, NativePartyPendingImage.maxByteCount)
+        XCTAssertTrue(prepared.dataURI.hasPrefix("data:image/jpeg;base64,"))
     }
 
     func testNativeHostStudioUploadsCompressedPartyMediaThroughAuthenticatedRoute() async throws {

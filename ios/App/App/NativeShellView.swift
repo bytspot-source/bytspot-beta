@@ -3470,6 +3470,10 @@ private struct NativeNetworkSwipeToDeleteRow<Content: View>: View {
                             .accessibilityHidden(true)
                     }
                 }
+                // The drag stays on the row content. Attached to the whole
+                // row it also covered the trash, and the high-priority
+                // recognizer claimed the touch before the button could act.
+                .highPriorityGesture(enabled ? drag : nil)
             if enabled, revealed {
                 Button(action: {
                     nativeImpactLight()
@@ -3489,8 +3493,6 @@ private struct NativeNetworkSwipeToDeleteRow<Content: View>: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .contentShape(Rectangle())
-        .highPriorityGesture(enabled ? drag : nil)
         .animation(.spring(response: 0.28, dampingFraction: 0.86), value: revealed)
         .accessibilityAction(named: Text(label)) {
             guard enabled else { return }
@@ -3500,13 +3502,16 @@ private struct NativeNetworkSwipeToDeleteRow<Content: View>: View {
 
     private var drag: some Gesture {
         DragGesture(minimumDistance: 18, coordinateSpace: .local)
-            .onEnded { value in
-                guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                let next = NativeNetworkSwipeReveal.isRevealed(translation: value.translation.width, currentlyRevealed: revealed)
-                guard next != revealed else { return }
-                nativeImpactLight()
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { revealed = next }
-            }
+            .onChanged { value in settle(value.translation) }
+            .onEnded { value in settle(value.translation) }
+    }
+
+    private func settle(_ translation: CGSize) {
+        guard abs(translation.width) > abs(translation.height) else { return }
+        let next = NativeNetworkSwipeReveal.isRevealed(translation: translation.width, currentlyRevealed: revealed)
+        guard next != revealed else { return }
+        nativeImpactLight()
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { revealed = next }
     }
 }
 
@@ -3573,6 +3578,7 @@ private struct NativeNetworkHubView: View {
     @State private var showHostStudio = false
     @State private var hostedParties: [NativeHostedParty] = []
     @State private var hostedControlTarget: HostedControlTarget?
+    @State private var roomStatusMessage = ""
     @State private var peopleMetPartyCode = ""
     @State private var peopleMetPartyID: String?
     @State private var peopleMetOptedIn = false
@@ -3710,6 +3716,13 @@ private struct NativeNetworkHubView: View {
                         .accessibilityIdentifier("native-hosted-room-\(party.id)")
                         }
                     }
+                }
+                if !roomStatusMessage.isEmpty {
+                    Text(roomStatusMessage)
+                        .font(.system(size: 11.5, weight: .bold))
+                        .foregroundColor(NativeTheme.cyan)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("native-hosted-rooms-status")
                 }
             }
             .accessibilityIdentifier("native-hosted-rooms")
@@ -4125,9 +4138,9 @@ private struct NativeNetworkHubView: View {
         do {
             try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })).delete(party.id)
             hostedParties.removeAll { $0.id == party.id }
-            statusMessage = "Room deleted."
+            roomStatusMessage = "Room deleted."
         } catch {
-            statusMessage = Self.networkMutationMessage(from: error, fallback: "This room couldn't be deleted.")
+            roomStatusMessage = Self.networkMutationMessage(from: error, fallback: "This room couldn't be deleted.")
         }
     }
 

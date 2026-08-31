@@ -1,0 +1,52 @@
+name: iOS Tests
+
+# The 241 unit tests only ran when someone dispatched a Mac by hand, so a red
+# suite could reach main. Path-filtered because macOS runner minutes bill at
+# roughly ten times the Linux rate and most pull requests never touch ios/.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - 'scripts/ci/run-ios-tests.sh'
+      - '.github/workflows/ios-tests.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - 'scripts/ci/run-ios-tests.sh'
+      - '.github/workflows/ios-tests.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ios-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      LANG: en_US.UTF-8
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Select Xcode
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          echo "Using: $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
+          xcodebuild -version
+
+      - name: Run unit tests
+        run: scripts/ci/run-ios-tests.sh "$RUNNER_TEMP/AppTests.xcresult"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-test-results
+          path: ${{ runner.temp }}/AppTests.xcresult
+          if-no-files-found: ignore
+          retention-days: 14

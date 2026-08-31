@@ -17,9 +17,11 @@ on:
       - '.github/workflows/ios-tests.yml'
   workflow_dispatch:
 
+# Superseded pull request pushes are worth cancelling; main is not. Cancelling
+# there leaves the branch with no green run for the commit that shipped.
 concurrency:
   group: ios-tests-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   unit-tests:

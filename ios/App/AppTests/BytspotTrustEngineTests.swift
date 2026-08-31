@@ -2096,6 +2096,35 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativePartyShareLink.url(for: "party-1"), URL(string: "https://bytspot.app/party/party-1"))
         XCTAssertNil(NativePartyShareLink.url(for: "https://evil.example/party/x"))
         XCTAssertNil(NativePartyShareLink.url(from: "http://bytspot.app/party/party-1"))
+        // A server that predates room closing omits the field; that must read
+        // as "still open", never as an undecodable room.
+        XCTAssertNil(list.parties[0].closedAt)
+    }
+
+    func testClosedRoomDecodesAndSummaryCarriesTheCloseState() throws {
+        let closed = try JSONDecoder().decode(NativeHostedPartyList.self, from: Data("""
+        {"parties":[{"id":"party-9","title":"Last Listen","venueName":"The Basement","startsAt":"2026-08-16T00:00:00.000Z","endsAt":null,"admissionPaused":false,"shareLinkExpiresAt":"2026-08-16T06:00:00.000Z","shareLinkExpired":true,"closedAt":"2026-08-17T06:00:00.000Z","capacity":80}]}
+        """.utf8))
+        XCTAssertEqual(closed.parties[0].closedAt, "2026-08-17T06:00:00.000Z")
+        XCTAssertTrue(closed.parties[0].shareLinkExpired)
+        // Closing keeps the room reachable: the pass code and share URL are
+        // still resolvable so the host can reopen Party Control on it.
+        XCTAssertEqual(closed.parties[0].retrievedShareURL, URL(string: "https://bytspot.app/party/party-9"))
+
+        let open = try JSONDecoder().decode(NativePartyControlSummary.self, from: Data("""
+        {"partyId":"party-1","title":"First Listen","admissionPaused":false,"capacity":80,"confirmed":1,"spacesRemaining":79,"pending":0,"checkedIn":0,"closedAt":null}
+        """.utf8))
+        XCTAssertNil(open.closedAt)
+
+        let omitted = try JSONDecoder().decode(NativePartyControlSummary.self, from: Data("""
+        {"partyId":"party-1","title":"First Listen","admissionPaused":false,"capacity":80,"confirmed":1,"spacesRemaining":79,"pending":0,"checkedIn":0}
+        """.utf8))
+        XCTAssertNil(omitted.closedAt)
+
+        let shut = try JSONDecoder().decode(NativePartyControlSummary.self, from: Data("""
+        {"partyId":"party-1","title":"First Listen","admissionPaused":false,"capacity":80,"confirmed":1,"spacesRemaining":79,"pending":0,"checkedIn":0,"closedAt":"2026-08-17T06:00:00.000Z"}
+        """.utf8))
+        XCTAssertEqual(shut.closedAt, "2026-08-17T06:00:00.000Z")
     }
 
     func testNativeHostStudioRolesAreCapabilityScoped() {

@@ -3577,6 +3577,8 @@ private struct NativeNetworkHubView: View {
     @State private var isWorking = false
     @State private var showHostStudio = false
     @State private var hostedParties: [NativeHostedParty] = []
+    @State private var closedParties: [NativeHostedParty] = []
+    @State private var showingClosedRooms = false
     @State private var hostedControlTarget: HostedControlTarget?
     @State private var roomStatusMessage = ""
     @State private var peopleMetPartyCode = ""
@@ -3627,6 +3629,11 @@ private struct NativeNetworkHubView: View {
         .sheet(item: $hostedControlTarget) { target in
             NativePartyControlView(partyID: target.id).environmentObject(sessionStore)
         }
+        .onChange(of: hostedControlTarget) { target in
+            if target == nil, sessionStore.isAuthenticated {
+                Task { await refreshRoomsAfterControl() }
+            }
+        }
         .onChange(of: showHostStudio) { isOpen in
             if !isOpen, sessionStore.isAuthenticated {
                 Task { await refreshHostedRooms() }
@@ -3656,7 +3663,7 @@ private struct NativeNetworkHubView: View {
         .accessibilityIdentifier("native-host-studio-launch")
     }
 
-    private struct HostedControlTarget: Identifiable {
+    private struct HostedControlTarget: Identifiable, Equatable {
         let id: String
     }
 
@@ -3717,6 +3724,7 @@ private struct NativeNetworkHubView: View {
                         }
                     }
                 }
+                closedRoomsDisclosure
                 if !roomStatusMessage.isEmpty {
                     Text(roomStatusMessage)
                         .font(.system(size: 11.5, weight: .bold))
@@ -3726,6 +3734,47 @@ private struct NativeNetworkHubView: View {
                 }
             }
             .accessibilityIdentifier("native-hosted-rooms")
+        }
+    }
+
+    /// Closed and long-past rooms live behind a disclosure so a host with
+    /// dozens of published parties sees only the live ones by default.
+    @ViewBuilder private var closedRoomsDisclosure: some View {
+        Button(action: {
+            nativeImpactLight()
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { showingClosedRooms.toggle() }
+            if showingClosedRooms, closedParties.isEmpty { Task { await loadClosedRooms() } }
+        }) {
+            HStack(spacing: 6) {
+                Image(systemName: showingClosedRooms ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .black))
+                Text("CLOSED ROOMS").font(.system(size: 9.5, weight: .black)).tracking(1.2)
+                Spacer()
+            }.foregroundColor(NativeProfileStyle.body)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("native-hosted-rooms-closed-toggle")
+        if showingClosedRooms {
+            if closedParties.isEmpty {
+                Text("Nothing closed yet. Rooms you close — and rooms whose link died over a day ago — collect here with their guest list intact.")
+                    .font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
+            } else {
+                ForEach(closedParties) { party in
+                    HStack(alignment: .center, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(party.title).font(.system(size: 14, weight: .black)).foregroundColor(NativeProfileStyle.title).lineLimit(1)
+                            Text("\(party.venueName) · \(party.startsAtDate?.formatted(date: .abbreviated, time: .shortened) ?? party.startsAt)").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(1)
+                        }
+                        Spacer()
+                        Button("Control") { hostedControlTarget = HostedControlTarget(id: party.id) }
+                            .font(.system(size: 11.5, weight: .black)).foregroundColor(.black)
+                            .padding(.horizontal, 10).frame(height: 28).background(NativeProfileStyle.body).clipShape(Capsule())
+                    }
+                    .padding(12)
+                    .background(NativeProfileStyle.insetSurface.opacity(0.6))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .accessibilityIdentifier("native-closed-room-\(party.id)")
+                }
+            }
         }
     }
 
@@ -4085,7 +4134,7 @@ private struct NativeNetworkHubView: View {
 
     private func refreshNetwork() async {
         dismissedContactIDs = NativeNetworkDismissedContacts.load(userID: sessionStore.authenticatedUserID)
-        guard sessionStore.isAuthenticated else { circleSnapshot = .empty; invitations = []; peopleMetPartyID = nil; peopleMetOptedIn = false; peopleMetPeople = []; hostedParties = []; return }
+        guard sessionStore.isAuthenticated else { circleSnapshot = .empty; invitations = []; peopleMetPartyID = nil; peopleMetOptedIn = false; peopleMetPeople = []; hostedParties = []; closedParties = []; showingClosedRooms = false; roomStatusMessage = ""; return }
         await contactSyncStore.refresh(sessionStore: sessionStore)
         circleSnapshot = await api.listSocialCirclesViaRpc()
         invitations = (try? await api.listSocialInvitationsViaRpc()) ?? []
@@ -4094,11 +4143,34 @@ private struct NativeNetworkHubView: View {
     }
 
     private func refreshHostedRooms() async {
-        guard sessionStore.isAuthenticated, let token = sessionStore.token else { hostedParties = []; return }
+        guard sessionStore.isAuthenticated, let token = sessionStore.token else { hostedParties = []; closedParties = []; return }
         do {
             hostedParties = try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).hosted()
         } catch {
             hostedParties = hostedParties
+        }
+    }
+
+    /// After Party Control dismisses, YOUR ROOMS must drop a just-closed room
+    /// and CLOSED ROOMS must drop a just-reopened one. If the disclosure is
+    /// open, refetch; otherwise empty the cache so the next open is fresh.
+    private func refreshRoomsAfterControl() async {
+        await refreshHostedRooms()
+        if showingClosedRooms {
+            await loadClosedRooms()
+        } else {
+            closedParties = []
+        }
+    }
+
+    /// Fetched only when the host opens the disclosure: a closed room is a
+    /// record they rarely need, and it must not cost a request on every load.
+    private func loadClosedRooms() async {
+        guard sessionStore.isAuthenticated, let token = sessionStore.token else { closedParties = []; return }
+        do {
+            closedParties = try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).closedRooms()
+        } catch {
+            roomStatusMessage = "Closed rooms couldn't be loaded."
         }
     }
 

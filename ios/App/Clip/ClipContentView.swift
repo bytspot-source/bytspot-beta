@@ -387,13 +387,15 @@ struct PartyPassClipView: View {
                 AsyncImage(url: poster) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
             }
             LinearGradient(colors: [Color.black.opacity(0.08), Color.black.opacity(0.36), Color.black.opacity(0.92)], startPoint: .top, endPoint: .bottom)
+            // The tier requirement is stated once, here. Repeating it beside
+            // this badge and again as a pass metric read as three separate
+            // rules rather than one.
             VStack {
                 HStack {
-                    Text("\(invite.tier.displayName.uppercased()) REQUIRED").font(.system(size: 9, weight: .black, design: .rounded)).tracking(1.2)
+                    Text(tierPresentation.heroBadge).font(.system(size: 9, weight: .black, design: .rounded)).tracking(1.2)
                         .foregroundColor(accent).padding(.horizontal, 10).padding(.vertical, 7)
                         .background(Capsule().fill(Color.black.opacity(0.44))).overlay(Capsule().stroke(accent.opacity(0.42)))
                     Spacer()
-                    Text(tierPresentation.heroBadge).font(.system(size: 8, weight: .black, design: .rounded)).tracking(0.9).foregroundColor(.white.opacity(0.82))
                 }
                 Spacer()
             }.padding(17)
@@ -457,7 +459,7 @@ struct PartyPassClipView: View {
             }
             HStack(spacing: 8) {
                 PartyMetric(value: invite.capacity.map { "\($0) max" } ?? "Limited", label: "CAPACITY")
-                PartyMetric(value: invite.tier.displayName.replacingOccurrences(of: "Bytspot ", with: ""), label: "REQUIRED TIER")
+                PartyMetric(value: "\(invite.attendeeCount) in", label: "GOING")
                 PartyMetric(value: accessMetricValue, label: "ACCESS")
             }
         }

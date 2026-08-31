@@ -17,14 +17,13 @@ SIMULATOR_UDID=$(printf '%s\n' "$SIM_INFO" | sed -n 1p)
 SIMULATOR_NAME=$(printf '%s\n' "$SIM_INFO" | sed -n 2p)
 echo "Simulator: $SIMULATOR_NAME ($SIMULATOR_UDID)"
 
-# Simulator builds are never signed, and pull requests do not have the
-# distribution certificate available.
+# Signing is left at the project default. A simulator destination signs the app
+# ad-hoc and needs no certificate, so overriding it buys nothing and costs the
+# application-identifier entitlement that the Keychain session tests round-trip
+# a token through.
 NSUnbufferedIO=YES xcodebuild test \
   -project ios/App/App.xcodeproj \
   -scheme App \
   -configuration Debug \
   -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
-  -resultBundlePath "$RESULT_BUNDLE" \
-  CODE_SIGNING_ALLOWED=NO \
-  CODE_SIGNING_REQUIRED=NO \
-  CODE_SIGN_IDENTITY=
+  -resultBundlePath "$RESULT_BUNDLE"

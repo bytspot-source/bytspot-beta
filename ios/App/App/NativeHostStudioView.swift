@@ -1014,23 +1014,38 @@ struct NativeHostStudioView: View {
     }
 }
 
-private struct NativePartyPendingImage: Identifiable {
+struct NativePartyPendingImage: Identifiable {
+    /// Long-edge ceiling in pixels. The Party banner is roughly 1170px on a 3x
+    /// phone, so this leaves headroom for iPad without shipping 4K covers over
+    /// cellular at the door.
+    static let maxPixelDimension: CGFloat = 1600
+    static let maxByteCount = 600_000
+
     let id = UUID()
     let preview: UIImage
     let dataURI: String
 
     init?(image: UIImage) {
-        let maxDimension: CGFloat = 1400
-        let scale = min(1, maxDimension / max(image.size.width, image.size.height))
-        let size = CGSize(width: max(1, image.size.width * scale), height: max(1, image.size.height * scale))
-        let rendered = UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+        // `image.size` is in points and UIGraphicsImageRenderer defaults to the
+        // screen scale, so a points-based cap rendered up to 3x the pixels it
+        // named: a 4K photo measures 1280x720 points, cleared a 1400 point
+        // ceiling untouched, and came back out at 3840x2160. Measure in pixels
+        // and pin the renderer to 1x so the cap means what it says.
+        let pixelWidth = image.size.width * image.scale
+        let pixelHeight = image.size.height * image.scale
+        guard pixelWidth >= 1, pixelHeight >= 1 else { return nil }
+        let scale = min(1, Self.maxPixelDimension / max(pixelWidth, pixelHeight))
+        let size = CGSize(width: max(1, (pixelWidth * scale).rounded()), height: max(1, (pixelHeight * scale).rounded()))
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
         var quality: CGFloat = 0.82
         var data = rendered.jpegData(compressionQuality: quality)
-        while let current = data, current.count > 600_000, quality > 0.32 {
+        while let current = data, current.count > Self.maxByteCount, quality > 0.32 {
             quality -= 0.10
             data = rendered.jpegData(compressionQuality: quality)
         }
-        guard let data, data.count <= 600_000 else { return nil }
+        guard let data, data.count <= Self.maxByteCount else { return nil }
         preview = rendered
         dataURI = "data:image/jpeg;base64," + data.base64EncodedString()
     }

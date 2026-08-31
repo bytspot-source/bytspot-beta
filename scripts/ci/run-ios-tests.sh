@@ -11,25 +11,7 @@ rm -rf "$RESULT_BUNDLE"
 
 # Runner images change simulator names between Xcode releases, so the device is
 # resolved by UDID rather than pinned by name.
-SIM_INFO=$(xcrun simctl list devices available --json | python3 - <<'PY'
-import json, re, sys
-
-devices = json.load(sys.stdin)['devices']
-
-def version(key):
-    match = re.search(r'SimRuntime\.iOS-([0-9-]+)$', key)
-    return tuple(int(part) for part in match.group(1).split('-')) if match else ()
-
-for runtime in sorted((key for key in devices if 'SimRuntime.iOS-' in key), key=version, reverse=True):
-    for device in devices[runtime]:
-        if device['name'].startswith('iPhone'):
-            print(device['udid'])
-            print(device['name'])
-            sys.exit(0)
-
-sys.exit('No iPhone simulator is available on this runner.')
-PY
-)
+SIM_INFO=$(xcrun simctl list devices available --json | python3 scripts/ci/select_ios_simulator.py)
 
 SIMULATOR_UDID=$(printf '%s\n' "$SIM_INFO" | sed -n 1p)
 SIMULATOR_NAME=$(printf '%s\n' "$SIM_INFO" | sed -n 2p)

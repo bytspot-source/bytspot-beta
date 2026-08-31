@@ -9,6 +9,7 @@ struct NativePartyControlSummary: Codable {
     // Share-link retrieval + expiry (older servers omit these; treat as unknown).
     let shareUrl: String?; let passCode: String?
     let shareLinkExpiresAt: String?; let shareLinkExpired: Bool?; let shareLinkExpiryIsDefault: Bool?
+    let closedAt: String?
 
     /// Canonical Party Pass URL. Prefer the server value; fall back to the
     /// deterministic https://bytspot.app/party/<id> host already owns.
@@ -110,6 +111,9 @@ struct NativeHostedParty: Codable, Identifiable, Equatable {
     let passCode: String?
     let shareLinkExpiresAt: String
     let shareLinkExpired: Bool
+    /// Set once the host closes the room. Older servers omit it, so a missing
+    /// value means the room is still open rather than unknown.
+    let closedAt: String?
     let capacity: Int
 
     var startsAtDate: Date? { ISO8601DateFormatter.partyControlDate(from: startsAt) }
@@ -156,6 +160,9 @@ struct NativePartyControlAPI {
     let client: BytspotAPIClient
     private func query<T: Decodable>(_ type: T.Type, path: String, input: [String: Any] = [:]) async throws -> T { let payload = try await client.trpcQueryPayload(path: path, input: input); return try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject: payload)) }
     func hosted() async throws -> [NativeHostedParty] { try await query(NativeHostedPartyList.self, path: NativeLiveContentV2Contract.partyControlHostedRoute).parties }
+    func closedRooms() async throws -> [NativeHostedParty] { try await query(NativeHostedPartyList.self, path: "/trpc/events.control.closedRooms").parties }
+    func close(_ partyID: String) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.close", method: "POST", input: ["partyId": partyID]) }
+    func reopen(_ partyID: String) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.reopen", method: "POST", input: ["partyId": partyID]) }
     func delete(_ partyID: String) async throws {
         _ = try await client.trpcPayload(path: NativeLiveContentV2Contract.partyDraftDeleteRoute, method: "POST", input: ["partyId": partyID])
     }
@@ -180,7 +187,7 @@ struct NativePartyControlView: View {
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @State private var summary: NativePartyControlSummary?
     @State private var guests: [NativePartyControlGuest] = []
-    @State private var message = ""; @State private var showingDoor = false; @State private var scanning = false; @State private var passText = ""
+    @State private var message = ""; @State private var showingDoor = false; @State private var scanning = false; @State private var passText = ""; @State private var closeConfirmation = false
     @State private var isCheckingIn = false
 
     var body: some View {
@@ -188,6 +195,7 @@ struct NativePartyControlView: View {
             HStack { Button(action: { dismiss() }) { Image(systemName: "chevron.left") }; Spacer(); Text("PARTY CONTROL").font(.system(size: 11, weight: .black)).tracking(1.5); Spacer(); Button(action: { Task { await reload() } }) { Image(systemName: "arrow.clockwise") } }.foregroundColor(.white)
             if let summary { overview(summary) } else { ProgressView().tint(.white).frame(maxWidth: .infinity, minHeight: 140) }
             HStack(spacing: 10) { Button(showingDoor ? "Close Door Mode" : "Door Mode") { showingDoor.toggle() }.controlButton(color: NativeTheme.purple); Button((summary?.admissionPaused ?? false) ? "Resume RSVPs" : "Pause RSVPs") { Task { await setPaused() } }.controlButton(color: NativeTheme.orange) }
+            closeRoomControl
             if showingDoor { doorMode }
             if !message.isEmpty { Text(message).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.emerald) }
             pendingGuests
@@ -269,6 +277,31 @@ struct NativePartyControlView: View {
         }
     }
 
+    /// Closing is not deleting: the guest list and payment records stay, the
+    /// room simply leaves the host console and stops taking new arrivals.
+    @ViewBuilder private var closeRoomControl: some View {
+        if summary?.closedAt == nil {
+            Button("Close Room") { closeConfirmation = true }
+                .controlButton(color: NativeTheme.orange)
+                .accessibilityIdentifier("native-party-control-close-room")
+                .confirmationDialog("Close this room?", isPresented: $closeConfirmation, titleVisibility: .visible) {
+                    Button("Close Room", role: .destructive) { Task { await setClosed(true) } }
+                    Button("Keep it open", role: .cancel) {}
+                } message: {
+                    Text("The room leaves YOUR ROOMS and the share link stops admitting new guests. Nothing is deleted — your guest list, passes, and payments stay, and you can reopen it.")
+                }
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("ROOM CLOSED").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundColor(NativeTheme.orange)
+                Button("Reopen Room") { Task { await setClosed(false) } }
+                    .controlButton(color: NativeTheme.cyan)
+                    .accessibilityIdentifier("native-party-control-reopen-room")
+                Text("Reopening puts the room back on your console. The share link returns to its default — extend it from LINK EXPIRY if you want new arrivals again.")
+                    .font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.55))
+            }
+        }
+    }
+
     private func shareRetrievedLink(_ url: URL) {
         if NativePartyShareLink.share(url) { message = "" } else { message = "Party link is ready to share." }
     }
@@ -314,6 +347,18 @@ struct NativePartyControlView: View {
     private var guestList: some View { VStack(alignment: .leading, spacing: 9) { Text("GUEST LIST · \(guests.count)").partyControlLabel(); ForEach(guests.filter { $0.status != "pending" }) { guest in HStack { VStack(alignment: .leading) { Text(guest.person.name).font(.system(size: 13, weight: .bold)); Text("\(guest.status.replacingOccurrences(of: "-", with: " ").uppercased()) · \(guest.source.uppercased())").font(.system(size: 9, weight: .black)).foregroundColor(.white.opacity(0.48)) }; Spacer(); if guest.status == "checked-in" { Image(systemName: "checkmark.seal.fill").foregroundColor(NativeTheme.emerald) } } } }.padding(14).partyControlSurface() }
     @MainActor private func reload() async { guard let token = sessionStore.token else { return }; do { let api = NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })); async let freshSummary = api.summary(partyID); async let freshGuests = api.guests(partyID); summary = try await freshSummary; guests = try await freshGuests; message = "" } catch { message = "Party Control could not refresh." } }
     @MainActor private func setPaused() async { guard let token = sessionStore.token else { return }; do { try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).pause(partyID, paused: !(summary?.admissionPaused ?? false)); await reload() } catch { message = "Admission status could not change." } }
+    @MainActor private func setClosed(_ closed: Bool) async {
+        guard let token = sessionStore.token else { return }
+        do {
+            let api = NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token }))
+            if closed { try await api.close(partyID) } else { try await api.reopen(partyID) }
+            await reload()
+            message = closed ? "Room closed. Nothing was deleted." : "Room reopened."
+        } catch {
+            message = closed ? "This room couldn't be closed." : "This room couldn't be reopened."
+        }
+    }
+
     @MainActor private func setShareExpiry(_ date: Date?) async { guard let token = sessionStore.token else { return }; do { try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).setShareLinkExpiry(partyID, expiresAt: date.map { ISO8601DateFormatter.partyControlInstant.string(from: $0) }); await reload() } catch { message = "Share link expiry could not change." } }
     @MainActor private func decide(_ guest: NativePartyControlGuest, _ approved: Bool) async { guard let token = sessionStore.token else { return }; do { try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).decide(partyID, guestID: guest.id, approved: approved); await reload() } catch { message = "Guest status could not change." } }
     @MainActor private func checkIn(_ value: String) async {

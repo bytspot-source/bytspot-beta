@@ -2649,6 +2649,66 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertFalse(NativeHostDoorAttribution.showsAttribution(released))
     }
 
+    func testNightlifeAndPublicMeetTypesCanReachTicketAndRSVPDoors() {
+        // The private-party printer allows exactly one door, so any type wearing
+        // it is locked out of Ticket and RSVP. Nightlife runs on a venue door.
+        for id in ["afrobeats", "club", "lounge", "after-hours", "cruise"] {
+            XCTAssertNotEqual(NativeHostType.type(id: id)?.printer, .privateParty, id)
+        }
+
+        // A house, a birthday, and a garage are genuinely private and keep it.
+        for id in ["house", "rooftop-party", "pool", "birthday", "garage-meet"] {
+            XCTAssertEqual(NativeHostType.type(id: id)?.printer, .privateParty, id)
+        }
+
+        // Nightlife exists to sell a door: no type in it may be private-only.
+        let nightlife = NativeHostType.types(in: .nightlife)
+        XCTAssertEqual(nightlife.count, 4)
+        XCTAssertTrue(nightlife.allSatisfy { $0.printer != .privateParty })
+    }
+
+    func testPrinterHandsTheDoorBackWhenTheHostLeavesAPrivateOnlyFormat() {
+        let privateOnly = NativePartyTemplateConfiguration.privateParty(.namedGuests).allowedAccessModes
+        XCTAssertEqual(privateOnly, [.privateApproval])
+
+        // A private-only printer takes the door and is recorded as its owner.
+        let locked = NativeHostDoorAttribution.applyPrinter(
+            allowedAccessModes: privateOnly,
+            releasedDoor: .freeRSVP,
+            to: .init(accessMode: .freeRSVP, setByPrinter: false)
+        )
+        XCTAssertEqual(locked.accessMode, .privateApproval)
+        XCTAssertTrue(locked.setByPrinter)
+
+        // Switching to a public-capable printer must release that lock, or
+        // Nightlife inherits the House party door and Ticket stays unreachable.
+        let released = NativeHostDoorAttribution.applyPrinter(
+            allowedAccessModes: NativePartyAccessMode.allCases,
+            releasedDoor: .freeRSVP,
+            to: .init(accessMode: .privateApproval, setByPrinter: true)
+        )
+        XCTAssertEqual(released.accessMode, .freeRSVP)
+        XCTAssertFalse(released.setByPrinter)
+
+        // A Private Approval door the host picked is theirs and must survive a
+        // printer switch untouched.
+        let hostOwned = NativeHostDoorAttribution.applyPrinter(
+            allowedAccessModes: NativePartyAccessMode.allCases,
+            releasedDoor: .freeRSVP,
+            to: .init(accessMode: .privateApproval, setByPrinter: false)
+        )
+        XCTAssertEqual(hostOwned.accessMode, .privateApproval)
+        XCTAssertFalse(hostOwned.setByPrinter)
+
+        // A paid door survives a switch between two public printers.
+        let paid = NativeHostDoorAttribution.applyPrinter(
+            allowedAccessModes: NativePartyAccessMode.allCases,
+            releasedDoor: .freeRSVP,
+            to: .init(accessMode: .paidTicket, setByPrinter: false)
+        )
+        XCTAssertEqual(paid.accessMode, .paidTicket)
+    }
+
     @MainActor
     func testPartySharePresentationAnchorsPopoverToPresenterView() throws {
         let presenter = UIViewController()

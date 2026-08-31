@@ -99,10 +99,13 @@ struct NativeHostType: Equatable, Identifiable {
         NativeHostType(id: "pool", name: "Pool", category: .party, printer: .privateParty),
         NativeHostType(id: "birthday", name: "Birthday", category: .party, printer: .privateParty),
 
+        // Nightlife runs on a venue door, not a living room. The private-party
+        // printer allows only Private Approval, which locked these formats out
+        // of RSVP and Ticket.
         NativeHostType(id: "afrobeats", name: "Afrobeats", category: .nightlife, printer: .popUp),
-        NativeHostType(id: "club", name: "Club night", category: .nightlife, printer: .privateParty),
-        NativeHostType(id: "lounge", name: "Lounge", category: .nightlife, printer: .privateParty),
-        NativeHostType(id: "after-hours", name: "After-hours", category: .nightlife, printer: .privateParty),
+        NativeHostType(id: "club", name: "Club night", category: .nightlife, printer: .popUp),
+        NativeHostType(id: "lounge", name: "Lounge", category: .nightlife, printer: .popUp),
+        NativeHostType(id: "after-hours", name: "After-hours", category: .nightlife, printer: .popUp),
 
         NativeHostType(id: "listening", name: "Listening party", category: .music, printer: .listeningParty),
         NativeHostType(id: "release", name: "Release party", category: .music, printer: .releaseParty),
@@ -126,7 +129,8 @@ struct NativeHostType: Equatable, Identifiable {
         NativeHostType(id: "art-night", name: "Art night", category: .culture, printer: .popUp),
         NativeHostType(id: "workshop", name: "Workshop", category: .culture, printer: .popUp),
 
-        NativeHostType(id: "cruise", name: "Cruise meet", category: .cars, printer: .privateParty),
+        // A cruise meet is a public lot. A garage meet is someone's garage.
+        NativeHostType(id: "cruise", name: "Cruise meet", category: .cars, printer: .popUp),
         NativeHostType(id: "garage-meet", name: "Garage meet", category: .cars, printer: .privateParty),
 
         NativeHostType(id: "yoga", name: "Yoga", category: .outdoor, printer: .popUp),

@@ -355,8 +355,12 @@ struct PartyPassClipView: View {
         ZStack {
             ClipTheme.background.ignoresSafeArea()
             if let poster = invite.displayPosterURL {
-                AsyncImage(url: poster) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
-                    .opacity(0.18).ignoresSafeArea()
+                GeometryReader { proxy in
+                    AsyncImage(url: poster) { image in
+                        image.resizable().scaledToFill().frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                    } placeholder: { Color.clear }
+                }
+                .opacity(0.18).ignoresSafeArea()
             }
             LinearGradient(colors: [Color.black.opacity(0.10), ClipTheme.background.opacity(0.94), ClipTheme.background], startPoint: .top, endPoint: .bottom).ignoresSafeArea()
             RadialGradient(colors: [accent.opacity(0.14), .clear], center: .topLeading, startRadius: 8, endRadius: 360).ignoresSafeArea()

@@ -1,12 +1,13 @@
 import SwiftUI
 import UIKit
 
-/// A recap photo. `position` is the server's slot, not the array index: removing
-/// a photo leaves a hole, and upload and remove are both keyed on the slot.
+/// A recap photo. `id` is the photo; `position` is only the slot it happens to
+/// occupy, and slots are reused the moment one is removed. Takedowns name the
+/// id, so a stale screen cannot take down whatever replaced what it is showing.
 struct NativePartyRecapPhoto: Codable, Identifiable, Equatable {
+    let id: String
     let position: Int
     let url: String
-    var id: Int { position }
 }
 
 struct NativePartyRecap: Codable, Equatable {
@@ -23,13 +24,7 @@ struct NativePartyRecap: Codable, Equatable {
     var addressablePhotos: [NativePartyRecapPhoto] { photos ?? [] }
     var isEditable: Bool { photos != nil }
     var occupiedPositions: Set<Int> { Set(addressablePhotos.map(\.position)) }
-
-    /// The lowest free slot. Reusing a hole keeps an album that has been edited
-    /// from running out of positions before it runs out of photos.
-    var nextFreePosition: Int? {
-        let taken = occupiedPositions
-        return (0..<Self.maxPhotos).first { !taken.contains($0) }
-    }
+    var isFull: Bool { addressablePhotos.count >= Self.maxPhotos }
 }
 
 struct NativePartyRecapAPI {
@@ -40,8 +35,11 @@ struct NativePartyRecapAPI {
         return try JSONDecoder().decode(NativePartyRecap.self, from: JSONSerialization.data(withJSONObject: payload))
     }
 
-    func upload(_ partyID: String, position: Int, dataURI: String) async throws {
-        _ = try await client.trpcPayload(path: "/trpc/events.recap.upload", method: "POST", input: ["partyId": partyID, "index": position, "dataUri": dataURI])
+    /// No slot is named. Two devices holding the same album both compute the
+    /// same free slot; only the server, behind the unique index, can allocate
+    /// one without overwriting a photo that is already there.
+    func upload(_ partyID: String, dataURI: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/events.recap.upload", method: "POST", input: ["partyId": partyID, "dataUri": dataURI])
     }
 
     func publish(_ partyID: String) async throws {
@@ -52,8 +50,8 @@ struct NativePartyRecapAPI {
         _ = try await client.trpcPayload(path: "/trpc/events.recap.unpublish", method: "POST", input: ["partyId": partyID])
     }
 
-    func remove(_ partyID: String, position: Int) async throws {
-        _ = try await client.trpcPayload(path: "/trpc/events.recap.remove", method: "POST", input: ["partyId": partyID, "index": position])
+    func remove(_ partyID: String, mediaID: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/events.recap.remove", method: "POST", input: ["partyId": partyID, "mediaId": mediaID])
     }
 }
 
@@ -68,13 +66,31 @@ final class NativeAuthenticatedImageStore: ObservableObject {
     private var inFlight: Set<String> = []
     private let client: BytspotAPIClient
 
+    /// Its own session, never `URLSession.shared`. The server sends no-store and
+    /// a conforming loader honours it, but a surface that must not persist
+    /// photographs of identifiable people should not be relying on a response
+    /// header to stay out of a disk cache it shares with every other request.
+    static func ephemeralSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        return URLSession(configuration: configuration)
+    }
+
+    /// The token is read per request, not captured once: a store built during
+    /// one session must not keep fetching with that session's token after a
+    /// sign-out or an account switch.
+    convenience init(tokenProvider: @escaping () -> String?) {
+        self.init(client: BytspotAPIClient(tokenProvider: tokenProvider, urlSession: Self.ephemeralSession()))
+    }
+
     init(client: BytspotAPIClient) { self.client = client }
 
     func load(_ url: String) async {
         guard images[url] == nil, !inFlight.contains(url) else { return }
         inFlight.insert(url)
         defer { inFlight.remove(url) }
-        guard let data = try? await client.data(path: url), let image = UIImage(data: data) else { return }
+        guard let data = try? await client.data(path: url), !Task.isCancelled, let image = UIImage(data: data) else { return }
         images[url] = image
     }
 

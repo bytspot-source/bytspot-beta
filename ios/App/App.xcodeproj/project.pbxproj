@@ -41,6 +41,7 @@
 			A13F0D0B2D0000000000D011 /* BytspotDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0D0A2D0000000000D010 /* BytspotDiagnostics.swift */; };
 			A13F0E012D0000000000E001 /* NativePartyArrival.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0E002D0000000000E000 /* NativePartyArrival.swift */; };
 			A13F10012D0000000000F101 /* NativePartyControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10002D0000000000F100 /* NativePartyControlView.swift */; };
+			A13F10102D0000000000F110 /* NativePartyRecap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10112D0000000000F111 /* NativePartyRecap.swift */; };
 		A13F11012D00000000001101 /* NativeCollapsePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F11002D00000000001100 /* NativeCollapsePlan.swift */; };
 		A13F11032D00000000001103 /* NativeAtlantaCorridor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F11022D00000000001102 /* NativeAtlantaCorridor.swift */; };
 		A13F12012D00000000001201 /* NativeHostTaxonomy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F12002D00000000001200 /* NativeHostTaxonomy.swift */; };
@@ -118,6 +119,7 @@
 			A13F0D0A2D0000000000D010 /* BytspotDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotDiagnostics.swift; sourceTree = "<group>"; };
 			A13F0E002D0000000000E000 /* NativePartyArrival.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyArrival.swift; sourceTree = "<group>"; };
 			A13F10002D0000000000F100 /* NativePartyControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyControlView.swift; sourceTree = "<group>"; };
+			A13F10112D0000000000F111 /* NativePartyRecap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyRecap.swift; sourceTree = "<group>"; };
 		A13F11002D00000000001100 /* NativeCollapsePlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCollapsePlan.swift; sourceTree = "<group>"; };
 		A13F11022D00000000001102 /* NativeAtlantaCorridor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAtlantaCorridor.swift; sourceTree = "<group>"; };
 		A13F12002D00000000001200 /* NativeHostTaxonomy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHostTaxonomy.swift; sourceTree = "<group>"; };
@@ -198,6 +200,7 @@
 					A13F0D0A2D0000000000D010 /* BytspotDiagnostics.swift */,
 				A13F0E002D0000000000E000 /* NativePartyArrival.swift */,
 				A13F10002D0000000000F100 /* NativePartyControlView.swift */,
+				A13F10112D0000000000F111 /* NativePartyRecap.swift */,
 				A13F11002D00000000001100 /* NativeCollapsePlan.swift */,
 				A13F11022D00000000001102 /* NativeAtlantaCorridor.swift */,
 				A13F12002D00000000001200 /* NativeHostTaxonomy.swift */,
@@ -416,6 +419,7 @@
 					A13F0D0B2D0000000000D011 /* BytspotDiagnostics.swift in Sources */,
 				A13F0E012D0000000000E001 /* NativePartyArrival.swift in Sources */,
 				A13F10012D0000000000F101 /* NativePartyControlView.swift in Sources */,
+				A13F10102D0000000000F110 /* NativePartyRecap.swift in Sources */,
 				A13F11012D00000000001101 /* NativeCollapsePlan.swift in Sources */,
 				A13F11032D00000000001103 /* NativeAtlantaCorridor.swift in Sources */,
 				A13F12012D00000000001201 /* NativeHostTaxonomy.swift in Sources */,

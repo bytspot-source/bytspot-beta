@@ -2874,6 +2874,72 @@ final class NativeProfileDataAPITests: XCTestCase {
         window.isHidden = true
     }
 
+    private func decodeRecap(_ json: String) throws -> NativePartyRecap {
+        try JSONDecoder().decode(NativePartyRecap.self, from: Data(json.utf8))
+    }
+
+    func testRecapAddressesPhotosByServerPositionNotArrayIndex() throws {
+        // Position 1 was removed. A surface that read the array index would
+        // remove the wrong photo and overwrite a live one on the next upload.
+        let recap = try decodeRecap("""
+        {"publishedAt":"2026-08-11T04:00:00Z","photoURLs":["https://api.test/media/parties/a","https://api.test/media/parties/b"],
+         "photos":[{"position":0,"url":"https://api.test/media/parties/a"},{"position":2,"url":"https://api.test/media/parties/b"}]}
+        """)
+        XCTAssertTrue(recap.isPublished)
+        XCTAssertTrue(recap.isEditable)
+        XCTAssertEqual(recap.addressablePhotos.map(\.position), [0, 2])
+        // The hole is reused, so an edited album does not run out of slots
+        // before it runs out of photos.
+        XCTAssertEqual(recap.nextFreePosition, 1)
+    }
+
+    func testRecapWithoutPositionsStaysViewableButNotEditable() throws {
+        // A server that predates positions can still be read. Keeping the
+        // viewer and dropping the editor is the safe half to keep.
+        let recap = try decodeRecap("""
+        {"publishedAt":null,"photoURLs":["https://api.test/media/parties/a"]}
+        """)
+        XCTAssertFalse(recap.isPublished)
+        XCTAssertFalse(recap.isEditable)
+        XCTAssertTrue(recap.addressablePhotos.isEmpty)
+        XCTAssertEqual(recap.photoURLs.count, 1)
+    }
+
+    func testRecapRefusesToGrowPastTheServerCeiling() throws {
+        let photos = (0..<NativePartyRecap.maxPhotos).map { "{\"position\":\($0),\"url\":\"https://api.test/media/parties/p\($0)\"}" }
+        let recap = try decodeRecap("{\"publishedAt\":null,\"photoURLs\":[],\"photos\":[\(photos.joined(separator: ","))]}")
+        XCTAssertEqual(recap.addressablePhotos.count, 12)
+        XCTAssertNil(recap.nextFreePosition)
+    }
+
+    @MainActor
+    func testRecapImageStoreForgetsARemovedPhoto() {
+        // The server answers recap bytes `private, no-store`, so a removed photo
+        // must leave with its bytes rather than linger under a URL the server
+        // now refuses.
+        let store = NativeAuthenticatedImageStore(client: BytspotAPIClient(tokenProvider: { "token" }))
+        XCTAssertTrue(store.images.isEmpty)
+        store.forget("https://api.test/media/parties/a")
+        store.forgetAll()
+        XCTAssertTrue(store.images.isEmpty)
+    }
+
+    func testRecapUploadReusesTheLowestFreeSlot() throws {
+        // Mirrors the loop in Party Control: photos go into the lowest free
+        // slots, in order, and stop at the ceiling.
+        let recap = try decodeRecap("""
+        {"publishedAt":null,"photoURLs":[],"photos":[{"position":0,"url":"u0"},{"position":3,"url":"u3"}]}
+        """)
+        var taken = recap.occupiedPositions
+        var assigned: [Int] = []
+        for _ in 0..<3 {
+            guard let free = (0..<NativePartyRecap.maxPhotos).first(where: { !taken.contains($0) }) else { break }
+            assigned.append(free)
+            taken.insert(free)
+        }
+        XCTAssertEqual(assigned, [1, 2, 4])
+    }
+
     func testCrowdSummaryOnlyTreatsDoorHostOrSensorAsLive() {
         let typical = NativeCrowdSummary(level: 3, label: "Busy", waitMins: 12, source: "typical")
         let missing = NativeCrowdSummary(level: 3, label: "Busy", waitMins: 12)

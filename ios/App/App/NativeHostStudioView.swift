@@ -1051,7 +1051,9 @@ struct NativePartyPendingImage: Identifiable {
     }
 }
 
-private struct NativePartyPhotoPicker: UIViewControllerRepresentable {
+/// Shared with the recap surface in Party Control, which needs the same
+/// ordered, limited selection the Host Studio album uses.
+struct NativePartyPhotoPicker: UIViewControllerRepresentable {
     let selectionLimit: Int
     let completion: ([UIImage]) -> Void
 

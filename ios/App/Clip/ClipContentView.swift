@@ -208,6 +208,18 @@ enum ClipPartyPoster {
     static let aspectRatio: CGFloat = 3.0 / 2.0
 }
 
+/// `aspectRatio(nil, contentMode:)` is not a no-op — it derives a ratio from
+/// the child's ideal size and fixes it there, so a later `minHeight` only
+/// centres the collapsed content. The two cases have to branch, not chain.
+private struct ClipHeroSizing: ViewModifier {
+    let ratio: CGFloat?
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if let ratio { content.aspectRatio(ratio, contentMode: .fit) }
+        else { content.frame(minHeight: 292) }
+    }
+}
+
 private struct ClipContainedFillImage: View {
     let url: URL
     /// Filling is right for the hero, which is a poster-shaped card. It is
@@ -428,23 +440,25 @@ struct PartyPassClipView: View {
             // The tier requirement is stated once, here. Repeating it beside
             // this badge and again as a pass metric read as three separate
             // rules rather than one.
-            VStack {
+            // Badge and title share one stack so the card's height accounts
+            // for both. As separate overlays a title that wrapped to three
+            // lines grew upward and printed through the badge.
+            VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text(tierPresentation.heroBadge).font(.system(size: 9, weight: .black, design: .rounded)).tracking(1.2)
                         .foregroundColor(accent).padding(.horizontal, 10).padding(.vertical, 7)
                         .background(Capsule().fill(Color.black.opacity(0.44))).overlay(Capsule().stroke(accent.opacity(0.42)))
                     Spacer()
                 }
-                Spacer()
-            }.padding(17)
-            VStack(alignment: .leading, spacing: 12) {
+                Spacer(minLength: 12)
                 Text(invite.title).font(.system(size: 36, weight: .bold, design: .serif)).foregroundColor(.white).lineLimit(3).minimumScaleFactor(0.78).fixedSize(horizontal: false, vertical: true)
                 heroMetadata
-            }.padding(20)
+            }
+            .padding(17)
+            .padding([.horizontal, .bottom], 3)
         }
         .frame(maxWidth: .infinity)
-        .aspectRatio(invite.displayPosterURL == nil ? nil : ClipPartyPoster.aspectRatio, contentMode: .fit)
-        .frame(minHeight: invite.displayPosterURL == nil ? 292 : nil)
+        .modifier(ClipHeroSizing(ratio: invite.displayPosterURL == nil ? nil : ClipPartyPoster.aspectRatio))
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 28).stroke(Color.white.opacity(0.15)))
     }

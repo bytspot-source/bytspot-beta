@@ -2874,6 +2874,102 @@ final class NativeProfileDataAPITests: XCTestCase {
         window.isHidden = true
     }
 
+    private func decodeRecap(_ json: String) throws -> NativePartyRecap {
+        try JSONDecoder().decode(NativePartyRecap.self, from: Data(json.utf8))
+    }
+
+    func testRecapTakedownNamesThePhotoNotTheSlot() throws {
+        // Slot 1 was removed, so slots and array indices no longer agree and the
+        // hole will be reused by the next upload. A takedown that named a slot
+        // could take down whatever replaced what the host is looking at, so the
+        // photo carries its own identity.
+        let recap = try decodeRecap("""
+        {"publishedAt":"2026-08-11T04:00:00Z","photoURLs":["https://api.test/media/parties/a","https://api.test/media/parties/b"],
+         "photos":[{"id":"recap-a","position":0,"url":"https://api.test/media/parties/a"},
+                   {"id":"recap-b","position":2,"url":"https://api.test/media/parties/b"}]}
+        """)
+        XCTAssertTrue(recap.isPublished)
+        XCTAssertTrue(recap.isEditable)
+        XCTAssertEqual(recap.addressablePhotos.map(\.position), [0, 2])
+        // The second photo on screen is recap-b whatever slot it sits in.
+        XCTAssertEqual(recap.addressablePhotos[1].id, "recap-b")
+    }
+
+    func testRecapWithoutPositionsStaysViewableButNotEditable() throws {
+        // A server that predates positions can still be read. Keeping the
+        // viewer and dropping the editor is the safe half to keep.
+        let recap = try decodeRecap("""
+        {"publishedAt":null,"photoURLs":["https://api.test/media/parties/a"]}
+        """)
+        XCTAssertFalse(recap.isPublished)
+        XCTAssertFalse(recap.isEditable)
+        XCTAssertTrue(recap.addressablePhotos.isEmpty)
+        XCTAssertEqual(recap.photoURLs.count, 1)
+    }
+
+    func testRecapKnowsWhenTheAlbumIsFull() throws {
+        let photos = (0..<NativePartyRecap.maxPhotos).map { "{\"id\":\"r\($0)\",\"position\":\($0),\"url\":\"https://api.test/media/parties/p\($0)\"}" }
+        let recap = try decodeRecap("{\"publishedAt\":null,\"photoURLs\":[],\"photos\":[\(photos.joined(separator: ","))]}")
+        XCTAssertEqual(recap.addressablePhotos.count, 12)
+        XCTAssertTrue(recap.isFull)
+    }
+
+    @MainActor
+    func testRecapLoaderSendsTheCurrentTokenAndKeepsNothingOnDisk() async throws {
+        // Recap bytes are the one image surface authorized per read, so the
+        // loader has to carry the bearer token, must read it fresh rather than
+        // capture it, and must not persist photographs of identifiable people.
+        var token: String? = "first-token"
+        NativeRecapStubProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.protocolClasses = [NativeRecapStubProtocol.self]
+        let client = BytspotAPIClient(tokenProvider: { token }, urlSession: URLSession(configuration: configuration))
+        let store = NativeAuthenticatedImageStore(client: client)
+        let url = "https://api.test/media/parties/a"
+
+        await store.load(url)
+        XCTAssertNotNil(store.images[url])
+        XCTAssertEqual(NativeRecapStubProtocol.observedAuthorization, "Bearer first-token")
+
+        // A removed photo leaves with its bytes rather than lingering under a
+        // URL the server now refuses.
+        store.forget(url)
+        XCTAssertNil(store.images[url])
+
+        // Sign-out or an account switch changes what the next read sends: the
+        // token is not baked into the store.
+        token = "second-token"
+        await store.load(url)
+        XCTAssertEqual(NativeRecapStubProtocol.observedAuthorization, "Bearer second-token")
+
+        store.forgetAll()
+        XCTAssertTrue(store.images.isEmpty)
+    }
+
+    @MainActor
+    func testRecapLoaderUsesASessionThatCannotCacheToDisk() {
+        let session = NativeAuthenticatedImageStore.ephemeralSession()
+        XCTAssertNil(session.configuration.urlCache)
+        XCTAssertEqual(session.configuration.requestCachePolicy, .reloadIgnoringLocalAndRemoteCacheData)
+        // Not the shared session, whose URLCache is shared with every other
+        // request the app makes.
+        XCTAssertFalse(session === URLSession.shared)
+    }
+
+    @MainActor
+    func testRecapLoaderKeepsNoImageWhenTheServerRefuses() async {
+        // A guest whose access was withdrawn gets 404 on the bytes, and the
+        // screen must end up with no photo rather than a stale one.
+        NativeRecapStubProtocol.reset()
+        NativeRecapStubProtocol.status = 404
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [NativeRecapStubProtocol.self]
+        let store = NativeAuthenticatedImageStore(client: BytspotAPIClient(tokenProvider: { "token" }, urlSession: URLSession(configuration: configuration)))
+        await store.load("https://api.test/media/parties/a")
+        XCTAssertTrue(store.images.isEmpty)
+    }
+
     func testCrowdSummaryOnlyTreatsDoorHostOrSensorAsLive() {
         let typical = NativeCrowdSummary(level: 3, label: "Busy", waitMins: 12, source: "typical")
         let missing = NativeCrowdSummary(level: 3, label: "Busy", waitMins: 12)
@@ -3606,4 +3702,33 @@ extension BytspotTrustEngineTests {
         }
         XCTAssertTrue(NativeVibeFocusCatalog.offeredCrewTokens.contains("group"))
     }
+}
+
+/// Serves a 1x1 PNG for recap byte reads and records the Authorization header,
+/// so the loader can be tested without a network or a real session.
+final class NativeRecapStubProtocol: URLProtocol {
+    static var observedAuthorization: String?
+    static var status = 200
+
+    static func reset() { observedAuthorization = nil; status = 200 }
+
+    private static let onePixelPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")!
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.observedAuthorization = request.value(forHTTPHeaderField: "Authorization")
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: Self.status,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "image/png", "Cache-Control": "private, no-store"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        if Self.status == 200 { client?.urlProtocol(self, didLoad: Self.onePixelPNG) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

@@ -1,0 +1,117 @@
+import SwiftUI
+import UIKit
+
+/// A recap photo. `id` is the photo; `position` is only the slot it happens to
+/// occupy, and slots are reused the moment one is removed. Takedowns name the
+/// id, so a stale screen cannot take down whatever replaced what it is showing.
+struct NativePartyRecapPhoto: Codable, Identifiable, Equatable {
+    let id: String
+    let position: Int
+    let url: String
+}
+
+struct NativePartyRecap: Codable, Equatable {
+    let publishedAt: String?
+    let photoURLs: [String]
+    /// Absent on a server that predates positions. Falling back to the URL list
+    /// gives a viewer the photos while leaving the host surface unable to edit,
+    /// which is the safe half to keep.
+    let photos: [NativePartyRecapPhoto]?
+
+    static let maxPhotos = 12
+
+    var isPublished: Bool { publishedAt != nil }
+    var addressablePhotos: [NativePartyRecapPhoto] { photos ?? [] }
+    var isEditable: Bool { photos != nil }
+    var occupiedPositions: Set<Int> { Set(addressablePhotos.map(\.position)) }
+    var isFull: Bool { addressablePhotos.count >= Self.maxPhotos }
+}
+
+struct NativePartyRecapAPI {
+    let client: BytspotAPIClient
+
+    func get(_ partyID: String) async throws -> NativePartyRecap {
+        let payload = try await client.trpcQueryPayload(path: "/trpc/events.recap.get", input: ["partyId": partyID])
+        return try JSONDecoder().decode(NativePartyRecap.self, from: JSONSerialization.data(withJSONObject: payload))
+    }
+
+    /// No slot is named. Two devices holding the same album both compute the
+    /// same free slot; only the server, behind the unique index, can allocate
+    /// one without overwriting a photo that is already there.
+    func upload(_ partyID: String, dataURI: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/events.recap.upload", method: "POST", input: ["partyId": partyID, "dataUri": dataURI])
+    }
+
+    func publish(_ partyID: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/events.recap.publish", method: "POST", input: ["partyId": partyID])
+    }
+
+    func unpublish(_ partyID: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/events.recap.unpublish", method: "POST", input: ["partyId": partyID])
+    }
+
+    func remove(_ partyID: String, mediaID: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/events.recap.remove", method: "POST", input: ["partyId": partyID, "mediaId": mediaID])
+    }
+}
+
+/// Recap bytes are the one image surface that re-checks the guest list on every
+/// read, so they cannot be fetched by URL alone the way a cover can. The server
+/// answers `private, no-store`; this loader honours that by keeping decoded
+/// images in memory for the lifetime of the screen and never touching the disk
+/// cache or `URLCache`.
+@MainActor
+final class NativeAuthenticatedImageStore: ObservableObject {
+    @Published private(set) var images: [String: UIImage] = [:]
+    private var inFlight: Set<String> = []
+    private let client: BytspotAPIClient
+
+    /// Its own session, never `URLSession.shared`. The server sends no-store and
+    /// a conforming loader honours it, but a surface that must not persist
+    /// photographs of identifiable people should not be relying on a response
+    /// header to stay out of a disk cache it shares with every other request.
+    static func ephemeralSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        return URLSession(configuration: configuration)
+    }
+
+    /// The token is read per request, not captured once: a store built during
+    /// one session must not keep fetching with that session's token after a
+    /// sign-out or an account switch.
+    convenience init(tokenProvider: @escaping () -> String?) {
+        self.init(client: BytspotAPIClient(tokenProvider: tokenProvider, urlSession: Self.ephemeralSession()))
+    }
+
+    init(client: BytspotAPIClient) { self.client = client }
+
+    func load(_ url: String) async {
+        guard images[url] == nil, !inFlight.contains(url) else { return }
+        inFlight.insert(url)
+        defer { inFlight.remove(url) }
+        guard let data = try? await client.data(path: url), !Task.isCancelled, let image = UIImage(data: data) else { return }
+        images[url] = image
+    }
+
+    /// A removed photo must leave the screen with its bytes, not linger in a
+    /// cache keyed on a URL the server now refuses.
+    func forget(_ url: String) { images.removeValue(forKey: url) }
+    func forgetAll() { images.removeAll() }
+}
+
+struct NativeAuthenticatedImage: View {
+    let url: String
+    @ObservedObject var store: NativeAuthenticatedImageStore
+
+    var body: some View {
+        ZStack {
+            if let image = store.images[url] {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Rectangle().fill(Color.white.opacity(0.06)).overlay(ProgressView().tint(.white.opacity(0.5)))
+            }
+        }
+        .task(id: url) { await store.load(url) }
+    }
+}

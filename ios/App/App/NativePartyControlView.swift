@@ -189,6 +189,10 @@ struct NativePartyControlView: View {
     @State private var guests: [NativePartyControlGuest] = []
     @State private var message = ""; @State private var showingDoor = false; @State private var scanning = false; @State private var passText = ""; @State private var closeConfirmation = false
     @State private var isCheckingIn = false
+    @State private var recap: NativePartyRecap?
+    @State private var recapStore: NativeAuthenticatedImageStore?
+    @State private var pickingRecap = false
+    @State private var recapBusy = false
 
     var body: some View {
         ZStack { BytspotNativeBackground(tier: .green).ignoresSafeArea(); ScrollView { VStack(alignment: .leading, spacing: 15) {
@@ -201,8 +205,21 @@ struct NativePartyControlView: View {
             pendingGuests
             paidGuests
             guestList
+            recapCard
         }.padding(18) } }
-        .preferredColorScheme(.dark).task { await reload() }.sheet(isPresented: $scanning) {
+        .preferredColorScheme(.dark).task { await reload() }
+        // Recap bytes are photographs of identifiable people held under a
+        // no-store contract. They leave with the screen, and they leave the
+        // moment the session that was allowed to see them does.
+        .onDisappear { forgetRecap() }
+        .onChange(of: sessionStore.token) { _ in forgetRecap(); Task { await loadRecap() } }
+        .sheet(isPresented: $pickingRecap) {
+            NativePartyPhotoPicker(selectionLimit: recapFreeSlots) { images in
+                pickingRecap = false
+                Task { await addRecapPhotos(images) }
+            }
+        }
+        .sheet(isPresented: $scanning) {
             NativePartyQRScanner(
                 onCode: { value in passText = value; scanning = false },
                 onUnavailable: { reason in message = reason; scanning = false },
@@ -347,7 +364,117 @@ struct NativePartyControlView: View {
     }
 
     private var guestList: some View { VStack(alignment: .leading, spacing: 9) { Text("GUEST LIST · \(guests.count)").partyControlLabel(); ForEach(guests.filter { $0.status != "pending" }) { guest in HStack { VStack(alignment: .leading) { Text(guest.person.name).font(.system(size: 13, weight: .bold)); Text("\(guest.status.replacingOccurrences(of: "-", with: " ").uppercased()) · \(guest.source.uppercased())").font(.system(size: 9, weight: .black)).foregroundColor(.white.opacity(0.48)) }; Spacer(); if guest.status == "checked-in" { Image(systemName: "checkmark.seal.fill").foregroundColor(NativeTheme.emerald) } } } }.padding(14).partyControlSurface() }
-    @MainActor private func reload() async { guard let token = sessionStore.token else { return }; do { let api = NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })); async let freshSummary = api.summary(partyID); async let freshGuests = api.guests(partyID); summary = try await freshSummary; guests = try await freshGuests; message = "" } catch { message = "Party Control could not refresh." } }
+    @MainActor private func reload() async { guard let token = sessionStore.token else { return }; do { let api = NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })); async let freshSummary = api.summary(partyID); async let freshGuests = api.guests(partyID); summary = try await freshSummary; guests = try await freshGuests; message = "" } catch { message = "Party Control could not refresh." }; await loadRecap() }
+
+    /// Failure leaves the card hidden rather than showing an empty album: a
+    /// server that predates the recap procedures answers the same way as a room
+    /// that cannot have one yet, and neither is worth an error the host cannot act on.
+    @MainActor private func loadRecap() async {
+        guard let token = sessionStore.token else { forgetRecap(); return }
+        // The token is read per request rather than captured, so a store built
+        // in one session stops fetching the moment that session ends.
+        if recapStore == nil { recapStore = NativeAuthenticatedImageStore(tokenProvider: { [weak sessionStore] in sessionStore?.token }) }
+        let api = NativePartyRecapAPI(client: BytspotAPIClient(tokenProvider: { token }))
+        guard let fresh = try? await api.get(partyID) else { forgetRecap(); return }
+        // Bytes for photos that are no longer in the album must not survive in
+        // memory under a URL the server now refuses.
+        let live = Set(fresh.photoURLs)
+        for url in (recap?.photoURLs ?? []) where !live.contains(url) { recapStore?.forget(url) }
+        recap = fresh
+    }
+
+    /// Anything that makes the recap unknowable takes the card and its bytes
+    /// away rather than leaving a host acting on a stale album.
+    @MainActor private func forgetRecap() {
+        recap = nil
+        recapStore?.forgetAll()
+    }
+
+    private var recapFreeSlots: Int { max(0, NativePartyRecap.maxPhotos - (recap?.addressablePhotos.count ?? 0)) }
+
+    private func recapHeadline(_ value: NativePartyRecap) -> String {
+        let count = value.addressablePhotos.count
+        guard count > 0 else { return "RECAP" }
+        return value.isPublished ? "RECAP · \(count) PHOTOS · GUESTS CAN SEE THIS" : "RECAP · \(count) PHOTOS · STAGED"
+    }
+
+    @ViewBuilder private var recapCard: some View {
+        if let recap {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(recapHeadline(recap)).partyControlLabel()
+                if recap.addressablePhotos.isEmpty {
+                    Text("No recap yet. Once the room is over, add the photos of it. Guests the door admitted see them when you publish — nobody else, ever.")
+                        .font(.system(size: 11.5, weight: .semibold)).foregroundColor(.white.opacity(0.55))
+                } else if let recapStore {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                        ForEach(recap.addressablePhotos) { photo in
+                            NativeAuthenticatedImage(url: photo.url, store: recapStore)
+                                .frame(maxWidth: .infinity).frame(height: 104).clipped()
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay(alignment: .topTrailing) {
+                                    Button(action: { Task { await removeRecapPhoto(photo) } }) {
+                                        Image(systemName: "xmark.circle.fill").font(.system(size: 15)).foregroundStyle(.white, .black.opacity(0.55))
+                                    }.buttonStyle(.plain).padding(5).disabled(recapBusy)
+                                }
+                                .accessibilityIdentifier("native-party-recap-photo-\(photo.position)")
+                        }
+                    }
+                }
+                HStack(spacing: 10) {
+                    Button(recap.addressablePhotos.isEmpty ? "Add Photos" : "Add More") { pickingRecap = true }
+                        .controlButton(color: NativeTheme.purple)
+                        .disabled(recapBusy || recap.isFull || !recap.isEditable)
+                    if recap.isPublished {
+                        Button("Unpublish") { Task { await setRecapPublished(false) } }.controlButton(color: NativeTheme.orange).disabled(recapBusy)
+                    } else if !recap.addressablePhotos.isEmpty {
+                        Button("Publish Recap") { Task { await setRecapPublished(true) } }.controlButton(color: NativeTheme.emerald).disabled(recapBusy)
+                    }
+                }
+            }
+            .padding(14).partyControlSurface()
+            .accessibilityIdentifier("native-party-control-recap")
+        }
+    }
+
+    /// Photos go into the lowest free slots, which is what keeps an edited album
+    /// from overwriting a photo that is still there.
+    /// The server allocates each slot. Two devices holding the same album both
+    /// compute the same free slot, so a client that chose one would overwrite a
+    /// photo that is already there.
+    @MainActor private func addRecapPhotos(_ images: [UIImage]) async {
+        guard let token = sessionStore.token else { return }
+        recapBusy = true; defer { recapBusy = false }
+        let api = NativePartyRecapAPI(client: BytspotAPIClient(tokenProvider: { token }))
+        for image in images {
+            guard let prepared = NativePartyPendingImage(image: image) else { message = "Some photos could not be prepared."; continue }
+            do { try await api.upload(partyID, dataURI: prepared.dataURI) }
+            catch { message = "A recap photo could not be added."; break }
+        }
+        // Always reload, including after a failure: some of the batch may have
+        // landed, and the album on screen has to be the album on the server.
+        await loadRecap()
+    }
+
+    @MainActor private func removeRecapPhoto(_ photo: NativePartyRecapPhoto) async {
+        guard let token = sessionStore.token else { return }
+        recapBusy = true; defer { recapBusy = false }
+        do { try await NativePartyRecapAPI(client: BytspotAPIClient(tokenProvider: { token })).remove(partyID, mediaID: photo.id) }
+        catch { message = "That photo could not be removed." }
+        recapStore?.forget(photo.url)
+        await loadRecap()
+    }
+
+    /// A lost response is not a known outcome, so the state on screen comes from
+    /// a reload either way rather than from what was asked for.
+    @MainActor private func setRecapPublished(_ published: Bool) async {
+        guard let token = sessionStore.token else { return }
+        recapBusy = true; defer { recapBusy = false }
+        let api = NativePartyRecapAPI(client: BytspotAPIClient(tokenProvider: { token }))
+        do {
+            if published { try await api.publish(partyID) } else { try await api.unpublish(partyID) }
+        } catch { message = published ? "The recap could not be published." : "The recap could not be unpublished." }
+        await loadRecap()
+    }
     @MainActor private func setPaused() async { guard let token = sessionStore.token else { return }; do { try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).pause(partyID, paused: !(summary?.admissionPaused ?? false)); await reload() } catch { message = "Admission status could not change." } }
     @MainActor private func setClosed(_ closed: Bool) async {
         guard let token = sessionStore.token else { return }

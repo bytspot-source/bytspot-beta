@@ -3021,7 +3021,7 @@ final class NativeProfileDataAPITests: XCTestCase {
         }
 
         store.invalidate()
-        NativeRecapStubProtocol.release.signal()
+        NativeRecapStubProtocol.releaseHeld()
         await inFlight.value
 
         XCTAssertNil(store.images[url], "a read in flight when the store was cleared must not write its bytes back")
@@ -3054,14 +3054,17 @@ final class NativeProfileDataAPITests: XCTestCase {
             return XCTFail("the held read never reached the stub server")
         }
 
-        // The clear invalidates the held read; the reload lands while it is
-        // still blocked in the server, which is the race being pinned.
+        // The clear invalidates the held read; the reload is issued while that
+        // read is still parked in the server, which is the race being pinned.
+        XCTAssertEqual(NativeRecapStubProtocol.requestCount, 1)
         store.invalidate()
         NativeRecapStubProtocol.holdsUntilReleased = false
         await store.load(url)
+
+        XCTAssertEqual(NativeRecapStubProtocol.requestCount, 2, "the reload must reach the server rather than being de-duplicated against the cleared read")
         XCTAssertNotNil(store.images[url], "a reload after a clear must not be blocked by the cleared read still draining")
 
-        NativeRecapStubProtocol.release.signal()
+        NativeRecapStubProtocol.releaseHeld()
         await stale.value
         XCTAssertNotNil(store.images[url], "the stale read draining must not remove the photograph the reload authorized")
     }
@@ -3831,25 +3834,47 @@ final class NativeRecapStubProtocol: URLProtocol {
     /// Holds a read open so a test can clear the store while bytes are still
     /// in the air, which is the only way to prove a clear invalidates work in
     /// flight rather than merely dropping what already arrived.
+    ///
+    /// A held read parks its instance and returns: blocking inside
+    /// `startLoading` would wedge the session's loader thread, so the reload a
+    /// test is trying to race against could never be dispatched at all.
     static var holdsUntilReleased = false
     static let reachedServer = DispatchSemaphore(value: 0)
-    static let release = DispatchSemaphore(value: 0)
+    /// Every request that reached the server, so a test can prove a read was
+    /// actually issued rather than de-duplicated away.
+    static var requestCount = 0
+    private static let heldLock = NSLock()
+    private static var held: [NativeRecapStubProtocol] = []
 
     static func reset() {
         observedAuthorization = nil
         status = 200
         holdsUntilReleased = false
+        requestCount = 0
+        heldLock.lock()
+        held.removeAll()
+        heldLock.unlock()
         // Drain rather than recreate: a test that failed while a read was held
         // would otherwise leave a count behind and let the next test's wait
         // return before its own request had reached the server.
         while reachedServer.wait(timeout: .now()) == .success {}
-        while release.wait(timeout: .now()) == .success {}
     }
 
     /// Bounded so a regression that stops the loader reaching the server fails
-    /// the test instead of hanging the run.
-    static func waitForServer(timeout: DispatchTime = .now() + 5) async -> Bool {
+    /// the test instead of hanging the run. The bound stays well inside the
+    /// client's own 8s request timeout, so a held read is never released by
+    /// expiry instead of by the test.
+    static func waitForServer(timeout: DispatchTime = .now() + 3) async -> Bool {
         await Task.detached { reachedServer.wait(timeout: timeout) == .success }.value
+    }
+
+    /// Lets every parked read deliver its response.
+    static func releaseHeld() {
+        heldLock.lock()
+        let parked = held
+        held.removeAll()
+        heldLock.unlock()
+        parked.forEach { $0.deliver() }
     }
 
     private static let onePixelPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")!
@@ -3859,10 +3884,18 @@ final class NativeRecapStubProtocol: URLProtocol {
 
     override func startLoading() {
         Self.observedAuthorization = request.value(forHTTPHeaderField: "Authorization")
+        Self.requestCount += 1
         if Self.holdsUntilReleased {
+            Self.heldLock.lock()
+            Self.held.append(self)
+            Self.heldLock.unlock()
             Self.reachedServer.signal()
-            Self.release.wait()
+            return
         }
+        deliver()
+    }
+
+    private func deliver() {
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: Self.status,

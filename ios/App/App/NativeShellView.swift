@@ -6588,7 +6588,7 @@ private struct NativeHomeDashboardView: View {
                 crowdLabel: venue.crowd?.label ?? "Explore",
                 categoryEmoji: categoryEmoji(venue.discoverType),
                 primaryCTATitle: Self.honestPrimaryCTATitle(for: card),
-                primaryCTAIcon: Self.primaryCTAIcon(for: card),
+                primaryCTAIcon: Self.primaryCTAIcon(forTitle: Self.honestPrimaryCTATitle(for: card)),
                 secondaryCTATitle: Self.aiPickSecondaryCTA,
                 primaryAction: { triggerPrimaryAIPick(card: card, venue: venue) },
                 secondaryAction: { openAIPickDetails(card: card, venue: venue) }
@@ -6761,8 +6761,14 @@ private struct NativeHomeDashboardView: View {
         )
     }
 
+    /// The icon must not keep a promise the label just withdrew, so it is
+    /// chosen from the title actually shown.
     static func primaryCTAIcon(for card: NativeDiscoverSummary) -> String {
-        switch primaryCTATitle(for: card) {
+        primaryCTAIcon(forTitle: primaryCTATitle(for: card))
+    }
+
+    static func primaryCTAIcon(forTitle title: String) -> String {
+        switch title {
         case "Book Ride": return "car.side.fill"
         case "Route": return "arrow.triangle.turn.up.right.diamond.fill"
         case "View Stay": return "house.fill"
@@ -6926,7 +6932,9 @@ private struct NativeHomeDashboardView: View {
     }
 
     @ViewBuilder private var recommendationsSection: some View {
-        let picks = Array(regionalSnapshot.discoverCards.filter { $0.type == "service" }.prefix(6))
+        // Services is a vendor rail, so pick through the controlled-card
+        // filter rather than straight off the snapshot.
+        let picks = Array(NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot, matching: "service").prefix(6))
         if !picks.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
@@ -10396,7 +10404,8 @@ private struct NativeHomeServiceRecommendationCard: View {
                     Text(card.metadataLine).font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan).lineLimit(1)
                     HStack(spacing: 6) {
                         Text("Vibe \(card.vibeScore)/10").serviceChip(color: colorScheme == .dark ? Color.black.opacity(0.58) : NativeTheme.selectedControlSurface, foreground: colorScheme == .dark ? .white : NativeTheme.textPrimary)
-                        Text(card.cta).serviceChip(color: NativeTheme.cyan, foreground: .black)
+                        Text(NativeDiscoverListing.primaryCTATitle(proposed: card.cta, control: card.control, rail: card.type))
+                            .serviceChip(color: NativeTheme.cyan, foreground: .black)
                     }
                 }
             }

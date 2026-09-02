@@ -442,15 +442,21 @@ final class BytspotTrustEngineTests: XCTestCase {
         return try BookableTemplateCatalog.decode(from: Data(contentsOf: url))
     }
 
-    func testALocalCardNeverEarnsASettlementVerb() throws {
+    func testALocalCardMayOnlyWearChromeWeRecognise() throws {
         let catalog = try listingCatalog()
         let local = NativeDiscoverCardControl.local
-        // A brochure asking to Book or Reserve is refused down to Details.
+        // Settlement verbs are refused.
         XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Book Table", control: local, rail: "dining", catalog: catalog), "Details")
         XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Reserve Spot", control: local, rail: "parking", catalog: catalog), "Details")
-        // Non-settlement nouns are the card's own business and pass through.
-        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "View Menu", control: local, rail: "dining", catalog: catalog), "View Menu")
-        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Open details", control: local, rail: "coffee", catalog: catalog), "Open details")
+        // Verbless nouns that name a transaction are refused without any
+        // wording heuristic, because the allowlist does not recognise them.
+        for cta in ["Tickets", "Passes", "Table for 2", "VIP Table", "Admission", "Cover", "Entry", "Preorder", "Prebook", "Bottle Service", "Boletos"] {
+            XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: local, rail: "nightlife", catalog: catalog), "Details", "\(cta) survived on a local card")
+        }
+        // Recognised browse chrome survives untouched.
+        for cta in ["View Menu", "Open details", "Details", "View Stay", "View Pass", "Plan Dining", "Plan Stop", "Plan Arrival", "Route", "Get Directions", "Request Transfer", "Check In", "Checked In"] {
+            XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: local, rail: "dining", catalog: catalog), cta, "\(cta) is honest chrome and must survive")
+        }
     }
 
     func testAVerblessSettlementPromiseIsStillRefused() throws {
@@ -483,10 +489,13 @@ final class BytspotTrustEngineTests: XCTestCase {
             XCTAssertTrue(NativeDiscoverListing.promisesSettlement(cta, catalog: catalog), "\(cta) promises capacity and must be refused")
             XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: local, rail: "entertainment", catalog: catalog), "Details")
         }
-        // Honest browse chrome, including the pinned View Pass, survives.
+        // Honest browse chrome, including the pinned View Pass, survives and
+        // is never mistaken for a promise on a controlled card either.
         for cta in ["Get Directions", "View Pass", "View Menu", "View Stay", "Plan Dining", "Plan Stop", "Plan Arrival", "Route", "Details", "Request Transfer", "Check In", "Checked In"] {
             XCTAssertFalse(NativeDiscoverListing.promisesSettlement(cta, catalog: catalog), "\(cta) is honest chrome and must survive")
+            XCTAssertTrue(NativeDiscoverListing.isBrowseChrome(cta), "\(cta) must be recognised chrome")
             XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: local, rail: "dining", catalog: catalog), cta)
+            XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: NativeDiscoverCardControl.vendor, rail: "dining", catalog: catalog), cta)
         }
     }
 
@@ -534,6 +543,16 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Reserve Table", control: vendor, rail: "dining", settlementReady: true, catalog: catalog), "Reserve Table")
         // A local card stays refused even after settlement exists.
         XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Reserve Table", control: local, rail: "dining", settlementReady: true, catalog: catalog), "Details")
+    }
+
+    func testAControlledVendorKeepsItsOwnWordsUnlessItPromises() throws {
+        let catalog = try listingCatalog()
+        let vendor = NativeDiscoverCardControl.vendor
+        // A controlled vendor is a known party, so it is not held to the
+        // allowlist - only its settlement promises are downgraded to Request.
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Book Massage", control: vendor, rail: "service", catalog: catalog), "Request")
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Get Tickets", control: vendor, rail: "entertainment", catalog: catalog), "Request")
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Ghanaian Home Cooking", control: vendor, rail: "service", catalog: catalog), "Ghanaian Home Cooking")
     }
 
     func testARailWithNoSKUCannotSettle() throws {

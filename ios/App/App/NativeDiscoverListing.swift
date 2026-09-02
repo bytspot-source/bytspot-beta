@@ -59,6 +59,24 @@ enum NativeDiscoverListing {
     /// carry no settlement verb yet commit to a transaction, so a CTA counts
     /// as a promise if it names a settlement verb, claims a held good, or is
     /// simply something the catalog sells.
+    /// The only things an uncontrolled card is allowed to say. Guessing which
+    /// words promise money is a losing game against vendor-authored and
+    /// non-English text — "Tickets", "VIP Table", "Admission" name a
+    /// transaction with no verb at all — so a local card may only wear chrome
+    /// we recognise, and anything else becomes Details.
+    static let browseChrome: Set<String> = [
+        "details", "open details", "view details", "more details",
+        "view menu", "view stay", "view pass", "view photos", "view hours",
+        "plan dining", "plan stop", "plan arrival", "plan a stop",
+        "route", "directions", "get directions", "navigate",
+        "request transfer", "check in", "checked in",
+        "explore", "browse", "save", "share", "call", "website", "menu"
+    ]
+
+    static func isBrowseChrome(_ title: String) -> Bool {
+        browseChrome.contains(normalized(title))
+    }
+
     static func promisesSettlement(_ title: String, catalog: BookableTemplateCatalog? = BookableTemplateCatalog.shared) -> Bool {
         if isSettlementVerb(title) || claimsHeldGoods(title) { return true }
         guard let catalog else { return false }
@@ -101,9 +119,15 @@ enum NativeDiscoverListing {
         settlementReady: Bool = NativeDiscoverListing.settlementReady,
         catalog: BookableTemplateCatalog? = BookableTemplateCatalog.shared
     ) -> String {
-        let state = fulfillment(control: control, rail: rail, settlementReady: settlementReady, catalog: catalog)
-        guard state != .book, promisesSettlement(proposed, catalog: catalog) else { return proposed }
-        return state == .details ? "Details" : "Request"
+        switch fulfillment(control: control, rail: rail, settlementReady: settlementReady, catalog: catalog) {
+        case .book:
+            return proposed
+        case .details:
+            // Allowlist, not blocklist: unrecognised wording is refused.
+            return isBrowseChrome(proposed) ? proposed : "Details"
+        case .request:
+            return promisesSettlement(proposed, catalog: catalog) ? "Request" : proposed
+        }
     }
 
     static func planHold(

@@ -39,7 +39,19 @@ const rootAasa = read('Root AASA alias', files.rootAasa);
 const headers = read('AASA headers', files.headers);
 const index = read('index.html', files.index);
 const clipPatchVerifier = read('ClipPatchVerifier.swift', files.clipPatchVerifier);
-const plistBool = (key, value) => new RegExp(`<key>${key}</key>\\s*<${value ? 'true' : 'false'}/>`, 'm').test(plist);
+const stripSwiftComments = (source) => source
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/\/\/.*$/gm, '');
+const stripXmlComments = (source) => source.replace(/<!--[\s\S]*?-->/g, '');
+const clipContentViewCode = stripSwiftComments(clipContentView);
+const plistCode = stripXmlComments(plist);
+const plistArray = (key) => {
+  const block = plistCode.match(new RegExp(`<key>${key}</key>\\s*<array>([\\s\\S]*?)</array>`));
+  if (!block) return null;
+  return [...block[1].matchAll(/<string>([^<]+)<\/string>/g)].map((match) => match[1]);
+};
+const sameStrings = (actual, expected) => Array.isArray(actual) && actual.length === expected.length && actual.every((value, index) => value === expected[index]);
+const plistBool = (key, value) => new RegExp(`<key>${key}</key>\\s*<${value ? 'true' : 'false'}/>`, 'm').test(plistCode);
 const aasaJson = JSON.parse(aasa);
 const rootAasaJson = JSON.parse(rootAasa);
 const applinkIDs = new Set((aasaJson.applinks?.details ?? []).flatMap((detail) => detail.appIDs ?? []));
@@ -88,6 +100,9 @@ const checks = [
   ['Broni Home Taste has curated Platinum dining line items', clipPatchVerifier.includes('Broni Home Taste') && clipPatchVerifier.includes('broniHomeTasteFavorites') && clipPatchVerifier.includes('Jollof Rice with Chicken') && clipPatchVerifier.includes('Banku and Fried Fish/Tilapia') && !clipPatchVerifier.includes('Omotuo') && !clipPatchVerifier.includes('Acheke')],
   ['Black hold near-expiration QA hook is DEBUG-only', clipContentView.includes('holdRemainingOverrideForPreview') && clipContentView.includes('holdRemainingSeconds') && clipContentView.includes('#if DEBUG') && clipContentView.includes('Contact Concierge')],
   ['Dining success hides property-access CTA', clipContentView.includes('isPlatinumDiningService') && clipContentView.includes('hidesPropertyAccessAction') && clipContentView.includes('if !hidesPropertyAccessAction') && clipContentView.includes('Your order is confirmed instantly')],
+  ['Party Pass fill-scaled posters report the container size, not the bitmap', clipContentViewCode.includes('struct ClipContainedFillImage') && clipContentViewCode.includes('ClipContainedFillImage(url: poster)') && !clipContentViewCode.includes('.overlay(AsyncImage(url: poster)')],
+  ['Party Pass scroll column is pinned to the viewport width', clipContentViewCode.includes('.frame(width: viewport.size.width, alignment: .leading)')],
+  ['Clip iPhone is portrait-only; iPad keeps the App orientation set', sameStrings(plistArray('UISupportedInterfaceOrientations'), ['UIInterfaceOrientationPortrait']) && sameStrings(plistArray('UISupportedInterfaceOrientations~ipad'), ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationPortraitUpsideDown', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'])],
 ];
 
 const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);

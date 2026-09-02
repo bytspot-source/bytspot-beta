@@ -65,6 +65,11 @@ final class NativeAuthenticatedImageStore: ObservableObject {
     @Published private(set) var images: [String: UIImage] = [:]
     private var inFlight: Set<String> = []
     private let client: BytspotAPIClient
+    /// Bumped by every clear. A read that was already in the air when the
+    /// screen or the session went away must not be able to put a photograph
+    /// back on it: clearing has to invalidate work in flight, not just the
+    /// bytes that happen to have arrived already.
+    private var epoch = 0
 
     /// Its own session, never `URLSession.shared`. The server sends no-store and
     /// a conforming loader honours it, but a surface that must not persist
@@ -88,16 +93,28 @@ final class NativeAuthenticatedImageStore: ObservableObject {
 
     func load(_ url: String) async {
         guard images[url] == nil, !inFlight.contains(url) else { return }
+        let requested = epoch
         inFlight.insert(url)
         defer { inFlight.remove(url) }
-        guard let data = try? await client.data(path: url), !Task.isCancelled, let image = UIImage(data: data) else { return }
+        guard let data = try? await client.data(path: url), !Task.isCancelled, epoch == requested,
+              let image = UIImage(data: data) else { return }
         images[url] = image
     }
 
     /// A removed photo must leave the screen with its bytes, not linger in a
     /// cache keyed on a URL the server now refuses.
     func forget(_ url: String) { images.removeValue(forKey: url) }
-    func forgetAll() { images.removeAll() }
+
+    func forgetAll() {
+        epoch &+= 1
+        images.removeAll()
+    }
+
+    /// A decoded photograph is not re-authorized by looking at it again: the
+    /// store answers from memory once the bytes have arrived. A surface whose
+    /// permission can be taken away has to drop what it is holding and ask
+    /// again, which is what this is for.
+    func invalidate() { forgetAll() }
 }
 
 struct NativeAuthenticatedImage: View {

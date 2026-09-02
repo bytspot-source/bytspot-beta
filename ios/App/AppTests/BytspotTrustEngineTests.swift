@@ -2370,15 +2370,24 @@ final class NativeProfileDataAPITests: XCTestCase {
         // A server that predates the recap surface says neither.
         let legacy = try await invite([:])
         XCTAssertFalse(legacy.recapAvailable)
+        XCTAssertEqual(legacy.recapPhotoCount, 0)
 
         // Disagreement fails closed rather than offering an album that cannot
         // open, in either direction.
         let availableButEmpty = try await invite(["recapAvailable": true, "recapPhotoCount": 0])
         XCTAssertFalse(availableButEmpty.recapAvailable)
+        XCTAssertEqual(availableButEmpty.recapPhotoCount, 0)
         let countedButUnavailable = try await invite(["recapAvailable": false, "recapPhotoCount": 4])
         XCTAssertFalse(countedButUnavailable.recapAvailable)
+
+        // A count that cannot be a number of photographs is not one.
         let negativeCount = try await invite(["recapAvailable": true, "recapPhotoCount": -3])
+        XCTAssertFalse(negativeCount.recapAvailable)
         XCTAssertEqual(negativeCount.recapPhotoCount, 0)
+
+        // A non-boolean claim is not a claim.
+        let malformed = try await invite(["recapAvailable": "yes", "recapPhotoCount": 3])
+        XCTAssertFalse(malformed.recapAvailable)
     }
 
     func testNativePartyPassInviteDecodesServerRedactedWithheldLocation() async throws {
@@ -2990,6 +2999,37 @@ final class NativeProfileDataAPITests: XCTestCase {
 
         store.forgetAll()
         XCTAssertTrue(store.images.isEmpty)
+    }
+
+    @MainActor
+    func testRecapClearInvalidatesReadsAlreadyInFlight() async throws {
+        // Clearing the store is how sign-out, an account switch, leaving the
+        // screen, and revalidation all drop recap bytes. If it only removed
+        // what had already arrived, the next response to land would undo it
+        // and put a photograph back on a screen no longer allowed to show one.
+        NativeRecapStubProtocol.reset()
+        NativeRecapStubProtocol.holdsUntilReleased = true
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.protocolClasses = [NativeRecapStubProtocol.self]
+        let store = NativeAuthenticatedImageStore(client: BytspotAPIClient(tokenProvider: { "held-token" }, urlSession: URLSession(configuration: configuration)))
+        let url = "https://api.test/media/parties/held"
+
+        let inFlight = Task { await store.load(url) }
+        await Task.detached { NativeRecapStubProtocol.reachedServer.wait() }.value
+
+        store.invalidate()
+        NativeRecapStubProtocol.release.signal()
+        await inFlight.value
+
+        XCTAssertNil(store.images[url], "a read in flight when the store was cleared must not write its bytes back")
+        XCTAssertTrue(store.images.isEmpty)
+
+        // The store still works afterwards: invalidation drops the round trip,
+        // it does not wedge the loader.
+        NativeRecapStubProtocol.reset()
+        await store.load(url)
+        XCTAssertNotNil(store.images[url])
     }
 
     @MainActor
@@ -3754,8 +3794,18 @@ extension BytspotTrustEngineTests {
 final class NativeRecapStubProtocol: URLProtocol {
     static var observedAuthorization: String?
     static var status = 200
+    /// Holds a read open so a test can clear the store while bytes are still
+    /// in the air, which is the only way to prove a clear invalidates work in
+    /// flight rather than merely dropping what already arrived.
+    static var holdsUntilReleased = false
+    static let reachedServer = DispatchSemaphore(value: 0)
+    static let release = DispatchSemaphore(value: 0)
 
-    static func reset() { observedAuthorization = nil; status = 200 }
+    static func reset() {
+        observedAuthorization = nil
+        status = 200
+        holdsUntilReleased = false
+    }
 
     private static let onePixelPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")!
 
@@ -3764,6 +3814,10 @@ final class NativeRecapStubProtocol: URLProtocol {
 
     override func startLoading() {
         Self.observedAuthorization = request.value(forHTTPHeaderField: "Authorization")
+        if Self.holdsUntilReleased {
+            Self.reachedServer.signal()
+            Self.release.wait()
+        }
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: Self.status,

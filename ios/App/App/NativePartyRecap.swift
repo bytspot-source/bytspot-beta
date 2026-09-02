@@ -63,7 +63,10 @@ struct NativePartyRecapAPI {
 @MainActor
 final class NativeAuthenticatedImageStore: ObservableObject {
     @Published private(set) var images: [String: UIImage] = [:]
-    private var inFlight: Set<String> = []
+    /// Keyed by the epoch each read belongs to. A clear must not only stop the
+    /// old read writing back, it must stop the old read's bookkeeping from
+    /// suppressing the authorized read that replaces it.
+    private var inFlight: [String: Int] = [:]
     private let client: BytspotAPIClient
     /// Bumped by every clear. A read that was already in the air when the
     /// screen or the session went away must not be able to put a photograph
@@ -92,10 +95,13 @@ final class NativeAuthenticatedImageStore: ObservableObject {
     init(client: BytspotAPIClient) { self.client = client }
 
     func load(_ url: String) async {
-        guard images[url] == nil, !inFlight.contains(url) else { return }
         let requested = epoch
-        inFlight.insert(url)
-        defer { inFlight.remove(url) }
+        // Only a read from the current epoch de-duplicates. One still draining
+        // from a cleared epoch has to be overtaken, or the cell it belongs to
+        // waits on bytes this store has already promised never to accept.
+        guard images[url] == nil, inFlight[url] != requested else { return }
+        inFlight[url] = requested
+        defer { if inFlight[url] == requested { inFlight.removeValue(forKey: url) } }
         guard let data = try? await client.data(path: url), !Task.isCancelled, epoch == requested,
               let image = UIImage(data: data) else { return }
         images[url] = image

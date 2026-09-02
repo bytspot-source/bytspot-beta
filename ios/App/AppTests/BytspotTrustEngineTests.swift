@@ -3016,7 +3016,9 @@ final class NativeProfileDataAPITests: XCTestCase {
         let url = "https://api.test/media/parties/held"
 
         let inFlight = Task { await store.load(url) }
-        await Task.detached { NativeRecapStubProtocol.reachedServer.wait() }.value
+        guard await NativeRecapStubProtocol.waitForServer() else {
+            return XCTFail("the held read never reached the stub server")
+        }
 
         store.invalidate()
         NativeRecapStubProtocol.release.signal()
@@ -3030,6 +3032,38 @@ final class NativeProfileDataAPITests: XCTestCase {
         NativeRecapStubProtocol.reset()
         await store.load(url)
         XCTAssertNotNil(store.images[url])
+    }
+
+    @MainActor
+    func testRecapReloadIsNotBlockedByAReadStillDrainingFromAClearedEpoch() async throws {
+        // Revalidation clears the store and immediately asks again. If the
+        // cleared read is still in the air, its own in-flight bookkeeping must
+        // not suppress the authorized read that replaces it: the store has
+        // already promised never to accept the old bytes, so a cell waiting on
+        // them would stay a placeholder for as long as the screen is open.
+        NativeRecapStubProtocol.reset()
+        NativeRecapStubProtocol.holdsUntilReleased = true
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.protocolClasses = [NativeRecapStubProtocol.self]
+        let store = NativeAuthenticatedImageStore(client: BytspotAPIClient(tokenProvider: { "held-token" }, urlSession: URLSession(configuration: configuration)))
+        let url = "https://api.test/media/parties/overtaken"
+
+        let stale = Task { await store.load(url) }
+        guard await NativeRecapStubProtocol.waitForServer() else {
+            return XCTFail("the held read never reached the stub server")
+        }
+
+        // The clear invalidates the held read; the reload lands while it is
+        // still blocked in the server, which is the race being pinned.
+        store.invalidate()
+        NativeRecapStubProtocol.holdsUntilReleased = false
+        await store.load(url)
+        XCTAssertNotNil(store.images[url], "a reload after a clear must not be blocked by the cleared read still draining")
+
+        NativeRecapStubProtocol.release.signal()
+        await stale.value
+        XCTAssertNotNil(store.images[url], "the stale read draining must not remove the photograph the reload authorized")
     }
 
     @MainActor
@@ -3805,6 +3839,17 @@ final class NativeRecapStubProtocol: URLProtocol {
         observedAuthorization = nil
         status = 200
         holdsUntilReleased = false
+        // Drain rather than recreate: a test that failed while a read was held
+        // would otherwise leave a count behind and let the next test's wait
+        // return before its own request had reached the server.
+        while reachedServer.wait(timeout: .now()) == .success {}
+        while release.wait(timeout: .now()) == .success {}
+    }
+
+    /// Bounded so a regression that stops the loader reaching the server fails
+    /// the test instead of hanging the run.
+    static func waitForServer(timeout: DispatchTime = .now() + 5) async -> Bool {
+        await Task.detached { reachedServer.wait(timeout: timeout) == .success }.value
     }
 
     private static let onePixelPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")!

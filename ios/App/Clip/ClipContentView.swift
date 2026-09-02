@@ -362,7 +362,7 @@ struct PartyPassClipView: View {
             ZStack {
                 partyBackdrop
                 ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 12) {
                         header
                         hero
                         passSummary
@@ -370,6 +370,9 @@ struct PartyPassClipView: View {
                         details
                         hostDestinations
                         if !invite.itinerary.isEmpty { program }
+                        // Host Studio no longer ships a pre-party album. Recap
+                        // photos, if any, arrive after the room — never as Clip
+                        // payload on first RSVP.
                         if !invite.photoURLs.isEmpty { partyAlbum }
                         guestStack
                     }
@@ -1291,7 +1294,7 @@ struct ClipInviteView: View {
         ZStack {
             eventBackdrop
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 21) {
+                VStack(alignment: .leading, spacing: 12) {
                     topControls
                     if invite.isHostStudioParty {
                         partyHero
@@ -1299,6 +1302,8 @@ struct ClipInviteView: View {
                         partyEssentials
                         partyPlan
                         guestList
+                        // Pre-party Host Studio albums are gone. This only
+                        // renders if invite.photoURLs still has legacy media.
                         if !invite.photoURLs.isEmpty { photoAlbum }
                     } else {
                         eventHeader
@@ -1403,11 +1408,9 @@ struct ClipInviteView: View {
         ZStack(alignment: .bottomLeading) {
             RoundedRectangle(cornerRadius: 32, style: .continuous).fill(ClipTheme.panelElevated)
             if let poster = invite.displayPosterURL {
-                GeometryReader { proxy in
-                    AsyncImage(url: poster) { image in
-                        image.resizable().scaledToFill().frame(width: proxy.size.width, height: proxy.size.height).clipped()
-                    } placeholder: { Color.clear }
-                }
+                // Same contained-fill as PartyPassClipView: a raw fill image
+                // reports the bitmap it scaled to and widens the invite column.
+                ClipContainedFillImage(url: poster, contentMode: .fill)
             } else {
                 LinearGradient(colors: [ClipTheme.cyan.opacity(0.82), ClipTheme.magenta.opacity(0.58), ClipTheme.orange.opacity(0.38), ClipTheme.panelElevated], startPoint: .topLeading, endPoint: .bottomTrailing)
             }

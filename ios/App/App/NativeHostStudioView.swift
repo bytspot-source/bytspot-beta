@@ -147,9 +147,7 @@ struct NativeHostStudioView: View {
     @State private var publishStage = "draft"
     @State private var idempotencyKey = UUID().uuidString.lowercased()
     @State private var coverMedia: NativePartyPendingImage?
-    @State private var albumMedia: [NativePartyPendingImage] = []
     @State private var showCoverPicker = false
-    @State private var showAlbumPicker = false
     @State private var arrivalVenueCandidates: [NativePartyArrivalVenue] = []
     @State private var registeredVenues: [NativePartyArrivalVenue] = []
     @State private var boundArrivalVenueID: String?
@@ -192,9 +190,6 @@ struct NativeHostStudioView: View {
         .onDisappear { publishTask?.cancel() }
         .sheet(isPresented: $showCoverPicker) {
             NativePartyPhotoPicker(selectionLimit: 1) { images in setCoverImage(images.first) }
-        }
-        .sheet(isPresented: $showAlbumPicker) {
-            NativePartyPhotoPicker(selectionLimit: max(1, 6 - albumMedia.count)) { images in addAlbumImages(images) }
         }
         .sheet(isPresented: $showingPartyControl) {
             if let party = publishPresentation.party { NativePartyControlView(partyID: party.id).environmentObject(sessionStore) }
@@ -597,7 +592,7 @@ struct NativeHostStudioView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("PARTY MEDIA").studioLabel()
-                    Text("Cover poster + album").font(.system(size: 14, weight: .black))
+                    Text("Cover poster").font(.system(size: 14, weight: .black))
                     Text(NativePartyPendingImage.coverSpecLabel).font(.system(size: 10, weight: .semibold)).foregroundColor(.white.opacity(0.52))
                 }
                 Spacer()
@@ -626,26 +621,7 @@ struct NativeHostStudioView: View {
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.15)))
             }.buttonStyle(.plain)
             Text("Anything else is centre-cropped to 3:2 when you publish.").font(.system(size: 10, weight: .semibold)).foregroundColor(.white.opacity(0.48))
-            Text("Guests also see this poster behind the whole invite, dimmed.").font(.system(size: 10, weight: .semibold)).foregroundColor(.white.opacity(0.48))
-            HStack {
-                Text("PARTY ALBUM · \(albumMedia.count)/6").studioLabel()
-                Spacer()
-                if albumMedia.count < 6 {
-                    Button("Add photos") { showAlbumPicker = true }.font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan)
-                }
-            }
-            if !albumMedia.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 9) {
-                        ForEach(albumMedia) { media in
-                            Image(uiImage: media.preview).resizable().scaledToFill().frame(width: 72, height: 88).clipped().clipShape(RoundedRectangle(cornerRadius: 12))
-                                .overlay(alignment: .topTrailing) { Button(action: { albumMedia.removeAll { $0.id == media.id } }) { Image(systemName: "xmark.circle.fill").foregroundColor(.white).background(Circle().fill(.black)) }.offset(x: 5, y: -5) }
-                        }
-                    }.padding(.vertical, 5)
-                }
-            } else {
-                Text("Only photos selected here appear in the Party Pass.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.48))
-            }
+            Text("Guests also see this poster behind the whole invite, dimmed. Recap photos go in Party Control after the room.").font(.system(size: 10, weight: .semibold)).foregroundColor(.white.opacity(0.48))
         }.padding(14).studioSurface()
     }
 
@@ -798,11 +774,6 @@ struct NativeHostStudioView: View {
                 publishStage = "cover upload"
                 publishPresentation.message = "Uploading cover poster…"
                 _ = try await api.uploadMedia(partyID: partyID, kind: .cover, dataURI: coverMedia.dataURI)
-            }
-            for (index, media) in albumMedia.enumerated() {
-                publishStage = "album upload"
-                publishPresentation.message = "Uploading album photo \(index + 1) of \(albumMedia.count)…"
-                _ = try await api.uploadMedia(partyID: partyID, kind: .album, index: index, dataURI: media.dataURI)
             }
             try Task.checkCancellation()
             guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
@@ -1018,13 +989,6 @@ struct NativeHostStudioView: View {
         guard let image, let media = NativePartyPendingImage(image: image, shape: .cover) else { if image != nil { publishPresentation.message = "That cover could not be prepared." }; return }
         coverMedia = media
     }
-
-    private func addAlbumImages(_ images: [UIImage]) {
-        let candidates = Array(images.prefix(6 - albumMedia.count))
-        let prepared = candidates.compactMap { NativePartyPendingImage(image: $0) }
-        albumMedia.append(contentsOf: prepared)
-        if prepared.count != candidates.count { publishPresentation.message = "Some photos could not be prepared." }
-    }
 }
 
 struct NativePartyPendingImage: Identifiable {
@@ -1107,7 +1071,7 @@ struct NativePartyPendingImage: Identifiable {
 }
 
 /// Shared with the recap surface in Party Control, which needs the same
-/// ordered, limited selection the Host Studio album uses.
+/// ordered, limited selection the cover picker uses.
 struct NativePartyPhotoPicker: UIViewControllerRepresentable {
     let selectionLimit: Int
     let completion: ([UIImage]) -> Void

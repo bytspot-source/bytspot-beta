@@ -42,14 +42,16 @@ const clipPatchVerifier = read('ClipPatchVerifier.swift', files.clipPatchVerifie
 const stripSwiftComments = (source) => source
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .replace(/\/\/.*$/gm, '');
+const stripXmlComments = (source) => source.replace(/<!--[\s\S]*?-->/g, '');
 const clipContentViewCode = stripSwiftComments(clipContentView);
+const plistCode = stripXmlComments(plist);
 const plistArray = (key) => {
-  const block = plist.match(new RegExp(`<key>${key}</key>\\s*<array>([\\s\\S]*?)</array>`));
+  const block = plistCode.match(new RegExp(`<key>${key}</key>\\s*<array>([\\s\\S]*?)</array>`));
   if (!block) return null;
   return [...block[1].matchAll(/<string>([^<]+)<\/string>/g)].map((match) => match[1]);
 };
 const sameStrings = (actual, expected) => Array.isArray(actual) && actual.length === expected.length && actual.every((value, index) => value === expected[index]);
-const plistBool = (key, value) => new RegExp(`<key>${key}</key>\\s*<${value ? 'true' : 'false'}/>`, 'm').test(plist);
+const plistBool = (key, value) => new RegExp(`<key>${key}</key>\\s*<${value ? 'true' : 'false'}/>`, 'm').test(plistCode);
 const aasaJson = JSON.parse(aasa);
 const rootAasaJson = JSON.parse(rootAasa);
 const applinkIDs = new Set((aasaJson.applinks?.details ?? []).flatMap((detail) => detail.appIDs ?? []));

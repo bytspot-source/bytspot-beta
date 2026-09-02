@@ -203,12 +203,17 @@ private struct ClipPartyInviteStateView: View {
 /// ScrollView / ZStack that contains it.
 private struct ClipContainedFillImage: View {
     let url: URL
+    /// Filling is right for the hero, which is a poster-shaped card. It is
+    /// wrong full-bleed: covering a tall phone with a 3:2 poster scales it to
+    /// the screen height and leaves only the middle third of its width on
+    /// screen, so the poster reads as an enlarged fragment of itself.
+    var contentMode: ContentMode = .fill
 
     var body: some View {
         GeometryReader { proxy in
             AsyncImage(url: url) { image in
                 image.resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: contentMode)
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .clipped()
             } placeholder: { Color.clear }
@@ -377,7 +382,8 @@ struct PartyPassClipView: View {
         ZStack {
             ClipTheme.background.ignoresSafeArea()
             if let poster = invite.displayPosterURL {
-                ClipContainedFillImage(url: poster)
+                ClipContainedFillImage(url: poster, contentMode: .fit)
+                    .blur(radius: 18)
                     .opacity(0.18).ignoresSafeArea()
             }
             LinearGradient(colors: [Color.black.opacity(0.10), ClipTheme.background.opacity(0.94), ClipTheme.background], startPoint: .top, endPoint: .bottom).ignoresSafeArea()

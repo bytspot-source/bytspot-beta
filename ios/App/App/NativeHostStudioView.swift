@@ -598,6 +598,7 @@ struct NativeHostStudioView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("PARTY MEDIA").studioLabel()
                     Text("Cover poster + album").font(.system(size: 14, weight: .black))
+                    Text(NativePartyPendingImage.coverSpecLabel).font(.system(size: 10, weight: .semibold)).foregroundColor(.white.opacity(0.52))
                 }
                 Spacer()
                 Text("HOST CONTROLLED").font(.system(size: 8.5, weight: .black)).foregroundColor(NativeTheme.emerald)
@@ -605,15 +606,26 @@ struct NativeHostStudioView: View {
             Button(action: { showCoverPicker = true }) {
                 ZStack {
                     if let coverMedia {
-                        Image(uiImage: coverMedia.preview).resizable().scaledToFill()
+                        // A fill image reports the size it scaled to, so it is
+                        // pinned to the tile before it can widen the editor.
+                        GeometryReader { proxy in
+                            Image(uiImage: coverMedia.preview).resizable().scaledToFill()
+                                .frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                        }
                     } else {
                         LinearGradient(colors: [NativeTheme.purple.opacity(0.7), NativeTheme.cyan.opacity(0.35)], startPoint: .topLeading, endPoint: .bottomTrailing)
                         Label("Choose cover poster", systemImage: "photo.badge.plus").font(.system(size: 13, weight: .black))
                     }
                 }
-                .frame(maxWidth: .infinity).frame(height: 132).clipped().clipShape(RoundedRectangle(cornerRadius: 16))
+                // The tile is the declared poster shape, not a wide strip: a
+                // host framing a poster in 2.5:1 could not see the crop a
+                // guest gets.
+                .frame(maxWidth: .infinity)
+                .aspectRatio(NativePartyPendingImage.coverAspectRatio, contentMode: .fit)
+                .clipped().clipShape(RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.15)))
             }.buttonStyle(.plain)
+            Text("Guests see a center crop of this poster.").font(.system(size: 10, weight: .semibold)).foregroundColor(.white.opacity(0.48))
             HStack {
                 Text("PARTY ALBUM · \(albumMedia.count)/6").studioLabel()
                 Spacer()
@@ -1020,6 +1032,15 @@ struct NativePartyPendingImage: Identifiable {
     /// cellular at the door.
     static let maxPixelDimension: CGFloat = 1600
     static let maxByteCount = 600_000
+
+    /// Every guest surface crops the cover to its own height, so the shape a
+    /// host should hand us is declared once here and stated in the editor.
+    /// 3:2 at the pixel ceiling above.
+    static let coverAspectRatio: CGFloat = 3.0 / 2.0
+    static let coverPixelSize = CGSize(width: 1600, height: 1067)
+    static var coverSpecLabel: String {
+        "\(Int(coverPixelSize.width)) × \(Int(coverPixelSize.height)) · 3:2 landscape"
+    }
 
     let id = UUID()
     let preview: UIImage

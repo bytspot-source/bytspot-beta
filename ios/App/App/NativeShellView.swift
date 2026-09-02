@@ -4216,8 +4216,11 @@ private struct NativeNetworkHubView: View {
                                 // longer than the venue names it stands in for
                                 // and clips at 375pt on one. Shortening it
                                 // would drift from the words the pass uses,
-                                // which is the whole point of saying it here.
-                                Text("\(room.safeLocationLabel) · \(room.startsAtDate?.formatted(date: .abbreviated, time: .shortened) ?? room.startsAt)").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                                // which is the whole point of saying it here. Three
+                                // rather than two: the longest case has 0.1pt of
+                                // slack at 375pt, so any Dynamic Type step would
+                                // clip the time off the end of a two-line limit.
+                                Text("\(room.safeLocationLabel) · \(room.startsAtDate?.formatted(date: .abbreviated, time: .shortened) ?? room.startsAt)").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(3).fixedSize(horizontal: false, vertical: true)
                                 if room.recapAvailable {
                                     HStack(spacing: 4) {
                                         Image(systemName: "photo.stack.fill").font(.system(size: 8, weight: .black))

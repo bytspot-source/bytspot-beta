@@ -475,6 +475,52 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(NativeDiscoverListing.promisesSettlement("View Menu", catalog: catalog))
     }
 
+    func testAnAcquisitionVerbOnlyCountsAgainstAClaimedGood() throws {
+        let catalog = try listingCatalog()
+        let local = NativeDiscoverCardControl.local
+        // Verbless promises from arbitrary API CTA text.
+        for cta in ["Get Tickets", "Get Ticket", "Join Guest List", "Claim Pass", "Grab a Table", "RSVP", "Pre-book", "Register for Class"] {
+            XCTAssertTrue(NativeDiscoverListing.promisesSettlement(cta, catalog: catalog), "\(cta) promises capacity and must be refused")
+            XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: local, rail: "entertainment", catalog: catalog), "Details")
+        }
+        // Honest browse chrome, including the pinned View Pass, survives.
+        for cta in ["Get Directions", "View Pass", "View Menu", "View Stay", "Plan Dining", "Plan Stop", "Plan Arrival", "Route", "Details", "Request Transfer", "Check In", "Checked In"] {
+            XCTAssertFalse(NativeDiscoverListing.promisesSettlement(cta, catalog: catalog), "\(cta) is honest chrome and must survive")
+            XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: local, rail: "dining", catalog: catalog), cta)
+        }
+    }
+
+    func testHomeAIPickRefusesAPromiseALocalCardCannotKeep() throws {
+        let catalog = try listingCatalog()
+        let local = NativeDiscoverCardControl.local
+        // Home AI Pick hands its already-transformed title to the same plug,
+        // so a local card's promise is refused on Home exactly as in Discover.
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Book Now", control: local, rail: "entertainment", catalog: catalog), "Details")
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Get Tickets", control: local, rail: "entertainment", catalog: catalog), "Details")
+        // Home's own category chrome is not a promise and passes through.
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "View Stay", control: local, rail: "boutique_apartment", catalog: catalog), "View Stay")
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Plan Stop", control: local, rail: "coffee", catalog: catalog), "Plan Stop")
+    }
+
+    func testAPlanFromOutsideTheCorridorIsNeverPriced() throws {
+        let catalog = try listingCatalog()
+        let door = try XCTUnwrap(NativeAtlantaCorridor.midtown.first { $0.id == "door-stall-colony" })
+        let known = NativeAtlantaCorridor.plan(for: door)
+        XCTAssertNotNil(NativeAtlantaCorridor.discoverType(forPlan: known))
+        // An unknown hang has no rail, so it cannot borrow dining's SKU.
+        XCTAssertNil(NativeDiscoverListing.planHold(control: NativeDiscoverCardControl.vendor, rail: nil, settlementReady: true, catalog: catalog))
+        XCTAssertEqual(NativeDiscoverListing.homePlanCTATitle(for: known, proposed: "Reserve Spot", rail: nil, catalog: catalog), "Details")
+    }
+
+    func testARailOnlySettlesThroughASKUThatCanSettle() throws {
+        let catalog = try listingCatalog()
+        // Every SKU the plug picks for a rail must itself be able to settle.
+        for category in catalog.visibleDiscoverCategories(includeVendorGated: true) {
+            guard let picked = NativeDiscoverListing.skuTemplate(forRail: category.id, catalog: catalog) else { continue }
+            XCTAssertTrue(NativeDiscoverListing.canSettle(picked), "\(picked.id) was picked for \(category.id) but cannot settle")
+        }
+    }
+
     func testAControlledVendorAsksUntilSettlementExists() throws {
         let catalog = try listingCatalog()
         let vendor = NativeDiscoverCardControl.vendor

@@ -26,29 +26,59 @@ enum NativeDiscoverListing {
     static let settlementReady = false
 
     /// Verbs that promise money moves. A local card may never wear one.
-    static let settlementVerbs = ["book", "reserve", "buy", "pay", "checkout", "order"]
+    static let settlementVerbs = ["book", "reserve", "buy", "pay", "checkout", "order", "rsvp"]
+
+    /// Taking-possession verbs. These promise nothing on their own — "Get
+    /// Directions" is honest — so they only count against a claimed thing.
+    static let acquisitionVerbs = ["get", "join", "claim", "grab", "secure", "register", "hold", "take"]
+
+    /// The things a card can claim to have kept for you.
+    static let claimedGoods = ["ticket", "pass", "guest list", "table", "seat", "spot", "room", "booth", "slot", "reservation", "class", "session", "list"]
+
+    /// Hyphens and punctuation hide verbs ("Pre-book"), so flatten first.
+    static func normalized(_ title: String) -> String {
+        let scalars = title.lowercased().map { $0.isLetter || $0.isNumber ? $0 : " " }
+        return String(scalars).split(separator: " ").joined(separator: " ")
+    }
 
     static func isSettlementVerb(_ title: String) -> Bool {
-        let lowered = title.lowercased()
+        let lowered = normalized(title)
         return settlementVerbs.contains { lowered.hasPrefix($0) || lowered.contains(" \($0)") }
     }
 
+    /// A verb that takes possession of a claimed good is a promise, so
+    /// "Get Tickets", "Claim Pass" and "Grab a Table" are caught while
+    /// "Get Directions" and the pinned "View Pass" are not.
+    static func claimsHeldGoods(_ title: String) -> Bool {
+        let lowered = normalized(title)
+        guard let verb = lowered.split(separator: " ").first.map(String.init), acquisitionVerbs.contains(verb) else { return false }
+        return claimedGoods.contains { lowered.contains($0) }
+    }
+
     /// Wording is not the whole promise. "Get Ticket" and "Join Guest List"
-    /// carry no settlement verb yet commit to a transaction, so any CTA the
-    /// catalog sells counts as a promise regardless of how it reads.
+    /// carry no settlement verb yet commit to a transaction, so a CTA counts
+    /// as a promise if it names a settlement verb, claims a held good, or is
+    /// simply something the catalog sells.
     static func promisesSettlement(_ title: String, catalog: BookableTemplateCatalog? = BookableTemplateCatalog.shared) -> Bool {
-        if isSettlementVerb(title) { return true }
+        if isSettlementVerb(title) || claimsHeldGoods(title) { return true }
         guard let catalog else { return false }
         return catalog.templates.contains { template in
-            template.cta.caseInsensitiveCompare(title) == .orderedSame
-                && (template.canExecute(.book, in: .published) || template.canExecute(.reserve, in: .published))
+            template.cta.caseInsensitiveCompare(title) == .orderedSame && canSettle(template)
         }
     }
 
-    /// The SKU a rail would sell. Deterministic so two surfaces agree.
+    /// Any capability that moves money or holds capacity, not just book.
+    static let settlementCapabilities: [BookableCapabilityID] = [.book, .reserve, .rsvp, .buy, .pay]
+
+    static func canSettle(_ template: BookableTemplate) -> Bool {
+        settlementCapabilities.contains { template.canExecute($0, in: .published) }
+    }
+
+    /// The SKU a rail would actually sell: the first that can settle, not
+    /// merely the first by name. Deterministic so two surfaces agree.
     static func skuTemplate(forRail rail: String, catalog: BookableTemplateCatalog? = BookableTemplateCatalog.shared) -> BookableTemplate? {
         guard let catalog else { return nil }
-        return catalog.templates(forDiscoverCategory: rail).sorted { $0.id < $1.id }.first
+        return catalog.templates(forDiscoverCategory: rail).sorted { $0.id < $1.id }.first(where: canSettle)
     }
 
     static func fulfillment(
@@ -58,9 +88,8 @@ enum NativeDiscoverListing {
         catalog: BookableTemplateCatalog? = BookableTemplateCatalog.shared
     ) -> NativeDiscoverFulfillment {
         guard control == NativeDiscoverCardControl.vendor else { return .details }
-        guard settlementReady, let template = skuTemplate(forRail: rail, catalog: catalog) else { return .request }
-        let canSettle = template.canExecute(.book, in: .published) || template.canExecute(.reserve, in: .published)
-        return canSettle ? .book : .request
+        guard settlementReady, skuTemplate(forRail: rail, catalog: catalog) != nil else { return .request }
+        return .book
     }
 
     /// The card keeps its own noun; the plug only refuses a promise the path
@@ -79,10 +108,12 @@ enum NativeDiscoverListing {
 
     static func planHold(
         control: String,
-        rail: String,
+        rail: String?,
         settlementReady: Bool = NativeDiscoverListing.settlementReady,
         catalog: BookableTemplateCatalog? = BookableTemplateCatalog.shared
     ) -> NativeDiscoverPlanHold? {
+        // An unknown rail cannot be priced, so it is never held.
+        guard let rail else { return nil }
         guard fulfillment(control: control, rail: rail, settlementReady: settlementReady, catalog: catalog) == .book,
               let template = skuTemplate(forRail: rail, catalog: catalog),
               template.timing.holdSecs > 0 else { return nil }
@@ -94,7 +125,7 @@ enum NativeDiscoverListing {
     /// plan never advertises kept capacity.
     static func planHold(
         for plan: NativeCollapsePlan,
-        rail: String,
+        rail: String?,
         settlementReady: Bool = NativeDiscoverListing.settlementReady,
         catalog: BookableTemplateCatalog? = BookableTemplateCatalog.shared
     ) -> NativeDiscoverPlanHold? {
@@ -106,7 +137,7 @@ enum NativeDiscoverListing {
     static func homePlanCTATitle(
         for plan: NativeCollapsePlan,
         proposed: String,
-        rail: String,
+        rail: String?,
         settlementReady: Bool = NativeDiscoverListing.settlementReady,
         catalog: BookableTemplateCatalog? = BookableTemplateCatalog.shared
     ) -> String {

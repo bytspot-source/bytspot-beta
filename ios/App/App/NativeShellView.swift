@@ -6587,7 +6587,7 @@ private struct NativeHomeDashboardView: View {
                 crowdEmoji: crowdEmoji(venue.crowd),
                 crowdLabel: venue.crowd?.label ?? "Explore",
                 categoryEmoji: categoryEmoji(venue.discoverType),
-                primaryCTATitle: Self.primaryCTATitle(for: card),
+                primaryCTATitle: Self.honestPrimaryCTATitle(for: card),
                 primaryCTAIcon: Self.primaryCTAIcon(for: card),
                 secondaryCTATitle: Self.aiPickSecondaryCTA,
                 primaryAction: { triggerPrimaryAIPick(card: card, venue: venue) },
@@ -6749,6 +6749,16 @@ private struct NativeHomeDashboardView: View {
             return card.control == NativeDiscoverCardControl.vendor ? "View Menu" : "Plan Dining"
         }
         return card.cta.isEmpty || card.cta == "Open details" ? "Details" : card.cta
+    }
+
+    /// Home's AI Pick is a Discover card on another surface, so it answers to
+    /// the same plug: a local card may not wear a promise it cannot keep.
+    static func honestPrimaryCTATitle(for card: NativeDiscoverSummary) -> String {
+        NativeDiscoverListing.primaryCTATitle(
+            proposed: primaryCTATitle(for: card),
+            control: card.control,
+            rail: card.type
+        )
     }
 
     static func primaryCTAIcon(for card: NativeDiscoverSummary) -> String {

@@ -551,6 +551,15 @@ test.describe('Vendor Stripe Connect onboarding', () => {
     await expect(page.getByTestId('provider-service-create-modal')).toBeVisible();
     await expect(page.getByTestId('service-create-progress')).toContainText('Setup progress');
     await expect(page.getByTestId('service-create-review')).toContainText('Review before saving');
+    await expect(page.getByTestId('service-create-template-picker')).toBeVisible();
+    await expect(page.getByTestId('service-create-template-blank')).toBeVisible();
+    await page.getByTestId('service-create-template-dining.table-for-4').click();
+    await expect(page.getByTestId('service-create-title-input')).toHaveValue('Table for 4');
+    await expect(page.getByTestId('service-create-review')).toContainText('SKU');
+    await expect(page.getByTestId('service-create-review')).toContainText('table');
+    await expect(page.getByTestId('service-create-review')).toContainText('15 min, then back to inventory');
+    await page.getByTestId('service-create-template-blank').click();
+    await expect(page.getByTestId('service-create-title-input')).toHaveValue('');
     await page.getByTestId('service-create-title-input').fill('Downtown Garage Parking');
     await page.getByTestId('service-create-description-input').fill('Secure covered parking near the venue');
     await page.getByTestId('service-create-category-input').selectOption('Parking');

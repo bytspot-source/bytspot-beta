@@ -19,6 +19,8 @@
     "paths": {
       "@/*": ["./src/*"],
       "@bytspot-api/*": ["../bytspot-api/src/*"],
+      /* vite.vendor.config.ts swaps this for the stub on any non-demo build. */
+      "@vendor-demo": ["./src/vendor/demoTransport.ts"],
       "vaul@1.1.2": ["./node_modules/vaul"],
       "sonner@2.0.3": ["./node_modules/sonner"],
       "recharts@2.15.2": ["./node_modules/recharts"],

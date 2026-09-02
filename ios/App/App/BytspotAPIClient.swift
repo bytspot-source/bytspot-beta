@@ -2981,12 +2981,18 @@ final class NativeTabContentStore: ObservableObject {
         return hasCuratedCards || !cards.isEmpty ? .fallback : .fallback
     }
 
-    private static let minimumCategoryFeedCounts = ["dining": 4, "nightlife": 4, "entertainment": 6, "shopping": 3, "parking": 3, "coffee": 3, "fitness": 3, "boutique_apartment": 3, "mobility": 3]
+    /// The Discover rail and its minimum card counts come from the shared
+    /// bookable-templates contract. They used to be two hand-kept lists here,
+    /// which drifted: the Services rail lost its feed while Cottage vendors
+    /// were publishing into it.
+    private static let discoverFeedCategories: [(id: String, minimum: Int)] = {
+        guard let catalog = BookableTemplateCatalog.shared else { return [] }
+        return catalog.visibleDiscoverCategories().map { ($0.id, $0.minimumFeedCount) }
+    }()
 
     private static func ensureCategoryCoverage(_ cards: [NativeDiscoverSummary]) -> [NativeDiscoverSummary] {
         var covered = cards
-        for type in ["dining", "nightlife", "entertainment", "shopping", "parking", "coffee", "fitness", "boutique_apartment", "mobility"] {
-            let target = minimumCategoryFeedCounts[type] ?? 2
+        for (type, target) in discoverFeedCategories {
             var categoryCards = covered.filter { $0.type == type }
             if categoryCards.isEmpty, let starter = categoryStarterCard(type: type, index: 1) {
                 appendUnique([starter], to: &covered)

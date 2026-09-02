@@ -95,7 +95,7 @@
             "preview:e2e": "node ./node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 --strictPort",
             "type-check": "tsc -p tsconfig.app.json --noEmit",
             "lint": "eslint src --quiet",
-            "test:unit": "node --test --experimental-strip-types \"src/utils/__tests__/*.test.ts\" \"scripts/ci/__tests__/*.test.ts\"",
+            "test:unit": "node --test --experimental-strip-types \"src/utils/__tests__/*.test.ts\" \"src/vendor/__tests__/*.test.ts\" \"scripts/ci/__tests__/*.test.ts\"",
             "test:e2e:ticketing": "npm run build && node scripts/run-ticketing-e2e.mjs",
             "test:e2e:ticketing:spec": "node ./node_modules/vite/bin/vite.js build && node ./node_modules/@playwright/test/cli.js test e2e/navigation.spec.ts --project=chromium --grep \"paid venue\" --reporter=line",
             "test:e2e:virtual-patch": "node -e \"const fs=require('fs'); fs.rmSync('test-results/virtual-patch-chromium',{recursive:true,force:true});\" && node ./node_modules/vite/bin/vite.js build && node ./node_modules/@playwright/test/cli.js test e2e/virtual-patch.spec.ts e2e/virtual-patch-visual-demo.spec.ts --project=chromium --output=test-results/virtual-patch-chromium --reporter=line",
@@ -108,6 +108,10 @@
             "test:e2e": "node -e \"const fs=require('fs'); fs.rmSync('test-results/chromium',{recursive:true,force:true});\" && node ./node_modules/vite/bin/vite.js build && node ./node_modules/@playwright/test/cli.js test --project=chromium --output=test-results/chromium --reporter=line",
             "release:quality": "npm run type-check && npm run assert:native-trust-contract && npm run lint && npm run build && npm run test:unit",
             "release:e2e:smoke": "node -e \"const fs=require('fs'); fs.rmSync('test-results/release-smoke',{recursive:true,force:true});\" && node ./node_modules/vite/bin/vite.js build && node ./node_modules/@playwright/test/cli.js test e2e/native-handoff-gate.spec.ts --project=chromium --output=test-results/release-smoke --reporter=line",
-            "release:gate": "npm run release:quality && npm audit --omit=dev --audit-level=high && npm run build:app-store && npm run release:e2e:smoke"
+            "release:gate": "npm run release:quality && npm audit --omit=dev --audit-level=high && npm run build:app-store && npm run release:e2e:smoke",
+            "dev:vendor": "node ./node_modules/vite/bin/vite.js --config vite.vendor.config.ts --mode vendor-demo",
+            "build:vendor": "node ./node_modules/vite/bin/vite.js build --config vite.vendor.config.ts",
+            "preview:vendor": "node ./node_modules/vite/bin/vite.js preview --config vite.vendor.config.ts",
+            "build:vendor:demo": "node ./node_modules/vite/bin/vite.js build --config vite.vendor.config.ts --mode vendor-demo --outDir ../dist-vendor-demo"
       }
 }

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Bytspot Vendor</title>
+    <meta name="description" content="Publish and manage bookable inventory on Bytspot." />
+
+    <!-- Vendor tools are not public inventory. -->
+    <meta name="robots" content="noindex, nofollow" />
+
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#000000" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+
+    <!--
+      iOS ignores the manifest for Add to Home Screen and reads these instead.
+      Without apple-mobile-web-app-capable an installed iPad icon still opens
+      inside Safari chrome, which is the whole thing we are trying to avoid.
+    -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Vendor" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+
+    <!--
+      The consumer site advertises the iPhone app and App Clip. This is the
+      vendor console: no Smart App Banner, no App Clip card.
+    -->
+  </head>
+  <body>
+    <div id="vendor-root"></div>
+    <script type="module" src="../src/vendor/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,66 @@
+{
+  "id": "bytspot.vendor-webhooks",
+  "version": 1,
+  "$comment": "Deliberately a webhook API rather than a second read API. A vendor with a POS, a PMS or a spreadsheet does not want to poll us and we do not want to hold their inventory hostage, so state changes are pushed out and capacity changes are pushed in. This file is server and web only: it is kept out of bookable-templates.json so the native clients never carry a decode surface for an integration they do not use.",
+
+  "$transportComment": "Small on purpose. One POST, one JSON envelope, one signature header, one idempotency key. Nothing here needs a client library.",
+  "transport": {
+    "method": "POST",
+    "contentType": "application/json",
+    "signatureHeader": "X-Bytspot-Signature",
+    "timestampHeader": "X-Bytspot-Timestamp",
+    "eventIdHeader": "X-Bytspot-Event-Id",
+    "signatureScheme": "HMAC-SHA256",
+    "signedPayloadFormat": "{timestamp}.{body}",
+    "signaturePrefix": "v1=",
+    "toleranceSecs": 300,
+    "$idempotencyComment": "At-least-once delivery, so the event id is the dedupe key and the receiver is expected to be idempotent. A retried delivery reuses the same event id; a genuinely new event never does.",
+    "delivery": "at-least-once",
+    "maxBodyBytes": 65536
+  },
+
+  "$retryComment": "Exponential with a fixed ceiling, and it stops rather than retrying forever. A dead endpoint disables itself so a vendor's broken server cannot become our backlog.",
+  "retry": {
+    "maxAttempts": 6,
+    "backoffSecs": [0, 30, 300, 1800, 7200, 21600],
+    "retryOnStatus": [408, 425, 429, 500, 502, 503, 504],
+    "successStatus": [200, 201, 202, 204],
+    "disableAfterConsecutiveFailures": 20
+  },
+
+  "$outboundComment": "Every event names the state machine it comes from and the state it reports, so an event cannot exist for a state the ontology does not have. That is checked at build time against bookable-templates.json rather than trusted.",
+  "outbound": [
+    { "id": "sku.reserved", "source": "sku", "state": "RESERVED", "summary": "A hold was taken and capacity is committed." },
+    { "id": "sku.confirmed", "source": "sku", "state": "CONFIRMED", "summary": "Payment cleared and the booking is real." },
+    { "id": "sku.cancelled", "source": "sku", "state": "CANCELLED", "summary": "Capacity was handed back." },
+    { "id": "sku.checked_in", "source": "sku", "state": "CHECKED_IN", "summary": "The guest arrived and the pass was consumed." },
+    { "id": "sku.no_show", "source": "sku", "state": "NO_SHOW", "summary": "The window passed with the pass unused." },
+    { "id": "slot.full", "source": "slot", "state": "FULL", "summary": "A slot sold out." },
+    { "id": "slot.open", "source": "slot", "state": "OPEN", "summary": "A slot has capacity again, usually a hold expiring." },
+    { "id": "demand.open", "source": "demand", "state": "OPEN", "summary": "A guest raised a need in your area you may be able to answer." },
+    { "id": "demand.matched", "source": "demand", "state": "MATCHED", "summary": "A need matched one of your slots and is waiting on you." },
+    { "id": "demand.expired", "source": "demand", "state": "EXPIRED", "summary": "A need went unanswered." },
+    { "id": "location.active", "source": "location", "state": "ACTIVE", "summary": "A location is live and can back published inventory." },
+    { "id": "location.paused", "source": "location", "state": "PAUSED", "summary": "A location stopped backing inventory." }
+  ],
+
+  "$inboundComment": "The inbound half is intentionally narrow: a vendor may change capacity and answer demand, and nothing else. Each one maps onto an operation the ontology already defines, so an inbound call cannot do something the console cannot do, and the capability check is the same one the UI runs.",
+  "inbound": [
+    { "id": "availability.setQuantity", "operation": "SET_QUANTITY", "machine": "availability", "summary": "Change how many a slot holds." },
+    { "id": "availability.block", "operation": "BLOCK_SLOT", "machine": "availability", "summary": "Take a slot off sale." },
+    { "id": "availability.open", "operation": "OPEN_SLOT", "machine": "availability", "summary": "Put a slot back on sale." },
+    { "id": "availability.close", "operation": "CLOSE_SLOT", "machine": "availability", "summary": "Close a slot without blocking it." },
+    { "id": "availability.release", "operation": "RELEASE", "machine": "availability", "summary": "Release a hold your own system dropped." },
+    { "id": "demand.offer", "operation": "OFFER", "machine": "demand", "summary": "Offer a slot against a matched need." },
+    { "id": "demand.decline", "operation": "DECLINE", "machine": "demand", "summary": "Pass on a matched need." }
+  ],
+
+  "$scopeComment": "Subscriptions are scoped by the same capability the console uses, so a door seat cannot subscribe an endpoint to payout events. The scope is a property of the endpoint, not of the event.",
+  "scopes": [
+    { "id": "bookings", "requiresCapability": "SELL", "events": ["sku.reserved", "sku.confirmed", "sku.cancelled", "sku.no_show"] },
+    { "id": "doors", "requiresCapability": "VERIFY", "events": ["sku.checked_in"] },
+    { "id": "capacity", "requiresCapability": "SCHEDULE", "events": ["slot.full", "slot.open"] },
+    { "id": "demand", "requiresCapability": "SELL", "events": ["demand.open", "demand.matched", "demand.expired"] },
+    { "id": "locations", "requiresCapability": "SELL", "events": ["location.active", "location.paused"] }
+  ]
+}

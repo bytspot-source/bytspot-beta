@@ -197,6 +197,26 @@ private struct ClipPartyInviteStateView: View {
 
 // MARK: - Party Pass
 
+/// Fill-scaled image that reports the container's size, not the bitmap's.
+/// `scaledToFill` otherwise measures the size it scaled *to*, which is wider
+/// than the phone whenever the poster is. Left to size itself it widens any
+/// ScrollView / ZStack that contains it.
+private struct ClipContainedFillImage: View {
+    let url: URL
+
+    var body: some View {
+        GeometryReader { proxy in
+            AsyncImage(url: url) { image in
+                image.resizable()
+                    .scaledToFill()
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .clipped()
+            } placeholder: { Color.clear }
+        }
+        .clipped()
+    }
+}
+
 /// Dedicated paid-party App Clip surface. It is intentionally separate from
 /// `ClipInviteView`, which remains the legacy `/group/<id>` implementation.
 struct PartyPassClipView: View {
@@ -314,22 +334,24 @@ struct PartyPassClipView: View {
     }
 
     var body: some View {
-        ZStack {
-            partyBackdrop
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 16) {
-                    header
-                    hero
-                    passSummary
-                    attendeePassCard
-                    details
-                    hostDestinations
-                    if !invite.itinerary.isEmpty { program }
-                    if !invite.photoURLs.isEmpty { partyAlbum }
-                    guestStack
+        GeometryReader { viewport in
+            ZStack {
+                partyBackdrop
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        header
+                        hero
+                        passSummary
+                        attendeePassCard
+                        details
+                        hostDestinations
+                        if !invite.itinerary.isEmpty { program }
+                        if !invite.photoURLs.isEmpty { partyAlbum }
+                        guestStack
+                    }
+                    .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 120)
+                    .frame(width: viewport.size.width, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 120)
             }
         }
         .safeAreaInset(edge: .bottom) { ticketActionBar }
@@ -355,15 +377,7 @@ struct PartyPassClipView: View {
         ZStack {
             ClipTheme.background.ignoresSafeArea()
             if let poster = invite.displayPosterURL {
-                // Contained, not merely clipped: a fill-scaled image reports
-                // the size it was scaled to, which is wider than the screen
-                // whenever the poster is wider than the phone. Left to size
-                // itself it widens this backdrop, and the ZStack behind the
-                // pass with it, so the card laid out on top is proposed a
-                // width the display does not have.
-                Color.clear
-                    .overlay(AsyncImage(url: poster) { image in image.resizable().scaledToFill() } placeholder: { Color.clear })
-                    .clipped()
+                ClipContainedFillImage(url: poster)
                     .opacity(0.18).ignoresSafeArea()
             }
             LinearGradient(colors: [Color.black.opacity(0.10), ClipTheme.background.opacity(0.94), ClipTheme.background], startPoint: .top, endPoint: .bottom).ignoresSafeArea()
@@ -392,12 +406,7 @@ struct PartyPassClipView: View {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(LinearGradient(colors: [ClipTheme.panelElevated, ClipTheme.panel], startPoint: .topLeading, endPoint: .bottomTrailing))
             if let poster = invite.displayPosterURL {
-                // The banner's own poster is contained for the same reason.
-                // `clipShape` below clips what is drawn, not what is measured,
-                // so an uncontained poster still widens the banner.
-                Color.clear
-                    .overlay(AsyncImage(url: poster) { image in image.resizable().scaledToFill() } placeholder: { Color.clear })
-                    .clipped()
+                ClipContainedFillImage(url: poster)
             }
             LinearGradient(colors: [Color.black.opacity(0.08), Color.black.opacity(0.36), Color.black.opacity(0.92)], startPoint: .top, endPoint: .bottom)
             // The tier requirement is stated once, here. Repeating it beside

@@ -88,6 +88,9 @@ const checks = [
   ['Broni Home Taste has curated Platinum dining line items', clipPatchVerifier.includes('Broni Home Taste') && clipPatchVerifier.includes('broniHomeTasteFavorites') && clipPatchVerifier.includes('Jollof Rice with Chicken') && clipPatchVerifier.includes('Banku and Fried Fish/Tilapia') && !clipPatchVerifier.includes('Omotuo') && !clipPatchVerifier.includes('Acheke')],
   ['Black hold near-expiration QA hook is DEBUG-only', clipContentView.includes('holdRemainingOverrideForPreview') && clipContentView.includes('holdRemainingSeconds') && clipContentView.includes('#if DEBUG') && clipContentView.includes('Contact Concierge')],
   ['Dining success hides property-access CTA', clipContentView.includes('isPlatinumDiningService') && clipContentView.includes('hidesPropertyAccessAction') && clipContentView.includes('if !hidesPropertyAccessAction') && clipContentView.includes('Your order is confirmed instantly')],
+  ['Party Pass fill-scaled posters report the container size, not the bitmap', clipContentView.includes('struct ClipContainedFillImage') && clipContentView.includes('ClipContainedFillImage(url: poster)') && !clipContentView.includes('.overlay(AsyncImage(url: poster)')],
+  ['Party Pass scroll column is pinned to the viewport width', clipContentView.includes('.frame(width: viewport.size.width, alignment: .leading)')],
+  ['Clip is portrait-only, matching the App', plist.includes('<string>UIInterfaceOrientationPortrait</string>') && !plist.includes('UIInterfaceOrientationLandscapeLeft') && !plist.includes('UIInterfaceOrientationLandscapeRight') && !plist.includes('UIInterfaceOrientationPortraitUpsideDown')],
 ];
 
 const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);

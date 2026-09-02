@@ -209,9 +209,10 @@ struct NativePartyControlView: View {
     @State private var recapBusy = false
 
     var body: some View {
-        ZStack { BytspotNativeBackground(tier: .green).ignoresSafeArea(); ScrollView { VStack(alignment: .leading, spacing: 15) {
+        ZStack { BytspotNativeBackground(tier: .green).ignoresSafeArea(); ScrollView { VStack(alignment: .leading, spacing: 10) {
             HStack { Button(action: { dismiss() }) { Image(systemName: "chevron.left") }; Spacer(); Text("PARTY CONTROL").font(.system(size: 11, weight: .black)).tracking(1.5); Spacer(); Button(action: { Task { await reload() } }) { Image(systemName: "arrow.clockwise") } }.foregroundColor(.white)
             if let summary { overview(summary) } else { ProgressView().tint(.white).frame(maxWidth: .infinity, minHeight: 140) }
+            recapCard
             HStack(spacing: 10) { Button(showingDoor ? "Close Door Mode" : "Door Mode") { showingDoor.toggle() }.controlButton(color: NativeTheme.purple); Button((summary?.admissionPaused ?? false) ? "Resume RSVPs" : "Pause RSVPs") { Task { await setPaused() } }.controlButton(color: NativeTheme.orange) }
             closeRoomControl
             if showingDoor { doorMode }
@@ -219,7 +220,6 @@ struct NativePartyControlView: View {
             pendingGuests
             paidGuests
             guestList
-            recapCard
         }.padding(18) } }
         .preferredColorScheme(.dark).task { await reload() }
         // Recap bytes are photographs of identifiable people held under a

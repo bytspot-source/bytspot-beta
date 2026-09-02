@@ -3469,7 +3469,7 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         let lateNightHeader = NativeHomeRegionPresentation.contextualEyebrow(hour: 23, location: .verifiedMidtown)
         let visibleCopy = [NativeHomeCopyContract.boutiqueStayQuickActionSubtitle, lateNightHeader.0, lateNightHeader.1] + NativeHomeCopyContract.visibleSurfaceLabels
         XCTAssertFalse(NativeHomeCopyContract.containsUnprovenAvailabilityClaim(visibleCopy))
-        XCTAssertEqual(NativeHomeCopyContract.boutiqueStayQuickActionSubtitle, "Browse stays")
+        XCTAssertEqual(NativeHomeCopyContract.boutiqueStayQuickActionSubtitle, "Find a stay")
 
         let unproven = NativeVenueSummary(id: "unproven", name: "Unproven Venue", category: "venue", address: "100 Neutral St", distance: "0.4 mi", rating: nil, latitude: 33.7865, longitude: -84.3830, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: nil)
         let proven = NativeVenueSummary(id: "proven", name: "Proven Venue", category: "parking", address: "200 Live St", distance: "0.3 mi", rating: nil, latitude: 33.7866, longitude: -84.3831, crowd: NativeCrowdSummary(level: 1, label: "Open", waitMins: 0), parking: NativeParkingSummary(totalAvailable: 18, priceLabel: "$6/hr"), verifiedPatchId: nil, imageUrl: nil)

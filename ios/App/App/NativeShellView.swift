@@ -5698,7 +5698,7 @@ enum NativeHomeCopyContract {
         let headerTemperature: String
     }
 
-    static let boutiqueStayQuickActionSubtitle = "Browse stays"
+    static let boutiqueStayQuickActionSubtitle = "Find a stay"
     static let visibleSurfaceLabels = ["Today's Pick", "Start here", "Recommended for you", "What's Happening Tonight", "Right Now Near You", "Trending Now", "What are you feeling?", "Nearby"]
 
     static func containsUnprovenAvailabilityClaim(_ values: [String]) -> Bool {
@@ -5987,12 +5987,12 @@ private struct NativeHomeDashboardView: View {
     @State private var presenceSummary = NativePresenceSummary.none
 
     static let quickActionSpecs: [QuickActionSpec] = [
-        QuickActionSpec(id: "coffee", title: "Coffee", subtitle: "Walkable stops", icon: "cup.and.saucer.fill", color: NativeTheme.cyan, target: .discoverFilter("coffee")),
-        QuickActionSpec(id: "food", title: "Food", subtitle: "Pickup & dinner", icon: "fork.knife", color: NativeTheme.pink, target: .discoverFilter("dining")),
+        QuickActionSpec(id: "coffee", title: "Coffee", subtitle: "Book a stop", icon: "cup.and.saucer.fill", color: NativeTheme.cyan, target: .discoverFilter("coffee")),
+        QuickActionSpec(id: "food", title: "Food", subtitle: "Book dinner", icon: "fork.knife", color: NativeTheme.pink, target: .discoverFilter("dining")),
         QuickActionSpec(id: "boutique-stay", title: "Boutique Stay", subtitle: NativeHomeCopyContract.boutiqueStayQuickActionSubtitle, icon: "house.fill", color: NativeTheme.purple, target: .discoverFilter("boutique_apartment")),
-        QuickActionSpec(id: "valet-ride", title: "Airport Ride", subtitle: "Estimate + review", icon: "airplane.departure", color: NativeTheme.cyan, target: .rideHandoff),
-        QuickActionSpec(id: "parking", title: "Parking", subtitle: "Before you arrive", icon: "parkingsign.circle.fill", color: NativeTheme.emerald, target: .nativeTab(.map)),
-        QuickActionSpec(id: "concierge", title: "Concierge", subtitle: "Ask for help", icon: "sparkles", color: NativeTheme.orange, target: .nativeTab(.concierge))
+        QuickActionSpec(id: "valet-ride", title: "Mobility", subtitle: "Ride / valet / rental", icon: "airplane.departure", color: NativeTheme.cyan, target: .rideHandoff),
+        QuickActionSpec(id: "parking", title: "Parking", subtitle: "Reserve now", icon: "parkingsign.circle.fill", color: NativeTheme.emerald, target: .nativeTab(.map)),
+        QuickActionSpec(id: "concierge", title: "Concierge", subtitle: "Build a Plan", icon: "sparkles", color: NativeTheme.orange, target: .nativeTab(.concierge))
     ]
 
     static let categoryQuickSearchSpecs: [(label: String, filter: String)] = [
@@ -17981,8 +17981,8 @@ enum NativeHomeParitySelfTests {
 
     private static func run() {
         let actions = NativeHomeDashboardView.quickActionSpecs
-        precondition(actions.map(\.title) == ["Coffee", "Food", "Boutique Stay", "Airport Ride", "Parking", "Concierge"], "NativeHomeParitySelfTests: quick-action titles drifted from Home command-center model.")
-        precondition(actions.map(\.subtitle) == ["Walkable stops", "Pickup & dinner", "Browse stays", "Estimate + review", "Before you arrive", "Ask for help"], "NativeHomeParitySelfTests: quick-action subtitles drifted from Home command-center model.")
+        precondition(actions.map(\.title) == ["Coffee", "Food", "Boutique Stay", "Mobility", "Parking", "Concierge"], "NativeHomeParitySelfTests: quick-action titles drifted from Home command-center model.")
+        precondition(actions.map(\.subtitle) == ["Book a stop", "Book dinner", "Find a stay", "Ride / valet / rental", "Reserve now", "Build a Plan"], "NativeHomeParitySelfTests: quick-action subtitles drifted from Home command-center model.")
         precondition(actions.map(\.icon) == ["cup.and.saucer.fill", "fork.knife", "house.fill", "airplane.departure", "parkingsign.circle.fill", "sparkles"], "NativeHomeParitySelfTests: quick-action SF Symbols drifted.")
         precondition(actions[0].target == .discoverFilter("coffee") && actions[1].target == .discoverFilter("dining") && actions[2].target == .discoverFilter("boutique_apartment"), "NativeHomeParitySelfTests: intent actions must open Discover with category context.")
         precondition(actions[3].target == .rideHandoff, "NativeHomeParitySelfTests: Book Ride must open the native Valet/Elife flow, not hybrid web.")

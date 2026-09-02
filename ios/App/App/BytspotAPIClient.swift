@@ -921,6 +921,11 @@ struct NativePartyPassRecord: Equatable {
     let hostHandle: String?
     let endsAt: Date?
     let runOfShow: [NativePartyPassBeat]
+    /// Existence and a count, never recap URLs. The server reports these only
+    /// to someone it would also hand the bytes to, so the pass cannot offer an
+    /// album that then refuses to open.
+    let recapAvailable: Bool
+    let recapPhotoCount: Int
 
     var isLocationWithheld: Bool { locationDisclosure != "public" }
 }
@@ -957,7 +962,12 @@ struct NativePartyPassAPI {
         } else {
             safeLocationLabel = locationDisclosure == "withheld" ? "Location withheld by host" : "Location shared after approval"
         }
-        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL, hostDestinations: destinations(from: row), hostHandle: hostHandle(from: row), endsAt: isoDate(row["endsAt"]), runOfShow: beats(from: row))
+        // A count without availability is not an album, and availability
+        // without a count is not one either: both have to agree before the pass
+        // offers a recap at all.
+        let recapPhotoCount = max(0, int(row["recapPhotoCount"]) ?? 0)
+        let recapAvailable = row["recapAvailable"] as? Bool == true && recapPhotoCount > 0
+        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL, hostDestinations: destinations(from: row), hostHandle: hostHandle(from: row), endsAt: isoDate(row["endsAt"]), runOfShow: beats(from: row), recapAvailable: recapAvailable, recapPhotoCount: recapPhotoCount)
     }
 
     /// Scheduled beats fail closed: a malformed row drops that beat only, and

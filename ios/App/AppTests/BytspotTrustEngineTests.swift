@@ -2336,6 +2336,47 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(party.locationLabel, "Location shared after approval")
     }
 
+    func testPartyPassOffersARecapOnlyWhenTheServerReportsBothFacts() async throws {
+        // The pass is told existence and a count, never recap URLs. Both have to
+        // agree: a count with no availability is not an album, and availability
+        // with no count would offer a guest an empty grid.
+        func invite(_ recap: [String: Any]) async throws -> NativePartyPassRecord {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [NativePartyURLProtocolStub.self]
+            NativePartyURLProtocolStub.handler = { _ in
+                var row: [String: Any] = [
+                    "id": "party-1", "source": "host-studio-party", "title": "First Listen",
+                    "scheduledDate": "2026-08-10T20:00:00Z", "locationLabel": "The rooftop",
+                    "locationDisclosure": "public", "accessMode": "free-rsvp", "tier": "green",
+                ]
+                row.merge(recap) { _, new in new }
+                return (200, try JSONSerialization.data(withJSONObject: ["result": ["data": ["json": row]]]))
+            }
+            defer { NativePartyURLProtocolStub.handler = nil }
+            let client = BytspotAPIClient(baseURL: URL(string: "https://party.test")!, urlSession: URLSession(configuration: configuration))
+            return try await NativePartyPassAPI(client: client).invite(partyID: "party-1")
+        }
+
+        let published = try await invite(["recapAvailable": true, "recapPhotoCount": 6])
+        XCTAssertTrue(published.recapAvailable)
+        XCTAssertEqual(published.recapPhotoCount, 6)
+
+        // A stranger, or a guest the door never admitted, is told nothing: the
+        // server reports these only to someone it would hand the bytes to.
+        let notAdmitted = try await invite(["recapAvailable": false, "recapPhotoCount": 0])
+        XCTAssertFalse(notAdmitted.recapAvailable)
+        XCTAssertEqual(notAdmitted.recapPhotoCount, 0)
+
+        // A server that predates the recap surface says neither.
+        XCTAssertFalse(try await invite([:]).recapAvailable)
+
+        // Disagreement fails closed rather than offering an album that cannot
+        // open, in either direction.
+        XCTAssertFalse(try await invite(["recapAvailable": true, "recapPhotoCount": 0]).recapAvailable)
+        XCTAssertFalse(try await invite(["recapAvailable": false, "recapPhotoCount": 4]).recapAvailable)
+        XCTAssertEqual(try await invite(["recapAvailable": true, "recapPhotoCount": -3]).recapPhotoCount, 0)
+    }
+
     func testNativePartyPassInviteDecodesServerRedactedWithheldLocation() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [NativePartyURLProtocolStub.self]

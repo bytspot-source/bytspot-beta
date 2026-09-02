@@ -905,6 +905,13 @@ private struct NativePartyPassPreview: View {
     @State private var state: LoadState = .loading
     @State private var isOpeningArrival = false
     @State private var arrivalMessage = ""
+    @State private var recap: NativePartyRecap?
+    @State private var recapStore: NativeAuthenticatedImageStore?
+    /// Which party and which session the screen is currently showing. A load
+    /// that was in the air when either changed must not be able to write its
+    /// answer into a screen that has since moved on.
+    @State private var recapGeneration = 0
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NativeScreenScroll {
@@ -916,10 +923,25 @@ private struct NativePartyPassPreview: View {
                 NativeHeroCard(title: "Party Pass unavailable", eyebrow: "PARTY PASS", subtitle: "This Party could not be verified. Open a current Party Pass and try again.")
             case .loaded(let party):
                 partyCard(party)
+                recapBlock(party)
                 NativeHeroCard(title: "Secure continuation", eyebrow: "PARTY PASS", subtitle: "Guest actions remain on the verified Party Pass. This screen never uses legacy group access.")
             }
         }
         .task(id: route.partyID) { await loadParty() }
+        // A recap is photographs of the people who were in the room, readable
+        // only while the session that was admitted is the one asking. The bytes
+        // leave with the screen, with the session, and with the room.
+        .onDisappear { forgetRecap() }
+        .onChange(of: route.partyID) { _ in forgetRecap() }
+        .onChange(of: sessionStore.token) { _ in forgetRecap(); Task { await loadRecap() } }
+        // Permission can be taken away while the screen sits open, and a photo
+        // already decoded is not re-authorized by looking at it again. Coming
+        // back to the screen drops what it holds and asks the door again.
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active else { return }
+            forgetRecap()
+            Task { await loadRecap() }
+        }
         .accessibilityIdentifier("native-party-pass")
     }
 
@@ -1030,11 +1052,81 @@ private struct NativePartyPassPreview: View {
         }
     }
 
+    /// The album the room left behind. Guests see it only once the host
+    /// publishes; the pass is told a recap exists only if the server would also
+    /// hand over the bytes, so this cannot offer an album that refuses to open.
+    @ViewBuilder private func recapBlock(_ party: NativePartyPassRecord) -> some View {
+        if party.recapAvailable, let recap, !recap.photoURLs.isEmpty, let recapStore {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("THE RECAP").font(.system(size: 10, weight: .black)).tracking(1.2).foregroundColor(NativeTheme.pink)
+                Text(recap.photoURLs.count == 1 ? "1 photo from the room" : "\(recap.photoURLs.count) photos from the room")
+                    .font(.system(size: 13.5, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                    ForEach(recap.photoURLs, id: \.self) { url in
+                        NativeAuthenticatedImage(url: url, store: recapStore)
+                            .frame(maxWidth: .infinity).frame(height: 128).clipped()
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                }
+                Text("Posted by \(party.hostName). Only the guests this door admitted can see these.")
+                    .font(.system(size: 10.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+            }
+            .padding(14)
+            .background(Color.white.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .accessibilityIdentifier("native-party-pass-recap")
+        }
+    }
+
     @MainActor private func loadParty() async {
+        forgetRecap()
         state = .loading
+        let partyID = route.partyID
         let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
-        do { state = .loaded(try await NativePartyPassAPI(client: client).invite(partyID: route.partyID)) }
-        catch { state = .unavailable }
+        let loaded: LoadState
+        do { loaded = .loaded(try await NativePartyPassAPI(client: client).invite(partyID: partyID)) }
+        catch { loaded = .unavailable }
+        // Keyed on the room rather than on the recap counter: revalidating the
+        // album must not be able to strand the pass itself on "Loading".
+        guard !Task.isCancelled, partyID == route.partyID else { return }
+        state = loaded
+        await loadRecap()
+    }
+
+    /// Read-only: a guest can see the album and nothing else. Access can be
+    /// withdrawn between the invitation and this call, so a refusal here takes
+    /// the block away rather than leaving photos on screen.
+    @MainActor private func loadRecap() async {
+        guard case .loaded(let party) = state, party.recapAvailable,
+              sessionStore.canAttachBearerToken, sessionStore.token != nil else { forgetRecap(); return }
+        let generation = recapGeneration
+        let partyID = route.partyID
+        if recapStore == nil { recapStore = NativeAuthenticatedImageStore(tokenProvider: { [weak sessionStore] in sessionStore?.token }) }
+        // The token is read per request rather than captured, so a load left in
+        // the air by a sign-out cannot keep spending the session that is gone.
+        let api = NativePartyRecapAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token }))
+        let fresh = try? await api.get(partyID)
+        // The screen may have changed party or session while this was in the
+        // air. An answer about a room nobody is looking at any more is dropped,
+        // never written back.
+        guard generation == recapGeneration, partyID == route.partyID else { return }
+        // This surface is the guest's pass, so it shows published albums only.
+        // A host reviews their staged photos in Party Control; not requiring
+        // publish here would leave the guest grid one server bug away from
+        // showing work the host has not released.
+        guard let fresh, fresh.isPublished, !fresh.photoURLs.isEmpty else { forgetRecap(); return }
+        let live = Set(fresh.photoURLs)
+        for url in (recap?.photoURLs ?? []) where !live.contains(url) { recapStore?.forget(url) }
+        recap = fresh
+    }
+
+    /// Invalidates anything in flight as well as anything held: a clear that
+    /// only dropped what had already arrived would be undone by the next
+    /// response to land.
+    @MainActor private func forgetRecap() {
+        recapGeneration &+= 1
+        recap = nil
+        recapStore?.invalidate()
     }
 
     @MainActor private func planArrival(for party: NativePartyPassRecord) async {

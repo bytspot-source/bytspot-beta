@@ -2336,6 +2336,60 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(party.locationLabel, "Location shared after approval")
     }
 
+    func testPartyPassOffersARecapOnlyWhenTheServerReportsBothFacts() async throws {
+        // The pass is told existence and a count, never recap URLs. Both have to
+        // agree: a count with no availability is not an album, and availability
+        // with no count would offer a guest an empty grid.
+        func invite(_ recap: [String: Any]) async throws -> NativePartyPassRecord {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [NativePartyURLProtocolStub.self]
+            NativePartyURLProtocolStub.handler = { _ in
+                var row: [String: Any] = [
+                    "id": "party-1", "source": "host-studio-party", "title": "First Listen",
+                    "scheduledDate": "2026-08-10T20:00:00Z", "locationLabel": "The rooftop",
+                    "locationDisclosure": "public", "accessMode": "free-rsvp", "tier": "green",
+                ]
+                row.merge(recap) { _, new in new }
+                return (200, try JSONSerialization.data(withJSONObject: ["result": ["data": ["json": row]]]))
+            }
+            defer { NativePartyURLProtocolStub.handler = nil }
+            let client = BytspotAPIClient(baseURL: URL(string: "https://party.test")!, urlSession: URLSession(configuration: configuration))
+            return try await NativePartyPassAPI(client: client).invite(partyID: "party-1")
+        }
+
+        let published = try await invite(["recapAvailable": true, "recapPhotoCount": 6])
+        XCTAssertTrue(published.recapAvailable)
+        XCTAssertEqual(published.recapPhotoCount, 6)
+
+        // A stranger, or a guest the door never admitted, is told nothing: the
+        // server reports these only to someone it would hand the bytes to.
+        let notAdmitted = try await invite(["recapAvailable": false, "recapPhotoCount": 0])
+        XCTAssertFalse(notAdmitted.recapAvailable)
+        XCTAssertEqual(notAdmitted.recapPhotoCount, 0)
+
+        // A server that predates the recap surface says neither.
+        let legacy = try await invite([:])
+        XCTAssertFalse(legacy.recapAvailable)
+        XCTAssertEqual(legacy.recapPhotoCount, 0)
+
+        // Disagreement fails closed rather than offering an album that cannot
+        // open, in either direction.
+        let availableButEmpty = try await invite(["recapAvailable": true, "recapPhotoCount": 0])
+        XCTAssertFalse(availableButEmpty.recapAvailable)
+        XCTAssertEqual(availableButEmpty.recapPhotoCount, 0)
+        let countedButUnavailable = try await invite(["recapAvailable": false, "recapPhotoCount": 4])
+        XCTAssertFalse(countedButUnavailable.recapAvailable)
+
+        // A count that cannot be a number of photographs is not one.
+        let negativeCount = try await invite(["recapAvailable": true, "recapPhotoCount": -3])
+        XCTAssertFalse(negativeCount.recapAvailable)
+        XCTAssertEqual(negativeCount.recapPhotoCount, 0)
+
+        // A non-boolean claim is not a claim.
+        let malformed = try await invite(["recapAvailable": "yes", "recapPhotoCount": 3])
+        XCTAssertFalse(malformed.recapAvailable)
+    }
+
     func testNativePartyPassInviteDecodesServerRedactedWithheldLocation() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [NativePartyURLProtocolStub.self]
@@ -2945,6 +2999,74 @@ final class NativeProfileDataAPITests: XCTestCase {
 
         store.forgetAll()
         XCTAssertTrue(store.images.isEmpty)
+    }
+
+    @MainActor
+    func testRecapClearInvalidatesReadsAlreadyInFlight() async throws {
+        // Clearing the store is how sign-out, an account switch, leaving the
+        // screen, and revalidation all drop recap bytes. If it only removed
+        // what had already arrived, the next response to land would undo it
+        // and put a photograph back on a screen no longer allowed to show one.
+        NativeRecapStubProtocol.reset()
+        NativeRecapStubProtocol.holdsUntilReleased = true
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.protocolClasses = [NativeRecapStubProtocol.self]
+        let store = NativeAuthenticatedImageStore(client: BytspotAPIClient(tokenProvider: { "held-token" }, urlSession: URLSession(configuration: configuration)))
+        let url = "https://api.test/media/parties/held"
+
+        let inFlight = Task { await store.load(url) }
+        guard await NativeRecapStubProtocol.waitForServer() else {
+            return XCTFail("the held read never reached the stub server")
+        }
+
+        store.invalidate()
+        NativeRecapStubProtocol.releaseHeld()
+        await inFlight.value
+
+        XCTAssertNil(store.images[url], "a read in flight when the store was cleared must not write its bytes back")
+        XCTAssertTrue(store.images.isEmpty)
+
+        // The store still works afterwards: invalidation drops the round trip,
+        // it does not wedge the loader.
+        NativeRecapStubProtocol.reset()
+        await store.load(url)
+        XCTAssertNotNil(store.images[url])
+    }
+
+    @MainActor
+    func testRecapReloadIsNotBlockedByAReadStillDrainingFromAClearedEpoch() async throws {
+        // Revalidation clears the store and immediately asks again. If the
+        // cleared read is still in the air, its own in-flight bookkeeping must
+        // not suppress the authorized read that replaces it: the store has
+        // already promised never to accept the old bytes, so a cell waiting on
+        // them would stay a placeholder for as long as the screen is open.
+        NativeRecapStubProtocol.reset()
+        NativeRecapStubProtocol.holdsUntilReleased = true
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.protocolClasses = [NativeRecapStubProtocol.self]
+        let store = NativeAuthenticatedImageStore(client: BytspotAPIClient(tokenProvider: { "held-token" }, urlSession: URLSession(configuration: configuration)))
+        let url = "https://api.test/media/parties/overtaken"
+
+        let stale = Task { await store.load(url) }
+        guard await NativeRecapStubProtocol.waitForServer() else {
+            return XCTFail("the held read never reached the stub server")
+        }
+
+        // The clear invalidates the held read; the reload is issued while that
+        // read is still parked in the server, which is the race being pinned.
+        XCTAssertEqual(NativeRecapStubProtocol.requestCount, 1)
+        store.invalidate()
+        NativeRecapStubProtocol.holdsUntilReleased = false
+        await store.load(url)
+
+        XCTAssertEqual(NativeRecapStubProtocol.requestCount, 2, "the reload must reach the server rather than being de-duplicated against the cleared read")
+        XCTAssertNotNil(store.images[url], "a reload after a clear must not be blocked by the cleared read still draining")
+
+        NativeRecapStubProtocol.releaseHeld()
+        await stale.value
+        XCTAssertNotNil(store.images[url], "the stale read draining must not remove the photograph the reload authorized")
     }
 
     @MainActor
@@ -3709,8 +3831,51 @@ extension BytspotTrustEngineTests {
 final class NativeRecapStubProtocol: URLProtocol {
     static var observedAuthorization: String?
     static var status = 200
+    /// Holds a read open so a test can clear the store while bytes are still
+    /// in the air, which is the only way to prove a clear invalidates work in
+    /// flight rather than merely dropping what already arrived.
+    ///
+    /// A held read parks its instance and returns: blocking inside
+    /// `startLoading` would wedge the session's loader thread, so the reload a
+    /// test is trying to race against could never be dispatched at all.
+    static var holdsUntilReleased = false
+    static let reachedServer = DispatchSemaphore(value: 0)
+    /// Every request that reached the server, so a test can prove a read was
+    /// actually issued rather than de-duplicated away.
+    static var requestCount = 0
+    private static let heldLock = NSLock()
+    private static var held: [NativeRecapStubProtocol] = []
 
-    static func reset() { observedAuthorization = nil; status = 200 }
+    static func reset() {
+        observedAuthorization = nil
+        status = 200
+        holdsUntilReleased = false
+        requestCount = 0
+        heldLock.lock()
+        held.removeAll()
+        heldLock.unlock()
+        // Drain rather than recreate: a test that failed while a read was held
+        // would otherwise leave a count behind and let the next test's wait
+        // return before its own request had reached the server.
+        while reachedServer.wait(timeout: .now()) == .success {}
+    }
+
+    /// Bounded so a regression that stops the loader reaching the server fails
+    /// the test instead of hanging the run. The bound stays well inside the
+    /// client's own 8s request timeout, so a held read is never released by
+    /// expiry instead of by the test.
+    static func waitForServer(timeout: DispatchTime = .now() + 3) async -> Bool {
+        await Task.detached { reachedServer.wait(timeout: timeout) == .success }.value
+    }
+
+    /// Lets every parked read deliver its response.
+    static func releaseHeld() {
+        heldLock.lock()
+        let parked = held
+        held.removeAll()
+        heldLock.unlock()
+        parked.forEach { $0.deliver() }
+    }
 
     private static let onePixelPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")!
 
@@ -3719,6 +3884,18 @@ final class NativeRecapStubProtocol: URLProtocol {
 
     override func startLoading() {
         Self.observedAuthorization = request.value(forHTTPHeaderField: "Authorization")
+        Self.requestCount += 1
+        if Self.holdsUntilReleased {
+            Self.heldLock.lock()
+            Self.held.append(self)
+            Self.heldLock.unlock()
+            Self.reachedServer.signal()
+            return
+        }
+        deliver()
+    }
+
+    private func deliver() {
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: Self.status,

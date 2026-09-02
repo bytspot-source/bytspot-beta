@@ -33,6 +33,18 @@ enum NativeDiscoverListing {
         return settlementVerbs.contains { lowered.hasPrefix($0) || lowered.contains(" \($0)") }
     }
 
+    /// Wording is not the whole promise. "Get Ticket" and "Join Guest List"
+    /// carry no settlement verb yet commit to a transaction, so any CTA the
+    /// catalog sells counts as a promise regardless of how it reads.
+    static func promisesSettlement(_ title: String, catalog: BookableTemplateCatalog? = BookableTemplateCatalog.shared) -> Bool {
+        if isSettlementVerb(title) { return true }
+        guard let catalog else { return false }
+        return catalog.templates.contains { template in
+            template.cta.caseInsensitiveCompare(title) == .orderedSame
+                && (template.canExecute(.book, in: .published) || template.canExecute(.reserve, in: .published))
+        }
+    }
+
     /// The SKU a rail would sell. Deterministic so two surfaces agree.
     static func skuTemplate(forRail rail: String, catalog: BookableTemplateCatalog? = BookableTemplateCatalog.shared) -> BookableTemplate? {
         guard let catalog else { return nil }
@@ -61,7 +73,7 @@ enum NativeDiscoverListing {
         catalog: BookableTemplateCatalog? = BookableTemplateCatalog.shared
     ) -> String {
         let state = fulfillment(control: control, rail: rail, settlementReady: settlementReady, catalog: catalog)
-        guard state != .book, isSettlementVerb(proposed) else { return proposed }
+        guard state != .book, promisesSettlement(proposed, catalog: catalog) else { return proposed }
         return state == .details ? "Details" : "Request"
     }
 
@@ -98,7 +110,7 @@ enum NativeDiscoverListing {
         settlementReady: Bool = NativeDiscoverListing.settlementReady,
         catalog: BookableTemplateCatalog? = BookableTemplateCatalog.shared
     ) -> String {
-        guard isSettlementVerb(proposed) else { return proposed }
+        guard promisesSettlement(proposed, catalog: catalog) else { return proposed }
         guard planHold(for: plan, rail: rail, settlementReady: settlementReady, catalog: catalog) != nil else { return "Details" }
         return proposed
     }

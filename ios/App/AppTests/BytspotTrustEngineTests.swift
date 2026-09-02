@@ -453,6 +453,28 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Open details", control: local, rail: "coffee", catalog: catalog), "Open details")
     }
 
+    func testAVerblessSettlementPromiseIsStillRefused() throws {
+        let catalog = try listingCatalog()
+        let local = NativeDiscoverCardControl.local
+        // These sell a ticket and a spot on a list but name no verb, so
+        // wording alone would let a local card keep them.
+        for cta in ["Get Ticket", "Join Guest List"] {
+            XCTAssertFalse(NativeDiscoverListing.isSettlementVerb(cta), "\(cta) has no settlement verb to catch")
+            XCTAssertTrue(NativeDiscoverListing.promisesSettlement(cta, catalog: catalog), "\(cta) is sold by the catalog and must count as a promise")
+            XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: local, rail: "entertainment", catalog: catalog), "Details")
+        }
+        // Every CTA the catalog sells is a promise, so none survives on a local card.
+        for template in catalog.templates {
+            XCTAssertEqual(
+                NativeDiscoverListing.primaryCTATitle(proposed: template.cta, control: local, rail: template.discoverType, catalog: catalog),
+                "Details",
+                "\(template.id) CTA \(template.cta) survived on a local card"
+            )
+        }
+        // A browse verb is not a promise and is left alone.
+        XCTAssertFalse(NativeDiscoverListing.promisesSettlement("View Menu", catalog: catalog))
+    }
+
     func testAControlledVendorAsksUntilSettlementExists() throws {
         let catalog = try listingCatalog()
         let vendor = NativeDiscoverCardControl.vendor

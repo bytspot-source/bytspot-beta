@@ -2368,13 +2368,17 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(notAdmitted.recapPhotoCount, 0)
 
         // A server that predates the recap surface says neither.
-        XCTAssertFalse(try await invite([:]).recapAvailable)
+        let legacy = try await invite([:])
+        XCTAssertFalse(legacy.recapAvailable)
 
         // Disagreement fails closed rather than offering an album that cannot
         // open, in either direction.
-        XCTAssertFalse(try await invite(["recapAvailable": true, "recapPhotoCount": 0]).recapAvailable)
-        XCTAssertFalse(try await invite(["recapAvailable": false, "recapPhotoCount": 4]).recapAvailable)
-        XCTAssertEqual(try await invite(["recapAvailable": true, "recapPhotoCount": -3]).recapPhotoCount, 0)
+        let availableButEmpty = try await invite(["recapAvailable": true, "recapPhotoCount": 0])
+        XCTAssertFalse(availableButEmpty.recapAvailable)
+        let countedButUnavailable = try await invite(["recapAvailable": false, "recapPhotoCount": 4])
+        XCTAssertFalse(countedButUnavailable.recapAvailable)
+        let negativeCount = try await invite(["recapAvailable": true, "recapPhotoCount": -3])
+        XCTAssertEqual(negativeCount.recapPhotoCount, 0)
     }
 
     func testNativePartyPassInviteDecodesServerRedactedWithheldLocation() async throws {

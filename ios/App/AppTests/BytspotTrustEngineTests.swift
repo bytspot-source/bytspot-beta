@@ -2117,6 +2117,28 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(list.parties[0].closedAt)
     }
 
+    func testClosedRoomSeparatesAStagedRecapFromAPublishedOne() throws {
+        func room(_ recapFields: String) throws -> NativeHostedParty {
+            try JSONDecoder().decode(NativeHostedPartyList.self, from: Data("""
+            {"parties":[{"id":"party-9","title":"Last Listen","venueName":"The Basement","startsAt":"2026-08-16T00:00:00.000Z","endsAt":null,"admissionPaused":false,"shareLinkExpiresAt":"2026-08-16T06:00:00.000Z","shareLinkExpired":true,"closedAt":"2026-08-17T06:00:00.000Z","capacity":80\(recapFields)}]}
+            """.utf8)).parties[0]
+        }
+
+        // A server that has never heard of a recap reads as no recap, never as
+        // an unpublished one.
+        XCTAssertEqual(try room("").recapState, .none)
+        XCTAssertEqual(try room(",\"recapPhotoCount\":0,\"recapPublished\":false").recapState, .none)
+
+        // Uploading is not publishing, and the host is told so.
+        XCTAssertEqual(try room(",\"recapPhotoCount\":3,\"recapPublished\":false").recapState, .staged(3))
+        XCTAssertEqual(try room(",\"recapPhotoCount\":3,\"recapPublished\":true").recapState, .published(3))
+
+        // A count without the flag must not read as live.
+        XCTAssertEqual(try room(",\"recapPhotoCount\":2").recapState, .staged(2))
+        // A flag without photos is not an album.
+        XCTAssertEqual(try room(",\"recapPublished\":true").recapState, .none)
+    }
+
     func testClosedRoomDecodesAndSummaryCarriesTheCloseState() throws {
         let closed = try JSONDecoder().decode(NativeHostedPartyList.self, from: Data("""
         {"parties":[{"id":"party-9","title":"Last Listen","venueName":"The Basement","startsAt":"2026-08-16T00:00:00.000Z","endsAt":null,"admissionPaused":false,"shareLinkExpiresAt":"2026-08-16T06:00:00.000Z","shareLinkExpired":true,"closedAt":"2026-08-17T06:00:00.000Z","capacity":80}]}

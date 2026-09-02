@@ -3855,6 +3855,7 @@ private struct NativeNetworkHubView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(party.title).font(.system(size: 14, weight: .black)).foregroundColor(NativeProfileStyle.title).lineLimit(1)
                             Text("\(party.venueName) · \(party.startsAtDate?.formatted(date: .abbreviated, time: .shortened) ?? party.startsAt)").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(1)
+                            recapPill(party)
                         }
                         Spacer()
                         Button("Control") { hostedControlTarget = HostedControlTarget(id: party.id) }
@@ -3868,6 +3869,36 @@ private struct NativeNetworkHubView: View {
                 }
             }
         }
+    }
+
+    /// A closed room says whether its recap reached anyone. Staged photos are
+    /// named as unpublished rather than shown as a count, because a host who
+    /// uploaded and stopped has no other way to discover the guests still see
+    /// nothing.
+    @ViewBuilder private func recapPill(_ party: NativeHostedParty) -> some View {
+        switch party.recapState {
+        case .none:
+            EmptyView()
+        case .staged(let count):
+            closedRoomPill("\(count) photo\(count == 1 ? "" : "s") · not published", icon: "photo.stack", color: NativeTheme.orange, party: party)
+        case .published(let count):
+            closedRoomPill("Recap live · \(count) photo\(count == 1 ? "" : "s")", icon: "checkmark.seal.fill", color: NativeTheme.emerald, party: party)
+        }
+    }
+
+    private func closedRoomPill(_ text: String, icon: String, color: Color, party: NativeHostedParty) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 8, weight: .black))
+            Text(text).font(.system(size: 9.5, weight: .black)).tracking(0.5).lineLimit(1)
+        }
+        .foregroundColor(color)
+        .padding(.horizontal, 7).padding(.vertical, 3)
+        .background(Capsule().fill(color.opacity(0.14)))
+        .overlay(Capsule().stroke(color.opacity(0.34)))
+        .padding(.top, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(text)
+        .accessibilityIdentifier("native-closed-room-recap-\(party.id)")
     }
 
     private var segmentControl: some View {

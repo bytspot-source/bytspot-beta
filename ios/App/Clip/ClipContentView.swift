@@ -201,6 +201,13 @@ private struct ClipPartyInviteStateView: View {
 /// `scaledToFill` otherwise measures the size it scaled *to*, which is wider
 /// than the phone whenever the poster is. Left to size itself it widens any
 /// ScrollView / ZStack that contains it.
+/// The shape Host Studio declares to hosts (1600x1067) and centre-crops covers
+/// to on publish. The hero adopts it so a poster framed against that spec
+/// arrives uncropped.
+enum ClipPartyPoster {
+    static let aspectRatio: CGFloat = 3.0 / 2.0
+}
+
 private struct ClipContainedFillImage: View {
     let url: URL
     /// Filling is right for the hero, which is a poster-shaped card. It is
@@ -412,7 +419,10 @@ struct PartyPassClipView: View {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(LinearGradient(colors: [ClipTheme.panelElevated, ClipTheme.panel], startPoint: .topLeading, endPoint: .bottomTrailing))
             if let poster = invite.displayPosterURL {
-                ClipContainedFillImage(url: poster)
+                // Fitting, not filling: a host frames a flyer to be read, and
+                // a legacy poster that predates the 3:2 spec would otherwise
+                // lose whatever sits outside the crop.
+                ClipContainedFillImage(url: poster, contentMode: .fit)
             }
             LinearGradient(colors: [Color.black.opacity(0.08), Color.black.opacity(0.36), Color.black.opacity(0.92)], startPoint: .top, endPoint: .bottom)
             // The tier requirement is stated once, here. Repeating it beside
@@ -432,7 +442,10 @@ struct PartyPassClipView: View {
                 heroMetadata
             }.padding(20)
         }
-        .frame(maxWidth: .infinity).frame(minHeight: 292).clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .frame(maxWidth: .infinity)
+        .aspectRatio(invite.displayPosterURL == nil ? nil : ClipPartyPoster.aspectRatio, contentMode: .fit)
+        .frame(minHeight: invite.displayPosterURL == nil ? 292 : nil)
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 28).stroke(Color.white.opacity(0.15)))
     }
 

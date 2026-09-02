@@ -167,6 +167,13 @@ enum NativeAtlantaCorridor {
         }
     }
 
+    /// The Discover rail a plan's hang belongs to, so Home and Discover ask
+    /// the listing plug the same question.
+    static func discoverType(forPlan plan: NativeCollapsePlan) -> String {
+        guard let door = atlanta.first(where: { $0.id == plan.hang.id }) else { return "dining" }
+        return discoverType(for: door)
+    }
+
     static func vibeTokens(forLaunchIntent intent: String) -> [String] {
         switch intent {
         case "food": return ["chill"]

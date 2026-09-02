@@ -428,6 +428,92 @@ final class BytspotTrustEngineTests: XCTestCase {
 
     // MARK: - Discover card control gate (local vs vendor)
 
+    // MARK: - Discover listing plug (fulfillment, SKU merge, plan hold)
+
+    /// Decoded from the contract on disk so the plug is tested against the
+    /// catalog of record rather than whatever the host bundle happens to hold.
+    private func listingCatalog() throws -> BookableTemplateCatalog {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("contracts/bookable-templates.json")
+        return try BookableTemplateCatalog.decode(from: Data(contentsOf: url))
+    }
+
+    func testALocalCardNeverEarnsASettlementVerb() throws {
+        let catalog = try listingCatalog()
+        let local = NativeDiscoverCardControl.local
+        // A brochure asking to Book or Reserve is refused down to Details.
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Book Table", control: local, rail: "dining", catalog: catalog), "Details")
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Reserve Spot", control: local, rail: "parking", catalog: catalog), "Details")
+        // Non-settlement nouns are the card's own business and pass through.
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "View Menu", control: local, rail: "dining", catalog: catalog), "View Menu")
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Open details", control: local, rail: "coffee", catalog: catalog), "Open details")
+    }
+
+    func testAControlledVendorAsksUntilSettlementExists() throws {
+        let catalog = try listingCatalog()
+        let vendor = NativeDiscoverCardControl.vendor
+        let local = NativeDiscoverCardControl.local
+        // Payouts are not live, so a controlled vendor may ask but not charge.
+        XCTAssertEqual(NativeDiscoverListing.fulfillment(control: vendor, rail: "dining", catalog: catalog), .request)
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Reserve Table", control: vendor, rail: "dining", catalog: catalog), "Request")
+        XCTAssertEqual(NativeDiscoverListing.fulfillment(control: local, rail: "dining", catalog: catalog), .details)
+        // With settlement on, the same vendor card keeps its own verb.
+        XCTAssertEqual(NativeDiscoverListing.fulfillment(control: vendor, rail: "dining", settlementReady: true, catalog: catalog), .book)
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Reserve Table", control: vendor, rail: "dining", settlementReady: true, catalog: catalog), "Reserve Table")
+        // A local card stays refused even after settlement exists.
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Reserve Table", control: local, rail: "dining", settlementReady: true, catalog: catalog), "Details")
+    }
+
+    func testARailWithNoSKUCannotSettle() throws {
+        let catalog = try listingCatalog()
+        let vendor = NativeDiscoverCardControl.vendor
+        // A rail the catalog does not sell can never reach BOOK.
+        XCTAssertNil(NativeDiscoverListing.skuTemplate(forRail: "not-a-rail", catalog: catalog))
+        XCTAssertEqual(NativeDiscoverListing.fulfillment(control: vendor, rail: "not-a-rail", settlementReady: true, catalog: catalog), .request)
+        // The SKU merge is deterministic, so two surfaces price the same rail alike.
+        XCTAssertEqual(NativeDiscoverListing.skuTemplate(forRail: "dining", catalog: catalog)?.id, "dining.booth")
+        XCTAssertEqual(NativeDiscoverListing.skuTemplate(forRail: "parking", catalog: catalog)?.id, "stall.reserved-parking")
+    }
+
+    func testAHoldIsOnlyIssuedByAPathThatCouldSettle() throws {
+        let catalog = try listingCatalog()
+        let vendor = NativeDiscoverCardControl.vendor
+        let local = NativeDiscoverCardControl.local
+        XCTAssertNil(NativeDiscoverListing.planHold(control: vendor, rail: "dining", catalog: catalog))
+        XCTAssertNil(NativeDiscoverListing.planHold(control: local, rail: "dining", settlementReady: true, catalog: catalog))
+        let template = try XCTUnwrap(NativeDiscoverListing.skuTemplate(forRail: "dining", catalog: catalog))
+        let hold = NativeDiscoverListing.planHold(control: vendor, rail: "dining", settlementReady: true, catalog: catalog)
+        XCTAssertEqual(hold?.seconds, template.timing.holdSecs)
+    }
+
+    func testATypicalHomePlanNeverAdvertisesAHold() throws {
+        let catalog = try listingCatalog()
+        // Typical catalog cannot settle, so Home carries no hold and no verb.
+        let door = try XCTUnwrap(NativeAtlantaCorridor.midtown.first { $0.id == "door-stall-colony" })
+        let typical = NativeAtlantaCorridor.plan(for: door)
+        let rail = NativeAtlantaCorridor.discoverType(forPlan: typical)
+        XCTAssertFalse(typical.canCheckout)
+        XCTAssertNil(NativeDiscoverListing.planHold(for: typical, rail: rail, catalog: catalog))
+        XCTAssertEqual(NativeDiscoverListing.homePlanCTATitle(for: typical, proposed: "Reserve Spot", rail: rail, catalog: catalog), "Details")
+        // Home's real CTA is not a settlement verb, so the plug leaves it alone.
+        XCTAssertEqual(NativeAtlantaCorridor.primaryCTATitle(for: typical), "Route")
+        XCTAssertEqual(NativeDiscoverListing.homePlanCTATitle(for: typical, proposed: "Route", rail: rail, catalog: catalog), "Route")
+    }
+
+    func testHomePlanRailsMapOntoDiscoverRails() throws {
+        let catalog = try listingCatalog()
+        let rails = Set(NativeAtlantaCorridor.atlanta.map { NativeAtlantaCorridor.discoverType(for: $0) })
+        let catalogRails = Set(catalog.visibleDiscoverCategories(includeVendorGated: true).map(\.id))
+        XCTAssertFalse(catalogRails.isEmpty)
+        for rail in rails {
+            XCTAssertTrue(catalogRails.contains(rail), "\(rail) is a Home plan rail Discover does not carry")
+        }
+    }
+
     func testDiscoverControlGateOnlyControlsCanonicalVendorsAndRealPatches() {
         // Canonical vendor IDs are controlled.
         XCTAssertTrue(NativeDiscoverCardControl.isControlled(cardID: "broni-home-taste"))

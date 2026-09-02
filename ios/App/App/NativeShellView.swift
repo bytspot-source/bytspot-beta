@@ -6605,7 +6605,7 @@ private struct NativeHomeDashboardView: View {
                 crowdEmoji: crowdEmoji(venue.crowd),
                 crowdLabel: NativeAtlantaCorridor.crowdLabel(for: plan),
                 categoryEmoji: categoryEmoji(venue.discoverType),
-                primaryCTATitle: NativeAtlantaCorridor.primaryCTATitle(for: plan),
+                primaryCTATitle: Self.typicalPlanCTATitle(for: plan),
                 primaryCTAIcon: NativeAtlantaCorridor.primaryCTAIcon(for: plan),
                 secondaryCTATitle: Self.aiPickSecondaryCTA,
                 primaryAction: { triggerTypicalPlan(plan, venue: venue) },
@@ -6615,8 +6615,18 @@ private struct NativeHomeDashboardView: View {
         }
     }
 
+    /// Home's Typical Plan is the same atom as a Discover card, so it passes
+    /// through the same refusal: no settlement verb without a real hold.
+    static func typicalPlanCTATitle(for plan: NativeCollapsePlan) -> String {
+        NativeDiscoverListing.homePlanCTATitle(
+            for: plan,
+            proposed: NativeAtlantaCorridor.primaryCTATitle(for: plan),
+            rail: NativeAtlantaCorridor.discoverType(forPlan: plan)
+        )
+    }
+
     private func triggerTypicalPlan(_ plan: NativeCollapsePlan, venue: NativeVenueSummary) {
-        if NativeAtlantaCorridor.primaryCTATitle(for: plan) == "Route" {
+        if Self.typicalPlanCTATitle(for: plan) == "Route" {
             routeToAIPick(venue)
             return
         }
@@ -10798,6 +10808,12 @@ private struct NativeDiscoverView: View {
         DiscoverCardSpec(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: card.distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, control: card.control, latitude: card.latitude, longitude: card.longitude)
     }
 
+    /// The listing plug refuses any settlement verb the card's rail cannot
+    /// settle, so a local brochure never wears Book / Reserve chrome.
+    static func listingCTATitle(for card: DiscoverCardSpec) -> String {
+        NativeDiscoverListing.primaryCTATitle(proposed: card.cta, control: card.control, rail: card.type)
+    }
+
     private func venueForDetail(_ card: DiscoverCardSpec) -> NativeVenueSummary {
         let candidates = NativeLocationAwareUIContent.venues(in: regionalSnapshot)
         return Self.venueForDetail(card, venues: candidates)
@@ -10834,7 +10850,7 @@ private struct NativeDiscoverView: View {
     private func primaryTitle(for card: DiscoverCardSpec) -> String {
         let venue = venueForDetail(card)
         if card.cta == "Book Ride" { return "Plan Arrival" }
-        guard Self.supportsManualCheckIn(card, venue: venue) else { return card.cta }
+        guard Self.supportsManualCheckIn(card, venue: venue) else { return Self.listingCTATitle(for: card) }
         return NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id, scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)) ? "Checked In" : "Check In"
     }
 

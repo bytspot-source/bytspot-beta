@@ -27,8 +27,48 @@ struct NativePartyRecap: Codable, Equatable {
     var isFull: Bool { addressablePhotos.count >= Self.maxPhotos }
 }
 
+/// A room this guest was admitted to and that is now over. The way back to a
+/// Party Pass after the room closes, so a recap is not reachable only by
+/// whoever still holds the original invitation link.
+struct NativeAttendedRoom: Codable, Identifiable, Equatable {
+    let id: String
+    let title: String
+    /// Present only where the host made the venue public. Everything else is
+    /// the disclosure, not the place.
+    let locationLabel: String?
+    let locationDisclosure: String?
+    let startsAt: String
+    let endsAt: String?
+    let status: String
+    /// Whether the door actually admitted them on the night. Reported, but
+    /// never what makes the room reachable: a confirmed guest who never came
+    /// still holds the pass.
+    let attended: Bool
+    /// Already the count `events.recap.get` would serve. Staged photos are
+    /// zero here, so a room can never advertise an album the read would refuse.
+    let recapAvailable: Bool
+    let recapPhotoCount: Int
+
+    var startsAtDate: Date? { ISO8601DateFormatter.partyControlDate(from: startsAt) }
+
+    /// The same words the Party Pass uses, so a room reads the same in the list
+    /// that leads back to it as it does once opened. A missing label is never
+    /// filled in from anywhere else.
+    var safeLocationLabel: String {
+        if locationDisclosure == "public", let locationLabel, !locationLabel.isEmpty { return locationLabel }
+        return locationDisclosure == "withheld" ? "Location withheld by host" : "Location shared after approval"
+    }
+}
+
+struct NativeAttendedRoomList: Codable { let rooms: [NativeAttendedRoom] }
+
 struct NativePartyRecapAPI {
     let client: BytspotAPIClient
+
+    func history() async throws -> [NativeAttendedRoom] {
+        let payload = try await client.trpcQueryPayload(path: "/trpc/events.pass.history", input: [:])
+        return try JSONDecoder().decode(NativeAttendedRoomList.self, from: JSONSerialization.data(withJSONObject: payload)).rooms
+    }
 
     func get(_ partyID: String) async throws -> NativePartyRecap {
         let payload = try await client.trpcQueryPayload(path: "/trpc/events.recap.get", input: ["partyId": partyID])

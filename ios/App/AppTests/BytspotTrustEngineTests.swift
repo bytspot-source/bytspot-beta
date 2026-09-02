@@ -2117,6 +2117,70 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(list.parties[0].closedAt)
     }
 
+    func testAttendedRoomAdvertisesARecapOnlyWhenTheServerSaysItIsReadable() throws {
+        let rooms = try JSONDecoder().decode(NativeAttendedRoomList.self, from: Data("""
+        {"rooms":[
+          {"id":"party-1","title":"First Listen","locationLabel":"The Basement","locationDisclosure":"public","startsAt":"2026-08-16T00:00:00.000Z","endsAt":"2026-08-16T06:00:00.000Z","status":"rsvp","attended":true,"recapAvailable":true,"recapPhotoCount":4},
+          {"id":"party-2","title":"Second Listen","locationLabel":null,"locationDisclosure":"withheld","startsAt":"2026-08-10T00:00:00.000Z","endsAt":null,"status":"ticketed","attended":false,"recapAvailable":false,"recapPhotoCount":0}
+        ]}
+        """.utf8)).rooms
+
+        XCTAssertEqual(rooms.count, 2)
+        // The list that leads back to a room says exactly what the pass says
+        // about where it was. A withheld room stays unplaced here too.
+        XCTAssertEqual(rooms[0].safeLocationLabel, "The Basement")
+        XCTAssertEqual(rooms[1].safeLocationLabel, "Location withheld by host")
+
+        // A label the server should not have sent is not trusted on arrival:
+        // the disclosure decides, not the presence of a string.
+        let leaked = try JSONDecoder().decode(NativeAttendedRoomList.self, from: Data("""
+        {"rooms":[{"id":"party-3","title":"Third Listen","locationLabel":"The Vault","locationDisclosure":"after-approval","startsAt":"2026-08-01T00:00:00.000Z","endsAt":null,"status":"rsvp","attended":false,"recapAvailable":false,"recapPhotoCount":0}]}
+        """.utf8)).rooms
+        XCTAssertEqual(leaked[0].safeLocationLabel, "Location shared after approval")
+
+        // An older server that omits both fields must not invent a place.
+        let older = try JSONDecoder().decode(NativeAttendedRoomList.self, from: Data("""
+        {"rooms":[{"id":"party-4","title":"Fourth Listen","startsAt":"2026-07-01T00:00:00.000Z","endsAt":null,"status":"rsvp","attended":false,"recapAvailable":false,"recapPhotoCount":0}]}
+        """.utf8)).rooms
+        XCTAssertEqual(older[0].safeLocationLabel, "Location shared after approval")
+
+        XCTAssertTrue(rooms[0].recapAvailable)
+        XCTAssertEqual(rooms[0].recapPhotoCount, 4)
+
+        // A guest who never came through the door still holds the room, so
+        // reachability must not be read off `attended`.
+        XCTAssertFalse(rooms[1].attended)
+        XCTAssertEqual(rooms[1].id, "party-2")
+        XCTAssertFalse(rooms[1].recapAvailable)
+
+        // The room is reachable as a route, which is the whole point of the
+        // list: the pass is the only surface a recap is readable on.
+        let url = try XCTUnwrap(URL(string: "bytspot://party/\(rooms[0].id)"))
+        XCTAssertEqual(NativePartyPassRoute(url: url)?.partyID, "party-1")
+    }
+
+    func testClosedRoomSeparatesAStagedRecapFromAPublishedOne() throws {
+        func room(_ recapFields: String) throws -> NativeHostedParty {
+            try JSONDecoder().decode(NativeHostedPartyList.self, from: Data("""
+            {"parties":[{"id":"party-9","title":"Last Listen","venueName":"The Basement","startsAt":"2026-08-16T00:00:00.000Z","endsAt":null,"admissionPaused":false,"shareLinkExpiresAt":"2026-08-16T06:00:00.000Z","shareLinkExpired":true,"closedAt":"2026-08-17T06:00:00.000Z","capacity":80\(recapFields)}]}
+            """.utf8)).parties[0]
+        }
+
+        // A server that has never heard of a recap reads as no recap, never as
+        // an unpublished one.
+        XCTAssertEqual(try room("").recapState, .none)
+        XCTAssertEqual(try room(",\"recapPhotoCount\":0,\"recapPublished\":false").recapState, .none)
+
+        // Uploading is not publishing, and the host is told so.
+        XCTAssertEqual(try room(",\"recapPhotoCount\":3,\"recapPublished\":false").recapState, .staged(3))
+        XCTAssertEqual(try room(",\"recapPhotoCount\":3,\"recapPublished\":true").recapState, .published(3))
+
+        // A count without the flag must not read as live.
+        XCTAssertEqual(try room(",\"recapPhotoCount\":2").recapState, .staged(2))
+        // A flag without photos is not an album.
+        XCTAssertEqual(try room(",\"recapPublished\":true").recapState, .none)
+    }
+
     func testClosedRoomDecodesAndSummaryCarriesTheCloseState() throws {
         let closed = try JSONDecoder().decode(NativeHostedPartyList.self, from: Data("""
         {"parties":[{"id":"party-9","title":"Last Listen","venueName":"The Basement","startsAt":"2026-08-16T00:00:00.000Z","endsAt":null,"admissionPaused":false,"shareLinkExpiresAt":"2026-08-16T06:00:00.000Z","shareLinkExpired":true,"closedAt":"2026-08-17T06:00:00.000Z","capacity":80}]}

@@ -115,6 +115,20 @@ struct NativeHostedParty: Codable, Identifiable, Equatable {
     /// value means the room is still open rather than unknown.
     let closedAt: String?
     let capacity: Int
+    /// Staged and published are separate facts. Photos can sit in a closed room
+    /// that no guest can see, and that is the state a host most needs told.
+    /// Older servers omit both, which reads as no recap rather than as an
+    /// unpublished one.
+    let recapPhotoCount: Int?
+    let recapPublished: Bool?
+
+    enum RecapState: Equatable { case none, staged(Int), published(Int) }
+
+    var recapState: RecapState {
+        let count = recapPhotoCount ?? 0
+        guard count > 0 else { return .none }
+        return (recapPublished ?? false) ? .published(count) : .staged(count)
+    }
 
     var startsAtDate: Date? { ISO8601DateFormatter.partyControlDate(from: startsAt) }
     var retrievedShareURL: URL? { NativePartyShareLink.url(from: shareUrl) ?? NativePartyShareLink.url(for: id) }

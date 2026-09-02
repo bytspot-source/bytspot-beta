@@ -3670,6 +3670,8 @@ private struct NativeNetworkHubView: View {
     @State private var showHostStudio = false
     @State private var hostedParties: [NativeHostedParty] = []
     @State private var closedParties: [NativeHostedParty] = []
+    @State private var attendedRooms: [NativeAttendedRoom] = []
+    @State private var passTarget: AttendedPassTarget?
     @State private var showingClosedRooms = false
     @State private var hostedControlTarget: HostedControlTarget?
     @State private var roomStatusMessage = ""
@@ -3721,6 +3723,10 @@ private struct NativeNetworkHubView: View {
         .sheet(item: $hostedControlTarget) { target in
             NativePartyControlView(partyID: target.id).environmentObject(sessionStore)
         }
+        .sheet(item: $passTarget) { target in
+            NativePartyPassPreview(route: target.route)
+                .environmentObject(sessionStore)
+        }
         .onChange(of: hostedControlTarget) { target in
             if target == nil, sessionStore.isAuthenticated {
                 Task { await refreshRoomsAfterControl() }
@@ -3757,6 +3763,21 @@ private struct NativeNetworkHubView: View {
 
     private struct HostedControlTarget: Identifiable, Equatable {
         let id: String
+    }
+
+    /// Built through the link parser rather than beside it, so a pass opened
+    /// from this list is the same thing a pass opened from a link is, and there
+    /// is only one definition of a party route that is valid.
+    private struct AttendedPassTarget: Identifiable, Equatable {
+        let id: String
+        let route: NativePartyPassRoute
+
+        init?(roomID: String) {
+            guard let url = URL(string: "bytspot://party/\(roomID)"),
+                  let route = NativePartyPassRoute(url: url) else { return nil }
+            self.id = roomID
+            self.route = route
+        }
     }
 
     @ViewBuilder private var hostedRooms: some View {
@@ -3855,6 +3876,7 @@ private struct NativeNetworkHubView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(party.title).font(.system(size: 14, weight: .black)).foregroundColor(NativeProfileStyle.title).lineLimit(1)
                             Text("\(party.venueName) · \(party.startsAtDate?.formatted(date: .abbreviated, time: .shortened) ?? party.startsAt)").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(1)
+                            recapPill(party)
                         }
                         Spacer()
                         Button("Control") { hostedControlTarget = HostedControlTarget(id: party.id) }
@@ -3868,6 +3890,36 @@ private struct NativeNetworkHubView: View {
                 }
             }
         }
+    }
+
+    /// A closed room says whether its recap reached anyone. Staged photos are
+    /// named as unpublished rather than shown as a count, because a host who
+    /// uploaded and stopped has no other way to discover the guests still see
+    /// nothing.
+    @ViewBuilder private func recapPill(_ party: NativeHostedParty) -> some View {
+        switch party.recapState {
+        case .none:
+            EmptyView()
+        case .staged(let count):
+            closedRoomPill("\(count) photo\(count == 1 ? "" : "s") · not published", icon: "photo.stack", color: NativeTheme.orange, party: party)
+        case .published(let count):
+            closedRoomPill("Recap live · \(count) photo\(count == 1 ? "" : "s")", icon: "checkmark.seal.fill", color: NativeTheme.emerald, party: party)
+        }
+    }
+
+    private func closedRoomPill(_ text: String, icon: String, color: Color, party: NativeHostedParty) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 8, weight: .black))
+            Text(text).font(.system(size: 9.5, weight: .black)).tracking(0.5).lineLimit(1)
+        }
+        .foregroundColor(color)
+        .padding(.horizontal, 7).padding(.vertical, 3)
+        .background(Capsule().fill(color.opacity(0.14)))
+        .overlay(Capsule().stroke(color.opacity(0.34)))
+        .padding(.top, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(text)
+        .accessibilityIdentifier("native-closed-room-recap-\(party.id)")
     }
 
     private var segmentControl: some View {
@@ -4069,6 +4121,7 @@ private struct NativeNetworkHubView: View {
                 invitationSection(title: "INCOMING", items: invitations.filter { $0.direction == "incoming" })
                 invitationSection(title: "OUTGOING", items: invitations.filter { $0.direction == "outgoing" })
                 if invitations.isEmpty { NativeProfileEmptyState(title: "No invitations", subtitle: "Incoming and outgoing invitations appear here.", icon: "envelope.open.fill") }
+                attendedRoomsSection
             }
             statusView
         }
@@ -4144,6 +4197,57 @@ private struct NativeNetworkHubView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("native-network-sign-in")
+        }
+    }
+
+    /// A room the guest was admitted to stays reachable after it closes. The
+    /// pass is the only place a recap is readable, so without a way back the
+    /// album belongs to whoever still has the original link.
+    @ViewBuilder private var attendedRoomsSection: some View {
+        if !attendedRooms.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                networkSectionHeader("ROOMS YOU'VE BEEN IN", count: attendedRooms.count)
+                ForEach(attendedRooms) { room in
+                    Button(action: { nativeImpactLight(); passTarget = AttendedPassTarget(roomID: room.id) }) {
+                        HStack(alignment: .center, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(room.title).font(.system(size: 14, weight: .black)).foregroundColor(NativeProfileStyle.title).lineLimit(1)
+                                // Two lines, because the redaction wording is
+                                // longer than the venue names it stands in for
+                                // and clips at 375pt on one. Shortening it
+                                // would drift from the words the pass uses,
+                                // which is the whole point of saying it here. Three
+                                // rather than two: the longest case wraps with 0.1pt
+                                // to spare at 375pt, so a narrower container or a
+                                // later move to a scaling text style would clip the
+                                // time off the end of a two-line limit.
+                                Text("\(room.safeLocationLabel) · \(room.startsAtDate?.formatted(date: .abbreviated, time: .shortened) ?? room.startsAt)").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                                if room.recapAvailable {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "photo.stack.fill").font(.system(size: 8, weight: .black))
+                                        Text("Recap · \(room.recapPhotoCount)").font(.system(size: 9.5, weight: .black)).tracking(0.5).lineLimit(1)
+                                    }
+                                    .foregroundColor(NativeTheme.emerald)
+                                    .padding(.horizontal, 7).padding(.vertical, 3)
+                                    .background(Capsule().fill(NativeTheme.emerald.opacity(0.14)))
+                                    .overlay(Capsule().stroke(NativeTheme.emerald.opacity(0.34)))
+                                    .padding(.top, 2)
+                                }
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.system(size: 10, weight: .black)).foregroundColor(NativeProfileStyle.muted)
+                        }
+                        .padding(12)
+                        .background(NativeProfileStyle.insetSurface.opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(room.recapAvailable ? "\(room.title), recap of \(room.recapPhotoCount) photos" : room.title)
+                    .accessibilityHint("Opens your Party Pass")
+                    .accessibilityIdentifier("native-attended-room-\(room.id)")
+                }
+            }
         }
     }
 
@@ -4226,12 +4330,13 @@ private struct NativeNetworkHubView: View {
 
     private func refreshNetwork() async {
         dismissedContactIDs = NativeNetworkDismissedContacts.load(userID: sessionStore.authenticatedUserID)
-        guard sessionStore.isAuthenticated else { circleSnapshot = .empty; invitations = []; peopleMetPartyID = nil; peopleMetOptedIn = false; peopleMetPeople = []; hostedParties = []; closedParties = []; showingClosedRooms = false; roomStatusMessage = ""; return }
+        guard sessionStore.isAuthenticated else { circleSnapshot = .empty; invitations = []; peopleMetPartyID = nil; peopleMetOptedIn = false; peopleMetPeople = []; hostedParties = []; closedParties = []; attendedRooms = []; showingClosedRooms = false; roomStatusMessage = ""; return }
         await contactSyncStore.refresh(sessionStore: sessionStore)
         circleSnapshot = await api.listSocialCirclesViaRpc()
         invitations = (try? await api.listSocialInvitationsViaRpc()) ?? []
         if selectedCircleID == nil { selectedCircleID = circleSnapshot.groups.first?.id }
         await refreshHostedRooms()
+        await loadAttendedRooms()
     }
 
     private func refreshHostedRooms() async {
@@ -4257,6 +4362,17 @@ private struct NativeNetworkHubView: View {
 
     /// Fetched only when the host opens the disclosure: a closed room is a
     /// record they rarely need, and it must not cost a request on every load.
+    /// Loaded with the network hub rather than on disclosure: this is the only
+    /// route back to a closed room, so it must be there before it is looked for.
+    private func loadAttendedRooms() async {
+        guard sessionStore.isAuthenticated, let token = sessionStore.token else { attendedRooms = []; return }
+        do {
+            attendedRooms = try await NativePartyRecapAPI(client: BytspotAPIClient(tokenProvider: { token })).history()
+        } catch {
+            attendedRooms = []
+        }
+    }
+
     private func loadClosedRooms() async {
         guard sessionStore.isAuthenticated, let token = sessionStore.token else { closedParties = []; return }
         do {

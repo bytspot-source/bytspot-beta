@@ -4212,7 +4212,12 @@ private struct NativeNetworkHubView: View {
                         HStack(alignment: .center, spacing: 10) {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(room.title).font(.system(size: 14, weight: .black)).foregroundColor(NativeProfileStyle.title).lineLimit(1)
-                                Text("\(room.safeLocationLabel) · \(room.startsAtDate?.formatted(date: .abbreviated, time: .shortened) ?? room.startsAt)").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(1)
+                                // Two lines, because the redaction wording is
+                                // longer than the venue names it stands in for
+                                // and clips at 375pt on one. Shortening it
+                                // would drift from the words the pass uses,
+                                // which is the whole point of saying it here.
+                                Text("\(room.safeLocationLabel) · \(room.startsAtDate?.formatted(date: .abbreviated, time: .shortened) ?? room.startsAt)").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeProfileStyle.body).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                                 if room.recapAvailable {
                                     HStack(spacing: 4) {
                                         Image(systemName: "photo.stack.fill").font(.system(size: 8, weight: .black))

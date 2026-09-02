@@ -2282,14 +2282,30 @@ final class NativeProfileDataAPITests: XCTestCase {
     /// to frame for.
     @MainActor
     func testPartyCoverIsNormalisedToTheDeclaredThreeTwoShape() throws {
-        let panorama = NativePartyPendingImageTestSupport.image(pixelWidth: 2400, pixelHeight: 828, scale: 1)
-        let prepared = try XCTUnwrap(NativePartyPendingImage(image: panorama, shape: .cover))
+        let source = NativePartyPendingImageTestSupport.image(pixelWidth: 2400, pixelHeight: 1600, scale: 1)
+        let prepared = try XCTUnwrap(NativePartyPendingImage(image: source, shape: .cover))
         let pixels = CGSize(width: prepared.preview.size.width * prepared.preview.scale,
                             height: prepared.preview.size.height * prepared.preview.scale)
 
         XCTAssertEqual(pixels.width / pixels.height, NativePartyPendingImage.coverAspectRatio, accuracy: 0.01)
         XCTAssertEqual(pixels.width, NativePartyPendingImage.coverPixelSize.width, accuracy: 1)
         XCTAssertEqual(pixels.height, NativePartyPendingImage.coverPixelSize.height, accuracy: 1)
+    }
+
+    /// A 2.9:1 panorama has the width to fill the box but only 828 rows.
+    /// `coverPixelSize` is a ceiling, so it comes out 3:2 and smaller rather
+    /// than upscaled to reach 1067 rows it never had.
+    @MainActor
+    func testWidePanoramaCoverIsNotUpscaledToReachTheCeiling() throws {
+        let panorama = NativePartyPendingImageTestSupport.image(pixelWidth: 2400, pixelHeight: 828, scale: 1)
+        let prepared = try XCTUnwrap(NativePartyPendingImage(image: panorama, shape: .cover))
+        let pixels = CGSize(width: prepared.preview.size.width * prepared.preview.scale,
+                            height: prepared.preview.size.height * prepared.preview.scale)
+
+        XCTAssertEqual(pixels.width / pixels.height, NativePartyPendingImage.coverAspectRatio, accuracy: 0.01)
+        XCTAssertEqual(pixels.height, 828, accuracy: 1, "the source's own rows must survive untouched")
+        XCTAssertEqual(pixels.width, 1242, accuracy: 1)
+        XCTAssertLessThanOrEqual(pixels.width, NativePartyPendingImage.coverPixelSize.width)
     }
 
     /// Party flyers are usually portrait. They must still come out 3:2 rather

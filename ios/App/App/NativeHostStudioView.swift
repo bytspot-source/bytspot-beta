@@ -1020,7 +1020,7 @@ struct NativeHostStudioView: View {
 
     private func addAlbumImages(_ images: [UIImage]) {
         let candidates = Array(images.prefix(6 - albumMedia.count))
-        let prepared = candidates.compactMap(NativePartyPendingImage.init(image:))
+        let prepared = candidates.compactMap { NativePartyPendingImage(image: $0) }
         albumMedia.append(contentsOf: prepared)
         if prepared.count != candidates.count { publishPresentation.message = "Some photos could not be prepared." }
     }
@@ -1072,8 +1072,10 @@ struct NativePartyPendingImage: Identifiable {
             size = CGSize(width: max(1, (pixelWidth * scale).rounded()), height: max(1, (pixelHeight * scale).rounded()))
             drawRect = CGRect(origin: .zero, size: size)
         case .cover:
-            // Never upscale: a small poster is emitted at 3:2 in whatever size
-            // the source can actually fill.
+            // `coverPixelSize` is a ceiling, not a guarantee: a source that
+            // cannot cover the box on both axes is emitted at 3:2 in the
+            // largest size it can fill, because upscaling to reach the box
+            // would invent rows.
             let box = Self.coverPixelSize
             let fit = min(1, pixelWidth / box.width, pixelHeight / box.height)
             size = CGSize(width: max(1, (box.width * fit).rounded()), height: max(1, (box.height * fit).rounded()))

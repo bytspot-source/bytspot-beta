@@ -625,7 +625,7 @@ struct NativeHostStudioView: View {
                 .clipped().clipShape(RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.15)))
             }.buttonStyle(.plain)
-            Text("Guests see a center crop of this poster.").font(.system(size: 10, weight: .semibold)).foregroundColor(.white.opacity(0.48))
+            Text("Anything else is centre-cropped to 3:2 when you publish.").font(.system(size: 10, weight: .semibold)).foregroundColor(.white.opacity(0.48))
             HStack {
                 Text("PARTY ALBUM · \(albumMedia.count)/6").studioLabel()
                 Spacer()
@@ -1014,7 +1014,7 @@ struct NativeHostStudioView: View {
     private var roleSummary: String { teammateRole == .cohost ? "Edit, invite, and check-in access." : teammateRole == .door ? "Check-in access only." : "Refund access only." }
 
     private func setCoverImage(_ image: UIImage?) {
-        guard let image, let media = NativePartyPendingImage(image: image) else { if image != nil { publishPresentation.message = "That cover could not be prepared." }; return }
+        guard let image, let media = NativePartyPendingImage(image: image, shape: .cover) else { if image != nil { publishPresentation.message = "That cover could not be prepared." }; return }
         coverMedia = media
     }
 
@@ -1042,11 +1042,20 @@ struct NativePartyPendingImage: Identifiable {
         "\(Int(coverPixelSize.width)) × \(Int(coverPixelSize.height)) · 3:2 landscape"
     }
 
+    /// Album and recap photos keep the shape the host chose. Covers are
+    /// normalised, because every guest surface crops the cover to its own
+    /// height and five surfaces cropping five different shapes is not
+    /// something a host can frame for.
+    enum Shape {
+        case original
+        case cover
+    }
+
     let id = UUID()
     let preview: UIImage
     let dataURI: String
 
-    init?(image: UIImage) {
+    init?(image: UIImage, shape: Shape = .original) {
         // `image.size` is in points and UIGraphicsImageRenderer defaults to the
         // screen scale, so a points-based cap rendered up to 3x the pixels it
         // named: a 4K photo measures 1280x720 points, cleared a 1400 point
@@ -1055,11 +1064,33 @@ struct NativePartyPendingImage: Identifiable {
         let pixelWidth = image.size.width * image.scale
         let pixelHeight = image.size.height * image.scale
         guard pixelWidth >= 1, pixelHeight >= 1 else { return nil }
-        let scale = min(1, Self.maxPixelDimension / max(pixelWidth, pixelHeight))
-        let size = CGSize(width: max(1, (pixelWidth * scale).rounded()), height: max(1, (pixelHeight * scale).rounded()))
+        let size: CGSize
+        let drawRect: CGRect
+        switch shape {
+        case .original:
+            let scale = min(1, Self.maxPixelDimension / max(pixelWidth, pixelHeight))
+            size = CGSize(width: max(1, (pixelWidth * scale).rounded()), height: max(1, (pixelHeight * scale).rounded()))
+            drawRect = CGRect(origin: .zero, size: size)
+        case .cover:
+            // Never upscale: a small poster is emitted at 3:2 in whatever size
+            // the source can actually fill.
+            let box = Self.coverPixelSize
+            let fit = min(1, pixelWidth / box.width, pixelHeight / box.height)
+            size = CGSize(width: max(1, (box.width * fit).rounded()), height: max(1, (box.height * fit).rounded()))
+            // Centre crop by drawing the source scaled to fill and letting the
+            // renderer's bounds take the middle.
+            let fill = max(size.width / pixelWidth, size.height / pixelHeight)
+            let drawSize = CGSize(width: pixelWidth * fill, height: pixelHeight * fill)
+            drawRect = CGRect(
+                x: (size.width - drawSize.width) / 2,
+                y: (size.height - drawSize.height) / 2,
+                width: drawSize.width,
+                height: drawSize.height
+            )
+        }
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
-        let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+        let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: drawRect) }
         var quality: CGFloat = 0.82
         var data = rendered.jpegData(compressionQuality: quality)
         while let current = data, current.count > Self.maxByteCount, quality > 0.32 {

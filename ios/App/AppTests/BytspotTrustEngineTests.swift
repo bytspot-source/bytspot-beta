@@ -2277,6 +2277,47 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertTrue(prepared.dataURI.hasPrefix("data:image/jpeg;base64,"))
     }
 
+    /// A host framed a 2.9:1 panorama in a 2.5:1 editor strip and guests got a
+    /// 1.2:1 crop of it. The cover is normalised so there is one declared shape
+    /// to frame for.
+    @MainActor
+    func testPartyCoverIsNormalisedToTheDeclaredThreeTwoShape() throws {
+        let panorama = NativePartyPendingImageTestSupport.image(pixelWidth: 2400, pixelHeight: 828, scale: 1)
+        let prepared = try XCTUnwrap(NativePartyPendingImage(image: panorama, shape: .cover))
+        let pixels = CGSize(width: prepared.preview.size.width * prepared.preview.scale,
+                            height: prepared.preview.size.height * prepared.preview.scale)
+
+        XCTAssertEqual(pixels.width / pixels.height, NativePartyPendingImage.coverAspectRatio, accuracy: 0.01)
+        XCTAssertEqual(pixels.width, NativePartyPendingImage.coverPixelSize.width, accuracy: 1)
+        XCTAssertEqual(pixels.height, NativePartyPendingImage.coverPixelSize.height, accuracy: 1)
+    }
+
+    /// Party flyers are usually portrait. They must still come out 3:2 rather
+    /// than reaching a guest surface as a tall image to be cropped again.
+    @MainActor
+    func testPortraitPartyFlyerIsCentreCroppedToThreeTwo() throws {
+        let flyer = NativePartyPendingImageTestSupport.image(pixelWidth: 1080, pixelHeight: 1920, scale: 1)
+        let prepared = try XCTUnwrap(NativePartyPendingImage(image: flyer, shape: .cover))
+        let pixels = CGSize(width: prepared.preview.size.width * prepared.preview.scale,
+                            height: prepared.preview.size.height * prepared.preview.scale)
+
+        XCTAssertEqual(pixels.width / pixels.height, NativePartyPendingImage.coverAspectRatio, accuracy: 0.01)
+        // 1080 wide cannot fill a 1600 box, so the output is the largest 3:2
+        // the source covers rather than an upscale.
+        XCTAssertEqual(pixels.width, 1080, accuracy: 1)
+        XCTAssertEqual(pixels.height, 720, accuracy: 1)
+    }
+
+    /// Album and recap photos are the host's own composition and keep it.
+    @MainActor
+    func testAlbumPhotosKeepTheirOwnShape() throws {
+        let portrait = NativePartyPendingImageTestSupport.image(pixelWidth: 900, pixelHeight: 1200, scale: 1)
+        let prepared = try XCTUnwrap(NativePartyPendingImage(image: portrait))
+
+        XCTAssertEqual(prepared.preview.size.width * prepared.preview.scale, 900, accuracy: 1)
+        XCTAssertEqual(prepared.preview.size.height * prepared.preview.scale, 1200, accuracy: 1)
+    }
+
     func testNativeHostStudioUploadsCompressedPartyMediaThroughAuthenticatedRoute() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [NativePartyURLProtocolStub.self]

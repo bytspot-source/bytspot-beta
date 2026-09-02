@@ -355,7 +355,15 @@ struct PartyPassClipView: View {
         ZStack {
             ClipTheme.background.ignoresSafeArea()
             if let poster = invite.displayPosterURL {
-                AsyncImage(url: poster) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
+                // Contained, not merely clipped: a fill-scaled image reports
+                // the size it was scaled to, which is wider than the screen
+                // whenever the poster is wider than the phone. Left to size
+                // itself it widens this backdrop, and the ZStack behind the
+                // pass with it, so the card laid out on top is proposed a
+                // width the display does not have.
+                Color.clear
+                    .overlay(AsyncImage(url: poster) { image in image.resizable().scaledToFill() } placeholder: { Color.clear })
+                    .clipped()
                     .opacity(0.18).ignoresSafeArea()
             }
             LinearGradient(colors: [Color.black.opacity(0.10), ClipTheme.background.opacity(0.94), ClipTheme.background], startPoint: .top, endPoint: .bottom).ignoresSafeArea()
@@ -384,7 +392,12 @@ struct PartyPassClipView: View {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(LinearGradient(colors: [ClipTheme.panelElevated, ClipTheme.panel], startPoint: .topLeading, endPoint: .bottomTrailing))
             if let poster = invite.displayPosterURL {
-                AsyncImage(url: poster) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
+                // The banner's own poster is contained for the same reason.
+                // `clipShape` below clips what is drawn, not what is measured,
+                // so an uncontained poster still widens the banner.
+                Color.clear
+                    .overlay(AsyncImage(url: poster) { image in image.resizable().scaledToFill() } placeholder: { Color.clear })
+                    .clipped()
             }
             LinearGradient(colors: [Color.black.opacity(0.08), Color.black.opacity(0.36), Color.black.opacity(0.92)], startPoint: .top, endPoint: .bottom)
             // The tier requirement is stated once, here. Repeating it beside

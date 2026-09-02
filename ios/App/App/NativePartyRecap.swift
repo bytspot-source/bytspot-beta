@@ -33,7 +33,10 @@ struct NativePartyRecap: Codable, Equatable {
 struct NativeAttendedRoom: Codable, Identifiable, Equatable {
     let id: String
     let title: String
-    let venueName: String
+    /// Present only where the host made the venue public. Everything else is
+    /// the disclosure, not the place.
+    let locationLabel: String?
+    let locationDisclosure: String?
     let startsAt: String
     let endsAt: String?
     let status: String
@@ -47,6 +50,14 @@ struct NativeAttendedRoom: Codable, Identifiable, Equatable {
     let recapPhotoCount: Int
 
     var startsAtDate: Date? { ISO8601DateFormatter.partyControlDate(from: startsAt) }
+
+    /// The same words the Party Pass uses, so a room reads the same in the list
+    /// that leads back to it as it does once opened. A missing label is never
+    /// filled in from anywhere else.
+    var safeLocationLabel: String {
+        if locationDisclosure == "public", let locationLabel, !locationLabel.isEmpty { return locationLabel }
+        return locationDisclosure == "withheld" ? "Location withheld by host" : "Location shared after approval"
+    }
 }
 
 struct NativeAttendedRoomList: Codable { let rooms: [NativeAttendedRoom] }

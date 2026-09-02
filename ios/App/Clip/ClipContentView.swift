@@ -1311,8 +1311,18 @@ struct ClipInviteView: View {
                     ClipAutoLoopingPlayer(videoURL: invite.videoURL, posterURL: invite.displayPosterURL, tint: accent)
                         .opacity(0.26)
                 } else if let url = invite.displayPosterURL {
-                    AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
-                        .opacity(0.22)
+                    // Filling a tall phone with a 3:2 poster scales it to the
+                    // screen's height and shows roughly the middle third of its
+                    // width — the poster reads as an enlarged fragment rather
+                    // than as the poster. Fit it instead: the whole poster is
+                    // legible, and the gradients above already carry the frame.
+                    AsyncImage(url: url) { image in
+                        image.resizable().scaledToFit()
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                    } placeholder: { Color.clear }
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .blur(radius: 18)
+                    .opacity(0.22)
                 }
                 RadialGradient(colors: [accent.opacity(0.32), .clear], center: .topLeading, startRadius: 12, endRadius: 420)
                 RadialGradient(colors: [secondary.opacity(0.26), .clear], center: .bottomTrailing, startRadius: 20, endRadius: 460)

@@ -626,6 +626,7 @@ struct NativeHostStudioView: View {
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.15)))
             }.buttonStyle(.plain)
             Text("Anything else is centre-cropped to 3:2 when you publish.").font(.system(size: 10, weight: .semibold)).foregroundColor(.white.opacity(0.48))
+            Text("Guests also see this poster behind the whole invite, dimmed.").font(.system(size: 10, weight: .semibold)).foregroundColor(.white.opacity(0.48))
             HStack {
                 Text("PARTY ALBUM · \(albumMedia.count)/6").studioLabel()
                 Spacer()

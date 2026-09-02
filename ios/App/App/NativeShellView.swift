@@ -948,10 +948,16 @@ private struct NativePartyPassPreview: View {
     @ViewBuilder private func partyCard(_ party: NativePartyPassRecord) -> some View {
         VStack(alignment: .leading, spacing: 15) {
             if let coverURL = party.coverURL {
-                AsyncImage(url: coverURL) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    LinearGradient(colors: [NativeTheme.purple, NativeTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
+                // `frame(height:)` alone leaves the width to the fill image,
+                // which reports the size it scaled to and widens the card.
+                GeometryReader { proxy in
+                    AsyncImage(url: coverURL) { image in
+                        image.resizable().scaledToFill()
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                            .clipped()
+                    } placeholder: {
+                        LinearGradient(colors: [NativeTheme.purple, NativeTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    }
                 }
                 .frame(height: 185)
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))

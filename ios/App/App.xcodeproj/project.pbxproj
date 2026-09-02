@@ -45,6 +45,11 @@
 		A13F11012D00000000001101 /* NativeCollapsePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F11002D00000000001100 /* NativeCollapsePlan.swift */; };
 		A13F11032D00000000001103 /* NativeAtlantaCorridor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F11022D00000000001102 /* NativeAtlantaCorridor.swift */; };
 		A13F12012D00000000001201 /* NativeHostTaxonomy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F12002D00000000001200 /* NativeHostTaxonomy.swift */; };
+		A13F13012D00000000001301 /* BookableTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F13002D00000000001300 /* BookableTemplates.swift */; };
+		A13F13032D00000000001303 /* BookableTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F13022D00000000001302 /* BookableTemplates.swift */; };
+		A13F13052D00000000001305 /* bookable-templates.json in Resources */ = {isa = PBXBuildFile; fileRef = A13F13042D00000000001304 /* bookable-templates.json */; };
+		A13F13072D00000000001307 /* bookable-templates.json in Resources */ = {isa = PBXBuildFile; fileRef = A13F13062D00000000001306 /* bookable-templates.json */; };
+		A13F13092D00000000001309 /* BookableTemplatesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F13082D00000000001308 /* BookableTemplatesTests.swift */; };
 			A13F0F012D0000000000F001 /* NativePartyArrivalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0F002D0000000000F000 /* NativePartyArrivalTests.swift */; };
 		A13F0B012D0000000000B001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A13F0B002D0000000000B000 /* PrivacyInfo.xcprivacy */; };
 		A13F0B032D0000000000B003 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A13F0B022D0000000000B002 /* PrivacyInfo.xcprivacy */; };
@@ -123,6 +128,11 @@
 		A13F11002D00000000001100 /* NativeCollapsePlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCollapsePlan.swift; sourceTree = "<group>"; };
 		A13F11022D00000000001102 /* NativeAtlantaCorridor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAtlantaCorridor.swift; sourceTree = "<group>"; };
 		A13F12002D00000000001200 /* NativeHostTaxonomy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHostTaxonomy.swift; sourceTree = "<group>"; };
+		A13F13002D00000000001300 /* BookableTemplates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookableTemplates.swift; sourceTree = "<group>"; };
+		A13F13022D00000000001302 /* BookableTemplates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookableTemplates.swift; sourceTree = "<group>"; };
+		A13F13042D00000000001304 /* bookable-templates.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bookable-templates.json"; sourceTree = "<group>"; };
+		A13F13062D00000000001306 /* bookable-templates.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bookable-templates.json"; sourceTree = "<group>"; };
+		A13F13082D00000000001308 /* BookableTemplatesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookableTemplatesTests.swift; sourceTree = "<group>"; };
 			A13F0F002D0000000000F000 /* NativePartyArrivalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyArrivalTests.swift; sourceTree = "<group>"; };
 		A13F0B002D0000000000B000 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A13F0B022D0000000000B002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -162,6 +172,7 @@
 			children = (
 				9A1129492FA586137FE60C71 /* BytspotTrustEngineTests.swift */,
 				A13F0F002D0000000000F000 /* NativePartyArrivalTests.swift */,
+				A13F13082D00000000001308 /* BookableTemplatesTests.swift */,
 			);
 			name = AppTests;
 			path = AppTests;
@@ -204,6 +215,8 @@
 				A13F11002D00000000001100 /* NativeCollapsePlan.swift */,
 				A13F11022D00000000001102 /* NativeAtlantaCorridor.swift */,
 				A13F12002D00000000001200 /* NativeHostTaxonomy.swift */,
+				A13F13002D00000000001300 /* BookableTemplates.swift */,
+				A13F13042D00000000001304 /* bookable-templates.json */,
 				A13F03042C0FF00100000055 /* BytspotNativeAppRoot.swift */,
 				A13F03002C0FF00100000051 /* NativeMigrationCore.swift */,
 				A13F03022C0FF00100000053 /* BytspotAPIClient.swift */,
@@ -239,6 +252,8 @@
 				A13F01012C0FF00100000011 /* ClipApp.swift */,
 				A13F01022C0FF00100000012 /* ClipContentView.swift */,
 				A13F01032C0FF00100000013 /* ClipPatchVerifier.swift */,
+				A13F13022D00000000001302 /* BookableTemplates.swift */,
+				A13F13062D00000000001306 /* bookable-templates.json */,
 				A13F01212C0FF00100000031 /* BytspotAviationFallbackTests.swift */,
 				A13F01042C0FF00100000014 /* Info.plist */,
 				A13F01052C0FF00100000015 /* Clip.entitlements */,
@@ -379,6 +394,7 @@
 				504EC30F1FED79650016851F /* Assets.xcassets in Resources */,
 				A13F02062C0FF00100000046 /* GoogleService-Info.plist in Resources */,
 				A13F0B012D0000000000B001 /* PrivacyInfo.xcprivacy in Resources */,
+				A13F13052D00000000001305 /* bookable-templates.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -389,6 +405,7 @@
 				A13F010A2C0FF0010000001A /* LaunchScreen.storyboard in Resources */,
 				A13F01092C0FF00100000019 /* Assets.xcassets in Resources */,
 				A13F0B032D0000000000B003 /* PrivacyInfo.xcprivacy in Resources */,
+				A13F13072D00000000001307 /* bookable-templates.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -423,6 +440,7 @@
 				A13F11012D00000000001101 /* NativeCollapsePlan.swift in Sources */,
 				A13F11032D00000000001103 /* NativeAtlantaCorridor.swift in Sources */,
 				A13F12012D00000000001201 /* NativeHostTaxonomy.swift in Sources */,
+				A13F13012D00000000001301 /* BookableTemplates.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -432,6 +450,7 @@
 			files = (
 				B3D8A6E7D100EEDA96C20BD3 /* BytspotTrustEngineTests.swift in Sources */,
 				A13F0F012D0000000000F001 /* NativePartyArrivalTests.swift in Sources */,
+				A13F13092D00000000001309 /* BookableTemplatesTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -443,6 +462,7 @@
 				A13F01072C0FF00100000017 /* ClipContentView.swift in Sources */,
 				A13F01082C0FF00100000018 /* ClipPatchVerifier.swift in Sources */,
 				A13F01202C0FF00100000030 /* BytspotAviationFallbackTests.swift in Sources */,
+				A13F13032D00000000001303 /* BookableTemplates.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

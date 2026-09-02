@@ -62,6 +62,10 @@ export function useVendorAuth(transport: AuthTransport): VendorAuthState & Vendo
   const [principal, setPrincipal] = useState<VendorPrincipal | undefined>(undefined);
   const [memberships, setMemberships] = useState<VendorMembership[]>([]);
   const [sellerId, setSellerId] = useState<string | undefined>(undefined);
+  // Mirrored into a ref because authorizedFetch is built once and would
+  // otherwise close over the seller chosen at mount, quietly writing every
+  // later edit to the business the vendor switched away from.
+  const activeSeller = useRef<string | undefined>(undefined);
   const [refusal, setRefusal] = useState<AuthRefusal | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [resendAfterSecs, setResendAfterSecs] = useState(0);
@@ -73,6 +77,7 @@ export function useVendorAuth(transport: AuthTransport): VendorAuthState & Vendo
     setPrincipal(undefined);
     setMemberships([]);
     setSellerId(undefined);
+    activeSeller.current = undefined;
   }, []);
 
   const requestCode = useCallback(
@@ -118,12 +123,14 @@ export function useVendorAuth(transport: AuthTransport): VendorAuthState & Vendo
         return;
       }
       setSellerId(preferred.seller.id);
+      activeSeller.current = preferred.seller.id;
     },
     [transport],
   );
 
   const chooseSeller = useCallback((next: string) => {
     setSellerId(next);
+    activeSeller.current = next;
     setRefusal(undefined);
     if (typeof localStorage !== 'undefined') rememberSeller(next, localStorage);
   }, []);
@@ -134,6 +141,9 @@ export function useVendorAuth(transport: AuthTransport): VendorAuthState & Vendo
       // Bearer, never a cookie: the refresh cookie is Path-scoped to the auth
       // routes precisely so it is not attached to ordinary calls.
       if (token.current) headers.set('Authorization', `Bearer ${token.current}`);
+      // Names which business this edit is for. The server still checks the
+      // caller holds a seat there — this says which one, it does not grant it.
+      if (activeSeller.current) headers.set('X-Bytspot-Seller', activeSeller.current);
       return fetch(`${VENDOR_API_BASE_URL}${path}`, { ...init, headers, credentials: 'omit' });
     },
     [],

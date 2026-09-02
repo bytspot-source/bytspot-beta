@@ -10,6 +10,7 @@ import {
   DollarSign,
   Edit3,
   Eye,
+  LayoutGrid,
   Leaf,
   Plus,
   RefreshCw,
@@ -20,6 +21,15 @@ import {
   X,
 } from 'lucide-react';
 import { trpc } from '../../../utils/trpc';
+import {
+  bookableTemplateToServiceFormFields,
+  getBookableTemplate,
+  listBookableDomains,
+  bookableTierFloorCents,
+  listBookableTemplates,
+  resolveBookableTier,
+  type BookableDomainId,
+} from '../../../utils/bookableTemplates';
 import { type ProviderDashboardAccess } from './providerDashboardAccess';
 
 interface DashboardListingsProps {
@@ -47,7 +57,7 @@ const TIER_DEFINITIONS: Record<ServiceTier, TierDefinition> = {
     label: 'Bytspot Black',
     shortLabel: 'Black',
     tagline: 'Ultra-luxury — verified concierge tier.',
-    suggestedStartingPriceCents: 45000,
+    suggestedStartingPriceCents: bookableTierFloorCents('black'),
     categories: ['Aviation', 'Marine', 'Dining', 'Chauffeur', 'Wellness', 'Concierge', 'Events'],
     Icon: Sparkles,
     accent: {
@@ -64,7 +74,7 @@ const TIER_DEFINITIONS: Record<ServiceTier, TierDefinition> = {
     label: 'Bytspot Platinum',
     shortLabel: 'Platinum',
     tagline: 'Premium service — vetted city operators.',
-    suggestedStartingPriceCents: 5000,
+    suggestedStartingPriceCents: bookableTierFloorCents('platinum'),
     categories: ['Catering', 'Wellness', 'Transportation', 'Hospitality', 'Events', 'Parking', 'General'],
     Icon: BadgeCheck,
     accent: {
@@ -81,7 +91,7 @@ const TIER_DEFINITIONS: Record<ServiceTier, TierDefinition> = {
     label: 'Bytspot Green',
     shortLabel: 'Green',
     tagline: 'Cottage industry — neighborhood makers & local services.',
-    suggestedStartingPriceCents: 500,
+    suggestedStartingPriceCents: bookableTierFloorCents('green'),
     categories: ['Baked Goods', 'Handmade Crafts', 'Local Services', 'Farm Stand', 'Tutoring', 'Wellness', 'General'],
     Icon: Leaf,
     accent: {
@@ -97,15 +107,8 @@ const TIER_DEFINITIONS: Record<ServiceTier, TierDefinition> = {
 
 const TIER_ORDER: ServiceTier[] = ['black', 'platinum', 'green'];
 
-function isServiceTier(value: unknown): value is ServiceTier {
-  return value === 'black' || value === 'platinum' || value === 'green';
-}
-
 function inferTier(service: { tier?: string | null; priceCents: number; category?: string | null }): ServiceTier {
-  if (isServiceTier(service.tier)) return service.tier;
-  if (service.priceCents >= TIER_DEFINITIONS.black.suggestedStartingPriceCents) return 'black';
-  if (service.priceCents >= TIER_DEFINITIONS.platinum.suggestedStartingPriceCents) return 'platinum';
-  return 'green';
+  return resolveBookableTier(service);
 }
 
 type VendorService = {
@@ -207,6 +210,12 @@ function applyTierToForm(form: EditForm, tier: ServiceTier): EditForm {
   return { ...form, tier, category: nextCategory, etaLabel: nextEtaLabel };
 }
 
+function applyTemplateToForm(form: EditForm, templateId: string): EditForm {
+  const template = getBookableTemplate(templateId);
+  if (!template) return form;
+  return { ...form, ...bookableTemplateToServiceFormFields(template) };
+}
+
 function addHighlight(form: EditForm): EditForm {
   const trimmed = form.highlightDraft.trim().slice(0, HIGHLIGHT_MAX_CHARS);
   if (!trimmed) return { ...form, highlightDraft: '' };
@@ -260,14 +269,17 @@ function formatFormPrice(form: EditForm) {
   return Number.isFinite(value) && value > 0 ? formatCents(Math.round(value * 100)) : 'Set price';
 }
 
-function reviewRowsForForm(form: EditForm, patchLabel?: string | null) {
+function reviewRowsForForm(form: EditForm, patchLabel?: string | null, templateId?: string | null) {
   const tier = TIER_DEFINITIONS[form.tier];
+  const template = templateId ? getBookableTemplate(templateId) : undefined;
   return [
+    ...(template ? [{ label: 'Template', value: `${template.name} · ${template.noun} · ${template.schema}` }] : []),
     { label: 'Customer card', value: form.title.trim() || 'Name needed' },
     { label: 'Tier + category', value: `${tier.shortLabel} · ${form.category}` },
     { label: 'Price + time', value: `${formatFormPrice(form)} · ${form.durationMins || 'Flexible'} min` },
     { label: 'Capacity', value: form.maxGuests ? `${form.maxGuests} guest${form.maxGuests === '1' ? '' : 's'}` : 'Flexible guests' },
     { label: 'Dispatch cue', value: tierShowsEtaField(form.tier) ? form.etaLabel.trim() || 'Add ETA label' : 'Not shown for Green' },
+    ...(template ? [{ label: 'Hold window', value: template.timing.holdSecs > 0 ? `${template.timing.holdSecs / 60} min, then back to inventory` : 'No hold — sells on confirm' }] : []),
     { label: 'Checkout bullets', value: form.includedHighlights.length ? `${form.includedHighlights.length} configured` : 'Optional, but recommended' },
     { label: 'Patch flow', value: form.patchRequired ? patchLabel || 'Patch required after save' : 'Patch optional' },
     { label: 'Outcome', value: form.status === 'active' ? 'Customers can book after save' : 'Saved as draft until published' },
@@ -291,6 +303,8 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [creatingService, setCreatingService] = useState(false);
   const [createForm, setCreateForm] = useState<EditForm>(EMPTY_SERVICE_FORM);
+  const [createTemplateId, setCreateTemplateId] = useState<string | null>(null);
+  const [createTemplateDomain, setCreateTemplateDomain] = useState<BookableDomainId | 'all'>('all');
   const [saving, setSaving] = useState(false);
   const [hasVendorSession, setHasVendorSession] = useState(hasVendorAuthToken);
   const [serviceReviewSideBySide, setServiceReviewSideBySide] = useState(() =>
@@ -415,6 +429,8 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
       return;
     }
     setCreateForm(EMPTY_SERVICE_FORM);
+    setCreateTemplateId(null);
+    setCreateTemplateDomain('all');
     setCreatingService(true);
     setMessage(null);
   };
@@ -588,12 +604,14 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
     mode,
     patchLabel,
     allowArchived = false,
+    templateId = null,
   }: {
     form: EditForm;
     setForm: (next: EditForm) => void;
     mode: 'create' | 'edit';
     patchLabel?: string | null;
     allowArchived?: boolean;
+    templateId?: string | null;
   }) => {
     const reviewId = `service-${mode}-review`;
     const progress = serviceFormProgress(form, patchLabel);
@@ -649,6 +667,85 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
               </div>
             )}
           </div>
+
+          {mode === 'create' && (
+            <section className={sectionClass} data-testid="service-create-template-picker">
+              {sectionTitle('0', 'Bookable template', 'Print a SKU. Templates are domain schemas and capabilities — not new object types.')}
+              <p className={`text-[12px] leading-5 ${tone.subtle}`}>Choose a printer, then edit the card. Blank still works if you already know the SKU.</p>
+              <div className="mt-3 flex flex-wrap gap-2" data-testid="service-create-template-domains">
+                <button
+                  type="button"
+                  data-testid="service-create-template-domain-all"
+                  aria-pressed={createTemplateDomain === 'all'}
+                  onClick={() => setCreateTemplateDomain('all')}
+                  className={`rounded-full border px-3 py-1.5 text-[12px] transition ${createTemplateDomain === 'all' ? (isDarkMode ? 'border-cyan-300/60 bg-cyan-400/15 text-cyan-100' : 'border-cyan-300 bg-cyan-50 text-cyan-900') : tone.secondaryBtn}`}
+                  style={{ fontWeight: 750 }}
+                >
+                  All
+                </button>
+                {listBookableDomains().map((domain) => {
+                  const selected = createTemplateDomain === domain.id;
+                  return (
+                    <button
+                      key={domain.id}
+                      type="button"
+                      data-testid={`service-create-template-domain-${domain.id}`}
+                      aria-pressed={selected}
+                      onClick={() => setCreateTemplateDomain(domain.id)}
+                      className={`rounded-full border px-3 py-1.5 text-[12px] transition ${selected ? (isDarkMode ? 'border-cyan-300/60 bg-cyan-400/15 text-cyan-100' : 'border-cyan-300 bg-cyan-50 text-cyan-900') : tone.secondaryBtn}`}
+                      style={{ fontWeight: 750 }}
+                    >
+                      {domain.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                <button
+                  type="button"
+                  data-testid="service-create-template-blank"
+                  aria-pressed={createTemplateId === null}
+                  onClick={() => {
+                    setCreateTemplateId(null);
+                    setForm(EMPTY_SERVICE_FORM);
+                  }}
+                  className={`min-h-[92px] rounded-xl border p-3 text-left transition ${createTemplateId === null ? (isDarkMode ? 'border-cyan-300/60 bg-cyan-400/10 ring-2 ring-cyan-300/50' : 'border-cyan-300 bg-cyan-50 ring-2 ring-cyan-200') : tone.secondaryBtn}`}
+                >
+                  <span className={`flex items-center gap-2 text-[12px] uppercase tracking-[0.12em] ${tone.muted}`} style={{ fontWeight: 800 }}>
+                    <LayoutGrid className="h-3.5 w-3.5" strokeWidth={2.5} /> Start blank
+                  </span>
+                  <span className={`mt-1 block text-[13px] leading-5 ${tone.strong}`} style={{ fontWeight: 750 }}>Empty SKU form</span>
+                  <span className={`mt-1 block text-[11px] leading-4 ${tone.subtle}`}>Same create flow as before. Fill title, price, and booking rules yourself.</span>
+                </button>
+                {listBookableTemplates(createTemplateDomain === 'all' ? undefined : createTemplateDomain).map((template) => {
+                  const selected = createTemplateId === template.id;
+                  return (
+                    <button
+                      key={template.id}
+                      type="button"
+                      data-testid={`service-create-template-${template.id}`}
+                      aria-pressed={selected}
+                      onClick={() => {
+                        setCreateTemplateId(template.id);
+                        setForm(applyTemplateToForm(form, template.id));
+                      }}
+                      className={`min-h-[92px] rounded-xl border p-3 text-left transition ${selected ? (isDarkMode ? 'border-cyan-300/60 bg-cyan-400/10 ring-2 ring-cyan-300/50' : 'border-cyan-300 bg-cyan-50 ring-2 ring-cyan-200') : tone.secondaryBtn}`}
+                    >
+                      <span className={`text-[10px] uppercase tracking-[0.14em] ${tone.muted}`} style={{ fontWeight: 800 }}>{template.domain} · {template.schema} · {template.noun}</span>
+                      <span className={`mt-1 block text-[13px] leading-5 ${tone.strong}`} style={{ fontWeight: 800 }}>{template.name}</span>
+                      <span className={`mt-1 block text-[11px] leading-4 ${tone.subtle}`}>{template.hook}</span>
+                      <span className={`mt-2 block text-[11px] ${tone.body}`} style={{ fontWeight: 700 }}>{template.cta} · {(template.priceCents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {createTemplateId && (
+                <p className={`mt-3 text-[12px] leading-5 ${tone.subtle}`} data-testid="service-create-template-applied">
+                  Applied {createTemplateId}. Capabilities {getBookableTemplate(createTemplateId)?.capabilities.join(' · ')}. Edit any field before saving.
+                </p>
+              )}
+            </section>
+          )}
 
           <section className={sectionClass}>
             {sectionTitle('1', 'Service Card', 'This is the customer-facing card headline and explanation.')}
@@ -728,7 +825,7 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
           </div>
           <p className={`mt-3 text-[12px] leading-5 ${tone.subtle}`}>Audit what customers and staff will see without leaving this viewport.</p>
           <div className="mt-4 space-y-2">
-            {reviewRowsForForm(form, patchLabel).map((row) => <div key={row.label} className={`rounded-xl border px-3 py-2.5 ${isDarkMode ? 'border-slate-500/70 bg-slate-900/20' : 'border-slate-200 bg-white/70'}`}><p className={`text-[10px] uppercase tracking-[0.12em] ${tone.muted}`} style={{ fontWeight: 750 }}>{row.label}</p><p className={`mt-1 break-words text-[13px] leading-5 ${tone.strong}`} style={{ fontWeight: 700 }}>{row.value}</p></div>)}
+            {reviewRowsForForm(form, patchLabel, templateId).map((row) => <div key={row.label} className={`rounded-xl border px-3 py-2.5 ${isDarkMode ? 'border-slate-500/70 bg-slate-900/20' : 'border-slate-200 bg-white/70'}`}><p className={`text-[10px] uppercase tracking-[0.12em] ${tone.muted}`} style={{ fontWeight: 750 }}>{row.label}</p><p className={`mt-1 break-words text-[13px] leading-5 ${tone.strong}`} style={{ fontWeight: 700 }}>{row.value}</p></div>)}
           </div>
           <div className="mt-4 rounded-xl border border-dashed border-inherit p-3" data-testid={`service-${mode}-customer-preview`}>
             <p className={`text-[10px] uppercase tracking-[0.12em] ${tone.muted}`} style={{ fontWeight: 800 }}>End-customer preview</p>
@@ -999,13 +1096,13 @@ export function DashboardListings({ isDarkMode, access }: DashboardListingsProps
               <div className="flex items-start justify-between gap-3 border-b border-inherit p-6 pb-5">
                 <div>
                   <p className={`text-[10px] uppercase tracking-[0.2em] ${isDarkMode ? 'text-cyan-300' : 'text-cyan-700'}`} style={{ fontWeight: 700 }}>Create New Service</p>
-                  <h3 className={`mt-1.5 text-[22px] tracking-tight ${tone.strong}`} style={{ fontWeight: 700 }}>Set up a bookable service</h3>
-                  <p className={`mt-1 text-[12px] ${tone.subtle}`}>Follow the three cards, review the summary, then save or publish.</p>
+                  <h3 className={`mt-1.5 text-[22px] tracking-tight ${tone.strong}`} style={{ fontWeight: 700 }}>Print a bookable SKU</h3>
+                  <p className={`mt-1 text-[12px] ${tone.subtle}`}>Pick a template or start blank, then follow the three cards. Templates are schemas and capabilities, not new object types.</p>
                 </div>
                 <button type="button" onClick={() => setCreatingService(false)} className={`rounded-full border p-2 transition ${tone.secondaryBtn}`} aria-label="Close create dialog"><X className="h-4 w-4" strokeWidth={2.25} /></button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-                {renderServiceSetupForm({ form: createForm, setForm: setCreateForm, mode: 'create' })}
+                {renderServiceSetupForm({ form: createForm, setForm: setCreateForm, mode: 'create', templateId: createTemplateId })}
               </div>
               <div
                 className={`flex gap-2 border-t px-4 py-3 ${tone.footer}`}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { trpc } from './trpc';
 import { inferBytspotPatchTier, normalizeBytspotPatchTier, type BytspotPatchTier } from './patchTiers';
-import { persistProviderRoleFromBackend, type ProviderRole } from '../components/host/dashboard/providerDashboardAccess';
+import { persistProviderRoleFromBackend, type ProviderRole } from '../components/vendor/dashboard/providerDashboardAccess';
 
 export type DashboardServiceSummary = {
   id: string;

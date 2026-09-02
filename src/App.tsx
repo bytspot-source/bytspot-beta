@@ -50,7 +50,7 @@ const TermsOfService = lazy(() => import('./components/TermsOfService').then(m =
 const Disclaimer = lazy(() => import('./components/Disclaimer').then(m => ({ default: m.Disclaimer })));
 const Support = lazy(() => import('./components/Support').then(m => ({ default: m.Support })));
 const ProviderLanding = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/provider/ProviderLanding').then(m => ({ default: m.ProviderLanding })));
-const ProviderApp = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/host/ProviderApp').then(m => ({ default: m.ProviderApp })));
+const ProviderApp = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/vendor/ProviderApp').then(m => ({ default: m.ProviderApp })));
 const ValetApp = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/valet/ValetApp').then(m => ({ default: m.ValetApp })));
 const ValetFlow = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStoreUnavailable : lazy(() => import('./components/ValetFlow').then(m => ({ default: m.ValetFlow })));
 const PasswordRecoveryScreen = lazy(() => import('./components/PasswordRecoveryScreen').then(m => ({ default: m.PasswordRecoveryScreen })));

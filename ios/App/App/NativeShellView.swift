@@ -6723,7 +6723,7 @@ private struct NativeHomeDashboardView: View {
 
     private func triggerPrimaryAIPick(card: NativeDiscoverSummary, venue: NativeVenueSummary) {
         if card.id == Self.valetRideServiceID || Self.isValetPremiumRide(venue) { handleRideHandoff(); return }
-        if Self.primaryCTATitle(for: card) == "Route" { routeToAIPick(venue); return }
+        if Self.honestPrimaryCTATitle(for: card) == "Route" { routeToAIPick(venue); return }
         aiPickDetailVenue = venue
     }
 
@@ -6744,7 +6744,7 @@ private struct NativeHomeDashboardView: View {
         if card.type == "coffee" { return "Plan Stop" }
         if card.type == "parking" { return "Route" }
         if card.categoryLabel.localizedCaseInsensitiveContains("Pass") || card.title.localizedCaseInsensitiveContains("Pass") { return "View Pass" }
-        if card.categoryLabel.localizedCaseInsensitiveContains("Dining") || card.cta.localizedCaseInsensitiveContains("Menu") {
+        if card.categoryLabel.localizedCaseInsensitiveContains("Dining") {
             // View Menu is Mode B chrome — local dining plans the stop instead.
             return card.control == NativeDiscoverCardControl.vendor ? "View Menu" : "Plan Dining"
         }
@@ -10926,9 +10926,9 @@ private struct NativeDiscoverView: View {
     /// Typical catalog) gets the detail sheet — Details + Route only.
     private static func isDiningCard(_ card: DiscoverCardSpec) -> Bool {
         guard card.isControlledVendor || NativeDiscoverCardControl.isControlled(cardID: card.id) else { return false }
-        return card.type == "dining"
-            || card.categoryLabel.localizedCaseInsensitiveContains("Dining")
-            || card.cta.localizedCaseInsensitiveContains("Menu")
+        // Provenance, not vendor-authored words: a service card that calls
+        // itself a menu does not earn the menu, or the checkout behind it.
+        return card.type == "dining" || card.categoryLabel.localizedCaseInsensitiveContains("Dining")
     }
 
     fileprivate static func isPremiumSearchVendor(_ card: DiscoverCardSpec) -> Bool {
@@ -11230,7 +11230,7 @@ private struct NativeDiscoverFeatureCard: View {
                     Button(action: triggerPrimaryAction) {
                         HStack(spacing: 8) {
                             Spacer(minLength: 0)
-                            Text(primaryCTATitle ?? card.cta)
+                            Text(primaryCTATitle ?? NativeDiscoverListing.primaryCTATitle(proposed: card.cta, control: card.control, rail: card.type))
                                 .font(.system(size: 14, weight: .black))
                             Image(systemName: "arrow.right")
                                 .font(.system(size: 12, weight: .black))

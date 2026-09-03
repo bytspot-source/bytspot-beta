@@ -563,7 +563,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         let catalog = try listingCatalog()
         // Locally generated, non-settlement labels must not collapse to
         // Details just because the allowlist forgot them.
-        let localAuthored = ["Explore", "Explore Shops", "Open details", "Tap verified", "Plan Dining", "Plan Night", "View Event", "View Parking", "View Menu", "View Pass", "View Stay", "Plan Stop", "Plan Arrival", "Route", "Details", "Check In", "Checked In"]
+        let localAuthored = ["Explore", "Explore Shops", "Open details", "Tap verified", "Request", "Plan Dining", "Plan Night", "View Event", "View Parking", "View Menu", "View Pass", "View Stay", "Plan Stop", "Plan Arrival", "Route", "Details", "Check In", "Checked In"]
         for cta in localAuthored {
             XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: NativeDiscoverCardControl.local, rail: "dining", catalog: catalog), cta, "\(cta) is app-authored honest chrome and must survive on a local card")
         }
@@ -589,6 +589,18 @@ final class BytspotTrustEngineTests: XCTestCase {
         // So its CTA is refused by the plug rather than rewritten.
         XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Book Ride", control: NativeDiscoverCardControl.vendor, rail: "service", catalog: catalog), "Request")
         XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Book Ride", control: NativeDiscoverCardControl.local, rail: "service", catalog: catalog), "Details")
+    }
+
+    func testAVendorCannotTalkItsWayIntoTheMenu() throws {
+        let catalog = try listingCatalog()
+        // A vendor service card whose copy merely contains "Menu" is refused
+        // the label, so it cannot reach the partner menu or its checkout.
+        for cta in ["Book Menu", "Menu Order", "Order from Menu", "Get Menu"] {
+            XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: NativeDiscoverCardControl.vendor, rail: "service", catalog: catalog), "Request", "\(cta) survived on a vendor service card")
+        }
+        // Our own dining chrome is unaffected.
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "View Menu", control: NativeDiscoverCardControl.vendor, rail: "dining", catalog: catalog), "View Menu")
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Plan Dining", control: NativeDiscoverCardControl.local, rail: "dining", catalog: catalog), "Plan Dining")
     }
 
     func testARailWithNoSKUCannotSettle() throws {

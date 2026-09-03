@@ -67,14 +67,26 @@ enum NativeDiscoverListing {
     static let browseChrome: Set<String> = [
         "details", "open details", "view details", "more details",
         "view menu", "view stay", "view pass", "view photos", "view hours",
-        "plan dining", "plan stop", "plan arrival", "plan a stop",
+        "view event", "view parking",
+        "plan dining", "plan stop", "plan arrival", "plan a stop", "plan night",
         "route", "directions", "get directions", "navigate",
-        "request transfer", "check in", "checked in",
-        "explore", "browse", "save", "share", "call", "website", "menu"
+        "check in", "checked in",
+        "explore", "explore shops", "browse", "save", "share", "call", "website", "menu"
+    ]
+
+    /// Asking is not claiming, so a controlled vendor may say it will take the
+    /// request. These are ours, not vendor-authored.
+    static let requestChrome: Set<String> = [
+        "request", "request service", "request transfer", "request quote",
+        "plan group ride", "contact", "inquire", "check availability", "ask"
     ]
 
     static func isBrowseChrome(_ title: String) -> Bool {
         browseChrome.contains(normalized(title))
+    }
+
+    static func isRequestChrome(_ title: String) -> Bool {
+        requestChrome.contains(normalized(title))
     }
 
     static func promisesSettlement(_ title: String, catalog: BookableTemplateCatalog? = BookableTemplateCatalog.shared) -> Bool {
@@ -126,7 +138,9 @@ enum NativeDiscoverListing {
             // Allowlist, not blocklist: unrecognised wording is refused.
             return isBrowseChrome(proposed) ? proposed : "Details"
         case .request:
-            return promisesSettlement(proposed, catalog: catalog) ? "Request" : proposed
+            // A vendor is contracted, not trusted to author copy: unrecognised
+            // text is an unknown promise, so it asks instead.
+            return isBrowseChrome(proposed) || isRequestChrome(proposed) ? proposed : "Request"
         }
     }
 

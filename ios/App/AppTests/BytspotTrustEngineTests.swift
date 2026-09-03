@@ -493,7 +493,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         // is never mistaken for a promise on a controlled card either.
         for cta in ["Get Directions", "View Pass", "View Menu", "View Stay", "Plan Dining", "Plan Stop", "Plan Arrival", "Route", "Details", "Request Transfer", "Check In", "Checked In"] {
             XCTAssertFalse(NativeDiscoverListing.promisesSettlement(cta, catalog: catalog), "\(cta) is honest chrome and must survive")
-            XCTAssertTrue(NativeDiscoverListing.isBrowseChrome(cta), "\(cta) must be recognised chrome")
+            XCTAssertTrue(NativeDiscoverListing.isBrowseChrome(cta) || NativeDiscoverListing.isRequestChrome(cta), "\(cta) must be recognised chrome")
             XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: local, rail: "dining", catalog: catalog), cta)
             XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: NativeDiscoverCardControl.vendor, rail: "dining", catalog: catalog), cta)
         }
@@ -545,14 +545,32 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Reserve Table", control: local, rail: "dining", settlementReady: true, catalog: catalog), "Details")
     }
 
-    func testAControlledVendorKeepsItsOwnWordsUnlessItPromises() throws {
+    func testAControlledVendorAsksWheneverItsCopyIsNotOurs() throws {
         let catalog = try listingCatalog()
         let vendor = NativeDiscoverCardControl.vendor
-        // A controlled vendor is a known party, so it is not held to the
-        // allowlist - only its settlement promises are downgraded to Request.
-        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Book Massage", control: vendor, rail: "service", catalog: catalog), "Request")
-        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Get Tickets", control: vendor, rail: "entertainment", catalog: catalog), "Request")
-        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Ghanaian Home Cooking", control: vendor, rail: "service", catalog: catalog), "Ghanaian Home Cooking")
+        // Vendor-authored copy is unknown copy. Noun-only and non-English
+        // promises are refused on the vendor path too, not just locally.
+        for cta in ["Book Massage", "Get Tickets", "Tickets", "VIP Table", "Admission", "Boletos", "Ghanaian Home Cooking"] {
+            XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: vendor, rail: "service", catalog: catalog), "Request", "\(cta) survived on a controlled vendor card")
+        }
+        // Our own asking chrome and browse chrome survive.
+        for cta in ["Request Service", "Request Transfer", "Plan Group Ride", "View Menu", "View Pass", "Details"] {
+            XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: vendor, rail: "service", catalog: catalog), cta, "\(cta) is ours and must survive")
+        }
+    }
+
+    func testEveryCTAThisAppAuthorsSurvivesItsOwnPlug() throws {
+        let catalog = try listingCatalog()
+        // Locally generated, non-settlement labels must not collapse to
+        // Details just because the allowlist forgot them.
+        let localAuthored = ["Explore", "Explore Shops", "Open details", "Plan Dining", "Plan Night", "View Event", "View Parking", "View Menu", "View Pass", "View Stay", "Plan Stop", "Plan Arrival", "Route", "Details", "Check In", "Checked In"]
+        for cta in localAuthored {
+            XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: NativeDiscoverCardControl.local, rail: "dining", catalog: catalog), cta, "\(cta) is app-authored honest chrome and must survive on a local card")
+        }
+        // Vendor-authored app labels survive the request path.
+        for cta in ["Request Service", "Request Transfer", "Plan Group Ride"] {
+            XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: NativeDiscoverCardControl.vendor, rail: "mobility", catalog: catalog), cta, "\(cta) is app-authored asking chrome and must survive")
+        }
     }
 
     func testARailWithNoSKUCannotSettle() throws {

@@ -1344,7 +1344,7 @@ private struct NativeProfileAccountView: View {
     @State private var didConsumeDirectSmokePanel = false
     @State private var lastConsumedNetworkResumeGeneration = 0
 
-    static let menuSectionOrder: [NativeProfileMenuSectionKind] = [.account, .placesActivity, .preferences, .appSettings, .safetyLegal]
+    static let menuSectionOrder: [NativeProfileMenuSectionKind] = [.account, .preferences, .appSettings, .safetyLegal]
 
     var body: some View {
         VStack(spacing: NativeProfileStyle.cardSpacing) {
@@ -1353,8 +1353,6 @@ private struct NativeProfileAccountView: View {
             NativeProfileCommandGrid(openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Account Essentials", subtitle: "Identity, payment, and vehicles used at arrival.")
             NativeProfileMenuGroup(section: .account, openPanel: { activePanel = $0 })
-            NativeProfileIAHeader(title: "Places & Activity", subtitle: "Saved places and check-in history stay easy to find.")
-            NativeProfileMenuGroup(section: .placesActivity, openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Network", subtitle: "Invite and connect without exposing private contact data.")
             NativeProfileNetworkOverviewCard(sessionStore: sessionStore, socialCircleSnapshot: socialCircleSnapshot, openNetwork: { showNetworkHub = true })
             NativeProfileMenuGroup(section: .preferences, openPanel: { activePanel = $0 })
@@ -1433,7 +1431,7 @@ private struct NativeProfileAccountView: View {
 }
 
 enum NativeProfilePanel: String, Identifiable, CaseIterable {
-    case reservations, access, points
+    case reservations, access, points, plans
     case personalInformation, vehicles, paymentMethods, savedSpots, placesVisited
     case vibePreferences, parkingPreferences, notifications
     case locationPrivacy, generalSettings, appearance, deleteAccount
@@ -1457,6 +1455,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .reservations: return "Arrivals"
         case .access: return "My Access"
         case .points: return "Bytspot Points"
+        case .plans: return "Plans"
         case .personalInformation: return "Personal Information"
         case .vehicles: return "My Vehicles"
         case .paymentMethods: return "Payment Methods"
@@ -1479,6 +1478,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .reservations: return "ARRIVALS"
         case .access: return "WALLET"
         case .points: return "CHECK-IN ACTIVITY"
+        case .plans: return "PLANS"
         case .personalInformation, .vehicles, .paymentMethods, .savedSpots, .placesVisited: return "ACCOUNT"
         case .vibePreferences, .parkingPreferences, .notifications: return "PREFERENCES"
         case .locationPrivacy, .generalSettings, .appearance: return "SETTINGS"
@@ -1491,6 +1491,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .reservations: return "car.fill"
         case .access: return "ticket.fill"
         case .points: return "mappin.and.ellipse"
+        case .plans: return "calendar"
         case .personalInformation: return "person.text.rectangle.fill"
         case .vehicles: return "car.fill"
         case .paymentMethods: return "creditcard.fill"
@@ -1512,7 +1513,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         switch self {
         case .reservations: return NativeTheme.cyan
         case .access, .paymentMethods: return NativeTheme.pink
-        case .points, .vibePreferences: return NativeTheme.purple
+        case .points, .vibePreferences, .plans: return NativeTheme.purple
         case .appearance: return NativeTheme.purple
         case .deleteAccount: return NativeProfileStyle.danger
         case .vehicles, .savedSpots, .placesVisited, .parkingPreferences: return NativeTheme.emerald
@@ -1573,9 +1574,23 @@ private struct NativeProfilePanelSheet: View {
         case .paymentMethods:
             NativePaymentMethodsPanel(sessionStore: sessionStore)
         case .savedSpots:
-            NativeProfileSavedSpotsPanel(snapshot: tabContentStore.snapshot(for: locationStore.coordinate))
+            VStack(spacing: 10) {
+                // Places I've Been folded into Saved: the Profile landing no
+                // longer carries a Places & Activity section, so this row is
+                // the visible way in.
+                if let open = openPanel {
+                    Button(action: { nativeImpactLight(); open(.placesVisited) }) {
+                        NativeWalletLine(title: "Places I’ve Been", subtitle: "Recent visits and activity history", icon: "clock.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("native-saved-places-visited-row")
+                }
+                NativeProfileSavedSpotsPanel(snapshot: tabContentStore.snapshot(for: locationStore.coordinate))
+            }
         case .placesVisited:
             NativeProfilePlacesVisitedPanel(snapshot: tabContentStore.snapshot(for: locationStore.coordinate))
+        case .plans:
+            NativePlansPanel(sessionStore: sessionStore)
         case .appearance:
             NativeAppearancePanel(selection: appearanceSelection)
         case .vibePreferences:
@@ -1599,6 +1614,16 @@ private struct NativeProfilePanelSheet: View {
         default:
             VStack(spacing: 10) {
                 if panel == .access {
+                    // Points was its own tile before Plans took that slot. It
+                    // stays a first-class panel; the entry point moves here so
+                    // Wallet remains the single hub for what a user carries.
+                    if let open = openPanel {
+                        Button(action: { nativeImpactLight(); open(.points) }) {
+                            NativeWalletLine(title: "Points", subtitle: "Earned by check-in", icon: "mappin.and.ellipse")
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("native-wallet-points-row")
+                    }
                     NativeWalletLedgerPreferenceSections()
                 }
                 ForEach(rows, id: \.0) { row in
@@ -1632,6 +1657,7 @@ private struct NativeProfilePanelSheet: View {
         case .reservations: return NativeArrivalLedgerContract.summary
         case .access: return "Active parking reservations and valet ride receipts appear here when created."
         case .points: return "Verified check-ins earn points. Points remain separate from Green, Platinum, and Black membership."
+        case .plans: return "A Plan holds who’s coming and what the night still needs. Only what Bytspot can settle counts against a Plan; anything the app can’t control stays a reference."
         case .personalInformation: return "Manage profile details for this account. Guest changes stay on this iPhone."
         case .vehicles: return "Add vehicles for parking, valet, and smoother arrivals."
         case .paymentMethods: return NativePaymentMethodsLedgerContract.summary
@@ -4545,14 +4571,17 @@ private struct NativeProfileSummaryCard: View {
 private struct NativeProfileCommandGrid: View {
     let openPanel: (NativeProfilePanel) -> Void
 
-    static let tileTitles = ["Wallet", "Bookings", "Points", "Saved"]
-    static let tilePanels: [NativeProfilePanel] = [.access, .reservations, .points, .savedSpots]
+    static let tileTitles = ["Wallet", "Bookings", "Plans", "Saved"]
+    static let tilePanels: [NativeProfilePanel] = [.access, .reservations, .plans, .savedSpots]
 
     private let tiles: [(String, String, String, String, NativeProfilePanel, Color)] = [
-        ("WALLET", "Wallet", "Passes & access", "ticket.fill", .access, NativeTheme.pink),
+        ("WALLET", "Wallet", "Passes, points & access", "ticket.fill", .access, NativeTheme.pink),
         ("BOOKINGS", "Bookings", "Parking & stays", "car.fill", .reservations, NativeTheme.cyan),
-        ("REWARDS", "Points", "Earned by check-in", "mappin.and.ellipse", .points, NativeTheme.purple),
-        ("SAVED", "Saved", "Favorites & spots", "heart.fill", .savedSpots, NativeTheme.emerald)
+        // Points was a tile of its own; folding it into Wallet makes room for Plans,
+        // the coordination object every booking will eventually hang off. Points
+        // stays a first-class panel, reached through the Wallet row below.
+        ("PLANS", "Plans", "Coordinate the night", "calendar", .plans, NativeTheme.purple),
+        ("SAVED", "Saved", "Favorites & places you’ve been", "heart.fill", .savedSpots, NativeTheme.emerald)
     ]
 
     var body: some View {
@@ -4681,11 +4710,12 @@ private struct NativeProfileIAHeader: View {
 }
 
 private enum NativeProfileMenuSectionKind: Equatable {
-    case placesActivity, account, preferences, appSettings, safetyLegal
+    // Places & Activity was a section of two rows; Saved absorbs both, so the
+    // Profile landing exposes it once, from the Saved tile, rather than twice.
+    case account, preferences, appSettings, safetyLegal
 
     var title: String {
         switch self {
-        case .placesActivity: return "Places & Activity"
         case .account: return "Account"
         case .preferences: return "Preferences"
         case .appSettings: return "App Settings"
@@ -4695,11 +4725,6 @@ private enum NativeProfileMenuSectionKind: Equatable {
 
     var items: [NativeProfileMenuItem] {
         switch self {
-        case .placesActivity:
-            return [
-                NativeProfileMenuItem(label: "Saved Places", subtitle: "Favorites, parking, and services", icon: "heart.fill", panel: .savedSpots),
-                NativeProfileMenuItem(label: "Places I've Been", subtitle: "Recent visits and activity history", icon: "clock.fill", panel: .placesVisited)
-            ]
         case .account:
             return [
                 NativeProfileMenuItem(label: "Personal Information", subtitle: "Name, email, phone, and city", icon: "person.text.rectangle.fill", panel: .personalInformation),
@@ -18356,16 +18381,17 @@ enum NativeAccountParitySelfTests {
     }
 
     private static func run() {
-        precondition(NativeProfileMenuSectionKind.placesActivity.items.map(\.label) == ["Saved Places", "Places I've Been"], "NativeAccountParitySelfTests: places/activity section drifted.")
         precondition(NativeProfileMenuSectionKind.account.items.map(\.label) == ["Personal Information", "Payment Methods", "My Vehicles"], "NativeAccountParitySelfTests: account controls drifted.")
         precondition(NativeProfileMenuSectionKind.preferences.items.map(\.label) == ["Vibe Preferences", "Parking Preferences", "Notifications", "Location & Privacy"], "NativeAccountParitySelfTests: preference controls drifted.")
         precondition(NativeProfileMenuSectionKind.appSettings.items.map(\.label) == ["General", "Appearance"], "NativeAccountParitySelfTests: theme must live under App Settings/Appearance.")
         precondition(NativeProfileMenuSectionKind.safetyLegal.items.map(\.label) == ["Delete Account", "Privacy Policy", "Terms of Service", "Disclaimer"], "NativeAccountParitySelfTests: safety/legal section drifted.")
-        precondition(NativeProfileAccountView.menuSectionOrder == [.account, .placesActivity, .preferences, .appSettings, .safetyLegal], "NativeAccountParitySelfTests: Profile landing must expose Account Essentials and Places & Activity exactly once.")
+        precondition(NativeProfileAccountView.menuSectionOrder == [.account, .preferences, .appSettings, .safetyLegal], "NativeAccountParitySelfTests: Profile landing must expose Account Essentials once and no longer carry a Places & Activity section.")
         precondition(Set(NativeProfileCommandGrid.tilePanels).isDisjoint(with: Set(NativeProfileMenuSectionKind.account.items.map(\.panel))), "NativeAccountParitySelfTests: quick actions must not duplicate Account Essentials rows.")
-        let reachablePanels = Set(NativeProfileAccountView.menuSectionOrder.flatMap { $0.items.map(\.panel) } + NativeProfileCommandGrid.tilePanels)
+        // Saved and Places I've Been are both reachable from the Saved tile now
+        // that Places & Activity is gone; Points is reachable from the Wallet
+        // tile via the Points row rather than a tile of its own.
+        let reachablePanels = Set(NativeProfileAccountView.menuSectionOrder.flatMap { $0.items.map(\.panel) } + NativeProfileCommandGrid.tilePanels + [.points, .placesVisited])
         precondition(NativeProfileInteractionContract.accountPanels.allSatisfy(reachablePanels.contains), "NativeAccountParitySelfTests: account panels must be reachable from the Profile landing.")
-        precondition(NativeProfileMenuSectionKind.placesActivity.items.map(\.panel) == [.savedSpots, .placesVisited], "NativeAccountParitySelfTests: places/activity rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileMenuSectionKind.account.items.map(\.panel) == [.personalInformation, .paymentMethods, .vehicles], "NativeAccountParitySelfTests: account rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileInteractionContract.accountPanels == [.personalInformation, .paymentMethods, .vehicles], "NativeAccountParitySelfTests: account interaction panels must stay native.")
         precondition(NativeProfileInteractionContract.personalInfoKeys == ["bytspot_profile_display_name", "bytspot_profile_email", "bytspot_profile_phone", "bytspot_profile_city", "bytspot_profile_birthday"], "NativeAccountParitySelfTests: personal-info local draft keys drifted.")
@@ -18382,9 +18408,9 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfileMenuSectionKind.preferences.items.map(\.panel) == [.vibePreferences, .parkingPreferences, .notifications, .locationPrivacy], "NativeAccountParitySelfTests: preference rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileMenuSectionKind.appSettings.items.map(\.panel) == [.generalSettings, .appearance], "NativeAccountParitySelfTests: settings rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileMenuSectionKind.safetyLegal.items.map(\.panel) == [.deleteAccount, .privacyPolicy, .termsOfService, .disclaimer], "NativeAccountParitySelfTests: safety/legal rows must open native panels, not hybrid Profile.")
-        precondition(NativeProfileCommandGrid.tileTitles == ["Wallet", "Bookings", "Points", "Saved"], "NativeAccountParitySelfTests: Profile quick-action tiles drifted.")
-        precondition(NativeProfileCommandGrid.tilePanels == [.access, .reservations, .points, .savedSpots], "NativeAccountParitySelfTests: Profile command-center panels drifted.")
-        precondition(NativeProfilePanel.access.title == "My Access" && NativeProfilePanel.reservations.title == "Arrivals", "NativeAccountParitySelfTests: Wallet/Bookings tiles must open My Access and Arrivals native surfaces.")
+        precondition(NativeProfileCommandGrid.tileTitles == ["Wallet", "Bookings", "Plans", "Saved"], "NativeAccountParitySelfTests: Profile quick-action tiles drifted.")
+        precondition(NativeProfileCommandGrid.tilePanels == [.access, .reservations, .plans, .savedSpots], "NativeAccountParitySelfTests: Profile command-center panels drifted.")
+        precondition(NativeProfilePanel.access.title == "My Access" && NativeProfilePanel.reservations.title == "Arrivals" && NativeProfilePanel.plans.title == "Plans", "NativeAccountParitySelfTests: Wallet, Bookings, and Plans tiles must open their native surfaces.")
         precondition(NativeProfileBoardDesignContract.footerTitle == "Close" && NativeProfileBoardDesignContract.neutralActionSurface == "NativeTheme.selectedControlSurface", "NativeAccountParitySelfTests: Profile panels should use neutral board close actions, not colored generic Done footers.")
         precondition(NativeProfileBoardDesignContract.productBoardIDs == ["native-arrival-ledger-panel", "native-saved-places-board", "native-places-visited-board"], "NativeAccountParitySelfTests: Product boards must remain on the neutral ledger design system.")
         precondition(NativeArrivalLedgerContract.emptyTitle == "No upcoming arrivals" && NativeArrivalLedgerContract.accessibilityID == "native-arrival-ledger-panel", "NativeAccountParitySelfTests: Arrivals must use the native ledger panel, not generic placeholder rows.")

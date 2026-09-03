@@ -2281,7 +2281,9 @@ final class NativeProfileDataAPITests: XCTestCase {
     }
 
     func testNativeNetworkHasExactlyPeopleCirclesInvitationsAndPeopleMet() {
-        XCTAssertEqual(NativeProfileWireframeGuard.menuSectionTitles, ["Account", "Places & Activity", "Preferences", "App Settings", "Safety & Legal"])
+        // Places & Activity is folded into Saved in Phase 1; the landing
+        // now surfaces Account, Preferences, App Settings, and Safety & Legal.
+        XCTAssertEqual(NativeProfileWireframeGuard.menuSectionTitles, ["Account", "Preferences", "App Settings", "Safety & Legal"])
         XCTAssertEqual(NativeProfileWireframeGuard.networkSegments, ["People", "Social Circles", "Invitations", "People You Met"])
         XCTAssertFalse(NativeProfileWireframeGuard.networkSegments.contains("Plans"))
         XCTAssertEqual(NativeProfilePanel.allCases.count, Set(NativeProfilePanel.allCases.map(\.rawValue)).count)
@@ -3301,6 +3303,71 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertFalse(recap.isEditable)
         XCTAssertTrue(recap.addressablePhotos.isEmpty)
         XCTAssertEqual(recap.photoURLs.count, 1)
+    }
+
+    // MARK: - Plans panel (Phase 1 iOS surface)
+
+    private func decodePlan(_ json: String) throws -> NativePlan {
+        try JSONDecoder().decode(NativePlan.self, from: Data(json.utf8))
+    }
+
+    func testPlanRowSubtitleAlwaysCarriesReadinessBesideStatus() {
+        // A confirmed Plan whose only response was the host's is still not a
+        // headcount. The row must say so out loud, because the whole rule
+        // Plan is under is that a state chip never travels alone.
+        let readiness = NativePlan.Readiness(going: 2, maybe: 0, pending: 1, declined: 0, total: 3)
+        XCTAssertEqual(NativePlanDisplay.rowSubtitle(state: "confirmed", readiness: readiness), "Confirmed · 2 going · 1 pending")
+        // Proposed and expired render the same shape; a Plan that ran out of
+        // time is a real state and must not be printed as its lifecycle.
+        let empty = NativePlan.Readiness(going: 1, maybe: 0, pending: 0, declined: 0, total: 1)
+        XCTAssertEqual(NativePlanDisplay.rowSubtitle(state: "expired", readiness: empty), "Expired · 1 going")
+    }
+
+    func testPlanCapabilityLabelDoesNotPromoteAReference() {
+        // A `details` item exists because Bytspot cannot settle it. The chip
+        // must say Reference, never Book, or a Plan row would promise
+        // fulfilment the app is structurally unable to deliver.
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel("details"), "Reference")
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel("book"), "Book")
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel("request"), "Request")
+    }
+
+    func testPlanWhenLabelDoesNotFabricateATimeThatWasNotSet() {
+        // A Proposed Plan may have no start yet; that is a real state, not a
+        // gap to hide with today's date.
+        XCTAssertEqual(NativePlanDisplay.whenLabel(startsAt: nil, endsAt: nil), "When TBD")
+    }
+
+    func testPlanDecodesTheServerShape() throws {
+        // Pin the wire shape the router serializes so a rename on either
+        // side surfaces in tests, not on a device.
+        let plan = try decodePlan("""
+        {"id":"pl-1","title":"Friday Night","intent":"Dinner then rooftop","creatorUserId":"u-1",
+         "startsAt":null,"endsAt":null,"areaLabel":"Midtown","partySize":4,
+         "needs":["dining","nightlife"],"lifecycle":"proposed","state":"proposed",
+         "readiness":{"going":1,"maybe":0,"pending":2,"declined":0,"total":3},
+         "openNeeds":["dining","nightlife"],
+         "participants":[{"userId":"u-1","role":"creator","status":"accepted"},
+                         {"userId":"u-2","role":"guest","status":"invited"}],
+         "items":[]}
+        """)
+        XCTAssertEqual(plan.state, "proposed")
+        XCTAssertEqual(plan.readiness.pending, 2)
+        XCTAssertEqual(plan.openNeeds, ["dining", "nightlife"])
+        XCTAssertEqual(plan.participants.first?.role, "creator")
+    }
+
+    func testPlansPanelIsAFirstClassProfileSurface() {
+        // The Plans tile lives in the top-level enum and reads consistently
+        // wherever the panel opens; the accompanying NativeAccountParitySelfTests
+        // preconditions pin the tile grid at boot.
+        XCTAssertEqual(NativeProfilePanel.plans.title, "Plans")
+        XCTAssertEqual(NativeProfilePanel.plans.eyebrow, "PLANS")
+        XCTAssertEqual(NativeProfilePanel.plans.icon, "calendar")
+        // Places I've Been stays reachable even though the section that used
+        // to expose it on the landing is gone.
+        XCTAssertTrue(NativeProfilePanel.p2SocialActivityPanels.contains(.placesVisited))
+        XCTAssertTrue(NativeProfilePanel.p2SocialActivityPanels.contains(.savedSpots))
     }
 
     func testRecapKnowsWhenTheAlbumIsFull() throws {

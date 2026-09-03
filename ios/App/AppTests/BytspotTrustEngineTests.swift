@@ -563,7 +563,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         let catalog = try listingCatalog()
         // Locally generated, non-settlement labels must not collapse to
         // Details just because the allowlist forgot them.
-        let localAuthored = ["Explore", "Explore Shops", "Open details", "Plan Dining", "Plan Night", "View Event", "View Parking", "View Menu", "View Pass", "View Stay", "Plan Stop", "Plan Arrival", "Route", "Details", "Check In", "Checked In"]
+        let localAuthored = ["Explore", "Explore Shops", "Open details", "Tap verified", "Plan Dining", "Plan Night", "View Event", "View Parking", "View Menu", "View Pass", "View Stay", "Plan Stop", "Plan Arrival", "Route", "Details", "Check In", "Checked In"]
         for cta in localAuthored {
             XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: NativeDiscoverCardControl.local, rail: "dining", catalog: catalog), cta, "\(cta) is app-authored honest chrome and must survive on a local card")
         }
@@ -575,6 +575,20 @@ final class BytspotTrustEngineTests: XCTestCase {
         for cta in ["Request Service", "Request Transfer", "Plan Group Ride"] {
             XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: NativeDiscoverCardControl.vendor, rail: "mobility", catalog: catalog), cta, "\(cta) is app-authored asking chrome and must survive")
         }
+    }
+
+    func testOnlyOurOwnEventCardEarnsTheArrivalPath() throws {
+        let catalog = try listingCatalog()
+        // Our own event cards earn the arrival rewrite.
+        XCTAssertTrue(NativeDiscoverListing.isAppAuthoredEventCTA(cta: "Book Ride", id: "event-123", badgeText: "LIVE EVENT"))
+        XCTAssertTrue(NativeDiscoverListing.isAppAuthoredEventCTA(cta: "Book Ride", id: "nightlife-event-9", badgeText: "LIVE EVENT"))
+        // A vendor sending the same two words has not earned it.
+        XCTAssertFalse(NativeDiscoverListing.isAppAuthoredEventCTA(cta: "Book Ride", id: "service-massage", badgeText: "LIVE EVENT"))
+        XCTAssertFalse(NativeDiscoverListing.isAppAuthoredEventCTA(cta: "Book Ride", id: "event-123", badgeText: "LIVE API"))
+        XCTAssertFalse(NativeDiscoverListing.isAppAuthoredEventCTA(cta: "Plan Arrival", id: "event-123", badgeText: "LIVE EVENT"))
+        // So its CTA is refused by the plug rather than rewritten.
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Book Ride", control: NativeDiscoverCardControl.vendor, rail: "service", catalog: catalog), "Request")
+        XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: "Book Ride", control: NativeDiscoverCardControl.local, rail: "service", catalog: catalog), "Details")
     }
 
     func testARailWithNoSKUCannotSettle() throws {

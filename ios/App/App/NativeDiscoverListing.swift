@@ -67,7 +67,7 @@ enum NativeDiscoverListing {
     static let browseChrome: Set<String> = [
         "details", "open details", "view details", "more details",
         "view menu", "view stay", "view pass", "view photos", "view hours",
-        "view event", "view parking",
+        "view event", "view parking", "tap verified",
         "plan dining", "plan stop", "plan arrival", "plan a stop", "plan night",
         "route", "directions", "get directions", "navigate",
         "check in", "checked in",
@@ -92,6 +92,14 @@ enum NativeDiscoverListing {
     /// Asking claims nothing, so it is honest on any card, controlled or not.
     static func isHonestChrome(_ title: String) -> Bool {
         isBrowseChrome(title) || isRequestChrome(title)
+    }
+
+    /// "Book Ride" is a label this app writes onto its own event cards to earn
+    /// the arrival path. A vendor sending the same two words has not earned it,
+    /// so provenance is the whole test.
+    static func isAppAuthoredEventCTA(cta: String, id: String, badgeText: String) -> Bool {
+        cta == "Book Ride" && badgeText == "LIVE EVENT"
+            && (id.hasPrefix("event-") || id.hasPrefix("nightlife-event-"))
     }
 
     static func promisesSettlement(_ title: String, catalog: BookableTemplateCatalog? = BookableTemplateCatalog.shared) -> Bool {

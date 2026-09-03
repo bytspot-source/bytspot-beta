@@ -10838,9 +10838,13 @@ private struct NativeDiscoverView: View {
         return Self.venueForDetail(card, venues: candidates)
     }
 
+    static func isAppAuthoredEventCard(_ card: DiscoverCardSpec) -> Bool {
+        NativeDiscoverListing.isAppAuthoredEventCTA(cta: card.cta, id: card.id, badgeText: card.badgeText)
+    }
+
     private func handlePrimaryCTA(_ card: DiscoverCardSpec) {
         let venue = venueForDetail(card)
-        if card.cta == "Book Ride" {
+        if Self.isAppAuthoredEventCard(card) {
             guard venue.hasKnownCoordinates else {
                 discoverStatusMessage = "Directions are unavailable because this event has no registered map destination."
                 detailVenue = venue
@@ -10868,7 +10872,7 @@ private struct NativeDiscoverView: View {
 
     private func primaryTitle(for card: DiscoverCardSpec) -> String {
         let venue = venueForDetail(card)
-        if card.cta == "Book Ride" { return "Plan Arrival" }
+        if Self.isAppAuthoredEventCard(card) { return "Plan Arrival" }
         guard Self.supportsManualCheckIn(card, venue: venue) else { return Self.listingCTATitle(for: card) }
         return NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id, scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)) ? "Checked In" : "Check In"
     }

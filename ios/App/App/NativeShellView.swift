@@ -816,7 +816,11 @@ private struct NativeContextualDestinationView: View {
             Group {
                 if destination == .profile {
                     if let initialProfilePanel {
-                        NativeProfilePanelSheet(panel: initialProfilePanel)
+                        // Deep links (Wallet preview, notifications) open the sheet
+                        // directly. Pass `openPanel` so panels that host rows into
+                        // other panels — Wallet→Points, Saved→Places I've Been —
+                        // stay navigable from this entry too, not just the tile flow.
+                        NativeProfilePanelSheet(panel: initialProfilePanel, openPanel: { openNativeProfilePanel($0) })
                             .environmentObject(sessionStore)
                             .environmentObject(authCoordinator)
                             .environmentObject(tabContentStore)

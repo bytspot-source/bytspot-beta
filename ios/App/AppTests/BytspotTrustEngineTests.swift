@@ -3326,10 +3326,16 @@ final class NativeProfileDataAPITests: XCTestCase {
     func testPlanCapabilityLabelDoesNotPromoteAReference() {
         // A `details` item exists because Bytspot cannot settle it. The chip
         // must say Reference, never Book, or a Plan row would promise
-        // fulfilment the app is structurally unable to deliver.
+        // fulfilment the app is structurally unable to deliver. Unknown
+        // server values coerce to Reference too, so a future "reserve" or
+        // "book_now" cannot render as a settlement chip until this client
+        // learns to honour it.
         XCTAssertEqual(NativePlanDisplay.capabilityLabel("details"), "Reference")
         XCTAssertEqual(NativePlanDisplay.capabilityLabel("book"), "Book")
         XCTAssertEqual(NativePlanDisplay.capabilityLabel("request"), "Request")
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel("reserve"), "Reference")
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel("book_now"), "Reference")
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel(""), "Reference")
     }
 
     func testPlanWhenLabelDoesNotFabricateATimeThatWasNotSet() {
@@ -3349,12 +3355,21 @@ final class NativeProfileDataAPITests: XCTestCase {
          "openNeeds":["dining","nightlife"],
          "participants":[{"userId":"u-1","role":"creator","status":"accepted"},
                          {"userId":"u-2","role":"guest","status":"invited"}],
-         "items":[]}
+         "items":[{"id":"it-1","needKind":"nightlife","title":"Basement RSVP",
+                   "partyId":"party-1","capability":"request","status":"pending"}]}
         """)
         XCTAssertEqual(plan.state, "proposed")
         XCTAssertEqual(plan.readiness.pending, 2)
         XCTAssertEqual(plan.openNeeds, ["dining", "nightlife"])
         XCTAssertEqual(plan.participants.first?.role, "creator")
+        // Item shape is exercised so a rename on any of the four fields
+        // fails here rather than on a device.
+        let item = try XCTUnwrap(plan.items.first)
+        XCTAssertEqual(item.id, "it-1")
+        XCTAssertEqual(item.needKind, "nightlife")
+        XCTAssertEqual(item.partyId, "party-1")
+        XCTAssertEqual(item.capability, "request")
+        XCTAssertEqual(item.status, "pending")
     }
 
     func testPlansPanelIsAFirstClassProfileSurface() {

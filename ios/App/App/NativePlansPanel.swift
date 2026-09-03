@@ -74,6 +74,9 @@ struct NativePlanAPI {
 enum NativePlanDisplay {
     /// A state chip never renders alone; it is always paired with readiness,
     /// because the creator's confirmation is not what makes anyone show up.
+    /// Do not call `stateLabel` directly from a view — always go through
+    /// `rowSubtitle(state:readiness:)`, or the honesty rule this file is
+    /// under quietly breaks the first time a caller inlines the chip.
     static func stateLabel(_ state: String) -> String {
         switch state {
         case "proposed": return "Proposed"
@@ -104,12 +107,15 @@ enum NativePlanDisplay {
 
     /// What a caller reads on a capability chip. `details` is called out as
     /// "Reference" so it is unambiguously not a booking Bytspot can make.
+    /// An unknown server value is coerced to "Reference" rather than printed
+    /// verbatim: a future capability like "reserve" or "book_now" must not
+    /// render as a settlement chip until this client learns to honour it.
     static func capabilityLabel(_ capability: String) -> String {
         switch capability {
         case "book": return "Book"
         case "request": return "Request"
         case "details": return "Reference"
-        default: return capability.capitalized
+        default: return "Reference"
         }
     }
 
@@ -189,7 +195,7 @@ private struct NativePlansEmptyState: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("No plans yet.").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-            Text("A Plan holds who’s coming and what the night still needs. You’ll create one from Discover or Concierge; this screen is where they live.")
+            Text("This is where your Plans will live — who’s coming and what the night still needs, in one place.")
                 .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
         }
     }
@@ -360,11 +366,15 @@ private struct NativePlanDetailSheet: View {
     }
 
     private func run(_ operation: @escaping () async throws -> Void) async {
+        // Same auth guard as the outer panel: a session dropped mid-sheet
+        // must never issue an authenticated tRPC call with a nil token.
+        guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to update this Plan."; return }
         busy = true; defer { busy = false }
         do { try await operation(); onChanged(); await reload() } catch { errorMessage = "That didn’t go through." }
     }
 
     private func reload() async {
+        guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to see this Plan."; return }
         do { plan = try await api().get(planID); errorMessage = nil } catch { errorMessage = "Couldn’t load this Plan." }
     }
 }

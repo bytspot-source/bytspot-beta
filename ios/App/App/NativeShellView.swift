@@ -1682,6 +1682,8 @@ private struct NativeProfilePanelSheet: View {
             return []
         case .access:
             return []
+        case .plans:
+            return []
         case .points:
             return [("Check in to earn", "Verified venue and experience check-ins add points.", "mappin.and.ellipse"), ("One balance", "Points history stays separate from membership access.", "clock.arrow.circlepath")]
         case .personalInformation:

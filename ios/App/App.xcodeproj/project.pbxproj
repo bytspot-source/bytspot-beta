@@ -46,6 +46,7 @@
 		A13F11032D00000000001103 /* NativeAtlantaCorridor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F11022D00000000001102 /* NativeAtlantaCorridor.swift */; };
 		A13F12012D00000000001201 /* NativeHostTaxonomy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F12002D00000000001200 /* NativeHostTaxonomy.swift */; };
 		A13F13012D00000000001301 /* BookableTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F13002D00000000001300 /* BookableTemplates.swift */; };
+		A13F14012D00000000001401 /* NativeDiscoverListing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F14002D00000000001400 /* NativeDiscoverListing.swift */; };
 		A13F13032D00000000001303 /* BookableTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F13022D00000000001302 /* BookableTemplates.swift */; };
 		A13F13052D00000000001305 /* bookable-templates.json in Resources */ = {isa = PBXBuildFile; fileRef = A13F13042D00000000001304 /* bookable-templates.json */; };
 		A13F13072D00000000001307 /* bookable-templates.json in Resources */ = {isa = PBXBuildFile; fileRef = A13F13062D00000000001306 /* bookable-templates.json */; };
@@ -129,6 +130,7 @@
 		A13F11022D00000000001102 /* NativeAtlantaCorridor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAtlantaCorridor.swift; sourceTree = "<group>"; };
 		A13F12002D00000000001200 /* NativeHostTaxonomy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHostTaxonomy.swift; sourceTree = "<group>"; };
 		A13F13002D00000000001300 /* BookableTemplates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookableTemplates.swift; sourceTree = "<group>"; };
+		A13F14002D00000000001400 /* NativeDiscoverListing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiscoverListing.swift; sourceTree = "<group>"; };
 		A13F13022D00000000001302 /* BookableTemplates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookableTemplates.swift; sourceTree = "<group>"; };
 		A13F13042D00000000001304 /* bookable-templates.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bookable-templates.json"; sourceTree = "<group>"; };
 		A13F13062D00000000001306 /* bookable-templates.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bookable-templates.json"; sourceTree = "<group>"; };
@@ -216,6 +218,7 @@
 				A13F11022D00000000001102 /* NativeAtlantaCorridor.swift */,
 				A13F12002D00000000001200 /* NativeHostTaxonomy.swift */,
 				A13F13002D00000000001300 /* BookableTemplates.swift */,
+				A13F14002D00000000001400 /* NativeDiscoverListing.swift */,
 				A13F13042D00000000001304 /* bookable-templates.json */,
 				A13F03042C0FF00100000055 /* BytspotNativeAppRoot.swift */,
 				A13F03002C0FF00100000051 /* NativeMigrationCore.swift */,
@@ -441,6 +444,7 @@
 				A13F11032D00000000001103 /* NativeAtlantaCorridor.swift in Sources */,
 				A13F12012D00000000001201 /* NativeHostTaxonomy.swift in Sources */,
 				A13F13012D00000000001301 /* BookableTemplates.swift in Sources */,
+				A13F14012D00000000001401 /* NativeDiscoverListing.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

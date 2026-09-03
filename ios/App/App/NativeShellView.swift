@@ -6587,8 +6587,8 @@ private struct NativeHomeDashboardView: View {
                 crowdEmoji: crowdEmoji(venue.crowd),
                 crowdLabel: venue.crowd?.label ?? "Explore",
                 categoryEmoji: categoryEmoji(venue.discoverType),
-                primaryCTATitle: Self.primaryCTATitle(for: card),
-                primaryCTAIcon: Self.primaryCTAIcon(for: card),
+                primaryCTATitle: Self.honestPrimaryCTATitle(for: card),
+                primaryCTAIcon: Self.primaryCTAIcon(forTitle: Self.honestPrimaryCTATitle(for: card)),
                 secondaryCTATitle: Self.aiPickSecondaryCTA,
                 primaryAction: { triggerPrimaryAIPick(card: card, venue: venue) },
                 secondaryAction: { openAIPickDetails(card: card, venue: venue) }
@@ -6605,7 +6605,7 @@ private struct NativeHomeDashboardView: View {
                 crowdEmoji: crowdEmoji(venue.crowd),
                 crowdLabel: NativeAtlantaCorridor.crowdLabel(for: plan),
                 categoryEmoji: categoryEmoji(venue.discoverType),
-                primaryCTATitle: NativeAtlantaCorridor.primaryCTATitle(for: plan),
+                primaryCTATitle: Self.typicalPlanCTATitle(for: plan),
                 primaryCTAIcon: NativeAtlantaCorridor.primaryCTAIcon(for: plan),
                 secondaryCTATitle: Self.aiPickSecondaryCTA,
                 primaryAction: { triggerTypicalPlan(plan, venue: venue) },
@@ -6615,8 +6615,18 @@ private struct NativeHomeDashboardView: View {
         }
     }
 
+    /// Home's Typical Plan is the same atom as a Discover card, so it passes
+    /// through the same refusal: no settlement verb without a real hold.
+    static func typicalPlanCTATitle(for plan: NativeCollapsePlan) -> String {
+        NativeDiscoverListing.homePlanCTATitle(
+            for: plan,
+            proposed: NativeAtlantaCorridor.primaryCTATitle(for: plan),
+            rail: NativeAtlantaCorridor.discoverType(forPlan: plan)
+        )
+    }
+
     private func triggerTypicalPlan(_ plan: NativeCollapsePlan, venue: NativeVenueSummary) {
-        if NativeAtlantaCorridor.primaryCTATitle(for: plan) == "Route" {
+        if Self.typicalPlanCTATitle(for: plan) == "Route" {
             routeToAIPick(venue)
             return
         }
@@ -6713,7 +6723,7 @@ private struct NativeHomeDashboardView: View {
 
     private func triggerPrimaryAIPick(card: NativeDiscoverSummary, venue: NativeVenueSummary) {
         if card.id == Self.valetRideServiceID || Self.isValetPremiumRide(venue) { handleRideHandoff(); return }
-        if Self.primaryCTATitle(for: card) == "Route" { routeToAIPick(venue); return }
+        if Self.honestPrimaryCTATitle(for: card) == "Route" { routeToAIPick(venue); return }
         aiPickDetailVenue = venue
     }
 
@@ -6734,15 +6744,31 @@ private struct NativeHomeDashboardView: View {
         if card.type == "coffee" { return "Plan Stop" }
         if card.type == "parking" { return "Route" }
         if card.categoryLabel.localizedCaseInsensitiveContains("Pass") || card.title.localizedCaseInsensitiveContains("Pass") { return "View Pass" }
-        if card.categoryLabel.localizedCaseInsensitiveContains("Dining") || card.cta.localizedCaseInsensitiveContains("Menu") {
+        if card.categoryLabel.localizedCaseInsensitiveContains("Dining") {
             // View Menu is Mode B chrome — local dining plans the stop instead.
             return card.control == NativeDiscoverCardControl.vendor ? "View Menu" : "Plan Dining"
         }
         return card.cta.isEmpty || card.cta == "Open details" ? "Details" : card.cta
     }
 
+    /// Home's AI Pick is a Discover card on another surface, so it answers to
+    /// the same plug: a local card may not wear a promise it cannot keep.
+    static func honestPrimaryCTATitle(for card: NativeDiscoverSummary) -> String {
+        NativeDiscoverListing.primaryCTATitle(
+            proposed: primaryCTATitle(for: card),
+            control: card.control,
+            rail: card.type
+        )
+    }
+
+    /// The icon must not keep a promise the label just withdrew, so it is
+    /// chosen from the title actually shown.
     static func primaryCTAIcon(for card: NativeDiscoverSummary) -> String {
-        switch primaryCTATitle(for: card) {
+        primaryCTAIcon(forTitle: primaryCTATitle(for: card))
+    }
+
+    static func primaryCTAIcon(forTitle title: String) -> String {
+        switch title {
         case "Book Ride": return "car.side.fill"
         case "Route": return "arrow.triangle.turn.up.right.diamond.fill"
         case "View Stay": return "house.fill"
@@ -6906,7 +6932,9 @@ private struct NativeHomeDashboardView: View {
     }
 
     @ViewBuilder private var recommendationsSection: some View {
-        let picks = Array(regionalSnapshot.discoverCards.filter { $0.type == "service" }.prefix(6))
+        // Services is a vendor rail, so pick through the controlled-card
+        // filter rather than straight off the snapshot.
+        let picks = Array(NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot, matching: "service").prefix(6))
         if !picks.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
@@ -10376,7 +10404,8 @@ private struct NativeHomeServiceRecommendationCard: View {
                     Text(card.metadataLine).font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan).lineLimit(1)
                     HStack(spacing: 6) {
                         Text("Vibe \(card.vibeScore)/10").serviceChip(color: colorScheme == .dark ? Color.black.opacity(0.58) : NativeTheme.selectedControlSurface, foreground: colorScheme == .dark ? .white : NativeTheme.textPrimary)
-                        Text(card.cta).serviceChip(color: NativeTheme.cyan, foreground: .black)
+                        Text(NativeDiscoverListing.primaryCTATitle(proposed: card.cta, control: card.control, rail: card.type))
+                            .serviceChip(color: NativeTheme.cyan, foreground: .black)
                     }
                 }
             }
@@ -10798,14 +10827,24 @@ private struct NativeDiscoverView: View {
         DiscoverCardSpec(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: card.distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, control: card.control, latitude: card.latitude, longitude: card.longitude)
     }
 
+    /// The listing plug refuses any settlement verb the card's rail cannot
+    /// settle, so a local brochure never wears Book / Reserve chrome.
+    static func listingCTATitle(for card: DiscoverCardSpec) -> String {
+        NativeDiscoverListing.primaryCTATitle(proposed: card.cta, control: card.control, rail: card.type)
+    }
+
     private func venueForDetail(_ card: DiscoverCardSpec) -> NativeVenueSummary {
         let candidates = NativeLocationAwareUIContent.venues(in: regionalSnapshot)
         return Self.venueForDetail(card, venues: candidates)
     }
 
+    static func isAppAuthoredEventCard(_ card: DiscoverCardSpec) -> Bool {
+        NativeDiscoverListing.isAppAuthoredEventCTA(cta: card.cta, id: card.id, badgeText: card.badgeText)
+    }
+
     private func handlePrimaryCTA(_ card: DiscoverCardSpec) {
         let venue = venueForDetail(card)
-        if card.cta == "Book Ride" {
+        if Self.isAppAuthoredEventCard(card) {
             guard venue.hasKnownCoordinates else {
                 discoverStatusMessage = "Directions are unavailable because this event has no registered map destination."
                 detailVenue = venue
@@ -10833,8 +10872,8 @@ private struct NativeDiscoverView: View {
 
     private func primaryTitle(for card: DiscoverCardSpec) -> String {
         let venue = venueForDetail(card)
-        if card.cta == "Book Ride" { return "Plan Arrival" }
-        guard Self.supportsManualCheckIn(card, venue: venue) else { return card.cta }
+        if Self.isAppAuthoredEventCard(card) { return "Plan Arrival" }
+        guard Self.supportsManualCheckIn(card, venue: venue) else { return Self.listingCTATitle(for: card) }
         return NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id, scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)) ? "Checked In" : "Check In"
     }
 
@@ -10887,9 +10926,9 @@ private struct NativeDiscoverView: View {
     /// Typical catalog) gets the detail sheet — Details + Route only.
     private static func isDiningCard(_ card: DiscoverCardSpec) -> Bool {
         guard card.isControlledVendor || NativeDiscoverCardControl.isControlled(cardID: card.id) else { return false }
-        return card.type == "dining"
-            || card.categoryLabel.localizedCaseInsensitiveContains("Dining")
-            || card.cta.localizedCaseInsensitiveContains("Menu")
+        // Provenance, not vendor-authored words: a service card that calls
+        // itself a menu does not earn the menu, or the checkout behind it.
+        return card.type == "dining" || card.categoryLabel.localizedCaseInsensitiveContains("Dining")
     }
 
     fileprivate static func isPremiumSearchVendor(_ card: DiscoverCardSpec) -> Bool {
@@ -11191,7 +11230,7 @@ private struct NativeDiscoverFeatureCard: View {
                     Button(action: triggerPrimaryAction) {
                         HStack(spacing: 8) {
                             Spacer(minLength: 0)
-                            Text(primaryCTATitle ?? card.cta)
+                            Text(primaryCTATitle ?? NativeDiscoverListing.primaryCTATitle(proposed: card.cta, control: card.control, rail: card.type))
                                 .font(.system(size: 14, weight: .black))
                             Image(systemName: "arrow.right")
                                 .font(.system(size: 12, weight: .black))

@@ -493,7 +493,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         // is never mistaken for a promise on a controlled card either.
         for cta in ["Get Directions", "View Pass", "View Menu", "View Stay", "Plan Dining", "Plan Stop", "Plan Arrival", "Route", "Details", "Request Transfer", "Check In", "Checked In"] {
             XCTAssertFalse(NativeDiscoverListing.promisesSettlement(cta, catalog: catalog), "\(cta) is honest chrome and must survive")
-            XCTAssertTrue(NativeDiscoverListing.isBrowseChrome(cta) || NativeDiscoverListing.isRequestChrome(cta), "\(cta) must be recognised chrome")
+            XCTAssertTrue(NativeDiscoverListing.isHonestChrome(cta), "\(cta) must be recognised chrome")
             XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: local, rail: "dining", catalog: catalog), cta)
             XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: NativeDiscoverCardControl.vendor, rail: "dining", catalog: catalog), cta)
         }
@@ -567,7 +567,11 @@ final class BytspotTrustEngineTests: XCTestCase {
         for cta in localAuthored {
             XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: NativeDiscoverCardControl.local, rail: "dining", catalog: catalog), cta, "\(cta) is app-authored honest chrome and must survive on a local card")
         }
-        // Vendor-authored app labels survive the request path.
+        // Asking claims nothing, so it is honest on a local card too.
+        for cta in ["Request Service", "Request Transfer", "Plan Group Ride", "Request Quote"] {
+            XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: NativeDiscoverCardControl.local, rail: "mobility", catalog: catalog), cta, "\(cta) asks for nothing held and must survive locally")
+        }
+        // And survives the vendor request path.
         for cta in ["Request Service", "Request Transfer", "Plan Group Ride"] {
             XCTAssertEqual(NativeDiscoverListing.primaryCTATitle(proposed: cta, control: NativeDiscoverCardControl.vendor, rail: "mobility", catalog: catalog), cta, "\(cta) is app-authored asking chrome and must survive")
         }

@@ -89,6 +89,11 @@ enum NativeDiscoverListing {
         requestChrome.contains(normalized(title))
     }
 
+    /// Asking claims nothing, so it is honest on any card, controlled or not.
+    static func isHonestChrome(_ title: String) -> Bool {
+        isBrowseChrome(title) || isRequestChrome(title)
+    }
+
     static func promisesSettlement(_ title: String, catalog: BookableTemplateCatalog? = BookableTemplateCatalog.shared) -> Bool {
         if isSettlementVerb(title) || claimsHeldGoods(title) { return true }
         guard let catalog else { return false }
@@ -136,11 +141,11 @@ enum NativeDiscoverListing {
             return proposed
         case .details:
             // Allowlist, not blocklist: unrecognised wording is refused.
-            return isBrowseChrome(proposed) ? proposed : "Details"
+            return isHonestChrome(proposed) ? proposed : "Details"
         case .request:
             // A vendor is contracted, not trusted to author copy: unrecognised
             // text is an unknown promise, so it asks instead.
-            return isBrowseChrome(proposed) || isRequestChrome(proposed) ? proposed : "Request"
+            return isHonestChrome(proposed) ? proposed : "Request"
         }
     }
 

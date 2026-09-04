@@ -330,7 +330,11 @@ struct NativePlansPanel: View {
     @ViewBuilder private var startPlanButton: some View {
         // "Start a Plan" is a promise Bytspot keeps entirely on its own side:
         // it writes a Plan row. It is deliberately not a settlement verb.
-        Button(action: { showCreate = true }) {
+        // The pending id is cleared on the way in, not only on the way out: a
+        // create that lands after its sheet was dismissed has no drain to run,
+        // and a stale id left behind would open that earlier Plan unprompted
+        // the next time this sheet is closed.
+        Button(action: { pendingCreatedPlanID = nil; showCreate = true }) {
             HStack(spacing: 6) {
                 Image(systemName: "plus.circle.fill").font(.system(size: 13, weight: .black))
                 Text("Start a Plan").font(.system(size: 14, weight: .black))
@@ -470,7 +474,10 @@ private struct NativePlanDetailSheet: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(item.title).font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
-                            Text(item.needKind.capitalized).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                            // Same words as the create sheet and the "Still
+                            // open" list above; `capitalized` would print the
+                            // raw token and rename the caller's choice.
+                            Text(NativePlanDisplay.needLabel(item.needKind)).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
                             // Only an item with a hold behind it carries this
                             // line; a room or reference item has no countdown
                             // to state and renders nothing.
@@ -625,6 +632,9 @@ private struct NativePlanCreateSheet: View {
             }
             .padding(20)
         }
+        // A swipe-away mid-flight would leave the create running with nowhere
+        // to report back to, so the sheet stays put until the call settles.
+        .interactiveDismissDisabled(busy)
         .accessibilityIdentifier("native-plan-create")
     }
 
@@ -634,6 +644,7 @@ private struct NativePlanCreateSheet: View {
                 Text("Start a Plan").font(.system(size: 22, weight: .black)).foregroundColor(NativeTheme.textPrimary)
                 Spacer()
                 Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 24, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
+                    .disabled(busy)
             }
             Text("A Plan is yours to shape. Nothing is booked and nobody is invited until you say so.")
                 .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)

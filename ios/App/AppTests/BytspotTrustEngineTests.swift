@@ -4535,9 +4535,10 @@ final class NativePlanCreateTests: XCTestCase {
         }
     }
 
-    func testPlanNeedLabelIsTheSameWordOnBothScreens() {
-        // The create sheet offers "Dinner" and "Getting there"; the Plan
-        // detail must not rename them to "Dining" and "Mobility".
+    func testPlanNeedLabelIsTheSameWordOnEveryScreen() {
+        // The create sheet offers "Dinner" and "Getting there". Neither the
+        // detail's "Still open" list nor its attached-item rows may rename
+        // them to "Dining" and "Mobility" — all three call this one helper.
         XCTAssertEqual(NativePlanDisplay.needLabel("dining"), "Dinner")
         XCTAssertEqual(NativePlanDisplay.needLabel("mobility"), "Getting there")
         XCTAssertEqual(NativePlanDisplay.needLabel("stay"), "Somewhere to stay")

@@ -4595,3 +4595,36 @@ final class NativePlanCreateTests: XCTestCase {
         )
     }
 }
+
+/// Asking Google the coffee question. Discover previously filtered the
+/// nightlife queries for the word "coffee", so the category was near-empty and
+/// fell through to a hardcoded card despite the Places key being paid for.
+final class NativeDiscoverCoffeeSourceTests: XCTestCase {
+    func testCoffeeAsksForBothGoogleTypesInOneRequest() {
+        // coffee_shop is the tight match; cafe catches what Google files only
+        // under the broader type. One request, so one billed call.
+        XCTAssertEqual(NativeDiscoverPlaceTypes.coffee, ["coffee_shop", "cafe"])
+    }
+
+    func testEveryCoffeeTypeAskedForComesBackFiledUnderCoffee() {
+        // If the question and the shelf ever disagree, the cards arrive and
+        // land in the wrong category, which reads as coffee still being empty.
+        for type in NativeDiscoverPlaceTypes.coffee {
+            XCTAssertEqual(
+                NativeDiscoverCategoryNormalizer.type(for: type),
+                "coffee",
+                "\(type) is requested for coffee but normalizes elsewhere"
+            )
+        }
+    }
+
+    func testCoffeeIsNotSilentlyReclassifiedAsDining() {
+        // "coffee shop" and "coffee house" both appear in the dining phrase
+        // list. The coffee-token check runs first and must keep winning.
+        XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: "coffee_shop"), "coffee")
+        XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: "coffee house"), "coffee")
+        XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: "espresso_bar"), "coffee")
+        // A restaurant that merely serves coffee is still dining.
+        XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: "fine dining"), "dining")
+    }
+}

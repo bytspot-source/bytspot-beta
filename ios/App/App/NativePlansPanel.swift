@@ -6,13 +6,22 @@ import SwiftUI
 /// did. `capability` on an item is snapshotted from the room at attach time.
 struct NativePlan: Codable, Identifiable, Equatable {
     struct Participant: Codable, Equatable { let userId: String; let role: String; let status: String }
+    /// A supply summary the server attaches to an item that points at a
+    /// coffee reservation. Absent on room-backed and reference items, so a
+    /// hold countdown can only render where a hold actually exists.
+    struct Reservation: Codable, Equatable {
+        let holdExpiresAt: String?
+        let status: String?
+    }
     struct Item: Codable, Identifiable, Equatable {
         let id: String
         let needKind: String
         let title: String
         let partyId: String?
+        let coffeeReservationId: String?
         let capability: String
         let status: String
+        let reservation: Reservation?
     }
     struct Readiness: Codable, Equatable {
         let going: Int
@@ -64,6 +73,16 @@ struct NativePlanAPI {
 
     func cancel(_ planID: String) async throws {
         _ = try await client.trpcPayload(path: "/trpc/plans.cancel", method: "POST", input: ["planId": planID])
+    }
+
+    /// The caller never states the capability — the server derives it from the
+    /// supply — so the input carries only the reservation the item points at.
+    func attachCoffeeReservation(planID: String, reservationID: String) async throws {
+        _ = try await client.trpcPayload(
+            path: "/trpc/plans.attach",
+            method: "POST",
+            input: ["planId": planID, "needKind": "coffee", "supplyRef": ["coffeeReservationId": reservationID]]
+        )
     }
 }
 
@@ -136,11 +155,11 @@ enum NativePlanDisplay {
 
 private let planRowBackground = Color.white.opacity(0.06)
 
-/// The Plans surface. Read-only in Phase 1 for creation and attach: the caller
-/// can see their plans, confirm or cancel the ones they own, and respond to
-/// the ones they're invited to. Attach and invite are left off until Discover
-/// has a supported "Add to Plan" hook, so we don't ship a button that would
-/// need a Discover round trip to mean anything.
+/// The Plans surface. The caller can see their plans, confirm or cancel the
+/// ones they own, and respond to the ones they're invited to. Phase 2 adds one
+/// attach path — coffee — because it is the first supply Bytspot can actually
+/// hold. Invite and general Discover attach are still left off until Discover
+/// has a supported "Add to Plan" hook.
 struct NativePlansPanel: View {
     @ObservedObject var sessionStore: BytspotSessionStore
     @State private var plans: [NativePlan] = []
@@ -233,6 +252,7 @@ private struct NativePlanDetailSheet: View {
     @State private var plan: NativePlan?
     @State private var errorMessage: String?
     @State private var busy = false
+    @State private var showCoffeeAttach = false
 
     private var isCreator: Bool { plan?.creatorUserId == sessionStore.authenticatedUserID }
 
@@ -250,6 +270,15 @@ private struct NativePlanDetailSheet: View {
         }
         .accessibilityIdentifier("native-plan-detail-\(planID)")
         .task { await reload() }
+        .sheet(isPresented: $showCoffeeAttach) {
+            NativeCoffeeAttachSheet(
+                planID: planID,
+                suggestedPartySize: plan?.partySize,
+                suggestedTime: plan?.startsAt.flatMap { ISO8601DateFormatter.partyControlDate(from: $0) },
+                sessionStore: sessionStore,
+                onAttached: { onChanged(); Task { await reload() } }
+            )
+        }
     }
 
     private var header: some View {
@@ -285,6 +314,12 @@ private struct NativePlanDetailSheet: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(item.title).font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
                             Text(item.needKind.capitalized).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                            // Only an item with a hold behind it carries this
+                            // line; a room or reference item has no countdown
+                            // to state and renders nothing.
+                            if let footnote = NativeCoffeeDisplay.itemFootnote(status: item.reservation?.status, holdExpiresAt: item.reservation?.holdExpiresAt) {
+                                Text(footnote).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+                            }
                         }
                         Spacer()
                         Text(NativePlanDisplay.capabilityLabel(item.capability))
@@ -320,6 +355,13 @@ private struct NativePlanDetailSheet: View {
 
     @ViewBuilder private func actions(for plan: NativePlan) -> some View {
         if isCreator {
+            // Coffee is the one supply Bytspot can hold today, so it is the
+            // one attach the Plan offers. The verb is Add, not Book: what
+            // follows is a hold ask the spot still has to answer.
+            Button(action: { showCoffeeAttach = true }) {
+                ctaLabel("Add coffee", background: planRowBackground, foreground: NativeTheme.textPrimary)
+            }
+            .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-add-coffee")
             if plan.lifecycle == "proposed" {
                 Button(action: { Task { await run { try await api().confirm(planID) } } }) {
                     ctaLabel(busy ? "Working…" : "Confirm this Plan", background: NativeTheme.purple, foreground: .white)

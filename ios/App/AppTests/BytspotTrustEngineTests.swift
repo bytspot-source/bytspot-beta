@@ -3370,6 +3370,123 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(item.partyId, "party-1")
         XCTAssertEqual(item.capability, "request")
         XCTAssertEqual(item.status, "pending")
+        // A room-backed item carries no reservation summary, and a payload
+        // predating the Phase 2 fields still decodes rather than throwing.
+        XCTAssertNil(item.coffeeReservationId)
+        XCTAssertNil(item.reservation)
+    }
+
+    // MARK: - Coffee (Phase 2 iOS surface)
+
+    func testCoffeeSpotDecodesOnlyWhatACardMayRender() throws {
+        // Owner, coordinates, and hold internals are not on the wire. The
+        // hold length is, because it is the entire promise the card makes.
+        let list = try JSONDecoder().decode(NativeCoffeeSpotList.self, from: Data("""
+        {"spots":[{"id":"cs-1","name":"Highland Bakery","areaLabel":"Old Fourth Ward","holdMinutes":30},
+                  {"id":"cs-2","name":"Chrome Yellow","areaLabel":null,"holdMinutes":20}]}
+        """.utf8))
+        XCTAssertEqual(list.spots.count, 2)
+        XCTAssertEqual(list.spots.first?.holdMinutes, 30)
+        XCTAssertNil(list.spots.last?.areaLabel)
+        // A spot with no area still states the hold; it never pads the line
+        // with a place name it does not have.
+        XCTAssertEqual(NativeCoffeeDisplay.spotSubtitle(areaLabel: "Old Fourth Ward", holdMinutes: 30), "Old Fourth Ward \u{b7} Holds a table 30 min")
+        XCTAssertEqual(NativeCoffeeDisplay.spotSubtitle(areaLabel: nil, holdMinutes: 20), "Holds a table 20 min")
+        XCTAssertEqual(NativeCoffeeDisplay.spotSubtitle(areaLabel: "", holdMinutes: 20), "Holds a table 20 min")
+    }
+
+    func testCoffeeReservationDecodesTheServerShape() throws {
+        let reservation = try JSONDecoder().decode(NativeCoffeeReservation.self, from: Data("""
+        {"id":"cr-1","coffeeSpotId":"cs-1","status":"pending",
+         "holdExpiresAt":"2026-09-04T18:30:00.000Z","requestedFor":"2026-09-04T19:00:00.000Z","partySize":2}
+        """.utf8))
+        XCTAssertEqual(reservation.id, "cr-1")
+        XCTAssertEqual(reservation.status, "pending")
+        XCTAssertEqual(reservation.partySize, 2)
+    }
+
+    func testCoffeeHoldCountdownNeverRunsPastZeroOrInventsATime() {
+        let expiry = "2026-09-04T18:30:00.000Z"
+        let at = { (raw: String) in ISO8601DateFormatter.partyControlDate(from: raw)! }
+        XCTAssertEqual(NativeCoffeeDisplay.holdCountdown(holdExpiresAt: expiry, now: at("2026-09-04T18:00:00.000Z")), "Hold expires in 30 min")
+        XCTAssertEqual(NativeCoffeeDisplay.holdCountdown(holdExpiresAt: expiry, now: at("2026-09-04T16:30:00.000Z")), "Hold expires in 2h")
+        XCTAssertEqual(NativeCoffeeDisplay.holdCountdown(holdExpiresAt: expiry, now: at("2026-09-04T16:15:00.000Z")), "Hold expires in 2h 15m")
+        XCTAssertEqual(NativeCoffeeDisplay.holdCountdown(holdExpiresAt: expiry, now: at("2026-09-04T18:29:30.000Z")), "Hold expires in under a minute")
+        // Past the window it says so rather than counting into negatives.
+        XCTAssertEqual(NativeCoffeeDisplay.holdCountdown(holdExpiresAt: expiry, now: at("2026-09-04T18:30:00.000Z")), "Hold expired")
+        XCTAssertEqual(NativeCoffeeDisplay.holdCountdown(holdExpiresAt: expiry, now: at("2026-09-04T19:00:00.000Z")), "Hold expired")
+        // No instant, or one this client cannot parse, renders nothing.
+        XCTAssertNil(NativeCoffeeDisplay.holdCountdown(holdExpiresAt: nil, now: at(expiry)))
+        XCTAssertNil(NativeCoffeeDisplay.holdCountdown(holdExpiresAt: "soon", now: at(expiry)))
+    }
+
+    func testCoffeeStatusNeverPromisesATableThatWasNotGiven() {
+        // `pending` is the spot not having answered yet. Calling it Reserved
+        // would promise a table Bytspot has not been handed, so it does not.
+        XCTAssertEqual(NativeCoffeeDisplay.statusLabel("pending"), "Hold requested")
+        XCTAssertEqual(NativeCoffeeDisplay.statusLabel("confirmed"), "Table held")
+        XCTAssertEqual(NativeCoffeeDisplay.statusLabel("declined"), "Not available")
+        XCTAssertEqual(NativeCoffeeDisplay.statusLabel("cancelled"), "Cancelled")
+        XCTAssertEqual(NativeCoffeeDisplay.statusLabel("expired"), "Hold expired")
+        // An unknown server status coerces to the least-claiming label.
+        XCTAssertEqual(NativeCoffeeDisplay.statusLabel("settled"), "Hold requested")
+        XCTAssertTrue(NativeCoffeeDisplay.isTerminal("declined"))
+        XCTAssertFalse(NativeCoffeeDisplay.isTerminal("pending"))
+    }
+
+    func testCoffeeItemFootnoteCountsDownOnlyWhileTheHoldIsLive() {
+        let expiry = "2026-09-04T18:30:00.000Z"
+        let now = ISO8601DateFormatter.partyControlDate(from: "2026-09-04T18:00:00.000Z")!
+        XCTAssertEqual(NativeCoffeeDisplay.itemFootnote(status: "pending", holdExpiresAt: expiry, now: now), "Hold requested \u{b7} Hold expires in 30 min")
+        // A terminal hold has nothing left to count down; the state stands alone.
+        XCTAssertEqual(NativeCoffeeDisplay.itemFootnote(status: "cancelled", holdExpiresAt: expiry, now: now), "Cancelled")
+        // A room-backed or reference item has no reservation, so no line.
+        XCTAssertNil(NativeCoffeeDisplay.itemFootnote(status: nil, holdExpiresAt: nil, now: now))
+    }
+
+    func testCoffeeReservationRequestSendsAnInstantAndNoCapability() {
+        let requestedFor = ISO8601DateFormatter.partyControlDate(from: "2026-09-04T19:00:00.000Z")!
+        let input = NativeCoffeeContract.createInput(spotID: "cs-1", idempotencyKey: "1D9F0C1E-0000-4000-8000-00000000000A", partySize: 2, requestedFor: requestedFor)
+        XCTAssertEqual(input["coffeeSpotId"] as? String, "cs-1")
+        XCTAssertEqual(input["partySize"] as? Int, 2)
+        XCTAssertEqual(input["requestedFor"] as? String, "2026-09-04T19:00:00Z")
+        // The client never states the hold window or the capability; both are
+        // the server's to derive, and sending either would let a build claim
+        // a promise the router did not make.
+        XCTAssertNil(input["holdExpiresAt"])
+        XCTAssertNil(input["capability"])
+        XCTAssertNil(input["status"])
+    }
+
+    func testCoffeeItemDecodesTheReservationSummaryTheRouterAttaches() throws {
+        let plan = try decodePlan("""
+        {"id":"pl-2","title":"Saturday","intent":"Coffee","creatorUserId":"u-1",
+         "startsAt":null,"endsAt":null,"areaLabel":null,"partySize":2,
+         "needs":["coffee"],"lifecycle":"proposed","state":"proposed",
+         "readiness":{"going":1,"maybe":0,"pending":0,"declined":0,"total":1},
+         "openNeeds":[],"participants":[{"userId":"u-1","role":"creator","status":"accepted"}],
+         "items":[{"id":"it-2","needKind":"coffee","title":"Highland Bakery","partyId":null,
+                   "coffeeReservationId":"cr-1","capability":"request","status":"pending",
+                   "reservation":{"holdExpiresAt":"2026-09-04T18:30:00.000Z","status":"pending"}}]}
+        """)
+        let item = try XCTUnwrap(plan.items.first)
+        XCTAssertEqual(item.coffeeReservationId, "cr-1")
+        XCTAssertEqual(item.reservation?.status, "pending")
+        XCTAssertEqual(item.reservation?.holdExpiresAt, "2026-09-04T18:30:00.000Z")
+        // A hold ask is never promoted to a settlement chip.
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel(item.capability), "Request")
+    }
+
+    func testCoffeeFailureCopyIsAppAuthoredRatherThanEchoedFromTheServer() {
+        // Server wording changes must not rewrite what a Bytspot surface
+        // promises, so the message is chosen from the status, not the body.
+        let refused = BytspotAPIClient.APIError.server(status: 409, body: "{\"error\":{\"message\":\"You already have a live hold on this spot.\"}}")
+        XCTAssertEqual(NativeCoffeeDisplay.failureMessage(for: refused), "You already have a live hold here.")
+        XCTAssertEqual(NativeCoffeeDisplay.failureMessage(for: BytspotAPIClient.APIError.server(status: 404, body: "")), "That spot isn\u{2019}t taking holds right now.")
+        XCTAssertEqual(NativeCoffeeDisplay.failureMessage(for: BytspotAPIClient.APIError.server(status: 400, body: "")), "Pick a time in the next few weeks.")
+        XCTAssertEqual(NativeCoffeeDisplay.failureMessage(for: BytspotAPIClient.APIError.server(status: 429, body: "")), "Too many requests. Wait a moment and try again.")
+        XCTAssertEqual(NativeCoffeeDisplay.failureMessage(for: BytspotAPIClient.APIError.server(status: 500, body: "")), "That didn\u{2019}t go through.")
+        XCTAssertEqual(NativeCoffeeDisplay.failureMessage(for: URLError(.notConnectedToInternet)), "We couldn\u{2019}t connect. Check your internet and try again.")
     }
 
     func testPlansPanelIsAFirstClassProfileSurface() {

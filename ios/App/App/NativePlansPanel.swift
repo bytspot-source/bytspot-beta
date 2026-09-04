@@ -75,6 +75,32 @@ struct NativePlanAPI {
         _ = try await client.trpcPayload(path: "/trpc/plans.cancel", method: "POST", input: ["planId": planID])
     }
 
+    func create(
+        idempotencyKey: String,
+        title: String,
+        intent: String,
+        startsAt: Date?,
+        partySize: Int?,
+        needs: Set<String>
+    ) async throws -> String {
+        let payload = try await client.trpcPayload(
+            path: "/trpc/plans.create",
+            method: "POST",
+            input: NativePlanContract.createInput(
+                idempotencyKey: idempotencyKey,
+                title: title,
+                intent: intent,
+                startsAt: startsAt,
+                partySize: partySize,
+                needs: needs
+            )
+        )
+        guard let object = payload as? [String: Any], let id = object["id"] as? String else {
+            throw BytspotAPIClient.APIError.invalidResponse
+        }
+        return id
+    }
+
     /// The caller never states the capability — the server derives it from the
     /// supply — so the input carries only the reservation the item points at.
     func attachCoffeeReservation(planID: String, reservationID: String) async throws {
@@ -83,6 +109,33 @@ struct NativePlanAPI {
             method: "POST",
             input: ["planId": planID, "needKind": "coffee", "supplyRef": ["coffeeReservationId": reservationID]]
         )
+    }
+}
+
+/// The wire shape of a Plan write, kept in its own namespace so a test can pin
+/// it without a client, matching `NativeCoffeeContract` next door.
+enum NativePlanContract {
+    /// Everything optional is omitted rather than sent null. A Plan with no
+    /// start is a real state the surface prints as "When TBD", and the router
+    /// derives a proposed Plan's expiry from `startsAt`, so a fabricated date
+    /// would quietly move when the Plan stops waiting.
+    static func createInput(
+        idempotencyKey: String,
+        title: String,
+        intent: String,
+        startsAt: Date?,
+        partySize: Int?,
+        needs: Set<String>
+    ) -> [String: Any] {
+        var input: [String: Any] = [
+            "idempotencyKey": idempotencyKey,
+            "title": title.trimmingCharacters(in: .whitespacesAndNewlines),
+            "intent": intent.trimmingCharacters(in: .whitespacesAndNewlines),
+            "needs": NativePlanDisplay.normalizedNeeds(needs),
+        ]
+        if let startsAt { input["startsAt"] = ISO8601DateFormatter.partyControlInstant.string(from: startsAt) }
+        if let partySize { input["partySize"] = partySize }
+        return input
     }
 }
 
@@ -138,6 +191,58 @@ enum NativePlanDisplay {
         }
     }
 
+    /// The needs a caller can declare when starting a Plan. A need is the
+    /// caller's own checklist line, not a promise Bytspot will fill it —
+    /// `needsFootnote` says that out loud, because coffee is the only one with
+    /// an attach path today.
+    static let selectableNeeds = ["coffee", "dining", "nightlife", "parking", "mobility", "stay"]
+
+    /// Says plainly which needs Bytspot can act on. Without this the chips
+    /// would read as six things the app is about to arrange.
+    static let needsFootnote = "Coffee is the only one Bytspot can hold today. The rest stay your own checklist."
+
+    static func needLabel(_ need: String) -> String {
+        switch need {
+        case "coffee": return "Coffee"
+        case "dining": return "Dinner"
+        case "nightlife": return "Nightlife"
+        case "parking": return "Parking"
+        case "mobility": return "Getting there"
+        case "stay": return "Somewhere to stay"
+        default: return need.capitalized
+        }
+    }
+
+    /// De-duplicated, vocabulary-checked, and capped at the router's ceiling of
+    /// twelve, so a list this client assembled can never be the reason a
+    /// filled-in form comes back rejected. Ordered by the chip list rather
+    /// than by the caller's selection, because a `Set` iterates arbitrarily
+    /// and this order is stored and later printed back as "Still open".
+    static func normalizedNeeds(_ needs: Set<String>) -> [String] {
+        Array(selectableNeeds.filter(needs.contains).prefix(12))
+    }
+
+    /// Truncates to a UTF-16 budget without splitting a grapheme, matching what
+    /// zod's `.max()` counts on the router.
+    static func clamped(_ value: String, utf16Limit: Int) -> String {
+        var result = value
+        while result.utf16.count > utf16Limit && !result.isEmpty { result.removeLast() }
+        return result
+    }
+
+    /// Named so the create sheet and the Plan detail cannot drift: the same
+    /// sentence has to travel with the needs wherever they are shown.
+    static let openNeedsFootnote = "Coffee is the only one Bytspot can hold. The rest are yours to sort."
+
+    static let timeShortensLifeFootnote = "A Plan with a time stops waiting at that time. Without one it stays open for a week."
+
+    /// A coffee hold tops out at eight seats, so a larger Plan cannot be met
+    /// by that path in one ask. Said up front rather than clamped in silence.
+    static func partySizeExceedsCoffeeNotice(_ partySize: Int) -> String? {
+        guard partySize > 8 else { return nil }
+        return "A coffee hold covers up to 8. A table for \(partySize) needs the spot’s own say-so."
+    }
+
     /// A short "when" line. Absent starts are printed as "When TBD" rather
     /// than the current date, because a Plan without a time is a real state.
     static func whenLabel(startsAt: String?, endsAt: String?) -> String {
@@ -156,16 +261,24 @@ enum NativePlanDisplay {
 private let planRowBackground = Color.white.opacity(0.06)
 
 /// The Plans surface. The caller can see their plans, confirm or cancel the
-/// ones they own, and respond to the ones they're invited to. Phase 2 adds one
-/// attach path — coffee — because it is the first supply Bytspot can actually
-/// hold. Invite and general Discover attach are still left off until Discover
-/// has a supported "Add to Plan" hook.
+/// ones they own, and respond to the ones they're invited to. Phase 2 adds the
+/// surface that produces a Plan in the first place, plus one attach path —
+/// coffee — because it is the first supply Bytspot can actually hold. Invite
+/// and general Discover attach are still left off until Discover has a
+/// supported "Add to Plan" hook.
 struct NativePlansPanel: View {
     @ObservedObject var sessionStore: BytspotSessionStore
     @State private var plans: [NativePlan] = []
     @State private var errorMessage: String?
     @State private var isLoading = false
     @State private var selectedPlanID: String?
+    @State private var showCreate = false
+    /// Held until the create sheet has finished dismissing. Assigning
+    /// `selectedPlanID` while that sheet is still on screen asks one host to
+    /// present a second sheet mid-teardown, which UIKit drops rather than
+    /// queues — the detail would never open, and the id would be left set so
+    /// the row for that Plan could no longer be tapped.
+    @State private var pendingCreatedPlanID: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -173,11 +286,15 @@ struct NativePlansPanel: View {
                 Text("Sign in to see your plans.").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
             } else if isLoading && plans.isEmpty {
                 ProgressView().tint(NativeTheme.textSecondary)
-            } else if let message = errorMessage, plans.isEmpty {
-                Text(message).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.orange)
-            } else if plans.isEmpty {
-                NativePlansEmptyState()
             } else {
+                // The CTA sits above every other state, so a list that failed
+                // to load still leaves the caller able to start a Plan.
+                startPlanButton
+                if let message = errorMessage, plans.isEmpty {
+                    Text(message).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.orange)
+                } else if plans.isEmpty {
+                    NativePlansEmptyState()
+                }
                 ForEach(plans) { plan in
                     Button(action: { selectedPlanID = plan.id }) { NativePlanListRow(plan: plan) }
                         .buttonStyle(.plain)
@@ -193,6 +310,42 @@ struct NativePlansPanel: View {
         )) { sheet in
             NativePlanDetailSheet(planID: sheet.id, sessionStore: sessionStore, onChanged: { Task { await reload() } })
         }
+        .sheet(isPresented: $showCreate, onDismiss: {
+            // Drained after the create sheet is fully gone, so the detail
+            // presents against a free host. A new Plan therefore opens
+            // straight into its own detail and the attach paths are one tap
+            // from the thing the caller just made.
+            if let planID = pendingCreatedPlanID {
+                pendingCreatedPlanID = nil
+                selectedPlanID = planID
+            }
+        }) {
+            NativePlanCreateSheet(sessionStore: sessionStore, onCreated: { planID in
+                pendingCreatedPlanID = planID
+                Task { await reload() }
+            })
+        }
+    }
+
+    @ViewBuilder private var startPlanButton: some View {
+        // "Start a Plan" is a promise Bytspot keeps entirely on its own side:
+        // it writes a Plan row. It is deliberately not a settlement verb.
+        // The pending id is cleared on the way in, not only on the way out: a
+        // create that lands after its sheet was dismissed has no drain to run,
+        // and a stale id left behind would open that earlier Plan unprompted
+        // the next time this sheet is closed.
+        Button(action: { pendingCreatedPlanID = nil; showCreate = true }) {
+            HStack(spacing: 6) {
+                Image(systemName: "plus.circle.fill").font(.system(size: 13, weight: .black))
+                Text("Start a Plan").font(.system(size: 14, weight: .black))
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity).padding(.vertical, 12)
+            .background(NativeTheme.purple)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("native-plan-start")
     }
 
     private func reload() async {
@@ -214,7 +367,7 @@ private struct NativePlansEmptyState: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("No plans yet.").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-            Text("This is where your Plans will live — who’s coming and what the night still needs, in one place.")
+            Text("A Plan holds who’s coming and what the night still needs, in one place. Start one and it lands here.")
                 .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
         }
     }
@@ -301,8 +454,16 @@ private struct NativePlanDetailSheet: View {
             sectionHeader("Still open")
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(plan.openNeeds, id: \.self) { need in
-                    Text("• \(need.capitalized)").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                    // The same words the caller ticked on the create sheet;
+                    // `capitalized` would rename their choice on the next screen.
+                    Text("• \(NativePlanDisplay.needLabel(need))").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
                 }
+                // Without this the list reads as outstanding arrangements
+                // Bytspot is working on. Only coffee has an attach path, and
+                // this is the durable surface — the create sheet's footnote is
+                // long gone by the time anyone reads this.
+                Text(NativePlanDisplay.openNeedsFootnote)
+                    .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
             }
         }
 
@@ -313,7 +474,10 @@ private struct NativePlanDetailSheet: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(item.title).font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
-                            Text(item.needKind.capitalized).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                            // Same words as the create sheet and the "Still
+                            // open" list above; `capitalized` would print the
+                            // raw token and rename the caller's choice.
+                            Text(NativePlanDisplay.needLabel(item.needKind)).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
                             // Only an item with a hold behind it carries this
                             // line; a room or reference item has no countdown
                             // to state and renders nothing.
@@ -418,5 +582,224 @@ private struct NativePlanDetailSheet: View {
     private func reload() async {
         guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to see this Plan."; return }
         do { plan = try await api().get(planID); errorMessage = nil } catch { errorMessage = "Couldn’t load this Plan." }
+    }
+}
+
+/// Starting a Plan. Title and intent are the only things the router demands;
+/// a time and a size are offered because the coffee sheet prefills from them,
+/// and needs are offered because "what the night still needs" is the whole
+/// point of the object. Everything optional is genuinely optional — a Plan
+/// with no time is a real state the surface prints as "When TBD".
+private struct NativePlanCreateSheet: View {
+    @ObservedObject var sessionStore: BytspotSessionStore
+    let onCreated: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var title = ""
+    @State private var intent = ""
+    @State private var setsTime = false
+    @State private var startsAt = Date().addingTimeInterval(60 * 60)
+    @State private var setsPartySize = false
+    @State private var partySize = 2
+    @State private var needs: Set<String> = []
+    @State private var busy = false
+    @State private var errorMessage: String?
+    /// One key for the whole form session, not one per tap. The client times
+    /// out at 8s, so a create that commits slowly surfaces as a connection
+    /// failure whose copy invites a retry — a fresh key each attempt would
+    /// turn that retry into a second Plan instead of the router's idempotent
+    /// re-read of the first.
+    @State private var idempotencyKey = UUID().uuidString
+
+    private var canSubmit: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !intent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                header
+                field("What to call it", text: $title, limit: 80, identifier: "native-plan-create-title")
+                field("What the night is", text: $intent, limit: 280, identifier: "native-plan-create-intent")
+                timeRow
+                partySizeRow
+                needsRow
+                submitButton
+                if let errorMessage {
+                    Text(errorMessage).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.orange)
+                }
+            }
+            .padding(20)
+        }
+        // A swipe-away mid-flight would leave the create running with nowhere
+        // to report back to, so the sheet stays put until the call settles.
+        .interactiveDismissDisabled(busy)
+        .accessibilityIdentifier("native-plan-create")
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Start a Plan").font(.system(size: 22, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                Spacer()
+                Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 24, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
+                    .disabled(busy)
+            }
+            Text("A Plan is yours to shape. Nothing is booked and nobody is invited until you say so.")
+                .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+        }
+    }
+
+    private func field(_ label: String, text: Binding<String>, limit: Int, identifier: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader(label)
+            TextField("", text: text)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(NativeTheme.textPrimary)
+                .padding(12)
+                .background(planRowBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                // Clamped to the router's own ceiling, so an over-long entry is
+                // stopped while typing rather than rejected after submitting.
+                // Counted in UTF-16 because that is what zod's `.max()` counts;
+                // measuring grapheme clusters would let an emoji title pass the
+                // clamp and still come back 400.
+                .onChange(of: text.wrappedValue) { value in
+                    if value.utf16.count > limit { text.wrappedValue = NativePlanDisplay.clamped(value, utf16Limit: limit) }
+                }
+                .accessibilityIdentifier(identifier)
+        }
+    }
+
+    private var timeRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(isOn: $setsTime) {
+                Text("Set a time").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+            }
+            .accessibilityIdentifier("native-plan-create-sets-time")
+            if setsTime {
+                DatePicker("", selection: $startsAt, in: Date()...)
+                    .datePickerStyle(.compact).labelsHidden()
+                    .accessibilityIdentifier("native-plan-create-starts-at")
+                // Setting a time also sets when the Plan stops waiting: the
+                // router expires a proposed Plan at its start instead of the
+                // default week, and the caller should not discover that by
+                // finding it marked Expired.
+                Text(NativePlanDisplay.timeShortensLifeFootnote)
+                    .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+            }
+        }
+    }
+
+    private var partySizeRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(isOn: $setsPartySize) {
+                Text("Set a size").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+            }
+            .accessibilityIdentifier("native-plan-create-sets-size")
+            if setsPartySize {
+                // Twenty, not the router's 200: a Plan is a group going out
+                // together, and every supply path Bytspot has today tops out
+                // far below that. Raise this when a supply arrives that can
+                // actually seat more.
+                Stepper(value: $partySize, in: 1...20) {
+                    Text("\(partySize) \(partySize == 1 ? "person" : "people")")
+                        .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+                }
+                .accessibilityIdentifier("native-plan-create-party-size")
+                // A coffee hold caps at eight, so a larger Plan would silently
+                // ask for a smaller table. Say so here rather than let the
+                // attach sheet quietly reduce the number.
+                if let notice = NativePlanDisplay.partySizeExceedsCoffeeNotice(partySize) {
+                    Text(notice).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+                }
+            }
+        }
+    }
+
+    private var needsRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("What it still needs")
+            ForEach(NativePlanDisplay.selectableNeeds, id: \.self) { need in
+                Button(action: { if needs.contains(need) { needs.remove(need) } else { needs.insert(need) } }) {
+                    HStack {
+                        Text(NativePlanDisplay.needLabel(need))
+                            .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+                        Spacer()
+                        if needs.contains(need) {
+                            Image(systemName: "checkmark").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.purple)
+                        }
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(needs.contains(need) ? NativeTheme.purple.opacity(0.22) : planRowBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-plan-create-need-\(need)")
+            }
+            // Six chips would otherwise read as six things the app is about to
+            // arrange; only one of them has a supply path today.
+            Text(NativePlanDisplay.needsFootnote)
+                .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+        }
+    }
+
+    private var submitButton: some View {
+        Button(action: { Task { await submit() } }) {
+            Text(busy ? "Working…" : "Start a Plan")
+                .font(.system(size: 14, weight: .black)).foregroundColor(.white)
+                .frame(maxWidth: .infinity).padding(.vertical, 12)
+                .background(canSubmit ? NativeTheme.purple : NativeTheme.purple.opacity(0.35))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(busy || !canSubmit)
+        .accessibilityIdentifier("native-plan-create-submit")
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title.uppercased()).font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textTertiary).tracking(1.2)
+    }
+
+    private func submit() async {
+        guard canSubmit else { return }
+        guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to start a Plan."; return }
+        busy = true; defer { busy = false }
+        let api = NativePlanAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token }))
+        do {
+            let planID = try await api.create(
+                idempotencyKey: idempotencyKey,
+                title: title,
+                intent: intent,
+                startsAt: setsTime ? startsAt : nil,
+                partySize: setsPartySize ? partySize : nil,
+                needs: needs
+            )
+            errorMessage = nil
+            onCreated(planID)
+            dismiss()
+        } catch {
+            errorMessage = NativePlanDisplay.createFailureMessage(for: error)
+        }
+    }
+}
+
+extension NativePlanDisplay {
+    /// App-authored failure copy, chosen from the status code. Server wording
+    /// is never echoed, so an API message cannot rewrite a Bytspot promise.
+    static func createFailureMessage(for error: Error) -> String {
+        if let urlError = error as? URLError,
+           [.timedOut, .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {
+            return "We couldn’t connect. Check your internet and try again."
+        }
+        guard case let BytspotAPIClient.APIError.server(status, _) = error else { return "That didn’t go through." }
+        switch status {
+        case 400: return "Check the title and what the night is, then try again."
+        case 401: return "Sign in to start a Plan."
+        case 429: return "Too many plans just now. Wait a moment and try again."
+        default: return "That didn’t go through."
+        }
     }
 }

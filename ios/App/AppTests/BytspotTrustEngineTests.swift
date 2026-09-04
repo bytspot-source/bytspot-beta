@@ -3444,88 +3444,6 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(NativeCoffeeDisplay.itemFootnote(status: nil, holdExpiresAt: nil, now: now))
     }
 
-    func testPlanCreateOmitsEveryOptionalTheCallerLeftAlone() {
-        let input = NativePlanAPI.createInput(
-            idempotencyKey: "1D9F0C1E-0000-4000-8000-00000000000B",
-            title: "  Friday  ",
-            intent: "  Go out  ",
-            startsAt: nil,
-            partySize: nil,
-            needs: []
-        )
-        // Trimmed to match the router, which trims before its own min(1) check.
-        XCTAssertEqual(input["title"] as? String, "Friday")
-        XCTAssertEqual(input["intent"] as? String, "Go out")
-        // A Plan with no time is a real state. Sending a date the caller never
-        // picked would invent a start and silently move the Plan's expiry.
-        XCTAssertNil(input["startsAt"])
-        XCTAssertNil(input["partySize"])
-        XCTAssertEqual(input["needs"] as? [String], [])
-    }
-
-    func testPlanCreateSendsTheOptionalsTheCallerDidSet() {
-        let startsAt = ISO8601DateFormatter.partyControlDate(from: "2026-09-05T19:00:00.000Z")!
-        let input = NativePlanAPI.createInput(
-            idempotencyKey: "1D9F0C1E-0000-4000-8000-00000000000C",
-            title: "Friday",
-            intent: "Go out",
-            startsAt: startsAt,
-            partySize: 4,
-            needs: ["coffee"]
-        )
-        XCTAssertEqual(input["startsAt"] as? String, "2026-09-05T19:00:00Z")
-        XCTAssertEqual(input["partySize"] as? Int, 4)
-        XCTAssertEqual(input["needs"] as? [String], ["coffee"])
-        // Lifecycle and state are the server's to derive; a client that sent
-        // either could stand a Plan up as confirmed without anyone confirming.
-        XCTAssertNil(input["lifecycle"])
-        XCTAssertNil(input["state"])
-    }
-
-    func testPlanNeedsAreDedupedAndRefuseAVocabularyTheRouterWouldReject() {
-        // Duplicates collapse and order is preserved, matching the router's
-        // own `[...new Set(needs)]`.
-        XCTAssertEqual(NativePlanDisplay.normalizedNeeds(["coffee", "dining", "coffee"]), ["coffee", "dining"])
-        // A need this client did not offer never reaches the wire: the chips
-        // are the vocabulary, so nothing else can be smuggled into `needs`.
-        XCTAssertEqual(NativePlanDisplay.normalizedNeeds(["coffee", "charter-jet"]), ["coffee"])
-        XCTAssertEqual(NativePlanDisplay.normalizedNeeds([]), [])
-    }
-
-    func testPlanNeedChipsSayWhichOneBytspotCanActuallyHold() {
-        // Six selectable needs, one supply path. The footnote is the only
-        // thing stopping the chips from reading as six pending arrangements.
-        XCTAssertEqual(NativePlanDisplay.selectableNeeds.count, 6)
-        XCTAssertTrue(NativePlanDisplay.selectableNeeds.contains("coffee"))
-        XCTAssertEqual(
-            NativePlanDisplay.needsFootnote,
-            "Coffee is the only one Bytspot can hold today. The rest stay your own checklist."
-        )
-        // No chip may name a settlement the app cannot make.
-        for need in NativePlanDisplay.selectableNeeds {
-            let label = NativePlanDisplay.needLabel(need)
-            XCTAssertFalse(label.lowercased().contains("book"), "\(label) promises a booking")
-            XCTAssertFalse(label.lowercased().contains("reserve"), "\(label) promises a reservation")
-        }
-    }
-
-    func testPlanCreateFailureCopyIsAppAuthored() {
-        XCTAssertEqual(
-            NativePlanDisplay.createFailureMessage(for: BytspotAPIClient.APIError.server(status: 429, body: "slow down buddy")),
-            "Too many plans just now. Wait a moment and try again."
-        )
-        XCTAssertEqual(
-            NativePlanDisplay.createFailureMessage(for: BytspotAPIClient.APIError.server(status: 400, body: "intent: String must contain at least 1 character(s)")),
-            "Check the title and what the night is, then try again."
-        )
-        // An unmapped status falls back to bounded copy rather than echoing
-        // whatever the server said.
-        XCTAssertEqual(
-            NativePlanDisplay.createFailureMessage(for: BytspotAPIClient.APIError.server(status: 500, body: "PrismaClientKnownRequestError")),
-            "That didn’t go through."
-        )
-    }
-
     func testCoffeeReservationRequestSendsAnInstantAndNoCapability() {
         let requestedFor = ISO8601DateFormatter.partyControlDate(from: "2026-09-04T19:00:00.000Z")!
         let input = NativeCoffeeContract.createInput(spotID: "cs-1", idempotencyKey: "1D9F0C1E-0000-4000-8000-00000000000A", partySize: 2, requestedFor: requestedFor)
@@ -4531,4 +4449,148 @@ final class NativeRecapStubProtocol: URLProtocol {
     }
 
     override func stopLoading() {}
+}
+
+/// Starting a Plan: the wire shape the router is handed, and the words the
+/// caller reads while filling the form in. Kept apart from the profile-data
+/// suite so a Plan rule fails under a Plan name.
+final class NativePlanCreateTests: XCTestCase {
+    func testPlanCreateOmitsEveryOptionalTheCallerLeftAlone() {
+        let input = NativePlanContract.createInput(
+            idempotencyKey: "1D9F0C1E-0000-4000-8000-00000000000B",
+            title: "  Friday  ",
+            intent: "  Go out  ",
+            startsAt: nil,
+            partySize: nil,
+            needs: []
+        )
+        // Trimmed to match the router, which trims before its own min(1) check.
+        XCTAssertEqual(input["title"] as? String, "Friday")
+        XCTAssertEqual(input["intent"] as? String, "Go out")
+        // A Plan with no time is a real state. Sending a date the caller never
+        // picked would invent a start and silently move the Plan's expiry,
+        // which the router derives from startsAt.
+        XCTAssertNil(input["startsAt"])
+        XCTAssertNil(input["partySize"])
+        // endsAt is never collected, so the router's endsAt <= startsAt
+        // rejection cannot be reached from this surface.
+        XCTAssertNil(input["endsAt"])
+        XCTAssertEqual(input["needs"] as? [String], [])
+    }
+
+    func testPlanCreateSendsTheOptionalsTheCallerDidSet() {
+        let startsAt = ISO8601DateFormatter.partyControlDate(from: "2026-09-05T19:00:00.000Z")!
+        let input = NativePlanContract.createInput(
+            idempotencyKey: "1D9F0C1E-0000-4000-8000-00000000000C",
+            title: "Friday",
+            intent: "Go out",
+            startsAt: startsAt,
+            partySize: 4,
+            needs: ["coffee"]
+        )
+        XCTAssertEqual(input["startsAt"] as? String, "2026-09-05T19:00:00Z")
+        XCTAssertEqual(input["partySize"] as? Int, 4)
+        XCTAssertEqual(input["needs"] as? [String], ["coffee"])
+        // Lifecycle and state are the server's to derive; a client that sent
+        // either could stand a Plan up as confirmed without anyone confirming.
+        XCTAssertNil(input["lifecycle"])
+        XCTAssertNil(input["state"])
+        XCTAssertNil(input["capability"])
+    }
+
+    func testPlanNeedsRefuseAVocabularyThisClientNeverOffered() {
+        // A need this client did not offer never reaches the wire: the chips
+        // are the vocabulary, so nothing else can be smuggled into `needs`.
+        // Duplicates are structurally impossible now the input is a Set.
+        XCTAssertEqual(NativePlanDisplay.normalizedNeeds(["coffee", "charter-jet"]), ["coffee"])
+        XCTAssertEqual(NativePlanDisplay.normalizedNeeds([]), [])
+    }
+
+    func testPlanNeedsAreOrderedByTheChipListNotBySelection() {
+        // A Set iterates arbitrarily, and this order is stored and printed
+        // back as "Still open". Two identical selections must serialize
+        // identically, in the order the chips were shown.
+        let selection: Set<String> = ["stay", "coffee", "nightlife"]
+        XCTAssertEqual(NativePlanDisplay.normalizedNeeds(selection), ["coffee", "nightlife", "stay"])
+        XCTAssertEqual(NativePlanDisplay.normalizedNeeds(selection), NativePlanDisplay.normalizedNeeds(selection))
+    }
+
+    func testPlanNeedChipsSayWhichOneBytspotCanActuallyHold() {
+        // Six selectable needs, one supply path. The footnotes are the only
+        // thing stopping the chips from reading as six pending arrangements.
+        XCTAssertEqual(NativePlanDisplay.selectableNeeds.count, 6)
+        XCTAssertTrue(NativePlanDisplay.selectableNeeds.contains("coffee"))
+        XCTAssertEqual(
+            NativePlanDisplay.needsFootnote,
+            "Coffee is the only one Bytspot can hold today. The rest stay your own checklist."
+        )
+        // The durable surface carries the same limit. The create sheet's
+        // footnote is gone by the time anyone reads a Plan's "Still open".
+        XCTAssertTrue(NativePlanDisplay.openNeedsFootnote.contains("only one Bytspot can hold"))
+        // No chip may name a settlement the app cannot make.
+        for need in NativePlanDisplay.selectableNeeds {
+            let label = NativePlanDisplay.needLabel(need)
+            XCTAssertFalse(label.lowercased().contains("book"), "\(label) promises a booking")
+            XCTAssertFalse(label.lowercased().contains("reserve"), "\(label) promises a reservation")
+        }
+    }
+
+    func testPlanNeedLabelIsTheSameWordOnBothScreens() {
+        // The create sheet offers "Dinner" and "Getting there"; the Plan
+        // detail must not rename them to "Dining" and "Mobility".
+        XCTAssertEqual(NativePlanDisplay.needLabel("dining"), "Dinner")
+        XCTAssertEqual(NativePlanDisplay.needLabel("mobility"), "Getting there")
+        XCTAssertEqual(NativePlanDisplay.needLabel("stay"), "Somewhere to stay")
+        // A need the server knows and this build does not still prints.
+        XCTAssertEqual(NativePlanDisplay.needLabel("brunch"), "Brunch")
+    }
+
+    func testPlanTitleClampCountsWhatTheRouterCounts() {
+        // zod's .max() counts UTF-16 units. Counting grapheme clusters would
+        // let an 80-emoji title pass the clamp and still come back 400.
+        let emoji = String(repeating: "🎈", count: 80)
+        XCTAssertEqual(emoji.count, 80)
+        XCTAssertEqual(emoji.utf16.count, 160)
+        let clamped = NativePlanDisplay.clamped(emoji, utf16Limit: 80)
+        XCTAssertLessThanOrEqual(clamped.utf16.count, 80)
+        // Truncation never splits a surrogate pair into an invalid scalar.
+        XCTAssertEqual(clamped, String(repeating: "🎈", count: 40))
+        // Text already inside the budget is returned untouched.
+        XCTAssertEqual(NativePlanDisplay.clamped("Friday", utf16Limit: 80), "Friday")
+    }
+
+    func testPlanDisclosesWhatSettingATimeCosts() {
+        // Setting a time also sets when the Plan stops waiting; the caller
+        // should not discover that by finding it marked Expired.
+        XCTAssertTrue(NativePlanDisplay.timeShortensLifeFootnote.contains("stops waiting"))
+        XCTAssertTrue(NativePlanDisplay.timeShortensLifeFootnote.contains("week"))
+    }
+
+    func testPlanSaysWhenAPartyIsBiggerThanACoffeeHold() {
+        // The coffee attach sheet clamps to the router's 8. Saying so here
+        // stops the ask from being quietly reduced two screens later.
+        XCTAssertNil(NativePlanDisplay.partySizeExceedsCoffeeNotice(8))
+        XCTAssertNil(NativePlanDisplay.partySizeExceedsCoffeeNotice(2))
+        XCTAssertEqual(
+            NativePlanDisplay.partySizeExceedsCoffeeNotice(12),
+            "A coffee hold covers up to 8. A table for 12 needs the spot’s own say-so."
+        )
+    }
+
+    func testPlanCreateFailureCopyIsAppAuthored() {
+        XCTAssertEqual(
+            NativePlanDisplay.createFailureMessage(for: BytspotAPIClient.APIError.server(status: 429, body: "slow down buddy")),
+            "Too many plans just now. Wait a moment and try again."
+        )
+        XCTAssertEqual(
+            NativePlanDisplay.createFailureMessage(for: BytspotAPIClient.APIError.server(status: 400, body: "intent: String must contain at least 1 character(s)")),
+            "Check the title and what the night is, then try again."
+        )
+        // An unmapped status falls back to bounded copy rather than echoing
+        // whatever the server said.
+        XCTAssertEqual(
+            NativePlanDisplay.createFailureMessage(for: BytspotAPIClient.APIError.server(status: 500, body: "PrismaClientKnownRequestError")),
+            "That didn’t go through."
+        )
+    }
 }

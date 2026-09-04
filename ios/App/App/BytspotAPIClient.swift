@@ -2160,6 +2160,15 @@ struct NativeParkingSummary: Equatable {
     let priceLabel: String
 }
 
+/// Google place types behind a Bytspot category. Kept in one place so the
+/// question asked of Places and the label shown on the card cannot drift.
+enum NativeDiscoverPlaceTypes {
+    /// `coffee_shop` is the tight match; `cafe` is broader and catches the
+    /// places Google files as a cafe without the narrower type. Both in one
+    /// request, so the pair costs a single billed call.
+    static let coffee = ["coffee_shop", "cafe"]
+}
+
 enum NativeDiscoverCategoryNormalizer {
     static func type(for rawType: String) -> String {
         let text = rawType.lowercased().replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: "-", with: " ")
@@ -2488,9 +2497,13 @@ struct NativeLiveDiscoveryAPI {
         return Self.validatedLocalPlaces(places, origin: NativeLocationCoordinate(latitude: lat, longitude: lng, isFallback: false))
     }
 
-    func placesNearbySearch(type: String?, lat: Double = 33.7866, lng: Double = -84.3833, maxResults: Int = 10) async throws -> [NativePlaceSearchResult] {
+    /// `types` asks Google for several categories in one billed request. A
+    /// category like coffee spans more than one Google type, and one call per
+    /// type would multiply the Places bill for a single row of cards.
+    func placesNearbySearch(type: String?, types: [String] = [], lat: Double = 33.7866, lng: Double = -84.3833, maxResults: Int = 10) async throws -> [NativePlaceSearchResult] {
         var input: [String: Any] = ["lat": lat, "lng": lng, "maxResults": maxResults]
         if let type, !type.isEmpty { input["type"] = type }
+        if !types.isEmpty { input["types"] = types }
         let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.placesNearbySearchRoute, input: input)
         let places = Self.placeRows(from: payload).enumerated().compactMap(Self.placeResult)
         return Self.validatedLocalPlaces(places, origin: NativeLocationCoordinate(latitude: lat, longitude: lng, isFallback: false))
@@ -2887,13 +2900,21 @@ final class NativeTabContentStore: ObservableObject {
         async let generalRequest = try? api.placesNearbySearch(type: nil, lat: location.latitude, lng: location.longitude, maxResults: 8)
         async let clubsRequest = try? api.placesNearbySearch(type: "night_club", lat: location.latitude, lng: location.longitude, maxResults: 8)
         async let barsRequest = try? api.placesNearbySearch(type: "bar", lat: location.latitude, lng: location.longitude, maxResults: 8)
+        // Coffee was previously only ever a keyword filter over the nightlife
+        // queries above, so the category was near-empty and fell back to a
+        // hardcoded card. Google is now actually asked the coffee question.
+        async let coffeeRequest = try? api.placesNearbySearch(type: nil, types: NativeDiscoverPlaceTypes.coffee, lat: location.latitude, lng: location.longitude, maxResults: 8)
         async let localNightlifeRequest = try? api.localNightlifeSearch(location: location)
-        let (general, clubs, bars, localNightlife) = await (generalRequest, clubsRequest, barsRequest, localNightlifeRequest)
+        let (general, clubs, bars, coffee, localNightlife) = await (generalRequest, clubsRequest, barsRequest, coffeeRequest, localNightlifeRequest)
         let generalPlaces: [NativePlaceSearchResult] = general ?? []
         let clubPlaces: [NativePlaceSearchResult] = clubs ?? []
         let barPlaces: [NativePlaceSearchResult] = bars ?? []
+        let coffeePlaces: [NativePlaceSearchResult] = coffee ?? []
         let nightlifePlaces: [NativePlaceSearchResult] = localNightlife ?? []
-        let placeSources: [[NativePlaceSearchResult]] = [generalPlaces, clubPlaces, barPlaces, nightlifePlaces]
+        // Coffee leads: the de-dupe below keeps the first sighting of a place,
+        // and a cafe that also carries a nightlife type would otherwise be
+        // filed under the query that happened to run first.
+        let placeSources: [[NativePlaceSearchResult]] = [coffeePlaces, generalPlaces, clubPlaces, barPlaces, nightlifePlaces]
         var places: [NativePlaceSearchResult] = []
         for source in placeSources {
             for place in source where !places.contains(where: { $0.id == place.id }) {

@@ -197,29 +197,17 @@ private struct ClipPartyInviteStateView: View {
 
 // MARK: - Party Pass
 
-/// Fill-scaled image that reports the container's size, not the bitmap's.
-/// `scaledToFill` otherwise measures the size it scaled *to*, which is wider
-/// than the phone whenever the poster is. Left to size itself it widens any
-/// ScrollView / ZStack that contains it.
 /// The shape Host Studio declares to hosts (1600x1067) and centre-crops covers
-/// to on publish. The hero adopts it so a poster framed against that spec
-/// arrives uncropped.
+/// to on publish. The hero pins itself to this ratio off the container width so
+/// a poster framed against that spec arrives uncropped and never resizes the card.
 enum ClipPartyPoster {
     static let aspectRatio: CGFloat = 3.0 / 2.0
 }
 
-/// `aspectRatio(nil, contentMode:)` is not a no-op — it derives a ratio from
-/// the child's ideal size and fixes it there, so a later `minHeight` only
-/// centres the collapsed content. The two cases have to branch, not chain.
-private struct ClipHeroSizing: ViewModifier {
-    let ratio: CGFloat?
-
-    @ViewBuilder func body(content: Content) -> some View {
-        if let ratio { content.aspectRatio(ratio, contentMode: .fit) }
-        else { content.frame(minHeight: 292) }
-    }
-}
-
+/// Fill-scaled image that reports the container's size, not the bitmap's.
+/// `scaledToFill` otherwise measures the size it scaled *to*, which is wider
+/// than the phone whenever the poster is. Left to size itself it widens any
+/// ScrollView / ZStack that contains it.
 private struct ClipContainedFillImage: View {
     let url: URL
     /// Filling is right for the hero, which is a poster-shaped card. It is
@@ -364,7 +352,10 @@ struct PartyPassClipView: View {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 12) {
                         header
-                        hero
+                        // The hero is pinned to the viewport width so a poster
+                        // can never drive its own size: the padded content width
+                        // is the only bound that keeps a 3:2 card on-screen.
+                        hero(containerWidth: viewport.size.width - 40)
                         passSummary
                         attendeePassCard
                         details
@@ -429,7 +420,7 @@ struct PartyPassClipView: View {
         }
     }
 
-    private var hero: some View {
+    private func hero(containerWidth: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(LinearGradient(colors: [ClipTheme.panelElevated, ClipTheme.panel], startPoint: .topLeading, endPoint: .bottomTrailing))
@@ -461,7 +452,11 @@ struct PartyPassClipView: View {
             .padding([.horizontal, .bottom], 3)
         }
         .frame(maxWidth: .infinity)
-        .modifier(ClipHeroSizing(ratio: invite.displayPosterURL == nil ? nil : ClipPartyPoster.aspectRatio))
+        // A poster fixes the card to a 3:2 box measured off the container width,
+        // never off its own bitmap or the text overlay: deriving height from an
+        // unbounded ScrollView let a portrait poster enlarge the whole template.
+        .frame(height: invite.displayPosterURL == nil ? nil : containerWidth / ClipPartyPoster.aspectRatio)
+        .frame(minHeight: invite.displayPosterURL == nil ? 292 : nil)
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 28).stroke(Color.white.opacity(0.15)))
     }

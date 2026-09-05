@@ -1616,7 +1616,7 @@ private struct NativeProfilePanelSheet: View {
         case .placesVisited:
             NativeProfilePlacesVisitedPanel(snapshot: tabContentStore.snapshot(for: locationStore.coordinate))
         case .plans:
-            NativePlansPanel(sessionStore: sessionStore)
+            NativePlansPanel(sessionStore: sessionStore, showsCreate: false)
         case .appearance:
             NativeAppearancePanel(selection: appearanceSelection)
         case .vibePreferences:

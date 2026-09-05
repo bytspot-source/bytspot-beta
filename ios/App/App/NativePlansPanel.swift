@@ -320,6 +320,10 @@ struct NativePlansPanel: View {
     /// When true, the tab offers quick-start ideas above the list. Off in the
     /// Profile sheet, which is a viewer, not a starting surface.
     var showsSuggestions: Bool = false
+    /// The Plan tab owns creation. In the Profile sheet this is a read view of
+    /// the plans you're part of, so it drops the create surface and points at
+    /// the tab instead — one home for starting a Plan, not two.
+    var showsCreate: Bool = true
     @State private var plans: [NativePlan] = []
     @State private var errorMessage: String?
     @State private var isLoading = false
@@ -343,13 +347,18 @@ struct NativePlansPanel: View {
                 ProgressView().tint(NativeTheme.textSecondary)
             } else {
                 // The CTA sits above every other state, so a list that failed
-                // to load still leaves the caller able to start a Plan.
-                startPlanButton
-                if showsSuggestions { suggestionsRail }
+                // to load still leaves the caller able to start a Plan. The
+                // Profile viewer has no CTA and points at the tab instead.
+                if showsCreate {
+                    startPlanButton
+                    if showsSuggestions { suggestionsRail }
+                } else {
+                    savedPlansNote
+                }
                 if let message = errorMessage, plans.isEmpty {
                     Text(message).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.orange)
                 } else if plans.isEmpty {
-                    NativePlansEmptyState()
+                    NativePlansEmptyState(showsCreate: showsCreate)
                 }
                 ForEach(plans) { plan in
                     Button(action: { selectedPlanID = plan.id }) { NativePlanListRow(plan: plan) }
@@ -382,6 +391,14 @@ struct NativePlansPanel: View {
                 Task { await reload() }
             })
         }
+    }
+
+    // The Profile viewer lists the plans you're part of and opens each one,
+    // but starting and shaping a Plan happens in the tab. This one honest line
+    // says where, so the read view is not read as a dead end.
+    private var savedPlansNote: some View {
+        Text("Plans you’re part of. Start and shape them in the Plan tab.")
+            .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
     }
 
     @ViewBuilder private var startPlanButton: some View {
@@ -450,10 +467,15 @@ struct NativePlansPanel: View {
 private struct PlanSheetID: Identifiable { let id: String }
 
 private struct NativePlansEmptyState: View {
+    // In the Profile viewer there is no Start button on this screen, so the
+    // copy sends the caller to the tab instead of to a button that isn't here.
+    var showsCreate: Bool = true
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("No plans yet.").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-            Text("A Plan holds who’s coming and what you still need, in one place. Start one and it lands here.")
+            Text(showsCreate
+                 ? "A Plan holds who’s coming and what you still need, in one place. Start one and it lands here."
+                 : "A Plan holds who’s coming and what you still need, in one place. Start one in the Plan tab and it lands here.")
                 .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
         }
     }

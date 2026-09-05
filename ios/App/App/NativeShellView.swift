@@ -7,12 +7,17 @@ import CoreImage.CIFilterBuiltins
 import CryptoKit
 
 enum BytspotNativeTab: String, CaseIterable, Identifiable {
-    case home, discover, map, concierge, profile
+    case home, plan, discover, map, concierge, profile
+
+    /// Profile is reached from the global top-right avatar, not the bottom bar,
+    /// so it is excluded here. The enum keeps the case for content routing.
+    static let barTabs: [BytspotNativeTab] = [.home, .plan, .discover, .map, .concierge]
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .home: return "Home"
+        case .plan: return "Plan"
         case .discover: return "Discover"
         case .map: return "Map"
         case .concierge: return "Concierge"
@@ -22,6 +27,7 @@ enum BytspotNativeTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .home: return "house.fill"
+        case .plan: return "calendar"
         case .discover: return "safari.fill"
         case .map: return "map.fill"
         case .concierge: return "sparkles"
@@ -348,6 +354,8 @@ struct BytspotNativeShellView: View {
                     switch selectedTab {
                     case .home:
                         NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth)
+                    case .plan:
+                        NativePlanTabView(sessionStore: sessionStore)
                     case .discover:
                         NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
@@ -366,6 +374,20 @@ struct BytspotNativeShellView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .topTrailing) {
+                    // Profile lives in the global top-right avatar. Map keeps its
+                    // own profile control in the map action stack, and Profile is
+                    // itself the destination, so both are excluded.
+                    if selectedTab != .map && selectedTab != .profile {
+                        Button(action: { openNativeProfile(panel: nil) }) {
+                            NativeRoundButton(symbol: "person.crop.circle.fill", tint: NativeTheme.textPrimary, size: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 16)
+                        .accessibilityLabel("Profile")
+                        .accessibilityIdentifier("native-global-profile-avatar")
+                    }
+                }
                 .animation(.interpolatingSpring(mass: 0.8, stiffness: 380, damping: 34, initialVelocity: 0), value: selectedTab)
                 BytspotNativeBottomTabBar(selectedTab: plainTabSelectionBinding, tier: activeTier)
                     .fixedSize(horizontal: false, vertical: true)
@@ -732,7 +754,7 @@ private struct BytspotNativeBottomTabBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(BytspotNativeTab.allCases) { tab in
+            ForEach(BytspotNativeTab.barTabs) { tab in
                 Button(action: { select(tab) }) {
                     tabItem(tab, isActive: selectedTab == tab)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -18000,8 +18022,12 @@ enum NativeShellThemeSelfTests {
 
     private static func assertTabContract() {
         let tabs = BytspotNativeTab.allCases
-        precondition(tabs.map(\.title) == ["Home", "Discover", "Map", "Concierge", "Profile"], "NativeShellThemeSelfTests: tab titles drifted from React entry navigation.")
-        precondition(tabs.map(\.icon) == ["house.fill", "safari.fill", "map.fill", "sparkles", "person.crop.circle.fill"], "NativeShellThemeSelfTests: tab SF Symbols drifted from migration mapping.")
+        precondition(tabs.map(\.title) == ["Home", "Plan", "Discover", "Map", "Concierge", "Profile"], "NativeShellThemeSelfTests: tab titles drifted from entry navigation.")
+        precondition(tabs.map(\.icon) == ["house.fill", "calendar", "safari.fill", "map.fill", "sparkles", "person.crop.circle.fill"], "NativeShellThemeSelfTests: tab SF Symbols drifted from migration mapping.")
+        // Profile is reached from the global top-right avatar, so the bottom
+        // bar shows five tabs and never Profile.
+        precondition(BytspotNativeTab.barTabs.map(\.title) == ["Home", "Plan", "Discover", "Map", "Concierge"], "NativeShellThemeSelfTests: bottom bar tab set drifted.")
+        precondition(!BytspotNativeTab.barTabs.contains(.profile), "NativeShellThemeSelfTests: Profile must not appear in the bottom bar.")
     }
 
     private static func assertDefaultTierFallback() {

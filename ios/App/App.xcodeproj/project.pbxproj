@@ -43,6 +43,7 @@
 			A13F10012D0000000000F101 /* NativePartyControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10002D0000000000F100 /* NativePartyControlView.swift */; };
 			A13F10102D0000000000F110 /* NativePartyRecap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10112D0000000000F111 /* NativePartyRecap.swift */; };
 			A13F10202D0000000000F120 /* NativePlansPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10212D0000000000F121 /* NativePlansPanel.swift */; };
+			A13F10502D0000000000F150 /* NativePlanTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10512D0000000000F151 /* NativePlanTabView.swift */; };
 			A13F10302D0000000000F130 /* NativeCoffeeAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10312D0000000000F131 /* NativeCoffeeAPI.swift */; };
 			A13F10402D0000000000F140 /* NativeCoffeeAttachSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10412D0000000000F141 /* NativeCoffeeAttachSheet.swift */; };
 		A13F11012D00000000001101 /* NativeCollapsePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F11002D00000000001100 /* NativeCollapsePlan.swift */; };
@@ -130,6 +131,7 @@
 			A13F10002D0000000000F100 /* NativePartyControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyControlView.swift; sourceTree = "<group>"; };
 			A13F10112D0000000000F111 /* NativePartyRecap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyRecap.swift; sourceTree = "<group>"; };
 			A13F10212D0000000000F121 /* NativePlansPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePlansPanel.swift; sourceTree = "<group>"; };
+			A13F10512D0000000000F151 /* NativePlanTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePlanTabView.swift; sourceTree = "<group>"; };
 			A13F10312D0000000000F131 /* NativeCoffeeAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCoffeeAPI.swift; sourceTree = "<group>"; };
 			A13F10412D0000000000F141 /* NativeCoffeeAttachSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCoffeeAttachSheet.swift; sourceTree = "<group>"; };
 		A13F11002D00000000001100 /* NativeCollapsePlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCollapsePlan.swift; sourceTree = "<group>"; };
@@ -221,6 +223,7 @@
 				A13F10002D0000000000F100 /* NativePartyControlView.swift */,
 				A13F10112D0000000000F111 /* NativePartyRecap.swift */,
 				A13F10212D0000000000F121 /* NativePlansPanel.swift */,
+				A13F10512D0000000000F151 /* NativePlanTabView.swift */,
 				A13F10312D0000000000F131 /* NativeCoffeeAPI.swift */,
 				A13F10412D0000000000F141 /* NativeCoffeeAttachSheet.swift */,
 				A13F11002D00000000001100 /* NativeCollapsePlan.swift */,
@@ -450,6 +453,7 @@
 				A13F10012D0000000000F101 /* NativePartyControlView.swift in Sources */,
 				A13F10102D0000000000F110 /* NativePartyRecap.swift in Sources */,
 				A13F10202D0000000000F120 /* NativePlansPanel.swift in Sources */,
+				A13F10502D0000000000F150 /* NativePlanTabView.swift in Sources */,
 				A13F10302D0000000000F130 /* NativeCoffeeAPI.swift in Sources */,
 				A13F10402D0000000000F140 /* NativeCoffeeAttachSheet.swift in Sources */,
 				A13F11012D00000000001101 /* NativeCollapsePlan.swift in Sources */,

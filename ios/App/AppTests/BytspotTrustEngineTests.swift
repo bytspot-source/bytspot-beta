@@ -3338,6 +3338,39 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativePlanDisplay.capabilityLabel(""), "Reference")
     }
 
+    func testPlanNeedRoutesOnlyToSurfacesThatCanFillIt() {
+        // Browsable supply goes to Discover under its own category token;
+        // parking is map-native. "stay" has no destination today, so it must
+        // return nil and stay a plain checklist line rather than a button
+        // that goes nowhere.
+        XCTAssertEqual(NativePlanDisplay.needDestination("coffee"), .discover("coffee"))
+        XCTAssertEqual(NativePlanDisplay.needDestination("dining"), .discover("dining"))
+        XCTAssertEqual(NativePlanDisplay.needDestination("nightlife"), .discover("nightlife"))
+        XCTAssertEqual(NativePlanDisplay.needDestination("mobility"), .discover("mobility"))
+        XCTAssertEqual(NativePlanDisplay.needDestination("parking"), .map)
+        XCTAssertNil(NativePlanDisplay.needDestination("stay"))
+        XCTAssertNil(NativePlanDisplay.needDestination("unknown"))
+        XCTAssertEqual(NativePlanDisplay.needDestinationHint("coffee"), "Find in Discover")
+        XCTAssertEqual(NativePlanDisplay.needDestinationHint("parking"), "See on Map")
+        XCTAssertNil(NativePlanDisplay.needDestinationHint("stay"))
+    }
+
+    func testPlanTemplatesOnlyPrefillNeedsTheCreateSheetCanShow() {
+        // A quick-start idea must never prefill a need token outside
+        // selectableNeeds, or the create sheet would carry a chip it cannot
+        // render and the router could reject the form.
+        XCTAssertFalse(NativePlanDisplay.planTemplates.isEmpty)
+        let valid = Set(NativePlanDisplay.selectableNeeds)
+        for template in NativePlanDisplay.planTemplates {
+            XCTAssertFalse(template.title.isEmpty, "template \(template.id) has no title")
+            XCTAssertFalse(template.intent.isEmpty, "template \(template.id) has no intent")
+            XCTAssertFalse(template.needs.isEmpty, "template \(template.id) has no needs")
+            for need in template.needs {
+                XCTAssertTrue(valid.contains(need), "template \(template.id) prefills unknown need \(need)")
+            }
+        }
+    }
+
     func testPlanWhenLabelDoesNotFabricateATimeThatWasNotSet() {
         // A Proposed Plan may have no start yet; that is a real state, not a
         // gap to hide with today's date.
@@ -4066,7 +4099,7 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeLaunchPersonalizationStorage.walkKey, "bytspot_native_launch_walk")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.crewKey, "bytspot_native_launch_crew")
         XCTAssertEqual(NativeAuthLaunchContract.appFlow, ["splash", "landing", "location", "vibe", "walk", "crew", "recommendations", "main"])
-        XCTAssertEqual(BytspotNativeTab.allCases.map(\.rawValue), ["home", "discover", "map", "concierge", "profile"])
+        XCTAssertEqual(BytspotNativeTab.allCases.map(\.rawValue), ["home", "plan", "discover", "map", "concierge", "profile"])
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🍸 Drinks"), "drinks")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🚶‍♀️ 10 min"), "medium")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "👫 Date night"), "date_night")
@@ -4585,7 +4618,7 @@ final class NativePlanCreateTests: XCTestCase {
         )
         XCTAssertEqual(
             NativePlanDisplay.createFailureMessage(for: BytspotAPIClient.APIError.server(status: 400, body: "intent: String must contain at least 1 character(s)")),
-            "Check the title and what the night is, then try again."
+            "Check the title and what the plan is, then try again."
         )
         // An unmapped status falls back to bounded copy rather than echoing
         // whatever the server said.

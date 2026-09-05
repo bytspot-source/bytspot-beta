@@ -213,6 +213,51 @@ enum NativePlanDisplay {
         }
     }
 
+    /// Where a still-open need can be acted on today. `nil` means Bytspot has
+    /// no destination for it yet ("stay"), so it stays a plain checklist line
+    /// rather than a button that goes nowhere — the same honesty the
+    /// needs footnote carries.
+    enum NeedDestination: Equatable { case discover(String); case map }
+    static func needDestination(_ need: String) -> NeedDestination? {
+        switch need {
+        case "coffee", "dining", "nightlife", "mobility": return .discover(need)
+        case "parking": return .map
+        default: return nil
+        }
+    }
+    /// The short, honest label for where a routable need goes. It names the
+    /// surface, so the row reads as a shortcut to find supply, not a promise
+    /// Bytspot arranged it.
+    static func needDestinationHint(_ need: String) -> String? {
+        switch needDestination(need) {
+        case .discover?: return "Find in Discover"
+        case .map?: return "See on Map"
+        case nil: return nil
+        }
+    }
+
+    /// A quick-start idea. It only prefills the create sheet — title, one line
+    /// of intent, and a few needs the caller then edits. It is not a Plan and
+    /// nothing is arranged; the create sheet still requires an explicit submit.
+    struct PlanTemplate: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let intent: String
+        let needs: [String]
+        var needsSummary: String { needs.map(NativePlanDisplay.needLabel).joined(separator: " · ") }
+    }
+    /// Deliberately versatile — day and night, small and large — so the tab
+    /// never reads as a nightlife-only surface. Every need here is a member of
+    /// `selectableNeeds`, enforced by test, so an idea can never prefill a
+    /// token the create sheet cannot show.
+    static let planTemplates: [PlanTemplate] = [
+        PlanTemplate(id: "coffee", title: "Coffee catch-up", intent: "Grab coffee and catch up.", needs: ["coffee"]),
+        PlanTemplate(id: "lunch", title: "Lunch nearby", intent: "Find somewhere for lunch.", needs: ["dining"]),
+        PlanTemplate(id: "dinner", title: "Dinner out", intent: "Dinner out with the crew.", needs: ["dining"]),
+        PlanTemplate(id: "night", title: "Night out", intent: "Dinner and drinks — make a night of it.", needs: ["dining", "nightlife"]),
+        PlanTemplate(id: "dayout", title: "Day out", intent: "A day out — sort parking and food.", needs: ["parking", "dining"]),
+    ]
+
     /// De-duplicated, vocabulary-checked, and capped at the router's ceiling of
     /// twelve, so a list this client assembled can never be the reason a
     /// filled-in form comes back rejected. Ordered by the chip list rather
@@ -268,6 +313,17 @@ private let planRowBackground = Color.white.opacity(0.06)
 /// supported "Add to Plan" hook.
 struct NativePlansPanel: View {
     @ObservedObject var sessionStore: BytspotSessionStore
+    /// When set, a still-open need in a Plan becomes a one-tap route to the
+    /// surface that can fill it. Left nil in the Profile sheet, where a tab
+    /// switch underneath a sheet has nowhere to land.
+    var onOpenNeed: ((String) -> Void)? = nil
+    /// When true, the tab offers quick-start ideas above the list. Off in the
+    /// Profile sheet, which is a viewer, not a starting surface.
+    var showsSuggestions: Bool = false
+    /// The Plan tab owns creation. In the Profile sheet this is a read view of
+    /// the plans you're part of, so it drops the create surface and points at
+    /// the tab instead — one home for starting a Plan, not two.
+    var showsCreate: Bool = true
     @State private var plans: [NativePlan] = []
     @State private var errorMessage: String?
     @State private var isLoading = false
@@ -279,6 +335,9 @@ struct NativePlansPanel: View {
     /// queues — the detail would never open, and the id would be left set so
     /// the row for that Plan could no longer be tapped.
     @State private var pendingCreatedPlanID: String?
+    /// The idea a caller tapped, prefilled into the create sheet and cleared
+    /// once it closes so a plain "Start a Plan" opens empty.
+    @State private var pendingTemplate: NativePlanDisplay.PlanTemplate?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -288,12 +347,18 @@ struct NativePlansPanel: View {
                 ProgressView().tint(NativeTheme.textSecondary)
             } else {
                 // The CTA sits above every other state, so a list that failed
-                // to load still leaves the caller able to start a Plan.
-                startPlanButton
+                // to load still leaves the caller able to start a Plan. The
+                // Profile viewer has no CTA and points at the tab instead.
+                if showsCreate {
+                    startPlanButton
+                    if showsSuggestions { suggestionsRail }
+                } else {
+                    savedPlansNote
+                }
                 if let message = errorMessage, plans.isEmpty {
                     Text(message).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.orange)
                 } else if plans.isEmpty {
-                    NativePlansEmptyState()
+                    NativePlansEmptyState(showsCreate: showsCreate)
                 }
                 ForEach(plans) { plan in
                     Button(action: { selectedPlanID = plan.id }) { NativePlanListRow(plan: plan) }
@@ -308,7 +373,7 @@ struct NativePlansPanel: View {
             get: { selectedPlanID.map(PlanSheetID.init) },
             set: { selectedPlanID = $0?.id }
         )) { sheet in
-            NativePlanDetailSheet(planID: sheet.id, sessionStore: sessionStore, onChanged: { Task { await reload() } })
+            NativePlanDetailSheet(planID: sheet.id, sessionStore: sessionStore, onChanged: { Task { await reload() } }, onOpenNeed: onOpenNeed)
         }
         .sheet(isPresented: $showCreate, onDismiss: {
             // Drained after the create sheet is fully gone, so the detail
@@ -319,12 +384,21 @@ struct NativePlansPanel: View {
                 pendingCreatedPlanID = nil
                 selectedPlanID = planID
             }
+            pendingTemplate = nil
         }) {
-            NativePlanCreateSheet(sessionStore: sessionStore, onCreated: { planID in
+            NativePlanCreateSheet(sessionStore: sessionStore, template: pendingTemplate, onCreated: { planID in
                 pendingCreatedPlanID = planID
                 Task { await reload() }
             })
         }
+    }
+
+    // The Profile viewer lists the plans you're part of and opens each one,
+    // but starting and shaping a Plan happens in the tab. This one honest line
+    // says where, so the read view is not read as a dead end.
+    private var savedPlansNote: some View {
+        Text("Plans you’re part of. Start and shape them in the Plan tab.")
+            .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
     }
 
     @ViewBuilder private var startPlanButton: some View {
@@ -334,7 +408,7 @@ struct NativePlansPanel: View {
         // create that lands after its sheet was dismissed has no drain to run,
         // and a stale id left behind would open that earlier Plan unprompted
         // the next time this sheet is closed.
-        Button(action: { pendingCreatedPlanID = nil; showCreate = true }) {
+        Button(action: { pendingCreatedPlanID = nil; pendingTemplate = nil; showCreate = true }) {
             HStack(spacing: 6) {
                 Image(systemName: "plus.circle.fill").font(.system(size: 13, weight: .black))
                 Text("Start a Plan").font(.system(size: 14, weight: .black))
@@ -346,6 +420,35 @@ struct NativePlansPanel: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("native-plan-start")
+    }
+
+    // Quick-start ideas. Tapping one opens the create sheet prefilled; the
+    // footnote says plainly that an idea is a starting point, not a Plan
+    // Bytspot made or a promise it filled the needs.
+    @ViewBuilder private var suggestionsRail: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("QUICK IDEAS").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textTertiary).tracking(1.2)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(NativePlanDisplay.planTemplates) { template in
+                        Button(action: { pendingCreatedPlanID = nil; pendingTemplate = template; showCreate = true }) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(template.title).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                                Text(template.needsSummary).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                            }
+                            .padding(12)
+                            .frame(width: 150, alignment: .leading)
+                            .background(planRowBackground)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("native-plan-idea-\(template.id)")
+                    }
+                }
+            }
+            Text("A starting point — you edit everything before it’s a Plan.")
+                .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+        }
     }
 
     private func reload() async {
@@ -364,10 +467,15 @@ struct NativePlansPanel: View {
 private struct PlanSheetID: Identifiable { let id: String }
 
 private struct NativePlansEmptyState: View {
+    // In the Profile viewer there is no Start button on this screen, so the
+    // copy sends the caller to the tab instead of to a button that isn't here.
+    var showsCreate: Bool = true
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("No plans yet.").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-            Text("A Plan holds who’s coming and what the night still needs, in one place. Start one and it lands here.")
+            Text(showsCreate
+                 ? "A Plan holds who’s coming and what you still need, in one place. Start one and it lands here."
+                 : "A Plan holds who’s coming and what you still need, in one place. Start one in the Plan tab and it lands here.")
                 .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
         }
     }
@@ -401,6 +509,7 @@ private struct NativePlanDetailSheet: View {
     let planID: String
     @ObservedObject var sessionStore: BytspotSessionStore
     let onChanged: () -> Void
+    var onOpenNeed: ((String) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var plan: NativePlan?
     @State private var errorMessage: String?
@@ -454,9 +563,7 @@ private struct NativePlanDetailSheet: View {
             sectionHeader("Still open")
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(plan.openNeeds, id: \.self) { need in
-                    // The same words the caller ticked on the create sheet;
-                    // `capitalized` would rename their choice on the next screen.
-                    Text("• \(NativePlanDisplay.needLabel(need))").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                    openNeedRow(need)
                 }
                 // Without this the list reads as outstanding arrangements
                 // Bytspot is working on. Only coffee has an attach path, and
@@ -514,6 +621,27 @@ private struct NativePlanDetailSheet: View {
 
         if plan.lifecycle != "cancelled" && plan.state != "expired" && plan.state != "completed" {
             actions(for: plan)
+        }
+    }
+
+    // The same words the caller ticked on the create sheet; `capitalized`
+    // would rename their choice on the next screen. A routable need becomes a
+    // one-tap shortcut to the surface that can fill it; the hint names where
+    // it goes so the row is not read as an arrangement Bytspot made.
+    @ViewBuilder private func openNeedRow(_ need: String) -> some View {
+        if let onOpenNeed, let hint = NativePlanDisplay.needDestinationHint(need) {
+            Button(action: { dismiss(); onOpenNeed(need) }) {
+                HStack(spacing: 8) {
+                    Text("• \(NativePlanDisplay.needLabel(need))").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+                    Spacer()
+                    Text(hint).font(.system(size: 11, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
+                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textTertiary)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-plan-need-\(need)")
+        } else {
+            Text("• \(NativePlanDisplay.needLabel(need))").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
         }
     }
 
@@ -587,21 +715,29 @@ private struct NativePlanDetailSheet: View {
 
 /// Starting a Plan. Title and intent are the only things the router demands;
 /// a time and a size are offered because the coffee sheet prefills from them,
-/// and needs are offered because "what the night still needs" is the whole
+/// and needs are offered because "what a plan still needs" is the whole
 /// point of the object. Everything optional is genuinely optional — a Plan
 /// with no time is a real state the surface prints as "When TBD".
 private struct NativePlanCreateSheet: View {
     @ObservedObject var sessionStore: BytspotSessionStore
     let onCreated: (String) -> Void
 
+    init(sessionStore: BytspotSessionStore, template: NativePlanDisplay.PlanTemplate? = nil, onCreated: @escaping (String) -> Void) {
+        self.sessionStore = sessionStore
+        self.onCreated = onCreated
+        _title = State(initialValue: template?.title ?? "")
+        _intent = State(initialValue: template?.intent ?? "")
+        _needs = State(initialValue: Set(template?.needs ?? []))
+    }
+
     @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @State private var intent = ""
+    @State private var title: String
+    @State private var intent: String
     @State private var setsTime = false
     @State private var startsAt = Date().addingTimeInterval(60 * 60)
     @State private var setsPartySize = false
     @State private var partySize = 2
-    @State private var needs: Set<String> = []
+    @State private var needs: Set<String>
     @State private var busy = false
     @State private var errorMessage: String?
     /// One key for the whole form session, not one per tap. The client times
@@ -621,7 +757,7 @@ private struct NativePlanCreateSheet: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 field("What to call it", text: $title, limit: 80, identifier: "native-plan-create-title")
-                field("What the night is", text: $intent, limit: 280, identifier: "native-plan-create-intent")
+                field("What the plan is", text: $intent, limit: 280, identifier: "native-plan-create-intent")
                 timeRow
                 partySizeRow
                 needsRow
@@ -796,7 +932,7 @@ extension NativePlanDisplay {
         }
         guard case let BytspotAPIClient.APIError.server(status, _) = error else { return "That didn’t go through." }
         switch status {
-        case 400: return "Check the title and what the night is, then try again."
+        case 400: return "Check the title and what the plan is, then try again."
         case 401: return "Sign in to start a Plan."
         case 429: return "Too many plans just now. Wait a moment and try again."
         default: return "That didn’t go through."

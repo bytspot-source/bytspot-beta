@@ -150,7 +150,6 @@ struct NativeHostStudioView: View {
     @State private var showCoverPicker = false
     @State private var arrivalVenueCandidates: [NativePartyArrivalVenue] = []
     @State private var registeredVenues: [NativePartyArrivalVenue] = []
-    @State private var boundArrivalVenueID: String?
     /// The venue actually bound, from either the registered-catalog match or a
     /// place search, so the confirmation reads the same for both paths.
     @State private var boundArrivalVenue: NativePartyArrivalVenue?
@@ -1004,7 +1003,6 @@ struct NativeHostStudioView: View {
         do {
             let venue = try await NativePartyArrivalAPI(client: BytspotAPIClient(tokenProvider: { token })).bindPlace(partyID: party.id, placeID: place.id)
             boundArrivalVenue = venue
-            boundArrivalVenueID = venue.id
         } catch {
             publishPresentation.message = "That place could not be enabled as the arrival destination. Try another."
         }
@@ -1016,7 +1014,6 @@ struct NativeHostStudioView: View {
         defer { isBindingArrivalDestination = false }
         do {
             try await NativePartyArrivalAPI(client: BytspotAPIClient(tokenProvider: { token })).bindDestination(partyID: party.id, venueID: venue.id)
-            boundArrivalVenueID = venue.id
             boundArrivalVenue = venue
         } catch {
             publishPresentation.message = "The authorized arrival destination could not be enabled."

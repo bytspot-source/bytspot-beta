@@ -3391,6 +3391,16 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativePlanDisplay.invitableConnections(conns, participants: [me, friend, gone]).map(\.id), ["u-new"])
     }
 
+    func testPlanInviteByTextCopyIsHonestAndLinksToTheLandingPage() {
+        let message = NativePlanDisplay.inviteMessage(title: "Rooftop then dinner")
+        // Carries the plan title and reads as an invite, never a confirmation.
+        XCTAssertTrue(message.contains("Rooftop then dinner"))
+        XCTAssertTrue(message.contains("say if you’re in"))
+        XCTAssertFalse(message.lowercased().contains("confirmed"))
+        // The link is the server-rendered /plan landing, not a bare app link.
+        XCTAssertEqual(NativePlanDisplay.inviteLink(planId: "plan-1")?.absoluteString, "https://bytspot.app/plan/plan-1")
+    }
+
     func testPlanWhenLabelDoesNotFabricateATimeThatWasNotSet() {
         // A Proposed Plan may have no start yet; that is a real state, not a
         // gap to hide with today's date.

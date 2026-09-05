@@ -289,6 +289,20 @@ enum NativePlanDisplay {
         if let match = connections.first(where: { $0.id == seat.userId }) { return match.name }
         return "Bytspot member"
     }
+    /// The line the creator sends when inviting someone not on Bytspot. It is
+    /// an invite, not a confirmation — "say if you're in" maps to the same
+    /// Going/Maybe/Decline the invitee answers with. Kept pure so the copy is
+    /// tested, not eyeballed.
+    static func inviteMessage(title: String) -> String {
+        "Join my plan on Bytspot — \u{201C}\(title)\u{201D}. Tap to see it and say if you’re in:"
+    }
+    /// The link the message carries. There is no /plan Universal Link, so this
+    /// opens the server-rendered landing page that names the plan and prompts
+    /// the download.
+    static func inviteLink(planId: String) -> URL? {
+        guard let encoded = planId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
+        return URL(string: "https://bytspot.app/plan/\(encoded)")
+    }
 
     /// De-duplicated, vocabulary-checked, and capped at the router's ceiling of
     /// twelve, so a list this client assembled can never be the reason a
@@ -580,7 +594,8 @@ private struct NativePlanDetailSheet: View {
         .sheet(isPresented: $showInvite) {
             NativePlanInviteSheet(
                 people: plan.map { NativePlanDisplay.invitableConnections(connections, participants: $0.participants) } ?? [],
-                onInvite: { userId in await inviteUser(userId) }
+                onInvite: { userId in await inviteUser(userId) },
+                onInviteByText: { if let plan { inviteByText(for: plan) } }
             )
         }
     }
@@ -788,6 +803,15 @@ private struct NativePlanDetailSheet: View {
         }
     }
 
+    // Reaching someone not on Bytspot: hand the OS share sheet a plan link and
+    // a short line the creator sends from their own device. Bytspot never sees
+    // the recipient's number — the phone invariant is the API's, and the client
+    // must not route around it. The link opens the /plan landing page.
+    private func inviteByText(for plan: NativePlan) {
+        guard let url = NativePlanDisplay.inviteLink(planId: plan.id) else { return }
+        _ = NativePartySharePresentation.share([NativePlanDisplay.inviteMessage(title: plan.title), url])
+    }
+
     // Mirrors `run` but returns whether the invite landed, so the sheet only
     // marks a row "Invited" on success and leaves it retryable on failure.
     private func inviteUser(_ userId: String) async -> Bool {
@@ -805,6 +829,7 @@ private struct NativePlanDetailSheet: View {
 private struct NativePlanInviteSheet: View {
     let people: [NativePlanConnection]
     let onInvite: (String) async -> Bool
+    let onInviteByText: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var invited: Set<String> = []
     @State private var busyID: String?
@@ -842,6 +867,24 @@ private struct NativePlanInviteSheet: View {
                         .padding(10).background(planRowBackground).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                 }
+                // Someone not on Bytspot yet: the creator shares the plan link
+                // from their own device, so Bytspot never handles a phone
+                // number. The link opens a page that names the plan and
+                // prompts the download.
+                Button(action: { onInviteByText() }) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "message.fill").font(.system(size: 14, weight: .bold))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Not on Bytspot? Invite by text").font(.system(size: 14, weight: .black))
+                            Text("Share a link so they can see the plan and join.").font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: "square.and.arrow.up").font(.system(size: 14, weight: .bold))
+                    }
+                    .foregroundColor(NativeTheme.textPrimary)
+                    .padding(12).background(planRowBackground).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain).accessibilityIdentifier("native-plan-invite-by-text")
             }
             .padding(20)
         }

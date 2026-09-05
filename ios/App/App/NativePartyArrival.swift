@@ -36,6 +36,10 @@ struct NativePartyArrivalContext: Codable, Equatable {
     }
 }
 
+enum NativePartyArrivalError: Error {
+    case malformedBindResponse
+}
+
 struct NativePartyArrivalAPI {
     let client: BytspotAPIClient
 
@@ -45,6 +49,37 @@ struct NativePartyArrivalAPI {
             method: "POST",
             input: ["partyId": partyID, "venueId": venueID]
         )
+    }
+
+    /// Bind the arrival destination from a place the host searched, for venues
+    /// Bytspot does not have in its registered catalog. Returns the venue the
+    /// server bound so the host can be shown exactly what guests will route to.
+    func bindPlace(partyID: String, placeID: String) async throws -> NativePartyArrivalVenue {
+        let payload = try await client.trpcPayload(
+            path: "/trpc/events.arrival.bindPlace",
+            method: "POST",
+            input: ["partyId": partyID, "placeId": placeID]
+        )
+        guard let venue = Self.venue(fromBindPayload: payload) else { throw NativePartyArrivalError.malformedBindResponse }
+        return venue
+    }
+
+    static func venue(fromBindPayload payload: Any) -> NativePartyArrivalVenue? {
+        guard let root = payload as? [String: Any], let v = root["venue"] as? [String: Any],
+              let id = clean(v["id"]), let name = clean(v["name"]) else { return nil }
+        return NativePartyArrivalVenue(id: id, name: name, address: clean(v["address"]) ?? "Arrival destination")
+    }
+
+    /// Only Google-backed search rows carry a place id the server can resolve.
+    /// Apple/local rows and index fallbacks ("place-3") cannot be bound, so
+    /// they are dropped rather than offered as a destination that would 404.
+    static func bindablePlaceResults(_ results: [NativePlaceSearchResult]) -> [NativePlaceSearchResult] {
+        results.filter { result in
+            let id = result.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty, result.provider == "google_places",
+                  !id.hasPrefix("place-"), !id.hasPrefix("apple-") else { return false }
+            return true
+        }
     }
 
     func context(partyID: String) async throws -> NativePartyArrivalContext {

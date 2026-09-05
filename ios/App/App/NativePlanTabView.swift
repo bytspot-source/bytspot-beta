@@ -17,6 +17,11 @@ struct NativePlanTabView: View {
             .padding(.top, 8)
             .padding(.bottom, 28)
         }
+        // The shell's brand gradient is always dark; sit on the adaptive page
+        // surface instead so the tab reads correctly in Light and Dark, and so
+        // NativePlansPanel renders in the same adaptive context it uses inside
+        // the Profile panel.
+        .background(NativePolish.screenBackground.ignoresSafeArea())
     }
 
     private var header: some View {

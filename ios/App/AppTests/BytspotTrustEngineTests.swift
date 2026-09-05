@@ -3338,6 +3338,23 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativePlanDisplay.capabilityLabel(""), "Reference")
     }
 
+    func testPlanNeedRoutesOnlyToSurfacesThatCanFillIt() {
+        // Browsable supply goes to Discover under its own category token;
+        // parking is map-native. "stay" has no destination today, so it must
+        // return nil and stay a plain checklist line rather than a button
+        // that goes nowhere.
+        XCTAssertEqual(NativePlanDisplay.needDestination("coffee"), .discover("coffee"))
+        XCTAssertEqual(NativePlanDisplay.needDestination("dining"), .discover("dining"))
+        XCTAssertEqual(NativePlanDisplay.needDestination("nightlife"), .discover("nightlife"))
+        XCTAssertEqual(NativePlanDisplay.needDestination("mobility"), .discover("mobility"))
+        XCTAssertEqual(NativePlanDisplay.needDestination("parking"), .map)
+        XCTAssertNil(NativePlanDisplay.needDestination("stay"))
+        XCTAssertNil(NativePlanDisplay.needDestination("unknown"))
+        XCTAssertEqual(NativePlanDisplay.needDestinationHint("coffee"), "Find in Discover")
+        XCTAssertEqual(NativePlanDisplay.needDestinationHint("parking"), "See on Map")
+        XCTAssertNil(NativePlanDisplay.needDestinationHint("stay"))
+    }
+
     func testPlanWhenLabelDoesNotFabricateATimeThatWasNotSet() {
         // A Proposed Plan may have no start yet; that is a real state, not a
         // gap to hide with today's date.

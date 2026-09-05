@@ -213,6 +213,29 @@ enum NativePlanDisplay {
         }
     }
 
+    /// Where a still-open need can be acted on today. `nil` means Bytspot has
+    /// no destination for it yet ("stay"), so it stays a plain checklist line
+    /// rather than a button that goes nowhere — the same honesty the
+    /// needs footnote carries.
+    enum NeedDestination: Equatable { case discover(String); case map }
+    static func needDestination(_ need: String) -> NeedDestination? {
+        switch need {
+        case "coffee", "dining", "nightlife", "mobility": return .discover(need)
+        case "parking": return .map
+        default: return nil
+        }
+    }
+    /// The short, honest label for where a routable need goes. It names the
+    /// surface, so the row reads as a shortcut to find supply, not a promise
+    /// Bytspot arranged it.
+    static func needDestinationHint(_ need: String) -> String? {
+        switch needDestination(need) {
+        case .discover?: return "Find in Discover"
+        case .map?: return "See on Map"
+        case nil: return nil
+        }
+    }
+
     /// De-duplicated, vocabulary-checked, and capped at the router's ceiling of
     /// twelve, so a list this client assembled can never be the reason a
     /// filled-in form comes back rejected. Ordered by the chip list rather
@@ -268,6 +291,10 @@ private let planRowBackground = Color.white.opacity(0.06)
 /// supported "Add to Plan" hook.
 struct NativePlansPanel: View {
     @ObservedObject var sessionStore: BytspotSessionStore
+    /// When set, a still-open need in a Plan becomes a one-tap route to the
+    /// surface that can fill it. Left nil in the Profile sheet, where a tab
+    /// switch underneath a sheet has nowhere to land.
+    var onOpenNeed: ((String) -> Void)? = nil
     @State private var plans: [NativePlan] = []
     @State private var errorMessage: String?
     @State private var isLoading = false
@@ -308,7 +335,7 @@ struct NativePlansPanel: View {
             get: { selectedPlanID.map(PlanSheetID.init) },
             set: { selectedPlanID = $0?.id }
         )) { sheet in
-            NativePlanDetailSheet(planID: sheet.id, sessionStore: sessionStore, onChanged: { Task { await reload() } })
+            NativePlanDetailSheet(planID: sheet.id, sessionStore: sessionStore, onChanged: { Task { await reload() } }, onOpenNeed: onOpenNeed)
         }
         .sheet(isPresented: $showCreate, onDismiss: {
             // Drained after the create sheet is fully gone, so the detail
@@ -401,6 +428,7 @@ private struct NativePlanDetailSheet: View {
     let planID: String
     @ObservedObject var sessionStore: BytspotSessionStore
     let onChanged: () -> Void
+    var onOpenNeed: ((String) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var plan: NativePlan?
     @State private var errorMessage: String?
@@ -454,9 +482,7 @@ private struct NativePlanDetailSheet: View {
             sectionHeader("Still open")
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(plan.openNeeds, id: \.self) { need in
-                    // The same words the caller ticked on the create sheet;
-                    // `capitalized` would rename their choice on the next screen.
-                    Text("• \(NativePlanDisplay.needLabel(need))").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                    openNeedRow(need)
                 }
                 // Without this the list reads as outstanding arrangements
                 // Bytspot is working on. Only coffee has an attach path, and
@@ -514,6 +540,27 @@ private struct NativePlanDetailSheet: View {
 
         if plan.lifecycle != "cancelled" && plan.state != "expired" && plan.state != "completed" {
             actions(for: plan)
+        }
+    }
+
+    // The same words the caller ticked on the create sheet; `capitalized`
+    // would rename their choice on the next screen. A routable need becomes a
+    // one-tap shortcut to the surface that can fill it; the hint names where
+    // it goes so the row is not read as an arrangement Bytspot made.
+    @ViewBuilder private func openNeedRow(_ need: String) -> some View {
+        if let onOpenNeed, let hint = NativePlanDisplay.needDestinationHint(need) {
+            Button(action: { dismiss(); onOpenNeed(need) }) {
+                HStack(spacing: 8) {
+                    Text("• \(NativePlanDisplay.needLabel(need))").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+                    Spacer()
+                    Text(hint).font(.system(size: 11, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
+                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textTertiary)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-plan-need-\(need)")
+        } else {
+            Text("• \(NativePlanDisplay.needLabel(need))").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
         }
     }
 

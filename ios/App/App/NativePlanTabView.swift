@@ -6,12 +6,14 @@ import SwiftUI
 /// it is presented as a Profile sheet.
 struct NativePlanTabView: View {
     @ObservedObject var sessionStore: BytspotSessionStore
+    var openDiscoverFilter: (String) -> Void = { _ in }
+    var openMap: () -> Void = {}
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
                 header
-                NativePlansPanel(sessionStore: sessionStore)
+                NativePlansPanel(sessionStore: sessionStore, onOpenNeed: routeToNeed)
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -32,5 +34,17 @@ struct NativePlanTabView: View {
         // Leave room for the global profile avatar in the top-right overlay.
         .padding(.trailing, 56)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // A still-open need routes to the surface that can actually fill it:
+    // browsable supply goes to Discover, parking is map-native. "stay" has no
+    // destination today, so needDestination returns nil and the row is not a
+    // button.
+    private func routeToNeed(_ need: String) {
+        switch NativePlanDisplay.needDestination(need) {
+        case .discover(let filter)?: openDiscoverFilter(filter)
+        case .map?: openMap()
+        case nil: break
+        }
     }
 }

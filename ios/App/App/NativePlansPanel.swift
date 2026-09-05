@@ -75,6 +75,14 @@ struct NativePlanAPI {
         _ = try await client.trpcPayload(path: "/trpc/plans.cancel", method: "POST", input: ["planId": planID])
     }
 
+    func invite(_ planID: String, userId: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/plans.invite", method: "POST", input: ["planId": planID, "userId": userId])
+    }
+
+    func remove(_ planID: String, userId: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/plans.remove", method: "POST", input: ["planId": planID, "userId": userId])
+    }
+
     func create(
         idempotencyKey: String,
         title: String,
@@ -143,6 +151,10 @@ enum NativePlanContract {
 /// standing up SwiftUI, and so the copy is a single source of truth for the
 /// list and the detail — a row that reads "Confirmed" one screen and
 /// "Confirmed · 2 going" the next would betray the whole rule Plan is under.
+/// A Bytspot connection the caller can invite to a Plan. `id` is the other
+/// person's userId; `name` is their display name from the social graph.
+struct NativePlanConnection: Identifiable, Equatable { let id: String; let name: String }
+
 enum NativePlanDisplay {
     /// A state chip never renders alone; it is always paired with readiness,
     /// because the creator's confirmation is not what makes anyone show up.
@@ -257,6 +269,26 @@ enum NativePlanDisplay {
         PlanTemplate(id: "night", title: "Night out", intent: "Dinner and drinks — make a night of it.", needs: ["dining", "nightlife"]),
         PlanTemplate(id: "dayout", title: "Day out", intent: "A day out — sort parking and food.", needs: ["parking", "dining"]),
     ]
+
+    /// The seats worth showing: a removed participant is gone, not a member
+    /// wearing a "Removed" label, so it drops out of the People list.
+    static func visibleParticipants(_ participants: [NativePlan.Participant]) -> [NativePlan.Participant] {
+        participants.filter { $0.status != "removed" }
+    }
+    /// Who the creator can still invite: a connection who is not already a
+    /// live participant. Pure, so the invite list is tested, not eyeballed.
+    static func invitableConnections(_ connections: [NativePlanConnection], participants: [NativePlan.Participant]) -> [NativePlanConnection] {
+        let taken = Set(visibleParticipants(participants).map(\.userId))
+        return connections.filter { !taken.contains($0.id) }
+    }
+    /// A participant's name for the People list. The caller is "You"; a known
+    /// connection shows their name; anyone else is a plain "Bytspot member"
+    /// — a raw opaque userId is never printed at someone else.
+    static func participantDisplayName(_ seat: NativePlan.Participant, selfUserId: String?, connections: [NativePlanConnection]) -> String {
+        if let selfUserId, seat.userId == selfUserId { return "You" }
+        if let match = connections.first(where: { $0.id == seat.userId }) { return match.name }
+        return "Bytspot member"
+    }
 
     /// De-duplicated, vocabulary-checked, and capped at the router's ceiling of
     /// twelve, so a list this client assembled can never be the reason a
@@ -515,6 +547,10 @@ private struct NativePlanDetailSheet: View {
     @State private var errorMessage: String?
     @State private var busy = false
     @State private var showCoffeeAttach = false
+    @State private var showInvite = false
+    /// The caller's accepted connections, loaded once alongside the Plan.
+    /// Doubles as the invite source and the name book for the People list.
+    @State private var connections: [NativePlanConnection] = []
 
     private var isCreator: Bool { plan?.creatorUserId == sessionStore.authenticatedUserID }
 
@@ -531,7 +567,7 @@ private struct NativePlanDetailSheet: View {
             .padding(20)
         }
         .accessibilityIdentifier("native-plan-detail-\(planID)")
-        .task { await reload() }
+        .task { await reload(); await loadConnections() }
         .sheet(isPresented: $showCoffeeAttach) {
             NativeCoffeeAttachSheet(
                 planID: planID,
@@ -539,6 +575,12 @@ private struct NativePlanDetailSheet: View {
                 suggestedTime: plan?.startsAt.flatMap { ISO8601DateFormatter.partyControlDate(from: $0) },
                 sessionStore: sessionStore,
                 onAttached: { onChanged(); Task { await reload() } }
+            )
+        }
+        .sheet(isPresented: $showInvite) {
+            NativePlanInviteSheet(
+                people: plan.map { NativePlanDisplay.invitableConnections(connections, participants: $0.participants) } ?? [],
+                onInvite: { userId in await inviteUser(userId) }
             )
         }
     }
@@ -609,12 +651,21 @@ private struct NativePlanDetailSheet: View {
 
         sectionHeader("People")
         VStack(alignment: .leading, spacing: 4) {
-            ForEach(plan.participants, id: \.userId) { seat in
+            ForEach(NativePlanDisplay.visibleParticipants(plan.participants), id: \.userId) { seat in
                 HStack {
-                    Text(seat.userId == sessionStore.authenticatedUserID ? "You" : seat.userId).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+                    Text(NativePlanDisplay.participantDisplayName(seat, selfUserId: sessionStore.authenticatedUserID, connections: connections)).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
                     if seat.role == "creator" { Text("HOST").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.purple) }
                     Spacer()
                     Text(seat.status.capitalized).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                    // Only the creator can remove, and never themselves — the
+                    // creator leaves by cancelling the Plan, which the router
+                    // enforces too.
+                    if isCreator && seat.role != "creator" && seat.userId != sessionStore.authenticatedUserID {
+                        Button(action: { Task { await run { try await api().remove(planID, userId: seat.userId) } } }) {
+                            Text("Remove").font(.system(size: 11, weight: .bold)).foregroundColor(NativeTheme.orange)
+                        }
+                        .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-remove-\(seat.userId)")
+                    }
                 }
             }
         }
@@ -647,6 +698,14 @@ private struct NativePlanDetailSheet: View {
 
     @ViewBuilder private func actions(for plan: NativePlan) -> some View {
         if isCreator {
+            // A Plan is a group object, and inviting is the one multi-person
+            // action the creator drives. It is a secondary CTA, not the purple
+            // primary: inviting adds a seat, it does not confirm anyone — each
+            // invitee still answers for themselves.
+            Button(action: { showInvite = true }) {
+                ctaLabel("Invite people", background: planRowBackground, foreground: NativeTheme.textPrimary)
+            }
+            .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-invite")
             // Coffee is the one supply Bytspot can hold today, so it is the
             // one attach the Plan offers. The verb is Add, not Book: what
             // follows is a hold ask the spot still has to answer.
@@ -710,6 +769,83 @@ private struct NativePlanDetailSheet: View {
     private func reload() async {
         guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to see this Plan."; return }
         do { plan = try await api().get(planID); errorMessage = nil } catch { errorMessage = "Couldn’t load this Plan." }
+    }
+
+    private func socialAPI() -> NativeProfileDataAPI {
+        NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token }))
+    }
+
+    // Connections drive both the invite picker and the People-list name book.
+    // A load failure is silent: the Plan still opens, the People list falls
+    // back to "Bytspot member", and the picker simply shows no one.
+    private func loadConnections() async {
+        guard sessionStore.canAttachBearerToken else { return }
+        guard let invites = try? await socialAPI().listSocialInvitationsViaRpc() else { return }
+        var seen = Set<String>()
+        connections = invites.compactMap { invite in
+            guard invite.status == "accepted", seen.insert(invite.personID).inserted else { return nil }
+            return NativePlanConnection(id: invite.personID, name: invite.personName)
+        }
+    }
+
+    // Mirrors `run` but returns whether the invite landed, so the sheet only
+    // marks a row "Invited" on success and leaves it retryable on failure.
+    private func inviteUser(_ userId: String) async -> Bool {
+        guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to update this Plan."; return false }
+        busy = true; defer { busy = false }
+        do { try await api().invite(planID, userId: userId); onChanged(); await reload(); return true }
+        catch { errorMessage = "That didn’t go through."; return false }
+    }
+}
+
+/// Inviting from the Plan. The source is the caller's accepted Bytspot
+/// connections — no phone numbers, no link to strangers — which is Option 2's
+/// whole point: reach the people you already know. Each row is a plain add;
+/// the invitee answers for themselves from their own Plan list.
+private struct NativePlanInviteSheet: View {
+    let people: [NativePlanConnection]
+    let onInvite: (String) async -> Bool
+    @Environment(\.dismiss) private var dismiss
+    @State private var invited: Set<String> = []
+    @State private var busyID: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Invite people").font(.system(size: 22, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                    Spacer()
+                    Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 24, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
+                }
+                Text("People you’re connected to on Bytspot. Inviting adds them to the Plan; each person still answers for themselves.")
+                    .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                if people.isEmpty {
+                    Text("No connections yet. Connect with people in Network, then invite them here.")
+                        .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                } else {
+                    ForEach(people) { person in
+                        HStack {
+                            Text(person.name).font(.system(size: 14, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+                            Spacer()
+                            if invited.contains(person.id) {
+                                Text("Invited").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.purple)
+                            } else {
+                                Button(action: { Task { busyID = person.id; if await onInvite(person.id) { invited.insert(person.id) }; busyID = nil } }) {
+                                    Text(busyID == person.id ? "…" : "Invite").font(.system(size: 12, weight: .black)).foregroundColor(.white)
+                                        .padding(.horizontal, 12).padding(.vertical, 6)
+                                        .background(NativeTheme.purple).clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain).disabled(busyID != nil)
+                                .accessibilityIdentifier("native-plan-invite-\(person.id)")
+                            }
+                        }
+                        .padding(10).background(planRowBackground).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                }
+            }
+            .padding(20)
+        }
+        .accessibilityIdentifier("native-plan-invite-sheet")
     }
 }
 

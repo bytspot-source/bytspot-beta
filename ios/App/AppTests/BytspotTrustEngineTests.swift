@@ -3371,6 +3371,26 @@ final class NativeProfileDataAPITests: XCTestCase {
         }
     }
 
+    func testPlanPeopleListResolvesNamesAndInvitableConnections() {
+        let me = NativePlan.Participant(userId: "u-me", role: "creator", status: "accepted")
+        let friend = NativePlan.Participant(userId: "u-friend", role: "guest", status: "invited")
+        let gone = NativePlan.Participant(userId: "u-gone", role: "guest", status: "removed")
+        let conns = [NativePlanConnection(id: "u-friend", name: "Ada"), NativePlanConnection(id: "u-new", name: "Grace")]
+
+        // Removed seats drop out of the People list rather than lingering as a
+        // "Removed" row.
+        XCTAssertEqual(NativePlanDisplay.visibleParticipants([me, friend, gone]).map(\.userId), ["u-me", "u-friend"])
+        // Self is "You"; a known connection shows their name; anyone else is a
+        // plain member — a raw userId is never printed at another person.
+        XCTAssertEqual(NativePlanDisplay.participantDisplayName(me, selfUserId: "u-me", connections: conns), "You")
+        XCTAssertEqual(NativePlanDisplay.participantDisplayName(friend, selfUserId: "u-me", connections: conns), "Ada")
+        let stranger = NativePlan.Participant(userId: "u-stranger", role: "guest", status: "invited")
+        XCTAssertEqual(NativePlanDisplay.participantDisplayName(stranger, selfUserId: "u-me", connections: conns), "Bytspot member")
+        // Invitable = connections not already a live participant; a removed
+        // seat does not keep its slot taken.
+        XCTAssertEqual(NativePlanDisplay.invitableConnections(conns, participants: [me, friend, gone]).map(\.id), ["u-new"])
+    }
+
     func testPlanWhenLabelDoesNotFabricateATimeThatWasNotSet() {
         // A Proposed Plan may have no start yet; that is a real state, not a
         // gap to hide with today's date.

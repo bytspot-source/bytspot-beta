@@ -4585,7 +4585,7 @@ final class NativePlanCreateTests: XCTestCase {
         )
         XCTAssertEqual(
             NativePlanDisplay.createFailureMessage(for: BytspotAPIClient.APIError.server(status: 400, body: "intent: String must contain at least 1 character(s)")),
-            "Check the title and what the night is, then try again."
+            "Check the title and what the plan is, then try again."
         )
         // An unmapped status falls back to bounded copy rather than echoing
         // whatever the server said.

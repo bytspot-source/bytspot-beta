@@ -22,7 +22,7 @@ struct NativePlanTabView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("PLAN").font(.system(size: 11, weight: .black)).tracking(1.6).foregroundColor(NativeTheme.textTertiary)
-            Text("Your night, in one place").font(.system(size: 24, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary)
+            Text("Everything in one place").font(.system(size: 24, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary)
         }
         // Leave room for the global profile avatar in the top-right overlay.
         .padding(.trailing, 56)

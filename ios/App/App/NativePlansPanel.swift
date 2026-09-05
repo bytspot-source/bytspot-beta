@@ -367,7 +367,7 @@ private struct NativePlansEmptyState: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("No plans yet.").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-            Text("A Plan holds who’s coming and what the night still needs, in one place. Start one and it lands here.")
+            Text("A Plan holds who’s coming and what you still need, in one place. Start one and it lands here.")
                 .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
         }
     }
@@ -587,7 +587,7 @@ private struct NativePlanDetailSheet: View {
 
 /// Starting a Plan. Title and intent are the only things the router demands;
 /// a time and a size are offered because the coffee sheet prefills from them,
-/// and needs are offered because "what the night still needs" is the whole
+/// and needs are offered because "what a plan still needs" is the whole
 /// point of the object. Everything optional is genuinely optional — a Plan
 /// with no time is a real state the surface prints as "When TBD".
 private struct NativePlanCreateSheet: View {
@@ -621,7 +621,7 @@ private struct NativePlanCreateSheet: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 field("What to call it", text: $title, limit: 80, identifier: "native-plan-create-title")
-                field("What the night is", text: $intent, limit: 280, identifier: "native-plan-create-intent")
+                field("What the plan is", text: $intent, limit: 280, identifier: "native-plan-create-intent")
                 timeRow
                 partySizeRow
                 needsRow
@@ -796,7 +796,7 @@ extension NativePlanDisplay {
         }
         guard case let BytspotAPIClient.APIError.server(status, _) = error else { return "That didn’t go through." }
         switch status {
-        case 400: return "Check the title and what the night is, then try again."
+        case 400: return "Check the title and what the plan is, then try again."
         case 401: return "Sign in to start a Plan."
         case 429: return "Too many plans just now. Wait a moment and try again."
         default: return "That didn’t go through."

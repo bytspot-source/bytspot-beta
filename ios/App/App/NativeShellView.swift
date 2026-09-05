@@ -17133,7 +17133,7 @@ private struct NativeScreenScroll<Content: View>: View {
     var body: some View { ScrollView { VStack(alignment: .leading, spacing: NativePolish.sectionSpacing) { content }.padding(.horizontal, NativePolish.screenPadding).padding(.top, 20).padding(.bottom, 20) }.background(NativePolish.screenBackground.ignoresSafeArea()) }
 }
 
-private enum NativePolish {
+enum NativePolish {
     static let baseHex = 0x050507
     static let panelHex = 0x080A10
     static let elevatedHex = 0x101116

@@ -3355,6 +3355,22 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(NativePlanDisplay.needDestinationHint("stay"))
     }
 
+    func testPlanTemplatesOnlyPrefillNeedsTheCreateSheetCanShow() {
+        // A quick-start idea must never prefill a need token outside
+        // selectableNeeds, or the create sheet would carry a chip it cannot
+        // render and the router could reject the form.
+        XCTAssertFalse(NativePlanDisplay.planTemplates.isEmpty)
+        let valid = Set(NativePlanDisplay.selectableNeeds)
+        for template in NativePlanDisplay.planTemplates {
+            XCTAssertFalse(template.title.isEmpty, "template \(template.id) has no title")
+            XCTAssertFalse(template.intent.isEmpty, "template \(template.id) has no intent")
+            XCTAssertFalse(template.needs.isEmpty, "template \(template.id) has no needs")
+            for need in template.needs {
+                XCTAssertTrue(valid.contains(need), "template \(template.id) prefills unknown need \(need)")
+            }
+        }
+    }
+
     func testPlanWhenLabelDoesNotFabricateATimeThatWasNotSet() {
         // A Proposed Plan may have no start yet; that is a real state, not a
         // gap to hide with today's date.

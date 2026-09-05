@@ -236,6 +236,28 @@ enum NativePlanDisplay {
         }
     }
 
+    /// A quick-start idea. It only prefills the create sheet — title, one line
+    /// of intent, and a few needs the caller then edits. It is not a Plan and
+    /// nothing is arranged; the create sheet still requires an explicit submit.
+    struct PlanTemplate: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let intent: String
+        let needs: [String]
+        var needsSummary: String { needs.map(NativePlanDisplay.needLabel).joined(separator: " · ") }
+    }
+    /// Deliberately versatile — day and night, small and large — so the tab
+    /// never reads as a nightlife-only surface. Every need here is a member of
+    /// `selectableNeeds`, enforced by test, so an idea can never prefill a
+    /// token the create sheet cannot show.
+    static let planTemplates: [PlanTemplate] = [
+        PlanTemplate(id: "coffee", title: "Coffee catch-up", intent: "Grab coffee and catch up.", needs: ["coffee"]),
+        PlanTemplate(id: "lunch", title: "Lunch nearby", intent: "Find somewhere for lunch.", needs: ["dining"]),
+        PlanTemplate(id: "dinner", title: "Dinner out", intent: "Dinner out with the crew.", needs: ["dining"]),
+        PlanTemplate(id: "night", title: "Night out", intent: "Dinner and drinks — make a night of it.", needs: ["dining", "nightlife"]),
+        PlanTemplate(id: "dayout", title: "Day out", intent: "A day out — sort parking and food.", needs: ["parking", "dining"]),
+    ]
+
     /// De-duplicated, vocabulary-checked, and capped at the router's ceiling of
     /// twelve, so a list this client assembled can never be the reason a
     /// filled-in form comes back rejected. Ordered by the chip list rather
@@ -295,6 +317,9 @@ struct NativePlansPanel: View {
     /// surface that can fill it. Left nil in the Profile sheet, where a tab
     /// switch underneath a sheet has nowhere to land.
     var onOpenNeed: ((String) -> Void)? = nil
+    /// When true, the tab offers quick-start ideas above the list. Off in the
+    /// Profile sheet, which is a viewer, not a starting surface.
+    var showsSuggestions: Bool = false
     @State private var plans: [NativePlan] = []
     @State private var errorMessage: String?
     @State private var isLoading = false
@@ -306,6 +331,9 @@ struct NativePlansPanel: View {
     /// queues — the detail would never open, and the id would be left set so
     /// the row for that Plan could no longer be tapped.
     @State private var pendingCreatedPlanID: String?
+    /// The idea a caller tapped, prefilled into the create sheet and cleared
+    /// once it closes so a plain "Start a Plan" opens empty.
+    @State private var pendingTemplate: NativePlanDisplay.PlanTemplate?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -317,6 +345,7 @@ struct NativePlansPanel: View {
                 // The CTA sits above every other state, so a list that failed
                 // to load still leaves the caller able to start a Plan.
                 startPlanButton
+                if showsSuggestions { suggestionsRail }
                 if let message = errorMessage, plans.isEmpty {
                     Text(message).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.orange)
                 } else if plans.isEmpty {
@@ -346,8 +375,9 @@ struct NativePlansPanel: View {
                 pendingCreatedPlanID = nil
                 selectedPlanID = planID
             }
+            pendingTemplate = nil
         }) {
-            NativePlanCreateSheet(sessionStore: sessionStore, onCreated: { planID in
+            NativePlanCreateSheet(sessionStore: sessionStore, template: pendingTemplate, onCreated: { planID in
                 pendingCreatedPlanID = planID
                 Task { await reload() }
             })
@@ -361,7 +391,7 @@ struct NativePlansPanel: View {
         // create that lands after its sheet was dismissed has no drain to run,
         // and a stale id left behind would open that earlier Plan unprompted
         // the next time this sheet is closed.
-        Button(action: { pendingCreatedPlanID = nil; showCreate = true }) {
+        Button(action: { pendingCreatedPlanID = nil; pendingTemplate = nil; showCreate = true }) {
             HStack(spacing: 6) {
                 Image(systemName: "plus.circle.fill").font(.system(size: 13, weight: .black))
                 Text("Start a Plan").font(.system(size: 14, weight: .black))
@@ -373,6 +403,35 @@ struct NativePlansPanel: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("native-plan-start")
+    }
+
+    // Quick-start ideas. Tapping one opens the create sheet prefilled; the
+    // footnote says plainly that an idea is a starting point, not a Plan
+    // Bytspot made or a promise it filled the needs.
+    @ViewBuilder private var suggestionsRail: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("QUICK IDEAS").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textTertiary).tracking(1.2)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(NativePlanDisplay.planTemplates) { template in
+                        Button(action: { pendingCreatedPlanID = nil; pendingTemplate = template; showCreate = true }) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(template.title).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                                Text(template.needsSummary).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                            }
+                            .padding(12)
+                            .frame(width: 150, alignment: .leading)
+                            .background(planRowBackground)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("native-plan-idea-\(template.id)")
+                    }
+                }
+            }
+            Text("A starting point — you edit everything before it’s a Plan.")
+                .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+        }
     }
 
     private func reload() async {
@@ -641,14 +700,22 @@ private struct NativePlanCreateSheet: View {
     @ObservedObject var sessionStore: BytspotSessionStore
     let onCreated: (String) -> Void
 
+    init(sessionStore: BytspotSessionStore, template: NativePlanDisplay.PlanTemplate? = nil, onCreated: @escaping (String) -> Void) {
+        self.sessionStore = sessionStore
+        self.onCreated = onCreated
+        _title = State(initialValue: template?.title ?? "")
+        _intent = State(initialValue: template?.intent ?? "")
+        _needs = State(initialValue: Set(template?.needs ?? []))
+    }
+
     @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @State private var intent = ""
+    @State private var title: String
+    @State private var intent: String
     @State private var setsTime = false
     @State private var startsAt = Date().addingTimeInterval(60 * 60)
     @State private var setsPartySize = false
     @State private var partySize = 2
-    @State private var needs: Set<String> = []
+    @State private var needs: Set<String>
     @State private var busy = false
     @State private var errorMessage: String?
     /// One key for the whole form session, not one per tap. The client times

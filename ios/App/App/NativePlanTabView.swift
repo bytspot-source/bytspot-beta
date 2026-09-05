@@ -13,7 +13,7 @@ struct NativePlanTabView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
                 header
-                NativePlansPanel(sessionStore: sessionStore, onOpenNeed: routeToNeed)
+                NativePlansPanel(sessionStore: sessionStore, onOpenNeed: routeToNeed, showsSuggestions: true)
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)

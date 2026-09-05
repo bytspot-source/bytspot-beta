@@ -300,7 +300,8 @@ enum NativePlanDisplay {
     /// opens the server-rendered landing page that names the plan and prompts
     /// the download.
     static func inviteLink(planId: String) -> URL? {
-        URL(string: "https://bytspot.app/plan/\(planId)")
+        guard let encoded = planId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
+        return URL(string: "https://bytspot.app/plan/\(encoded)")
     }
 
     /// De-duplicated, vocabulary-checked, and capped at the router's ceiling of

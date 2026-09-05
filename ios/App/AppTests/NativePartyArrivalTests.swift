@@ -75,4 +75,30 @@ final class NativePartyArrivalTests: XCTestCase {
         XCTAssertEqual(NativePartyArrivalAPI.registeredVenueCandidates(from: payload, named: "ponce").map(\.id), [])
         XCTAssertEqual(NativePartyArrivalAPI.registeredVenueCandidates(from: payload, named: "Ponce City Market").map(\.id), ["pcm"])
     }
+
+    func testBindPlaceResponseParsesTheServerBoundVenue() {
+        let payload: [String: Any] = ["partyId": "party-1", "venue": ["id": "venue-9", "name": "  Rooftop ", "address": " 9 Sky Ave "]]
+        let venue = NativePartyArrivalAPI.venue(fromBindPayload: payload)
+        XCTAssertEqual(venue, NativePartyArrivalVenue(id: "venue-9", name: "Rooftop", address: "9 Sky Ave"))
+        // A venue with no address still binds; the label falls back rather than
+        // showing an empty line.
+        XCTAssertEqual(NativePartyArrivalAPI.venue(fromBindPayload: ["venue": ["id": "v", "name": "Spot"]])?.address, "Arrival destination")
+        // Malformed responses never yield a phantom binding.
+        XCTAssertNil(NativePartyArrivalAPI.venue(fromBindPayload: ["venue": ["name": "No Id"]]))
+        XCTAssertNil(NativePartyArrivalAPI.venue(fromBindPayload: ["error": "nope"]))
+    }
+
+    func testOnlyGoogleBackedSearchRowsAreOfferedForBinding() {
+        func place(_ id: String, provider: String) -> NativePlaceSearchResult {
+            NativePlaceSearchResult(id: id, name: "Spot", address: "1 Way", category: "venue", latitude: 33.7, longitude: -84.3, rating: nil, photoUrl: nil, provider: provider)
+        }
+        let rows = [
+            place("ChIJreal", provider: "google_places"),   // bindable
+            place("place-3", provider: "google_places"),    // index fallback, no real id
+            place("apple-rooftop", provider: "apple_maps"), // Apple id, unresolvable
+            place("ChIJother", provider: "apple_maps"),     // non-Google provider
+            place("  ", provider: "google_places"),          // empty id
+        ]
+        XCTAssertEqual(NativePartyArrivalAPI.bindablePlaceResults(rows).map(\.id), ["ChIJreal"])
+    }
 }

@@ -150,7 +150,13 @@ struct NativeHostStudioView: View {
     @State private var showCoverPicker = false
     @State private var arrivalVenueCandidates: [NativePartyArrivalVenue] = []
     @State private var registeredVenues: [NativePartyArrivalVenue] = []
-    @State private var boundArrivalVenueID: String?
+    /// The venue actually bound, from either the registered-catalog match or a
+    /// place search, so the confirmation reads the same for both paths.
+    @State private var boundArrivalVenue: NativePartyArrivalVenue?
+    @State private var arrivalPlaceQuery = ""
+    @State private var arrivalPlaceResults: [NativePlaceSearchResult] = []
+    @State private var isSearchingArrivalPlaces = false
+    @State private var didSearchArrivalPlaces = false
     @State private var isLoadingArrivalVenues = false
     @State private var isBindingArrivalDestination = false
     @State private var showingPartyControl = false
@@ -928,23 +934,78 @@ struct NativeHostStudioView: View {
     @ViewBuilder private func arrivalDestinationControls(for party: NativePublishedParty) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("AUTHORIZED ARRIVAL DESTINATION").studioLabel()
-            if let boundArrivalVenueID, let venue = arrivalVenueCandidates.first(where: { $0.id == boundArrivalVenueID }) {
+            if let venue = boundArrivalVenue {
                 Label("Arrival enabled for \(venue.name)", systemImage: "checkmark.seal.fill").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.emerald)
                 Text("Guests with Party access can plan a route. Black and Platinum guests can request a provider handoff; pickup coordinates are not collected by Bytspot.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
             } else if isLoadingArrivalVenues {
                 ProgressView("Checking registered venues…").tint(NativeTheme.cyan).font(.system(size: 12, weight: .bold))
-            } else if arrivalVenueCandidates.isEmpty {
-                Text("No registered Bytspot Venue exactly matches this Party venue. Arrival routing stays unavailable.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
             } else {
-                Text("Choose the matching registered venue before enabling guest arrival guidance.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
-                ForEach(arrivalVenueCandidates) { venue in
-                    Button(action: { Task { await bindArrivalDestination(venue, to: party) } }) {
-                        HStack { VStack(alignment: .leading, spacing: 2) { Text(venue.name).font(.system(size: 13, weight: .black)); Text(venue.address).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52)) }; Spacer(); if isBindingArrivalDestination { ProgressView().tint(NativeTheme.cyan) } else { Image(systemName: "location.circle.fill").foregroundColor(NativeTheme.cyan) } }
-                            .padding(12).studioSurface()
-                    }.buttonStyle(.plain).disabled(isBindingArrivalDestination)
+                if !arrivalVenueCandidates.isEmpty {
+                    Text("Choose the matching registered venue before enabling guest arrival guidance.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
+                    ForEach(arrivalVenueCandidates) { venue in
+                        Button(action: { Task { await bindArrivalDestination(venue, to: party) } }) {
+                            HStack { VStack(alignment: .leading, spacing: 2) { Text(venue.name).font(.system(size: 13, weight: .black)); Text(venue.address).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52)) }; Spacer(); if isBindingArrivalDestination { ProgressView().tint(NativeTheme.cyan) } else { Image(systemName: "location.circle.fill").foregroundColor(NativeTheme.cyan) } }
+                                .padding(12).studioSurface()
+                        }.buttonStyle(.plain).disabled(isBindingArrivalDestination)
+                    }
                 }
+                arrivalPlaceSearch(for: party)
             }
         }.padding(14).studioSurface()
+    }
+
+    /// Real hosts rarely sit in the seeded catalog, so this is the path that
+    /// actually turns the door on: search a place and bind it. The server
+    /// creates a non-discoverable venue from the place and enables arrival
+    /// guidance, so a place is never exposed through the public catalog.
+    @ViewBuilder private func arrivalPlaceSearch(for party: NativePublishedParty) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(arrivalVenueCandidates.isEmpty
+                 ? "No registered Bytspot Venue matches this Party. Search for your venue to turn on guest arrival guidance."
+                 : "Or search for another venue.")
+                .font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundColor(.white.opacity(0.4))
+                TextField("Search venues and places", text: $arrivalPlaceQuery)
+                    .font(.system(size: 13, weight: .bold)).foregroundColor(.white)
+                    .textInputAutocapitalization(.words).submitLabel(.search)
+                    .onSubmit { Task { await searchArrivalPlaces() } }
+                if isSearchingArrivalPlaces { ProgressView().tint(NativeTheme.cyan) }
+            }.padding(12).studioSurface()
+            ForEach(arrivalPlaceResults) { place in
+                Button(action: { Task { await bindArrivalPlace(place, to: party) } }) {
+                    HStack { VStack(alignment: .leading, spacing: 2) { Text(place.name).font(.system(size: 13, weight: .black)).foregroundColor(.white); Text(place.address).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52)) }; Spacer(); if isBindingArrivalDestination { ProgressView().tint(NativeTheme.cyan) } else { Image(systemName: "location.circle.fill").foregroundColor(NativeTheme.cyan) } }
+                        .padding(12).studioSurface()
+                }.buttonStyle(.plain).disabled(isBindingArrivalDestination)
+                    .accessibilityLabel("Enable arrival for \(place.name), \(place.address)")
+            }
+            if didSearchArrivalPlaces && arrivalPlaceResults.isEmpty && !isSearchingArrivalPlaces {
+                Text("No matching places found. Try a more specific name.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
+            }
+        }
+    }
+
+    /// Place search is a public catalog lookup, so it needs no bearer token and
+    /// stays silent on failure. Only bindable (Google-backed) rows are kept.
+    @MainActor private func searchArrivalPlaces() async {
+        let query = arrivalPlaceQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.count >= 2 else { arrivalPlaceResults = []; return }
+        isSearchingArrivalPlaces = true
+        defer { isSearchingArrivalPlaces = false; didSearchArrivalPlaces = true }
+        let results = (try? await NativeLiveDiscoveryAPI(client: BytspotAPIClient()).placesTextSearch(query: query)) ?? []
+        arrivalPlaceResults = NativePartyArrivalAPI.bindablePlaceResults(results)
+    }
+
+    @MainActor private func bindArrivalPlace(_ place: NativePlaceSearchResult, to party: NativePublishedParty) async {
+        guard sessionStore.canAttachBearerToken, let token = sessionStore.token else { publishPresentation.message = "Sign in before enabling arrival guidance."; return }
+        isBindingArrivalDestination = true
+        defer { isBindingArrivalDestination = false }
+        do {
+            let venue = try await NativePartyArrivalAPI(client: BytspotAPIClient(tokenProvider: { token })).bindPlace(partyID: party.id, placeID: place.id)
+            boundArrivalVenue = venue
+        } catch {
+            publishPresentation.message = "That place could not be enabled as the arrival destination. Try another."
+        }
     }
 
     @MainActor private func bindArrivalDestination(_ venue: NativePartyArrivalVenue, to party: NativePublishedParty) async {
@@ -953,7 +1014,7 @@ struct NativeHostStudioView: View {
         defer { isBindingArrivalDestination = false }
         do {
             try await NativePartyArrivalAPI(client: BytspotAPIClient(tokenProvider: { token })).bindDestination(partyID: party.id, venueID: venue.id)
-            boundArrivalVenueID = venue.id
+            boundArrivalVenue = venue
         } catch {
             publishPresentation.message = "The authorized arrival destination could not be enabled."
         }

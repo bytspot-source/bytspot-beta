@@ -70,15 +70,22 @@ export function capabilityFromVerbs(verbs: readonly BookableCapabilityId[]): Boo
   return 'details';
 }
 
-// Honest primary CTA. `details` deliberately has no second CTA — it renders as a
-// Reference — so this returns null and callers must not synthesize a Book button.
-export function primaryCTA(bookable: Bookable): string | null {
-  switch (bookable.capability) {
+// Honest CTA label for a capability. `details` deliberately has no second CTA —
+// it renders as a Reference — so this returns null and callers must not
+// synthesize a Book button. This is the single source of CTA copy; both the
+// Bookable projection and the card layer derive their label from here so the two
+// can never disagree about what a listing lets a user do.
+export function capabilityCTA(capability: BookableCapability, opts: { provider?: string | null } = {}): string | null {
+  switch (capability) {
     case 'book': return 'Book';
     case 'request': return 'Request';
-    case 'redirect': return `Book on ${bookable.provider} ↗`;
+    case 'redirect': return opts.provider ? `Book on ${opts.provider} ↗` : null;
     case 'details': return null;
   }
+}
+
+export function primaryCTA(bookable: Bookable): string | null {
+  return capabilityCTA(bookable.capability, { provider: bookable.provider });
 }
 
 export function isReference(bookable: Bookable): boolean {

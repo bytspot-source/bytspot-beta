@@ -5,7 +5,7 @@
  */
 
 // Discover Cards (Parking, Venues, Valet, etc.)
-export { discoverCards, discoverCardControl, type DiscoverCard, type CardType, type DiscoverCardControl } from './discover';
+export { discoverCards, discoverCardControl, discoverCardCapability, type DiscoverCard, type CardType, type DiscoverCardControl } from './discover';
 
 // Stories (Ephemeral social content)
 export { storyGroups, type Story, type StoryGroup } from './stories';

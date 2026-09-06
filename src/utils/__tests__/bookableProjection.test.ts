@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  capabilityCTA,
   capabilityFromVerbs,
   coffeeToBookable,
   controlFromCapability,
@@ -52,6 +53,14 @@ test('primaryCTA is honest: redirect names the provider, details has no CTA', ()
   const coffee = coffeeToBookable({ reservationId: 'c1', title: 'Pour-over' });
   assert.equal(coffee.capability, 'request');
   assert.equal(primaryCTA(coffee), 'Request');
+});
+
+test('capabilityCTA is the single source of CTA copy and never renders a providerless redirect', () => {
+  assert.equal(capabilityCTA('book'), 'Book');
+  assert.equal(capabilityCTA('request'), 'Request');
+  assert.equal(capabilityCTA('redirect', { provider: 'Resy' }), 'Book on Resy ↗');
+  assert.equal(capabilityCTA('redirect'), null);
+  assert.equal(capabilityCTA('details'), null);
 });
 
 test('paid party tier books on our rails; RSVP holds and carries no price', () => {

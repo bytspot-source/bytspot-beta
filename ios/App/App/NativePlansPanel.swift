@@ -306,9 +306,11 @@ enum NativePlanDisplay {
     static func inviteMessage(title: String) -> String {
         "Join my plan on Bytspot — \u{201C}\(title)\u{201D}. Tap to see it and say if you’re in:"
     }
-    /// The link the message carries. There is no /plan Universal Link, so this
-    /// opens the server-rendered landing page that names the plan and prompts
-    /// the download.
+    /// The link the message carries. `/plan/<id>` is a Universal Link: on a
+    /// device with the app it opens the join sheet directly; otherwise it falls
+    /// to the server-rendered landing page that names the plan and prompts the
+    /// download. The bearer token, when present, rides in `t` so the installed
+    /// app can seat the holder without the landing page.
     static func inviteLink(planId: String, token: String? = nil) -> URL? {
         guard let encoded = planId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
         guard let token = token?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty,

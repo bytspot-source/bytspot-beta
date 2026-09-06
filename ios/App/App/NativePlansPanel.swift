@@ -1,5 +1,11 @@
 import SwiftUI
 
+extension Notification.Name {
+    /// Posted when a link holder is seated on a Plan via joinByToken, so any
+    /// live Plan list reloads to show the newly joined Plan.
+    static let nativePlanDidJoin = Notification.Name("bytspot.nativePlanDidJoin")
+}
+
 /// One Plan as the API returns it. Every field the client needs to render lives
 /// on the row; `state` and `readiness` are already derived by the server so a
 /// row can never show `Confirmed` alone or contradict what a booking actually
@@ -433,6 +439,11 @@ struct NativePlansPanel: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task { await reload() }
+        // The join sheet seats a link holder while this list is already loaded;
+        // reload so the newly joined Plan is present when the sheet dismisses.
+        .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidJoin)) { _ in
+            Task { await reload() }
+        }
         .sheet(item: Binding<PlanSheetID?>(
             get: { selectedPlanID.map(PlanSheetID.init) },
             set: { selectedPlanID = $0?.id }

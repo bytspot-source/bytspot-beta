@@ -4,7 +4,8 @@ import { MapPin, Star, Shield, Battery, RefreshCw, Sparkles, Heart, Ticket, Cred
 import { toast } from 'sonner@2.0.3';
 import { VenueDetails } from './VenueDetails';
 import { ParkingReservationFlow } from './ParkingReservationFlow';
-import { type DiscoverCard, type CardType, discoverCardControl } from '../utils/mockData';
+import { type DiscoverCard, type CardType, discoverCardControl, discoverCardCapability } from '../utils/mockData';
+import { capabilityCTA } from '../utils/bookableProjection';
 import { type AppEvent } from '../utils/events';
 import { saveSpot, isSpotSaved, removeSavedSpot, getSavedSpots, type SpotType } from '../utils/savedSpots';
 import { APPLE_REVIEW_HIDE_PROVIDER_AND_VALET } from '../utils/reviewBuild';
@@ -371,7 +372,7 @@ const SwipeableCard = forwardRef<HTMLDivElement, SwipeableCardProps>(
                       onServiceCta?.(card);
                     }}
                   >
-                    {card.ctaText ?? `Book Now • ${card.price ?? card.entryPrice ?? 'View'}`}
+                    {card.ctaText ?? `${capabilityCTA(discoverCardCapability(card)) ?? 'View'} • ${card.price ?? card.entryPrice ?? 'View'}`}
                   </button>
                 </div>
               </>

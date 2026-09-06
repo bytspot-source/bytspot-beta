@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getRankedDiscoverCardsWithSimplex } from '../vendorMatching.ts';
 import { curatedServiceRecommendationCards, savedServiceRequestToCard, vendorServiceToCard } from '../vendorServiceCards.ts';
-import { discoverCardControl } from '../mockData/discover.ts';
+import { discoverCardCapability, discoverCardControl } from '../mockData/discover.ts';
+import { controlFromCapability } from '../bookableProjection.ts';
 
 test('vendorServiceToCard maps patch-verified services into paid discover cards', () => {
   const card = vendorServiceToCard({
@@ -37,6 +38,17 @@ test('vendorServiceToCard maps patch-verified services into paid discover cards'
   assert.equal(card.platformFeeCents, 1200);
   assert.equal(card.control, 'vendor');
   assert.equal(discoverCardControl(card), 'vendor');
+});
+
+test('discoverCardControl is a pure derivation of discoverCardCapability', () => {
+  // A fully-wired vendor card is book → vendor; a Google place is details → local.
+  const vendor = { id: 1, type: 'service', name: 'V', image: 'x.jpg', distance: '1 mi', vendorId: 'vendor-1', vendorServiceId: 'svc-1', patchId: 'patch-1', discoverSource: 'bytspot_vendor' } as never;
+  const local = { id: 2, type: 'dining', name: 'Local Diner', image: 'x.jpg', distance: '0.3 mi', placeId: 'gp-1' } as never;
+  assert.equal(discoverCardCapability(vendor), 'book');
+  assert.equal(discoverCardCapability(local), 'details');
+  for (const card of [vendor, local]) {
+    assert.equal(discoverCardControl(card), controlFromCapability(discoverCardCapability(card)));
+  }
 });
 
 test('discoverCardControl keeps curated fixtures and local places out of vendor mode', () => {

@@ -13,6 +13,32 @@ enum NativeDiscoverFulfillment: String, Equatable {
     case details
 }
 
+extension NativeDiscoverFulfillment {
+    /// Shared capability vocabulary with the web projection
+    /// (src/utils/bookableProjection.ts `BookableCapability`). Native carries no
+    /// `redirect` state yet — no native card holds a third-party deep link — so
+    /// web's `{details, redirect}` both fold to `.details` here.
+    var capabilityToken: String {
+        switch self {
+        case .book: return "book"
+        case .request: return "request"
+        case .details: return "details"
+        }
+    }
+
+    /// `control` is a pure derivation of capability, identical to the web table
+    /// `controlFromCapability` (bytspot-plan-prime-path-contract.md §8): book and
+    /// request settle or hold on our rails → vendor; details is a reference →
+    /// local. The native engine derives fulfillment from an input control and
+    /// this closes the loop so the two surfaces can never disagree.
+    var control: String {
+        switch self {
+        case .book, .request: return NativeDiscoverCardControl.vendor
+        case .details: return NativeDiscoverCardControl.local
+        }
+    }
+}
+
 /// A hold is a promise that capacity is being kept. It is real only when the
 /// same path could settle, so it is issued from the SKU that would be booked.
 struct NativeDiscoverPlanHold: Equatable {

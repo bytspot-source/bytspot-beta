@@ -442,6 +442,32 @@ final class BytspotTrustEngineTests: XCTestCase {
         return try BookableTemplateCatalog.decode(from: Data(contentsOf: url))
     }
 
+    func testFulfillmentControlDerivationMatchesWebContract() throws {
+        // Mirrors the web CONTROL_BY_CAPABILITY table in bookableProjection.ts:
+        // book/request → vendor, details → local. If either surface changes this
+        // table, one of these assertions breaks.
+        XCTAssertEqual(NativeDiscoverFulfillment.book.control, NativeDiscoverCardControl.vendor)
+        XCTAssertEqual(NativeDiscoverFulfillment.request.control, NativeDiscoverCardControl.vendor)
+        XCTAssertEqual(NativeDiscoverFulfillment.details.control, NativeDiscoverCardControl.local)
+        XCTAssertEqual(NativeDiscoverFulfillment.book.capabilityToken, "book")
+        XCTAssertEqual(NativeDiscoverFulfillment.request.capabilityToken, "request")
+        XCTAssertEqual(NativeDiscoverFulfillment.details.capabilityToken, "details")
+
+        // The engine never produces a fulfillment whose derived control
+        // contradicts the input control: a local card is always details, a
+        // vendor card is always book/request — across every rail and settlement
+        // state. This is the exact web §8 invariant, locked onto native.
+        let catalog = try listingCatalog()
+        for rail in ["dining", "parking", "nightlife", "service", "mobility", "entertainment", "coffee"] {
+            for ready in [false, true] {
+                let local = NativeDiscoverListing.fulfillment(control: NativeDiscoverCardControl.local, rail: rail, settlementReady: ready, catalog: catalog)
+                XCTAssertEqual(local.control, NativeDiscoverCardControl.local, "local \(rail) ready=\(ready) derived \(local.control)")
+                let vendor = NativeDiscoverListing.fulfillment(control: NativeDiscoverCardControl.vendor, rail: rail, settlementReady: ready, catalog: catalog)
+                XCTAssertEqual(vendor.control, NativeDiscoverCardControl.vendor, "vendor \(rail) ready=\(ready) derived \(vendor.control)")
+            }
+        }
+    }
+
     func testALocalCardMayOnlyWearChromeWeRecognise() throws {
         let catalog = try listingCatalog()
         let local = NativeDiscoverCardControl.local

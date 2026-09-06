@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   ORDERING_RPC_CONTRACT,
   createOrderViaRpc,
+  getMenuViaRpc,
   listMenusViaRpc,
   normalizeMenus,
   normalizeOrderQuotes,
@@ -29,16 +30,30 @@ test('normalizeMenus accepts Toast Square Clover style grouped menus', () => {
   assert.equal(menus[0].sections[0].items[0].priceLabel, '$18');
 });
 
-test('listMenusViaRpc prevents caller provider override and falls back', async () => {
+test('listMenusViaRpc locks providers and fails closed with no fabricated supply', async () => {
   let inputSeen: unknown;
   const backend = await listMenusViaRpc({
     menus: { list: { query: async (input) => { inputSeen = input; return { menus: [{ id: 'm2', venueId: 'v2', venueName: 'Cafe', title: 'Lunch', sections: [] }] }; } } },
   }, { venueId: 'v2', providers: ['bytspot_vendor'] });
-  const fallback = await listMenusViaRpc({}, {}, [{ id: 'fb-menu', provider: 'bytspot_vendor', venueId: 'v3', venueName: 'Fallback', title: 'Menu', currencyCode: 'USD', sections: [] }]);
 
   assert.equal(backend.source, 'backend');
   assert.deepEqual((inputSeen as { providers: string[] }).providers, ['toast', 'square', 'clover', 'bytspot_vendor']);
-  assert.equal(fallback.menus[0].id, 'fb-menu');
+
+  // A missing procedure or a throwing backend never invents dishes for a named
+  // business: the adapter reports supply is unavailable with no provider claim.
+  const missing = await listMenusViaRpc({}, {});
+  assert.equal(missing.source, 'unavailable');
+  assert.equal(missing.provider, null);
+  assert.deepEqual(missing.menus, []);
+
+  const threw = await listMenusViaRpc({ menus: { list: { query: async () => { throw new Error('backend down'); } } } }, {});
+  assert.equal(threw.source, 'unavailable');
+  assert.deepEqual(threw.menus, []);
+
+  // An empty backend response is unavailable, not a silent fabrication.
+  const empty = await getMenuViaRpc({ menus: { get: { query: async () => ({ menus: [] }) } } }, { menuId: 'm9' });
+  assert.equal(empty.source, 'unavailable');
+  assert.equal(empty.menu, null);
 });
 
 test('order and table normalizers support quote create and reservations', async () => {

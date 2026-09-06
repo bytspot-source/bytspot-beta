@@ -680,7 +680,7 @@ struct BytspotNativeShellView: View {
     /// dropped by the launch/post-auth suppression window.
     static func destinationBypassesLaunchSuppression(_ destination: NativeContextualDestination) -> Bool {
         switch destination {
-        case .party, .patch: return true
+        case .party, .patch, .plan: return true
         case .profile, .accessWallet, .booking, .legal: return false
         }
     }
@@ -865,6 +865,9 @@ private struct NativeContextualDestinationView: View {
                 } else if case .party(let route) = destination {
                     NativePartyPassPreview(route: route)
                         .environmentObject(sessionStore)
+                } else if case .plan(let planId, let token) = destination {
+                    NativePlanJoinView(planId: planId, token: token)
+                        .environmentObject(sessionStore)
                 } else if case .booking(_, _, let ride) = destination, let ride {
                     NativeMobilityHandoffConfirmationCard(ride: ride, openAccess: openAccess)
                 } else {
@@ -888,6 +891,76 @@ private struct NativeContextualDestinationView: View {
             }
             .navigationTitle(destination.title)
             .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+/// Opens a Plan from an invite link. When the link carries a bearer join token
+/// the holder is seated on arrival; otherwise the Plan is loaded for someone who
+/// already has a seat. A cancelled, expired, or unknown link is indistinguishable
+/// from a Plan that never existed, so it lands on the same unavailable state.
+private struct NativePlanJoinView: View {
+    enum LoadState: Equatable {
+        case loading
+        case joined(NativePlan)
+        case unavailable
+    }
+
+    let planId: String
+    let token: String?
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var state: LoadState = .loading
+
+    var body: some View {
+        NativeScreenScroll {
+            switch state {
+            case .loading:
+                NativeHeroCard(title: "Opening plan", eyebrow: "PLAN", subtitle: "Getting this plan and saving your seat.")
+                ProgressView().tint(NativeTheme.cyan).frame(maxWidth: .infinity).padding(.vertical, 30)
+            case .unavailable:
+                NativeHeroCard(title: "This plan link isn’t available", eyebrow: "PLAN", subtitle: "It may have been cancelled, expired, or the invite was withdrawn. Ask the host for a new link.")
+                Button(action: { dismiss() }) { NativeCTA(title: "Back to Bytspot", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
+                    .buttonStyle(.plain)
+            case .joined(let plan):
+                NativeHeroCard(title: "You’re on the plan", eyebrow: "PLAN", subtitle: plan.title)
+                if !plan.intent.isEmpty {
+                    Text(plan.intent)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(NativeTheme.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 4)
+                }
+                Text("\(plan.readiness.going) going · \(plan.readiness.pending) yet to answer")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(NativeTheme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
+                Button(action: { dismiss() }) { NativeCTA(title: "Open my plan", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
+                    .buttonStyle(.plain)
+            }
+        }
+        .accessibilityIdentifier("native-plan-join")
+        .task { await load() }
+    }
+
+    @MainActor
+    private func load() async {
+        guard state == .loading else { return }
+        guard sessionStore.canAttachBearerToken else { state = .unavailable; return }
+        let client = BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token })
+        let api = NativePlanAPI(client: client)
+        do {
+            let plan: NativePlan
+            if let token, !token.isEmpty {
+                plan = try await api.joinByToken(token)
+            } else {
+                plan = try await api.get(planId)
+            }
+            state = .joined(plan)
+        } catch {
+            // The token is a secret; failures never surface it, only the wall.
+            state = .unavailable
         }
     }
 }

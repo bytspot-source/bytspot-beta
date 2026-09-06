@@ -3439,6 +3439,78 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(item.reservation)
     }
 
+    // MARK: - Plan invite link + join (Phase 2a)
+
+    func testPlanCreatorPayloadCarriesJoinTokenAndGuestCopyDoesNot() throws {
+        // The creator's copy carries the bearer link secret; a guest's copy of
+        // the same Plan omits it, so a guest cannot silently reshare a seat.
+        let creatorCopy = try decodePlan("""
+        {"id":"pl-1","title":"Friday","intent":"Out","creatorUserId":"u-1","startsAt":null,"endsAt":null,
+         "areaLabel":null,"partySize":null,"needs":[],"lifecycle":"proposed","state":"proposed",
+         "readiness":{"going":1,"maybe":0,"pending":0,"declined":0,"total":1},"openNeeds":[],
+         "participants":[{"userId":"u-1","role":"creator","status":"accepted"}],"items":[],
+         "joinToken":"tok-abc"}
+        """)
+        XCTAssertEqual(creatorCopy.joinToken, "tok-abc")
+
+        let guestCopy = try decodePlan("""
+        {"id":"pl-1","title":"Friday","intent":"Out","creatorUserId":"u-1","startsAt":null,"endsAt":null,
+         "areaLabel":null,"partySize":null,"needs":[],"lifecycle":"proposed","state":"proposed",
+         "readiness":{"going":1,"maybe":0,"pending":0,"declined":0,"total":1},"openNeeds":[],
+         "participants":[{"userId":"u-1","role":"creator","status":"accepted"}],"items":[]}
+        """)
+        XCTAssertNil(guestCopy.joinToken)
+    }
+
+    func testPlanInviteLinkCarriesBearerTokenOnlyWhenPresent() throws {
+        // With a token the link is a join link; without one it is a preview link.
+        XCTAssertEqual(
+            NativePlanDisplay.inviteLink(planId: "pl-1", token: "tok-abc")?.absoluteString,
+            "https://bytspot.app/plan/pl-1?t=tok-abc"
+        )
+        XCTAssertEqual(
+            NativePlanDisplay.inviteLink(planId: "pl-1", token: nil)?.absoluteString,
+            "https://bytspot.app/plan/pl-1"
+        )
+        XCTAssertEqual(
+            NativePlanDisplay.inviteLink(planId: "pl-1", token: "   ")?.absoluteString,
+            "https://bytspot.app/plan/pl-1"
+        )
+    }
+
+    func testPlanRouteParsesTokenAndRejectsForeignHosts() throws {
+        let universal = try XCTUnwrap(NativePlanRoute(url: try XCTUnwrap(URL(string: "https://bytspot.app/plan/pl-1?t=tok-abc"))))
+        XCTAssertEqual(universal.planID, "pl-1")
+        XCTAssertEqual(universal.token, "tok-abc")
+
+        // Custom scheme resolves identically.
+        let deepLink = try XCTUnwrap(NativePlanRoute(url: try XCTUnwrap(URL(string: "bytspot://plan/pl-1?t=tok-abc"))))
+        XCTAssertEqual(deepLink.planID, "pl-1")
+        XCTAssertEqual(deepLink.token, "tok-abc")
+
+        // A token-less link is valid; the token is simply absent.
+        XCTAssertNil(try XCTUnwrap(NativePlanRoute(url: try XCTUnwrap(URL(string: "https://bytspot.app/plan/pl-1")))).token)
+
+        // Foreign host and non-plan path are not Plan routes.
+        XCTAssertNil(NativePlanRoute(url: try XCTUnwrap(URL(string: "https://example.com/plan/pl-1?t=tok"))))
+        XCTAssertNil(NativePlanRoute(url: try XCTUnwrap(URL(string: "https://bytspot.app/party/party-1"))))
+    }
+
+    @MainActor
+    func testPlanInviteUniversalLinkRoutesToPlanJoin() throws {
+        let coordinator = NativeNavigationCoordinator()
+        XCTAssertTrue(coordinator.handle(url: try XCTUnwrap(URL(string: "https://bytspot.app/plan/pl-1?t=tok-abc"))))
+        XCTAssertEqual(coordinator.requestedTab, .plan)
+        guard case .plan(let planId, let token) = coordinator.requestedDestination else { return XCTFail("Expected Plan destination") }
+        XCTAssertEqual(planId, "pl-1")
+        XCTAssertEqual(token, "tok-abc")
+    }
+
+    func testPlanInviteLinkBypassesLaunchSuppressionSoAColdStartPresents() {
+        XCTAssertTrue(BytspotNativeShellView.destinationBypassesLaunchSuppression(.plan(planId: "pl-1", token: "tok")))
+        XCTAssertTrue(NativeAuthLaunchContract.bypassesLaunchFlow(for: .plan(planId: "pl-1", token: "tok")))
+    }
+
     // MARK: - Coffee (Phase 2 iOS surface)
 
     func testCoffeeSpotDecodesOnlyWhatACardMayRender() throws {

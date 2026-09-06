@@ -314,8 +314,10 @@ enum NativeAuthLaunchContract {
     /// A post-checkout Party universal link must continue directly to its
     /// verified Party Pass; first-run discovery onboarding is unrelated.
     static func bypassesLaunchFlow(for destination: NativeContextualDestination?) -> Bool {
-        guard case .party = destination else { return false }
-        return true
+        switch destination {
+        case .party, .plan: return true
+        default: return false
+        }
     }
 
     static func landingSubtitle(for location: NativeLocationCoordinate) -> String {

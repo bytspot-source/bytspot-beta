@@ -5,6 +5,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
     case profile
     case accessWallet
     case party(NativePartyPassRoute)
+    case plan(planId: String, token: String?)
     case patch(BytspotPatchRoute)
     case booking(status: String, url: URL, ride: NativeMobilityRideRecord? = nil)
     case legal(title: String, url: URL)
@@ -14,6 +15,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         case .profile: return "profile"
         case .accessWallet: return "access-wallet"
         case .party(let route): return "party-\(route.partyID)"
+        case .plan(let planId, _): return "plan-\(planId)"
         case .patch(let route): return "patch-\(route.patchId)"
         case .booking(let status, let url, let ride): return "booking-\(status)-\(ride?.id ?? url.absoluteString)"
         case .legal(let title, let url): return "legal-\(title)-\(url.absoluteString)"
@@ -25,6 +27,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         case .profile: return "Profile"
         case .accessWallet: return "Access Wallet"
         case .party: return "Party Pass"
+        case .plan: return "Plan"
         case .patch(let route): return "Patch \(route.patchId)"
         case .booking(let status, _, _): return status == "success" ? "Booking Confirmed" : "Booking Update"
         case .legal(let title, _): return title
@@ -36,6 +39,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         case .profile: return "Account, payments, preferences, and saved access."
         case .accessWallet: return "Tickets, reservations, patch access, and App Clip handoffs live here."
         case .party: return "Secure Party Pass continuation"
+        case .plan: return "Join this plan and say if you’re in."
         case .patch(let route): return "\(route.tier.displayName) access · \(route.url.host ?? "bytspot.app")"
         case .booking(let status, _, _): return status == "success" ? "Your booking flow returned successfully." : "Review or retry this booking."
         case .legal(_, let url): return url.absoluteString
@@ -46,7 +50,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         switch self {
         case .profile: return .profile
         case .accessWallet, .party, .patch, .booking: return .access
-        case .legal: return .home
+        case .plan, .legal: return .home
         }
     }
 
@@ -55,6 +59,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         case .profile: return "ACCOUNT"
         case .accessWallet: return "WALLET"
         case .party: return "PARTY PASS"
+        case .plan: return "PLAN"
         case .patch(let route): return route.tier.eyebrow
         case .booking(let status, _, _): return status == "success" ? "CONFIRMED" : "BOOKING"
         case .legal: return "LEGAL"
@@ -128,6 +133,42 @@ struct NativePartyPassRoute: Equatable {
     }
 }
 
+/// Canonical native Plan invite URL: `/plan/<id>` on the production host or the
+/// custom scheme, with the bearer join token carried in `t`. The id previews a
+/// Plan; the token is what seats the holder, so it is optional here and only
+/// consumed when present — a token-less link still opens the Plan for someone
+/// who already has a seat.
+struct NativePlanRoute: Equatable {
+    let planID: String
+    let token: String?
+    let url: URL
+
+    init?(url: URL) {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let scheme = url.scheme?.lowercased()
+        let isCustomScheme = scheme == "bytspot"
+        let host = components.host?.lowercased() ?? ""
+        let isUniversalLink = scheme == "https" && host == "bytspot.app"
+        guard isCustomScheme || isUniversalLink else { return nil }
+
+        let pathComponents: [Substring]
+        if isCustomScheme, let host = components.host, !host.isEmpty {
+            pathComponents = ([Substring(host)] + components.path.split(separator: "/"))
+        } else {
+            pathComponents = components.path.split(separator: "/")
+        }
+        guard pathComponents.count == 2, pathComponents[0].lowercased() == "plan" else { return nil }
+        let planID = String(pathComponents[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !planID.isEmpty, planID.count <= 200, !planID.contains("/") else { return nil }
+        self.planID = planID
+        let rawToken = (components.queryItems ?? []).first {
+            $0.name.caseInsensitiveCompare("t") == .orderedSame
+        }?.value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.token = (rawToken?.isEmpty == false && (rawToken?.count ?? 0) <= 200) ? rawToken : nil
+        self.url = url
+    }
+}
+
 /// Identifies which surface produced a patch URL so the native coordinator can
 /// route through one funnel regardless of the entry path. Locked by
 /// `NativePatchRouteSelfTests.assertScanSourceContract`.
@@ -180,6 +221,13 @@ final class NativeNavigationCoordinator: ObservableObject {
                 requestedTab = .home
             }
             requestedDestination = .party(partyRoute)
+            return true
+        }
+        if let planRoute = NativePlanRoute(url: url) {
+            // The Plan tab sits behind the join sheet, so dismissing it reveals
+            // the Plan the holder just took a seat on.
+            requestedTab = .plan
+            requestedDestination = .plan(planId: planRoute.planID, token: planRoute.token)
             return true
         }
         if path.hasPrefix("booking/") {

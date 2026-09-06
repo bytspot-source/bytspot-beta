@@ -46,6 +46,9 @@ struct NativePlan: Codable, Identifiable, Equatable {
     let openNeeds: [String]
     let participants: [Participant]
     let items: [Item]
+    /// The bearer join link secret. The server returns it to the creator alone,
+    /// so it is absent — nil — on a guest's copy of the same Plan.
+    let joinToken: String?
 }
 
 struct NativePlansList: Codable { let plans: [NativePlan] }
@@ -60,6 +63,13 @@ struct NativePlanAPI {
 
     func get(_ planID: String) async throws -> NativePlan {
         let payload = try await client.trpcQueryPayload(path: "/trpc/plans.get", input: ["planId": planID])
+        return try JSONDecoder().decode(NativePlan.self, from: JSONSerialization.data(withJSONObject: payload))
+    }
+
+    /// Seat the holder of an invite link. The token is the credential; the
+    /// server decides whether it still opens onto a live Plan.
+    func joinByToken(_ token: String) async throws -> NativePlan {
+        let payload = try await client.trpcPayload(path: "/trpc/plans.joinByToken", method: "POST", input: ["token": token])
         return try JSONDecoder().decode(NativePlan.self, from: JSONSerialization.data(withJSONObject: payload))
     }
 
@@ -296,12 +306,20 @@ enum NativePlanDisplay {
     static func inviteMessage(title: String) -> String {
         "Join my plan on Bytspot — \u{201C}\(title)\u{201D}. Tap to see it and say if you’re in:"
     }
-    /// The link the message carries. There is no /plan Universal Link, so this
-    /// opens the server-rendered landing page that names the plan and prompts
-    /// the download.
-    static func inviteLink(planId: String) -> URL? {
+    /// The link the message carries. `/plan/<id>` is a Universal Link: on a
+    /// device with the app it opens the join sheet directly; otherwise it falls
+    /// to the server-rendered landing page that names the plan and prompts the
+    /// download. The bearer token, when present, rides in `t` so the installed
+    /// app can seat the holder without the landing page.
+    static func inviteLink(planId: String, token: String? = nil) -> URL? {
         guard let encoded = planId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
-        return URL(string: "https://bytspot.app/plan/\(encoded)")
+        guard let token = token?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty,
+              let encodedToken = token.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            return URL(string: "https://bytspot.app/plan/\(encoded)")
+        }
+        // The token is the bearer credential the app consumes; it rides in the
+        // link so an installed app can seat the holder without the landing page.
+        return URL(string: "https://bytspot.app/plan/\(encoded)?t=\(encodedToken)")
     }
 
     /// De-duplicated, vocabulary-checked, and capped at the router's ceiling of
@@ -808,7 +826,7 @@ private struct NativePlanDetailSheet: View {
     // the recipient's number — the phone invariant is the API's, and the client
     // must not route around it. The link opens the /plan landing page.
     private func inviteByText(for plan: NativePlan) {
-        guard let url = NativePlanDisplay.inviteLink(planId: plan.id) else { return }
+        guard let url = NativePlanDisplay.inviteLink(planId: plan.id, token: plan.joinToken) else { return }
         _ = NativePartySharePresentation.share([NativePlanDisplay.inviteMessage(title: plan.title), url])
     }
 

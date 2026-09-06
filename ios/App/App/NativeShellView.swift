@@ -958,6 +958,9 @@ private struct NativePlanJoinView: View {
                 plan = try await api.get(planId)
             }
             state = .joined(plan)
+            // A live Plan list behind this sheet loaded before the seat existed;
+            // tell it to reload so "Open my plan" reveals the joined Plan.
+            NotificationCenter.default.post(name: .nativePlanDidJoin, object: nil)
         } catch {
             // The token is a secret; failures never surface it, only the wall.
             state = .unavailable

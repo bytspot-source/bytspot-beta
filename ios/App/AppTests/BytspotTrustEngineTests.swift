@@ -1178,7 +1178,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(NativeLocationAwareUIContent.hasKnownCoordinates(unresolved))
         XCTAssertNil(unresolved.rating)
         XCTAssertNil(unresolved.crowd)
-        XCTAssertEqual(unresolved.parking, NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby"))
+        XCTAssertEqual(unresolved.parking, NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby", isKnown: false))
         XCTAssertFalse(NativeVenueDetailPresentation.supportsManualCheckIn(unresolved))
 
         let mapFallback = NativeLocationAwareUIContent.mapFallback(for: location)
@@ -3326,6 +3326,19 @@ final class NativeProfileDataAPITests: XCTestCase {
         ]]
         let rows = NativeFindDecoder.rows(from: payload)
         XCTAssertEqual(rows.map(\.id), ["v2"])
+    }
+
+    func testParkingSummaryUnknownMarkerDefaultsToKnown() {
+        let known = NativeParkingSummary(totalAvailable: 14, priceLabel: "$8/hr")
+        XCTAssertTrue(known.isKnown, "Existing callers that omit isKnown must default to true")
+        XCTAssertEqual(known.totalAvailable, 14)
+
+        let unknown = NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby", isKnown: false)
+        XCTAssertFalse(unknown.isKnown)
+        // Read sites must not display totalAvailable when isKnown is false.
+        // unresolvedVenue uses this path.
+        let unresolved = NativeLocationAwareUIContent.unresolvedVenue(id: "x", name: "X", category: "dining", address: "Addr", distance: "0.5 mi", imageURL: nil)
+        XCTAssertFalse(unresolved.parking.isKnown, "unresolvedVenue must mark parking unknown")
     }
 
     private func decodeRecap(_ json: String) throws -> NativePartyRecap {

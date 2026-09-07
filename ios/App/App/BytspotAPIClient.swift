@@ -2159,6 +2159,16 @@ struct NativeCrowdSummary: Equatable {
 struct NativeParkingSummary: Equatable {
     let totalAvailable: Int
     let priceLabel: String
+    /// `false` when the venue was synthesized from a thin projection (Find,
+    /// AI pick, map-pin fallback) and no real parking data was loaded.
+    /// Read sites must not display `totalAvailable` when this is `false`.
+    let isKnown: Bool
+
+    init(totalAvailable: Int, priceLabel: String, isKnown: Bool = true) {
+        self.totalAvailable = totalAvailable
+        self.priceLabel = priceLabel
+        self.isKnown = isKnown
+    }
 }
 
 /// Google place types behind a Bytspot category. Kept in one place so the

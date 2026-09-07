@@ -5622,7 +5622,7 @@ enum NativeLocationAwareUIContent {
     }
 
     static func unresolvedVenue(id: String, name: String, category: String, address: String, distance: String, imageURL: URL?) -> NativeVenueSummary {
-        NativeVenueSummary(id: "suggestion-\(id)", name: name, category: category, address: address, distance: distance, rating: nil, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby"), verifiedPatchId: nil, imageUrl: imageURL)
+        NativeVenueSummary(id: "suggestion-\(id)", name: name, category: category, address: address, distance: distance, rating: nil, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby", isKnown: false), verifiedPatchId: nil, imageUrl: imageURL)
     }
 
     static func hasKnownCoordinates(_ venue: NativeVenueSummary) -> Bool {
@@ -5933,7 +5933,7 @@ enum NativeHomeRegionPresentation {
 
     static func nearbySubtitle(for venue: NativeVenueSummary) -> String {
         var liveDetails: [String] = []
-        if venue.parking.totalAvailable > 0 {
+        if venue.parking.isKnown && venue.parking.totalAvailable > 0 {
             liveDetails.append("\(venue.parking.totalAvailable) spots")
         }
         if let rawLabel = venue.crowd?.label {
@@ -8670,7 +8670,7 @@ enum NativeMapFocusHandoff {
         let kind = NativeMapPinKind.forVenue(venue)
         let isParking = kind == .parking
         defaults.set(venue.name, forKey: titleKey)
-        defaults.set(isParking ? "\(venue.parking.totalAvailable) spaces · \(venue.parking.priceLabel)" : venue.address, forKey: subtitleKey)
+        defaults.set(isParking ? (venue.parking.isKnown ? "\(venue.parking.totalAvailable) spaces · \(venue.parking.priceLabel)" : venue.parking.priceLabel) : venue.address, forKey: subtitleKey)
         defaults.set(venue.latitude, forKey: latitudeKey)
         defaults.set(venue.longitude, forKey: longitudeKey)
         defaults.set(kind.storageValue, forKey: kindKey)
@@ -8842,7 +8842,7 @@ private struct NativeParkingBookingSheet: View {
                 Spacer(minLength: 0)
                 Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 26, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }.buttonStyle(.plain)
             }
-            NativeWalletLine(title: venue.name, subtitle: "Entry: \(venue.address) · \(venue.parking.totalAvailable) spaces · \(hourlyRate)", icon: "mappin.circle.fill")
+            NativeWalletLine(title: venue.name, subtitle: venue.parking.isKnown ? "Entry: \(venue.address) · \(venue.parking.totalAvailable) spaces · \(hourlyRate)" : "Entry: \(venue.address) · \(hourlyRate)", icon: "mappin.circle.fill")
         }
         .padding(16)
         .nativePanel()
@@ -12098,7 +12098,7 @@ private struct NativeVenueDetailView: View {
             } else if venue.discoverType == "parking" {
                 metric("star.fill", ratingText, "rating", NativeTheme.blackAmber)
                 metric("parkingsign.circle.fill", entryText, "parking", NativeTheme.emerald)
-                if NativeLocationAwareUIContent.hasKnownCoordinates(venue) {
+                if NativeLocationAwareUIContent.hasKnownCoordinates(venue) && venue.parking.isKnown {
                     metric("car.2.fill", "\(venue.parking.totalAvailable)", "spots", NativeTheme.cyan)
                 } else {
                     metric("mappin.and.ellipse", "Check", "nearby", NativeTheme.cyan)
@@ -12398,7 +12398,7 @@ private struct NativeVenueDetailView: View {
     private var categoryDetailIcon: String { NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) ? "house.fill" : NativeVenueDetailPresentation.isCoffeeVenue(venue) ? "cup.and.saucer.fill" : NativeVenueDetailPresentation.isDiningVenue(venue) ? "fork.knife" : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? "ticket.fill" : venue.discoverType == "mobility" ? "car.side.fill" : venue.discoverType == "parking" ? "parkingsign.circle.fill" : "sparkles" }
     private var categoryDetailTitle: String { NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) ? "Boutique Stay" : NativeVenueDetailPresentation.isCoffeeVenue(venue) ? "Coffee" : NativeVenueDetailPresentation.isDiningVenue(venue) ? "Dining" : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? "Pass" : venue.discoverType == "mobility" ? "Mobility" : NativeVenueDetailPresentation.isServiceVenue(venue) ? "Services" : venue.discoverType == "parking" ? "Parking" : "Details" }
     private var categoryPrimaryDetail: String { NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) ? "Short stay · Furnished" : NativeVenueDetailPresentation.isCoffeeVenue(venue) ? "Coffee · Brunch" : NativeVenueDetailPresentation.isDiningVenue(venue) ? entryText : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? entryText : venue.discoverType == "mobility" ? "Ride · Transfer" : NativeVenueDetailPresentation.isServiceVenue(venue) ? "Trusted local service" : entryText }
-    private var categorySecondaryDetail: String { NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) ? "Dates, price, rules, and entry must be verified" : NativeVenueDetailPresentation.isCoffeeVenue(venue) ? "Quick walk, calm reset, or meetup" : NativeVenueDetailPresentation.isDiningVenue(venue) ? "Menu, pickup, or delivery" : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? "Digital pass ready" : venue.discoverType == "mobility" ? "Ride-sharing, private transfer, or group transport" : NativeVenueDetailPresentation.isServiceVenue(venue) ? "Save, share, or ask Concierge" : venue.parking.totalAvailable > 0 ? "\(venue.parking.totalAvailable) spaces nearby" : "Save, share, or ask Concierge" }
+    private var categorySecondaryDetail: String { NativeVenueDetailPresentation.isBoutiqueApartmentVenue(venue) ? "Dates, price, rules, and entry must be verified" : NativeVenueDetailPresentation.isCoffeeVenue(venue) ? "Quick walk, calm reset, or meetup" : NativeVenueDetailPresentation.isDiningVenue(venue) ? "Menu, pickup, or delivery" : NativeVenueDetailPresentation.isEventOrPassVenue(venue) ? "Digital pass ready" : venue.discoverType == "mobility" ? "Ride-sharing, private transfer, or group transport" : NativeVenueDetailPresentation.isServiceVenue(venue) ? "Save, share, or ask Concierge" : venue.parking.isKnown && venue.parking.totalAvailable > 0 ? "\(venue.parking.totalAvailable) spaces nearby" : "Save, share, or ask Concierge" }
     private var categoryEmoji: String { ["dining": "🍽️", "nightlife": "🎶", "coffee": "☕", "shopping": "🛍️", "fitness": "💪", "entertainment": "🎭", "parking": "🅿️", "mobility": "🚘", "service": "🛎️", "boutique_apartment": "🏡"][venue.discoverType] ?? "📍" }
     private func openURL(_ url: URL?) { guard let url else { return }; UIApplication.shared.open(url) }
     private func urlEncoded(_ value: String) -> String { value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value }
@@ -13455,7 +13455,7 @@ enum NativeDiscoverRouteResolver {
                NativeMapCoordinateTrustPolicy.agrees(latitude: latitude, longitude: longitude, candidateLatitude: matchedVenue.latitude, candidateLongitude: matchedVenue.longitude) {
                 return matchedVenue
             }
-            return NativeVenueSummary(id: cardID, name: title, category: type, address: subtitle, distance: distance, rating: nil, latitude: latitude, longitude: longitude, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: imageURL)
+            return NativeVenueSummary(id: cardID, name: title, category: type, address: subtitle, distance: distance, rating: nil, latitude: latitude, longitude: longitude, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—", isKnown: false), verifiedPatchId: nil, imageUrl: imageURL)
         }
         guard let matchedVenue, matchedVenue.hasKnownCoordinates else { return nil }
         return matchedVenue
@@ -14994,7 +14994,7 @@ private struct NativeMapExploreView: View {
         let crowd = pin.crowdLevel.map { level in
             NativeCrowdSummary(level: level, label: labels[max(0, min(labels.count - 1, level - 1))], waitMins: nil)
         }
-        let parking = pin.kind == .parking ? parkingSummary(for: pin) : NativeParkingSummary(totalAvailable: 0, priceLabel: "—")
+        let parking = pin.kind == .parking ? parkingSummary(for: pin) : NativeParkingSummary(totalAvailable: 0, priceLabel: "—", isKnown: false)
         return NativeVenueSummary(
             id: pin.id,
             name: pin.title,
@@ -16085,7 +16085,7 @@ private struct NativeTrafficIntelSheet: View {
                     icon: "parkingsign.circle.fill",
                     title: "Parking Density",
                     value: parkingDensityLabel,
-                    subtitle: "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)",
+                    subtitle: venue.parking.isKnown ? "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)" : venue.parking.priceLabel,
                     accent: parkingColor,
                     progress: parkingProgress
                 )
@@ -16180,8 +16180,12 @@ private struct NativeTrafficIntelSheet: View {
 
     private var travelEstimate: String { "\(travelMinutes) min" }
 
-    private var parkingProgress: Double { min(max(Double(venue.parking.totalAvailable) / 50.0, 0.06), 1.0) }
+    private var parkingProgress: Double {
+        guard venue.parking.isKnown else { return 0 }
+        return min(max(Double(venue.parking.totalAvailable) / 50.0, 0.06), 1.0)
+    }
     private var parkingDensityLabel: String {
+        guard venue.parking.isKnown else { return "—" }
         switch venue.parking.totalAvailable {
         case 0...6: return "Tight"
         case 7...20: return "Moderate"
@@ -16190,6 +16194,7 @@ private struct NativeTrafficIntelSheet: View {
     }
 
     private var parkingColor: Color {
+        guard venue.parking.isKnown else { return NativeTheme.textTertiary }
         switch venue.parking.totalAvailable {
         case 0...6: return NativeTheme.pink
         case 7...20: return NativeTheme.orange
@@ -18146,7 +18151,7 @@ private struct NativeMapPin: Identifiable {
 
     init(venue: NativeVenueSummary) {
         let kind = NativeMapPinKind.forVenue(venue)
-        let subtitle = kind == .partner ? "Verified Tap Zone · \(venue.crowd?.label ?? "Open")" : kind == .parking ? "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)" : venue.address
+        let subtitle = kind == .partner ? "Verified Tap Zone · \(venue.crowd?.label ?? "Open")" : kind == .parking ? (venue.parking.isKnown ? "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)" : venue.parking.priceLabel) : venue.address
         self.init(id: venue.id, title: venue.name, subtitle: subtitle, distance: venue.distance, coordinate: CLLocationCoordinate2D(latitude: venue.latitude, longitude: venue.longitude), color: kind.mapColor, kind: kind, crowdLevel: venue.crowd?.level)
     }
 }

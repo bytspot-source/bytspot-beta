@@ -201,7 +201,7 @@ enum NativeAtlantaCorridor {
             latitude: plan.hang.lat ?? 0,
             longitude: plan.hang.lng ?? 0,
             crowd: crowd,
-            parking: NativeParkingSummary(totalAvailable: 0, priceLabel: plan.stall.paid ? "Paid stall" : "Free / curb"),
+            parking: NativeParkingSummary(totalAvailable: 0, priceLabel: plan.stall.paid ? "Paid stall" : "Free / curb", isKnown: false),
             verifiedPatchId: nil,
             imageUrl: nil
         )

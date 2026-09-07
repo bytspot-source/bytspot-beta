@@ -3298,6 +3298,36 @@ final class NativeProfileDataAPITests: XCTestCase {
         window.isHidden = true
     }
 
+    func testFindDecoderReadsProvenanceAndHoldsTheDetailsLock() {
+        let payload: [String: Any] = ["results": [
+            ["origin": "index", "id": "v1", "slug": "the-basement", "googlePlaceId": "gp-A", "name": "The Basement", "address": "123 Edgewood", "lat": 33.75, "lng": -84.37, "category": "club", "imageUrl": "https://img/1", "capability": "details"],
+            ["origin": "resolved", "id": "gp:gp-B", "slug": NSNull(), "googlePlaceId": "gp-B", "name": "Highland Bakery", "address": "644 N Highland", "lat": 33.77, "lng": -84.35, "category": "bakery", "capability": "details"],
+        ], "source": "index+resolved"]
+        let rows = NativeFindDecoder.rows(from: payload)
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0].origin, .index)
+        XCTAssertEqual(rows[0].slug, "the-basement")
+        XCTAssertEqual(NativeFindPresentation.provenanceBadge(for: rows[0]), "In Bytspot")
+        XCTAssertEqual(rows[1].origin, .resolved)
+        XCTAssertNil(rows[1].slug)
+        XCTAssertEqual(rows[1].id, "gp:gp-B")
+        XCTAssertEqual(NativeFindPresentation.provenanceBadge(for: rows[1]), "From the web")
+        // The lock: no Find row — index or resolved — ever offers Book/Request.
+        XCTAssertFalse(NativeFindPresentation.showsBookOrRequest(for: rows[0]))
+        XCTAssertFalse(NativeFindPresentation.showsBookOrRequest(for: rows[1]))
+        XCTAssertEqual(NativeFindPresentation.actionLabel(for: rows[1]), "Details")
+    }
+
+    func testFindDecoderSkipsRowsMissingIdentity() {
+        let payload: [String: Any] = ["results": [
+            ["origin": "resolved", "name": "No id"],
+            ["origin": "index", "id": "v1"],
+            ["origin": "index", "id": "v2", "name": "Kept"],
+        ]]
+        let rows = NativeFindDecoder.rows(from: payload)
+        XCTAssertEqual(rows.map(\.id), ["v2"])
+    }
+
     private func decodeRecap(_ json: String) throws -> NativePartyRecap {
         try JSONDecoder().decode(NativePartyRecap.self, from: Data(json.utf8))
     }

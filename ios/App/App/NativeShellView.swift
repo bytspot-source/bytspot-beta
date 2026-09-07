@@ -6092,6 +6092,7 @@ private struct NativeHomeDashboardView: View {
     let openNativeAccess: () -> Void
     let openNativeAuth: (NativeAuthMode, NativePostAuthIntent?) -> Void
     @State private var searchText = ""
+    @State private var homeFindResults: [NativeFindResult] = []
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @EnvironmentObject private var apiState: NativeAPIState
@@ -6214,8 +6215,9 @@ private struct NativeHomeDashboardView: View {
         .sheet(isPresented: $showValetRideSheet) {
             NativeValetPremiumRideSheet(openNativeTab: openNativeTab, openNativeAccess: openNativeAccess, openNativeAuth: { openNativeAuth(.login, nil) })
         }
+        .onChange(of: searchText) { _ in runFindSearch() }
         .sheet(isPresented: $showHomeSearchSheet) {
-            let sheet = NativeHomeSearchSheet(query: $searchText, snapshot: regionalSnapshot, location: locationStore.coordinate, onSubmit: submitSearch, onSelect: handleHomeSearchSuggestion)
+            let sheet = NativeHomeSearchSheet(query: $searchText, snapshot: regionalSnapshot, location: locationStore.coordinate, onSubmit: submitSearch, onSelect: handleHomeSearchSuggestion, findResults: homeFindResults, onSelectFind: handleFindSelection)
             if #available(iOS 16.0, *) {
                 sheet
                     .presentationDetents([.medium, .large])
@@ -7125,6 +7127,27 @@ private struct NativeHomeDashboardView: View {
         }
     }
 
+    /// Find is index-first and public, so it uses a bearer-less client and stays
+    /// silent on failure. The guard on the still-current query drops a stale
+    /// response that resolved after the user kept typing.
+    private func runFindSearch() {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.count >= 2 else { homeFindResults = []; return }
+        Task {
+            let results = (try? await NativeLiveDiscoveryAPI(client: BytspotAPIClient()).placesFind(query: query)) ?? []
+            if searchText.trimmingCharacters(in: .whitespacesAndNewlines) == query { homeFindResults = results }
+        }
+    }
+
+    /// A Find result carries no supply, so selecting it is a DETAILS action: show
+    /// where the place is on the Map. Nothing here can book or request.
+    private func handleFindSelection(_ result: NativeFindResult) {
+        showHomeSearchSheet = false
+        nativeImpactLight()
+        NativeOnboardingMapHandoff.write(destination: result.name, mode: "Route")
+        openNativeTab(.map)
+    }
+
     private func handleHomeSearchSuggestion(_ suggestion: NativeSearchSuggestion) {
         showHomeSearchSheet = false
         searchText = suggestion.title
@@ -7156,6 +7179,8 @@ private struct NativeHomeSearchSheet: View {
     let location: NativeLocationCoordinate
     let onSubmit: () -> Void
     let onSelect: (NativeSearchSuggestion) -> Void
+    var findResults: [NativeFindResult] = []
+    var onSelectFind: (NativeFindResult) -> Void = { _ in }
     var contextTitle = "Home Search"
     var contextSubtitle: String? = nil
 
@@ -7197,6 +7222,9 @@ private struct NativeHomeSearchSheet: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 10) {
+                    if !findResults.isEmpty {
+                        NativeFindResultsSection(results: findResults, onSelect: onSelectFind)
+                    }
                     ForEach(suggestions) { suggestion in
                         NativeHomeSearchSuggestionRow(suggestion: suggestion) { onSelect(suggestion) }
                     }
@@ -7227,6 +7255,73 @@ private struct NativeHomeSearchSheet: View {
                 }
             }
         }
+    }
+}
+
+private struct NativeFindResultsSection: View {
+    let results: [NativeFindResult]
+    let onSelect: (NativeFindResult) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("PLACES")
+                .font(.system(size: 10.5, weight: .black))
+                .foregroundColor(NativeTheme.textTertiary)
+            ForEach(results) { result in
+                NativeFindResultRow(result: result) { onSelect(result) }
+            }
+        }
+    }
+}
+
+private struct NativeFindResultRow: View {
+    let result: NativeFindResult
+    let action: () -> Void
+
+    private var accent: Color { result.origin == .index ? NativeTheme.cyan : NativeTheme.textSecondary }
+
+    var body: some View {
+        Button(action: { nativeImpactLight(); action() }) {
+            HStack(spacing: 12) {
+                Image(systemName: result.origin == .index ? "mappin.circle.fill" : "globe")
+                    .font(.system(size: 15, weight: .black))
+                    .foregroundColor(.black)
+                    .frame(width: 38, height: 38)
+                    .background(accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 7) {
+                        Text(result.name)
+                            .font(.system(size: 15.5, weight: .black))
+                            .foregroundColor(NativeTheme.textPrimary)
+                            .lineLimit(1)
+                        Text(NativeFindPresentation.provenanceBadge(for: result).uppercased())
+                            .font(.system(size: 9.5, weight: .black))
+                            .foregroundColor(accent)
+                            .padding(.horizontal, 6)
+                            .frame(height: 18)
+                            .background(accent.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                    Text(result.address)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(NativeTheme.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                // DETAILS-lock: a Find row is never Book/Request.
+                Text(NativeFindPresentation.actionLabel(for: result).uppercased())
+                    .font(.system(size: 10.5, weight: .black))
+                    .foregroundColor(NativeTheme.textPrimary)
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(NativePolish.glassSurface)
+                    .clipShape(Capsule())
+            }
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("native-find-row-\(result.origin.rawValue)")
     }
 }
 

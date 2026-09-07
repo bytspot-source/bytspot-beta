@@ -1504,6 +1504,7 @@ enum NativeLiveContentV2Contract {
     static let ticketmasterProvider = "ticketmaster"
     static let placesTextSearchRoute = "/trpc/places.textSearch"
     static let placesNearbySearchRoute = "/trpc/places.nearbySearch"
+    static let placesFindRoute = "/trpc/places.find"
     static let placesEnrichRoute = "/trpc/places.enrich"
     static let vendorsMatchRoute = "/trpc/vendors.match"
     static let venueIntelligenceRoute = "/trpc/venues.intelligence"
@@ -2438,6 +2439,78 @@ struct NativePlaceSearchResult: Identifiable, Equatable {
     let provider: String
 }
 
+/// A Find (Home search) result. Mirrors the server contract: every result
+/// declares its provenance, and a resolved-only place is DETAILS — it carries no
+/// Book/Request action because it has no supply behind it.
+struct NativeFindResult: Identifiable, Equatable {
+    enum Origin: String { case index, resolved }
+    let origin: Origin
+    let id: String
+    let slug: String?
+    let googlePlaceId: String?
+    let name: String
+    let address: String
+    let latitude: Double?
+    let longitude: Double?
+    let category: String?
+    let imageURL: URL?
+    /// The server sends the literal "details" today; kept for forward compatibility.
+    let capability: String
+}
+
+enum NativeFindDecoder {
+    static func rows(from payload: Any) -> [NativeFindResult] {
+        let list = (payload as? [String: Any])?["results"] as? [Any] ?? (payload as? [Any]) ?? []
+        return list.compactMap(result)
+    }
+
+    static func result(_ value: Any) -> NativeFindResult? {
+        guard let item = value as? [String: Any], let id = str(item["id"]), let name = str(item["name"]) else { return nil }
+        return NativeFindResult(
+            origin: NativeFindResult.Origin(rawValue: str(item["origin"]) ?? "resolved") ?? .resolved,
+            id: id,
+            slug: str(item["slug"]),
+            googlePlaceId: str(item["googlePlaceId"]),
+            name: name,
+            address: str(item["address"]) ?? "",
+            latitude: dbl(item["lat"]),
+            longitude: dbl(item["lng"]),
+            category: str(item["category"]),
+            imageURL: str(item["imageUrl"]).flatMap(URL.init(string:)),
+            capability: str(item["capability"]) ?? "details"
+        )
+    }
+
+    private static func str(_ value: Any?) -> String? {
+        guard let s = value as? String else { return nil }
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func dbl(_ value: Any?) -> Double? {
+        if let d = value as? Double { return d }
+        if let i = value as? Int { return Double(i) }
+        if let s = value as? String { return Double(s) }
+        return nil
+    }
+}
+
+/// Pure presentation for a Find row. The DETAILS-lock lives here: no Find result
+/// — index or resolved — ever offers Book/Request in v0, because none carries
+/// attached supply. Provenance is shown honestly so a web result is never
+/// dressed as a Bytspot place.
+enum NativeFindPresentation {
+    static func provenanceBadge(for result: NativeFindResult) -> String {
+        result.origin == .index ? "In Bytspot" : "From the web"
+    }
+
+    static func actionLabel(for result: NativeFindResult) -> String { "Details" }
+
+    /// The lock. Actionability is earned only when real supply is attached,
+    /// which no Find result has — so this is always false.
+    static func showsBookOrRequest(for result: NativeFindResult) -> Bool { false }
+}
+
 struct NativeNavigationEstimate: Equatable {
     let distanceText: String
     let durationText: String
@@ -2495,6 +2568,14 @@ struct NativeLiveDiscoveryAPI {
         let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.placesTextSearchRoute, input: ["query": query, "lat": lat, "lng": lng, "maxResults": maxResults])
         let places = Self.placeRows(from: payload).enumerated().compactMap(Self.placeResult)
         return Self.validatedLocalPlaces(places, origin: NativeLocationCoordinate(latitude: lat, longitude: lng, isFallback: false))
+    }
+
+    /// Find — index-first Home search. Our own indexed places lead, the provider
+    /// only fills a short page, and resolved-only rows stay DETAILS. Public
+    /// catalog lookup, so it needs no bearer and stays silent on failure.
+    func placesFind(query: String, maxResults: Int = 10) async throws -> [NativeFindResult] {
+        let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.placesFindRoute, input: ["query": query, "maxResults": maxResults])
+        return NativeFindDecoder.rows(from: payload)
     }
 
     /// `types` asks Google for several categories in one billed request. A

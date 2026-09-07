@@ -1178,7 +1178,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(NativeLocationAwareUIContent.hasKnownCoordinates(unresolved))
         XCTAssertNil(unresolved.rating)
         XCTAssertNil(unresolved.crowd)
-        XCTAssertEqual(unresolved.parking, NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby"))
+        XCTAssertEqual(unresolved.parking, NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby", isKnown: false))
         XCTAssertFalse(NativeVenueDetailPresentation.supportsManualCheckIn(unresolved))
 
         let mapFallback = NativeLocationAwareUIContent.mapFallback(for: location)

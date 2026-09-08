@@ -617,7 +617,8 @@ struct BytspotNativeShellView: View {
             hostStudioCircles = []
             return
         }
-        hostStudioCircles = await BytspotAPIClient().listSocialCirclesViaRpc().groups
+        let api = NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil }))
+        hostStudioCircles = await api.listSocialCirclesViaRpc().groups
     }
 
     private func preparePlainMapOpen() {

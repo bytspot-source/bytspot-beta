@@ -357,13 +357,13 @@ struct BytspotNativeShellView: View {
                     case .plan:
                         NativePlanTabView(sessionStore: sessionStore, openDiscoverFilter: openDiscoverFilter, openMap: { selectNativeTab(.map) })
                     case .discover:
-                        NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
+                        NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
                         NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membershipTier: membershipStore.tier, plainOpenGeneration: plainMapOpenGeneration, handoffMapCenter: navigation.requestedMapCenter)
                             .environmentObject(pairingStore)
                             .environmentObject(directMapRouteStore)
                     case .concierge:
-                        NativeConciergeView(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeProfile: { openNativeProfile(panel: nil) }, openNativeAuth: { openNativeAuth(mode: .login) })
+                        NativeConciergeView(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) })
                     case .profile:
                         NativeProfileTabView(
                             initialPanel: pendingProfilePanel,
@@ -10687,7 +10687,6 @@ private struct NativeDiscoverView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
     let openNativeTab: (BytspotNativeTab) -> Void
     let openDirectRoute: (NativeVenueSummary) -> Void
-    let openNativeProfile: () -> Void
     let openNativeAccess: () -> Void
     let openNativeAuth: () -> Void
     var onRideBookingCompleted: (NativeMobilityRideRecord) -> Void = { _ in }
@@ -10852,10 +10851,11 @@ private struct NativeDiscoverView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
-            NativeAccountCenterButton(action: openNativeProfile)
         }
+        // Profile is the global top-right avatar; leave room for it so the
+        // title never runs under the floating control.
+        .padding(.trailing, 56)
         .padding(.bottom, 4)
-        .accessibilityIdentifier("native-discover-account-entry")
     }
 
     private var categoryRail: some View {
@@ -16716,7 +16716,6 @@ private struct NativeConciergeView: View {
     private struct ServerResponse { let reply: String; let actions: [ActionCard]; let escalationRequired: Bool }
     let openNativeTab: (BytspotNativeTab) -> Void
     let openNativeAccess: () -> Void
-    let openNativeProfile: () -> Void
     var openNativeAuth: (() -> Void)? = nil
     @State private var draft = ""
     @State private var isListening = false
@@ -16803,11 +16802,13 @@ private struct NativeConciergeView: View {
                     }
                 }
                 Spacer()
+                // Profile is the global top-right avatar; the stack keeps only
+                // the Concierge-specific controls and clears the avatar.
                 HStack(spacing: 8) {
-                    headerIconButton(symbol: "person.crop.circle.fill", action: openNativeProfile)
                     headerIconButton(symbol: "line.3.horizontal") { withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) { showHistory.toggle() } }
                     headerIconButton(symbol: "arrow.clockwise") { resetConversation() }
                 }
+                .padding(.trailing, 52)
             }
             .padding(.horizontal, 16)
             .padding(.top, 24)
@@ -17503,25 +17504,6 @@ private struct NativeQuickAction: View {
 private struct NativeRow: View {
     let title: String; let subtitle: String; let icon: String; let action: () -> Void
     var body: some View { Button(action: action) { HStack(spacing: 13) { NativeIcon(symbol: icon, color: NativeTheme.cyan); VStack(alignment: .leading, spacing: 4) { Text(title).nativeTitle(16); Text(subtitle).nativeBody(size: 12.5) }; Spacer(); Image(systemName: "chevron.right").foregroundColor(NativeTheme.textTertiary) }.padding(15).nativePanel() }.buttonStyle(.plain) }
-}
-
-private struct NativeAccountCenterButton: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: { nativeImpactLight(); action() }) {
-            Image(systemName: "person.crop.circle.fill")
-                .font(.system(size: 17, weight: .black))
-                .foregroundColor(.white)
-                .frame(width: 40, height: 40)
-                .background(LinearGradient(colors: [NativeTheme.purple, NativeTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .overlay(Circle().stroke(Color.white.opacity(0.22), lineWidth: 1))
-                .clipShape(Circle())
-                .shadow(color: NativeTheme.purple.opacity(0.24), radius: 10, x: 0, y: 6)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Open Account Center")
-    }
 }
 
 private struct NativeIcon: View { let symbol: String; let color: Color; var body: some View { Image(systemName: symbol).font(.system(size: 18, weight: .black)).foregroundColor(.black).frame(width: 44, height: 44).background(LinearGradient(colors: [color, color.opacity(0.76)], startPoint: .topLeading, endPoint: .bottomTrailing)).overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.20), lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)).shadow(color: color.opacity(0.18), radius: 10, x: 0, y: 6) } }

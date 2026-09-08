@@ -11385,12 +11385,13 @@ private struct NativeDiscoverFeatureCard: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(displayCategory)
                                 .font(.system(size: 12, weight: .black))
-                                .foregroundColor(NativeProfileStyle.onVibrant)
+                                .foregroundColor(cardFulfillment == .details ? NativeTheme.textPrimary.opacity(0.86) : NativeProfileStyle.onVibrant)
                                 .padding(.horizontal, 13)
                                 .frame(minHeight: 36)
                                 .background(categoryGradient)
                                 .clipShape(Capsule())
-                                .shadow(color: cardAccent.opacity(0.14), radius: 6, x: 0, y: 3)
+                                .shadow(color: fulfillmentAccent.opacity(0.14), radius: 6, x: 0, y: 3)
+                            fulfillmentBadge
                             if let trustBadgeTitle {
                                 trustBadge(trustBadgeTitle)
                             }
@@ -11462,11 +11463,12 @@ private struct NativeDiscoverFeatureCard: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .foregroundColor(.black)
+                    .foregroundColor(cardFulfillment == .details ? fulfillmentAccent : .black)
                     .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(LinearGradient(colors: [NativeTheme.cyan, Color(hex: 0x38BDF8)], startPoint: .leading, endPoint: .trailing))
+                    .background(ctaBackground)
+                    .overlay(cardFulfillment == .details ? Capsule().stroke(fulfillmentAccent.opacity(0.38), lineWidth: 1.2) : nil)
                     .clipShape(Capsule())
-                    .shadow(color: NativeTheme.cyan.opacity(0.24), radius: 12, x: 0, y: 7)
+                    .shadow(color: fulfillmentAccent.opacity(0.24), radius: 12, x: 0, y: 7)
                     .accessibilityIdentifier("native-discover-primary-cta-\(card.id)")
                     if let routeAction {
                         Button(action: { nativeImpactLight(); routeAction() }) {
@@ -11475,10 +11477,10 @@ private struct NativeDiscoverFeatureCard: View {
                                 .padding(.horizontal, 14)
                         }
                         .buttonStyle(.plain)
-                        .foregroundColor(NativeTheme.cyan)
+                        .foregroundColor(fulfillmentAccent)
                         .frame(minHeight: 44)
                         .background(NativeTheme.selectedControlSurface)
-                        .overlay(Capsule().stroke(NativeTheme.cyan.opacity(0.56), lineWidth: 1.2))
+                        .overlay(Capsule().stroke(fulfillmentAccent.opacity(0.56), lineWidth: 1.2))
                         .clipShape(Capsule())
                         .accessibilityIdentifier("native-discover-route-cta-\(card.id)")
                     }
@@ -11491,10 +11493,11 @@ private struct NativeDiscoverFeatureCard: View {
         .frame(maxWidth: .infinity)
         .frame(height: Self.cardHeight)
         .background(LinearGradient(colors: [NativePolish.elevatedSurface, NativePolish.glassSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
-        .overlay(RoundedRectangle(cornerRadius: NativePolish.heroRadius, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: NativePolish.heroRadius, style: .continuous)
+            .stroke(cardFulfillment == .details ? NativePolish.softBorder : fulfillmentAccent.opacity(0.38), lineWidth: cardFulfillment == .details ? 1 : 1.4))
         .clipShape(RoundedRectangle(cornerRadius: NativePolish.heroRadius, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: NativePolish.heroRadius, style: .continuous))
-        .shadow(color: NativeTheme.softShadow, radius: 24, x: 0, y: 14)
+        .shadow(color: cardFulfillment == .details ? NativeTheme.softShadow : fulfillmentAccent.opacity(0.18), radius: 24, x: 0, y: 14)
         .offset(x: dragOffset)
         .rotationEffect(.degrees(Double(dragOffset / 58)))
         .scaleEffect(isPressing ? 0.985 : 1.0)
@@ -11665,6 +11668,45 @@ private struct NativeDiscoverFeatureCard: View {
         .allowsHitTesting(false)
     }
 
+    @ViewBuilder
+    private var fulfillmentBadge: some View {
+        switch cardFulfillment {
+        case .book:
+            HStack(spacing: 5) {
+                Circle().fill(NativeTheme.emerald).frame(width: 7, height: 7)
+                Text("Book on Bytspot").font(.system(size: 10, weight: .black))
+            }
+            .foregroundColor(NativeTheme.emerald)
+            .padding(.horizontal, 9)
+            .frame(minHeight: 24)
+            .background(NativePolish.elevatedSurface.opacity(0.92))
+            .overlay(Capsule().stroke(NativeTheme.emerald.opacity(0.30), lineWidth: 1))
+            .clipShape(Capsule())
+        case .request:
+            HStack(spacing: 5) {
+                Circle().fill(NativeTheme.amber).frame(width: 7, height: 7)
+                Text("Request").font(.system(size: 10, weight: .black))
+            }
+            .foregroundColor(NativeTheme.amber)
+            .padding(.horizontal, 9)
+            .frame(minHeight: 24)
+            .background(NativePolish.elevatedSurface.opacity(0.92))
+            .overlay(Capsule().stroke(NativeTheme.amber.opacity(0.30), lineWidth: 1))
+            .clipShape(Capsule())
+        case .details:
+            HStack(spacing: 5) {
+                Circle().fill(Color(hex: 0x9CA3AF)).frame(width: 7, height: 7)
+                Text("Details").font(.system(size: 10, weight: .black))
+            }
+            .foregroundColor(Color(hex: 0x9CA3AF))
+            .padding(.horizontal, 9)
+            .frame(minHeight: 24)
+            .background(NativePolish.elevatedSurface.opacity(0.92))
+            .overlay(Capsule().stroke(Color(hex: 0x9CA3AF).opacity(0.30), lineWidth: 1))
+            .clipShape(Capsule())
+        }
+    }
+
     private var patchVerifiedBadge: some View {
         HStack(spacing: 5) {
             Image(systemName: "checkmark.shield.fill").font(.system(size: 10, weight: .black))
@@ -11697,6 +11739,26 @@ private struct NativeDiscoverFeatureCard: View {
         .clipShape(Capsule())
     }
 
+    // ─── Fulfillment-driven accent (C1 card atom) ───────────────────────
+    // The card's primary accent is driven by what Bytspot can do with this
+    // place (capability → fulfillment), not what category it belongs to.
+    //   🟢 book    → emerald  (we settle it — own inventory)
+    //   🟡 request → amber    (we broker the ask — hold)
+    //   ⚪ details → neutral  (information only)
+    private var cardFulfillment: NativeDiscoverFulfillment {
+        NativeDiscoverListing.fulfillment(control: card.control, rail: card.type)
+    }
+
+    private var fulfillmentAccent: Color {
+        switch cardFulfillment {
+        case .book: return NativeTheme.emerald
+        case .request: return NativeTheme.amber
+        case .details: return Color(hex: 0x9CA3AF)   // neutral grey
+        }
+    }
+
+    // Category tint — retained only for the hero fallback gradient where the
+    // place's category (dining emoji, nightlife emoji) drives the tint.
     private var cardAccent: Color {
         if isValetPremiumRideCard { return NativeTheme.cyan }
         switch card.type {
@@ -11712,7 +11774,17 @@ private struct NativeDiscoverFeatureCard: View {
     private var badgeColor: Color { card.entryType == "free" ? NativeTheme.cyan : NativeTheme.purple }
 
     private var categoryGradient: LinearGradient {
-        LinearGradient(colors: [cardAccent, cardAccent.opacity(0.82)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(colors: [fulfillmentAccent, fulfillmentAccent.opacity(0.82)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    /// CTA button fill: solid gradient for book/request, transparent for details.
+    @ViewBuilder
+    private var ctaBackground: some View {
+        if cardFulfillment == .details {
+            NativeTheme.selectedControlSurface
+        } else {
+            LinearGradient(colors: [fulfillmentAccent, fulfillmentAccent.opacity(0.82)], startPoint: .leading, endPoint: .trailing)
+        }
     }
 
     private var fallbackEmoji: String {

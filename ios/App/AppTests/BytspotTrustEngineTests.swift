@@ -525,6 +525,28 @@ final class BytspotTrustEngineTests: XCTestCase {
         }
     }
 
+    /// C1 card atom: fulfillment drives the capability token that the card
+    /// accent reads, so the three-tier badge text is determined by fulfillment.
+    func testFulfillmentCapabilityTokenMatchesDesignContract() {
+        // 🟢 book → "book", 🟡 request → "request", ⚪ details → "details"
+        XCTAssertEqual(NativeDiscoverFulfillment.book.capabilityToken, "book")
+        XCTAssertEqual(NativeDiscoverFulfillment.request.capabilityToken, "request")
+        XCTAssertEqual(NativeDiscoverFulfillment.details.capabilityToken, "details")
+    }
+
+    /// C1: a local card can never produce .book or .request fulfillment,
+    /// so the green/amber accent is structurally impossible for catalog places.
+    func testLocalCardNeverProducesBookOrRequestFulfillment() throws {
+        let catalog = try listingCatalog()
+        let local = NativeDiscoverCardControl.local
+        for rail in ["dining", "nightlife", "coffee", "parking", "shopping", "entertainment", "mobility", "service", "fitness", "boutique_apartment"] {
+            for ready in [true, false] {
+                let f = NativeDiscoverListing.fulfillment(control: local, rail: rail, settlementReady: ready, catalog: catalog)
+                XCTAssertEqual(f, .details, "local card on \(rail) ready=\(ready) got \(f) instead of .details")
+            }
+        }
+    }
+
     func testHomeAIPickRefusesAPromiseALocalCardCannotKeep() throws {
         let catalog = try listingCatalog()
         let local = NativeDiscoverCardControl.local

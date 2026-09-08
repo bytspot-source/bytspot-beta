@@ -3505,7 +3505,7 @@ final class NativeProfileDataAPITests: XCTestCase {
         let message = NativePlanDisplay.inviteMessage(title: "Rooftop then dinner")
         // Carries the plan title and reads as an invite, never a confirmation.
         XCTAssertTrue(message.contains("Rooftop then dinner"))
-        XCTAssertTrue(message.contains("say if you’re in"))
+        XCTAssertTrue(message.contains("say if you're in"))
         XCTAssertFalse(message.lowercased().contains("confirmed"))
         // The link is the server-rendered /plan landing, not a bare app link.
         XCTAssertEqual(NativePlanDisplay.inviteLink(planId: "plan-1")?.absoluteString, "https://bytspot.app/plan/plan-1")
@@ -4859,7 +4859,7 @@ final class NativePlanCreateTests: XCTestCase {
         XCTAssertNil(NativePlanDisplay.partySizeExceedsCoffeeNotice(2))
         XCTAssertEqual(
             NativePlanDisplay.partySizeExceedsCoffeeNotice(12),
-            "A coffee hold covers up to 8. A table for 12 needs the spot’s own say-so."
+            "A coffee hold covers up to 8. A table for 12 needs the spot's own say-so."
         )
     }
 
@@ -4876,7 +4876,7 @@ final class NativePlanCreateTests: XCTestCase {
         // whatever the server said.
         XCTAssertEqual(
             NativePlanDisplay.createFailureMessage(for: BytspotAPIClient.APIError.server(status: 500, body: "PrismaClientKnownRequestError")),
-            "That didn’t go through."
+            "That didn't go through."
         )
     }
 }

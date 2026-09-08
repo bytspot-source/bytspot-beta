@@ -59,6 +59,31 @@ struct NativePlan: Codable, Identifiable, Equatable {
 
 struct NativePlansList: Codable { let plans: [NativePlan] }
 
+extension NativeFindResult {
+    /// Synthesise a venue summary from a Find result so it can stage on the
+    /// Map (pin + peek card) and open native detail. Unhydrated fields use
+    /// explicit "unknown" markers rather than suppressed modules — the user
+    /// sees "Parking unknown" and "Hours pending" instead of nothing.
+    func toVenueSummary() -> NativeVenueSummary? {
+        guard let lat = latitude, let lng = longitude,
+              NativeVenueSummary.hasValidMapCoordinate(latitude: lat, longitude: lng) else { return nil }
+        return NativeVenueSummary(
+            id: id,
+            name: name,
+            category: category ?? "venue",
+            address: address,
+            distance: "",
+            rating: nil,
+            latitude: lat,
+            longitude: lng,
+            crowd: nil,
+            parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—", isKnown: false),
+            verifiedPatchId: nil,
+            imageUrl: imageURL
+        )
+    }
+}
+
 // MARK: - Prime Path response models
 
 struct NativePrimePathCandidate: Codable, Identifiable, Equatable {

@@ -3350,6 +3350,25 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(rows.map(\.id), ["v2"])
     }
 
+    // MARK: - Find → Map staging (Find polish)
+
+    func testFindResultToVenueSummaryStagesWithUnknownParkingMarker() {
+        let result = NativeFindResult(origin: .resolved, id: "gp-1", slug: nil, googlePlaceId: "ChIJ", name: "Ponce City Market", address: "675 Ponce De Leon Ave", latitude: 33.7726, longitude: -84.3654, category: "dining", imageURL: nil, capability: "details")
+        let venue = result.toVenueSummary()
+        XCTAssertNotNil(venue)
+        XCTAssertEqual(venue?.name, "Ponce City Market")
+        XCTAssertEqual(venue?.category, "dining")
+        XCTAssertFalse(venue?.parking.isKnown ?? true, "Find-derived venue must carry isKnown=false")
+        XCTAssertEqual(venue?.latitude, 33.7726)
+    }
+
+    func testFindResultWithoutCoordinatesReturnsNilVenue() {
+        let noCoords = NativeFindResult(origin: .resolved, id: "gp-2", slug: nil, googlePlaceId: nil, name: "Nowhere", address: "Unknown", latitude: nil, longitude: nil, category: nil, imageURL: nil, capability: "details")
+        XCTAssertNil(noCoords.toVenueSummary())
+        let zeroCoords = NativeFindResult(origin: .resolved, id: "gp-3", slug: nil, googlePlaceId: nil, name: "Origin", address: "0,0", latitude: 0, longitude: 0, category: nil, imageURL: nil, capability: "details")
+        XCTAssertNil(zeroCoords.toVenueSummary(), "(0,0) is not a valid venue coordinate")
+    }
+
     func testParkingSummaryUnknownMarkerDefaultsToKnown() {
         let known = NativeParkingSummary(totalAvailable: 14, priceLabel: "$8/hr")
         XCTAssertTrue(known.isKnown, "Existing callers that omit isKnown must default to true")

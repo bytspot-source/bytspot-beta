@@ -7144,7 +7144,14 @@ private struct NativeHomeDashboardView: View {
     private func handleFindSelection(_ result: NativeFindResult) {
         showHomeSearchSheet = false
         nativeImpactLight()
-        NativeOnboardingMapHandoff.write(destination: result.name, mode: "Route")
+        // Find polish: stage a proper pin on the Map (peek card + native
+        // detail) instead of a bare destination-string handoff.
+        if let venue = result.toVenueSummary() {
+            NativeMapFocusHandoff.store(venue: venue, modeOverride: "Route")
+        } else {
+            // No coordinates — fall back to the name-based search.
+            NativeOnboardingMapHandoff.write(destination: result.name, mode: "Route")
+        }
         openNativeTab(.map)
     }
 

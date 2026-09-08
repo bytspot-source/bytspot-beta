@@ -3530,6 +3530,46 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(item.reservation)
     }
 
+    // MARK: - Prime Path display (C3)
+
+    func testCandidateFulfillmentMapsCapabilityToTier() {
+        let book = NativePrimePathCandidate(id: "c1", label: "Venue A", capability: "book", ownInventory: true, seats: 10, discovered: false, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        let request = NativePrimePathCandidate(id: "c2", label: "Venue B", capability: "request", ownInventory: true, seats: 5, discovered: true, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        let details = NativePrimePathCandidate(id: "c3", label: "Venue C", capability: "details", ownInventory: false, seats: 0, discovered: nil, minParty: 1, confirmableNow: false, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.candidateFulfillment(book), .book)
+        XCTAssertEqual(NativePlanDisplay.candidateFulfillment(request), .request)
+        XCTAssertEqual(NativePlanDisplay.candidateFulfillment(details), .details)
+    }
+
+    func testSeatsLabelShowsHonestAvailability() {
+        let open = NativePrimePathCandidate(id: "c1", label: "X", capability: "book", ownInventory: true, seats: 4, discovered: false, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.seatsLabel(open), "4 spots open")
+        let single = NativePrimePathCandidate(id: "c2", label: "X", capability: "book", ownInventory: true, seats: 1, discovered: false, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.seatsLabel(single), "1 spot open")
+        let unavailable = NativePrimePathCandidate(id: "c3", label: "X", capability: "book", ownInventory: true, seats: 10, discovered: false, minParty: 1, confirmableNow: false, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.seatsLabel(unavailable), "Not available right now")
+        let full = NativePrimePathCandidate(id: "c4", label: "X", capability: "book", ownInventory: true, seats: 0, discovered: false, minParty: 1, confirmableNow: false, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.seatsLabel(full), "Not available right now")
+    }
+
+    func testSourceBadgeDistinguishesDiscoveredFromAttached() {
+        let discovered = NativePrimePathCandidate(id: "d1", label: "X", capability: "request", ownInventory: true, seats: 5, discovered: true, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        let attached = NativePrimePathCandidate(id: "a1", label: "X", capability: "book", ownInventory: true, seats: 5, discovered: false, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.sourceBadge(discovered), "Suggestion")
+        XCTAssertEqual(NativePlanDisplay.sourceBadge(attached), "Your plan")
+    }
+
+    func testPrimePathCTAShowsAddToPlanForDiscoveredAndFulfillmentForAttached() {
+        let discovered = NativePrimePathCandidate(id: "d1", label: "X", capability: "book", ownInventory: true, seats: 5, discovered: true, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.primePathCTA(discovered), "Add to Plan")
+        let book = NativePrimePathCandidate(id: "a1", label: "X", capability: "book", ownInventory: true, seats: 5, discovered: false, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.primePathCTA(book), "Book on Bytspot")
+        let request = NativePrimePathCandidate(id: "a2", label: "X", capability: "request", ownInventory: true, seats: 5, discovered: false, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.primePathCTA(request), "Request")
+        let details = NativePrimePathCandidate(id: "a3", label: "X", capability: "details", ownInventory: false, seats: 0, discovered: nil, minParty: 1, confirmableNow: false, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.primePathCTA(details), "Details")
+    }
+
     // MARK: - Plan invite link + join (Phase 2a)
 
     func testPlanCreatorPayloadCarriesJoinTokenAndGuestCopyDoesNot() throws {

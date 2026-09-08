@@ -53,11 +53,39 @@ struct NativePlan: Codable, Identifiable, Equatable {
     let participants: [Participant]
     let items: [Item]
     /// The bearer join link secret. The server returns it to the creator alone,
-    /// so it is absent — nil — on a guest's copy of the same Plan.
+    /// so it is absent - nil - on a guest's copy of the same Plan.
     let joinToken: String?
 }
 
 struct NativePlansList: Codable { let plans: [NativePlan] }
+
+// MARK: - Prime Path response models
+
+struct NativePrimePathCandidate: Codable, Identifiable, Equatable {
+    let id: String
+    let label: String
+    let capability: String
+    let ownInventory: Bool
+    let seats: Int
+    let discovered: Bool?
+    let minParty: Int
+    let confirmableNow: Bool
+    let travelMinutes: Int?
+    let reliability: Double
+    let continuationValue: Double
+    let startLabel: String?
+}
+
+struct NativePrimePathNeed: Codable, Equatable {
+    let needKind: String
+    let prime: NativePrimePathCandidate?
+    let alternates: [NativePrimePathCandidate]
+    let reason: String?
+}
+
+struct NativePrimePathResponse: Codable, Equatable {
+    let needs: [NativePrimePathNeed]
+}
 
 struct NativePlanAPI {
     let client: BytspotAPIClient
@@ -125,14 +153,19 @@ struct NativePlanAPI {
         return id
     }
 
-    /// The caller never states the capability — the server derives it from the
-    /// supply — so the input carries only the reservation the item points at.
+    /// The caller never states the capability - the server derives it from the
+    /// supply - so the input carries only the reservation the item points at.
     func attachCoffeeReservation(planID: String, reservationID: String) async throws {
         _ = try await client.trpcPayload(
             path: "/trpc/plans.attach",
             method: "POST",
             input: ["planId": planID, "needKind": "coffee", "supplyRef": ["coffeeReservationId": reservationID]]
         )
+    }
+
+    func primePath(_ planID: String) async throws -> NativePrimePathResponse {
+        let payload = try await client.trpcQueryPayload(path: "/trpc/plans.primePath", input: ["planId": planID])
+        return try JSONDecoder().decode(NativePrimePathResponse.self, from: JSONSerialization.data(withJSONObject: payload))
     }
 }
 
@@ -165,7 +198,7 @@ enum NativePlanContract {
 
 /// Words on the row. Kept out of the view so a unit test can pin them without
 /// standing up SwiftUI, and so the copy is a single source of truth for the
-/// list and the detail — a row that reads "Confirmed" one screen and
+/// list and the detail - a row that reads "Confirmed" one screen and
 /// "Confirmed · 2 going" the next would betray the whole rule Plan is under.
 /// A Bytspot connection the caller can invite to a Plan. `id` is the other
 /// person's userId; `name` is their display name from the social graph.
@@ -174,7 +207,7 @@ struct NativePlanConnection: Identifiable, Equatable { let id: String; let name:
 enum NativePlanDisplay {
     /// A state chip never renders alone; it is always paired with readiness,
     /// because the creator's confirmation is not what makes anyone show up.
-    /// Do not call `stateLabel` directly from a view — always go through
+    /// Do not call `stateLabel` directly from a view - always go through
     /// `rowSubtitle(state:readiness:)`, or the honesty rule this file is
     /// under quietly breaks the first time a caller inlines the chip.
     static func stateLabel(_ state: String) -> String {
@@ -191,7 +224,7 @@ enum NativePlanDisplay {
     }
 
     /// Readiness in one line: going wins, maybe follows, pending is the ask
-    /// still open. Declined and removed do not surface here — a Plan is
+    /// still open. Declined and removed do not surface here - a Plan is
     /// coordination, not a scoreboard.
     static func readinessLabel(_ readiness: NativePlan.Readiness) -> String {
         var parts: [String] = ["\(readiness.going) going"]
@@ -220,7 +253,7 @@ enum NativePlanDisplay {
     }
 
     /// The needs a caller can declare when starting a Plan. A need is the
-    /// caller's own checklist line, not a promise Bytspot will fill it —
+    /// caller's own checklist line, not a promise Bytspot will fill it -
     /// `needsFootnote` says that out loud, because coffee is the only one with
     /// an attach path today.
     static let selectableNeeds = ["coffee", "dining", "nightlife", "parking", "mobility", "stay"]
@@ -243,7 +276,7 @@ enum NativePlanDisplay {
 
     /// Where a still-open need can be acted on today. `nil` means Bytspot has
     /// no destination for it yet ("stay"), so it stays a plain checklist line
-    /// rather than a button that goes nowhere — the same honesty the
+    /// rather than a button that goes nowhere - the same honesty the
     /// needs footnote carries.
     enum NeedDestination: Equatable { case discover(String); case map }
     static func needDestination(_ need: String) -> NeedDestination? {
@@ -264,7 +297,7 @@ enum NativePlanDisplay {
         }
     }
 
-    /// A quick-start idea. It only prefills the create sheet — title, one line
+    /// A quick-start idea. It only prefills the create sheet - title, one line
     /// of intent, and a few needs the caller then edits. It is not a Plan and
     /// nothing is arranged; the create sheet still requires an explicit submit.
     struct PlanTemplate: Identifiable, Equatable {
@@ -274,7 +307,7 @@ enum NativePlanDisplay {
         let needs: [String]
         var needsSummary: String { needs.map(NativePlanDisplay.needLabel).joined(separator: " · ") }
     }
-    /// Deliberately versatile — day and night, small and large — so the tab
+    /// Deliberately versatile - day and night, small and large - so the tab
     /// never reads as a nightlife-only surface. Every need here is a member of
     /// `selectableNeeds`, enforced by test, so an idea can never prefill a
     /// token the create sheet cannot show.
@@ -282,8 +315,8 @@ enum NativePlanDisplay {
         PlanTemplate(id: "coffee", title: "Coffee catch-up", intent: "Grab coffee and catch up.", needs: ["coffee"]),
         PlanTemplate(id: "lunch", title: "Lunch nearby", intent: "Find somewhere for lunch.", needs: ["dining"]),
         PlanTemplate(id: "dinner", title: "Dinner out", intent: "Dinner out with the crew.", needs: ["dining"]),
-        PlanTemplate(id: "night", title: "Night out", intent: "Dinner and drinks — make a night of it.", needs: ["dining", "nightlife"]),
-        PlanTemplate(id: "dayout", title: "Day out", intent: "A day out — sort parking and food.", needs: ["parking", "dining"]),
+        PlanTemplate(id: "night", title: "Night out", intent: "Dinner and drinks - make a night of it.", needs: ["dining", "nightlife"]),
+        PlanTemplate(id: "dayout", title: "Day out", intent: "A day out - sort parking and food.", needs: ["parking", "dining"]),
     ]
 
     /// The seats worth showing: a removed participant is gone, not a member
@@ -299,18 +332,18 @@ enum NativePlanDisplay {
     }
     /// A participant's name for the People list. The caller is "You"; a known
     /// connection shows their name; anyone else is a plain "Bytspot member"
-    /// — a raw opaque userId is never printed at someone else.
+    /// - a raw opaque userId is never printed at someone else.
     static func participantDisplayName(_ seat: NativePlan.Participant, selfUserId: String?, connections: [NativePlanConnection]) -> String {
         if let selfUserId, seat.userId == selfUserId { return "You" }
         if let match = connections.first(where: { $0.id == seat.userId }) { return match.name }
         return "Bytspot member"
     }
     /// The line the creator sends when inviting someone not on Bytspot. It is
-    /// an invite, not a confirmation — "say if you're in" maps to the same
+    /// an invite, not a confirmation - "say if you're in" maps to the same
     /// Going/Maybe/Decline the invitee answers with. Kept pure so the copy is
     /// tested, not eyeballed.
     static func inviteMessage(title: String) -> String {
-        "Join my plan on Bytspot — \u{201C}\(title)\u{201D}. Tap to see it and say if you’re in:"
+        "Join my plan on Bytspot - \u{201C}\(title)\u{201D}. Tap to see it and say if you're in:"
     }
     /// The link the message carries. `/plan/<id>` is a Universal Link: on a
     /// device with the app it opens the join sheet directly; otherwise it falls
@@ -349,13 +382,47 @@ enum NativePlanDisplay {
     /// sentence has to travel with the needs wherever they are shown.
     static let openNeedsFootnote = "Coffee is the only one Bytspot can hold. The rest are yours to sort."
 
+    // MARK: - Prime Path display
+
+    /// The fulfillment tier for a Prime Path candidate, matching the card atom
+    /// accent contract: book → emerald, request → amber, details → neutral.
+    static func candidateFulfillment(_ candidate: NativePrimePathCandidate) -> NativeDiscoverFulfillment {
+        switch candidate.capability {
+        case "book": return .book
+        case "request": return .request
+        default: return .details
+        }
+    }
+
+    /// Human-readable seats line. Never lies about availability.
+    static func seatsLabel(_ candidate: NativePrimePathCandidate) -> String {
+        if !candidate.confirmableNow { return "Not available right now" }
+        if candidate.seats <= 0 { return "Full" }
+        return "\(candidate.seats) spot\(candidate.seats == 1 ? "" : "s") open"
+    }
+
+    /// Badge text for a discovered (B4c) candidate vs an attached item.
+    static func sourceBadge(_ candidate: NativePrimePathCandidate) -> String {
+        candidate.discovered == true ? "Suggestion" : "Your plan"
+    }
+
+    /// CTA label for Prime Path cards.
+    static func primePathCTA(_ candidate: NativePrimePathCandidate) -> String {
+        if candidate.discovered == true { return "Add to Plan" }
+        switch candidate.capability {
+        case "book": return "Book on Bytspot"
+        case "request": return "Request"
+        default: return "Details"
+        }
+    }
+
     static let timeShortensLifeFootnote = "A Plan with a time stops waiting at that time. Without one it stays open for a week."
 
     /// A coffee hold tops out at eight seats, so a larger Plan cannot be met
     /// by that path in one ask. Said up front rather than clamped in silence.
     static func partySizeExceedsCoffeeNotice(_ partySize: Int) -> String? {
         guard partySize > 8 else { return nil }
-        return "A coffee hold covers up to 8. A table for \(partySize) needs the spot’s own say-so."
+        return "A coffee hold covers up to 8. A table for \(partySize) needs the spot's own say-so."
     }
 
     /// A short "when" line. Absent starts are printed as "When TBD" rather
@@ -367,7 +434,7 @@ enum NativePlanDisplay {
         let dayText = dayFormatter.string(from: startsDate)
         let startsText = timeFormatter.string(from: startsDate)
         if let ends = endsAt, let endsDate = ISO8601DateFormatter.partyControlDate(from: ends) {
-            return "\(dayText) · \(startsText) – \(timeFormatter.string(from: endsDate))"
+            return "\(dayText) · \(startsText) - \(timeFormatter.string(from: endsDate))"
         }
         return "\(dayText) · \(startsText)"
     }
@@ -377,8 +444,8 @@ private let planRowBackground = Color.white.opacity(0.06)
 
 /// The Plans surface. The caller can see their plans, confirm or cancel the
 /// ones they own, and respond to the ones they're invited to. Phase 2 adds the
-/// surface that produces a Plan in the first place, plus one attach path —
-/// coffee — because it is the first supply Bytspot can actually hold. Invite
+/// surface that produces a Plan in the first place, plus one attach path -
+/// coffee - because it is the first supply Bytspot can actually hold. Invite
 /// and general Discover attach are still left off until Discover has a
 /// supported "Add to Plan" hook.
 struct NativePlansPanel: View {
@@ -392,7 +459,7 @@ struct NativePlansPanel: View {
     var showsSuggestions: Bool = false
     /// The Plan tab owns creation. In the Profile sheet this is a read view of
     /// the plans you're part of, so it drops the create surface and points at
-    /// the tab instead — one home for starting a Plan, not two.
+    /// the tab instead - one home for starting a Plan, not two.
     var showsCreate: Bool = true
     @State private var plans: [NativePlan] = []
     @State private var errorMessage: String?
@@ -402,7 +469,7 @@ struct NativePlansPanel: View {
     /// Held until the create sheet has finished dismissing. Assigning
     /// `selectedPlanID` while that sheet is still on screen asks one host to
     /// present a second sheet mid-teardown, which UIKit drops rather than
-    /// queues — the detail would never open, and the id would be left set so
+    /// queues - the detail would never open, and the id would be left set so
     /// the row for that Plan could no longer be tapped.
     @State private var pendingCreatedPlanID: String?
     /// The idea a caller tapped, prefilled into the create sheet and cleared
@@ -472,7 +539,7 @@ struct NativePlansPanel: View {
     // but starting and shaping a Plan happens in the tab. This one honest line
     // says where, so the read view is not read as a dead end.
     private var savedPlansNote: some View {
-        Text("Plans you’re part of. Start and shape them in the Plan tab.")
+        Text("Plans you're part of. Start and shape them in the Plan tab.")
             .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
     }
 
@@ -521,7 +588,7 @@ struct NativePlansPanel: View {
                     }
                 }
             }
-            Text("A starting point — you edit everything before it’s a Plan.")
+            Text("A starting point - you edit everything before it's a Plan.")
                 .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
         }
     }
@@ -534,7 +601,7 @@ struct NativePlansPanel: View {
             plans = try await NativePlanAPI(client: client).list()
             errorMessage = nil
         } catch {
-            errorMessage = "Couldn’t load your plans."
+            errorMessage = "Couldn't load your plans."
         }
     }
 }
@@ -549,8 +616,8 @@ private struct NativePlansEmptyState: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("No plans yet.").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
             Text(showsCreate
-                 ? "A Plan holds who’s coming and what you still need, in one place. Start one and it lands here."
-                 : "A Plan holds who’s coming and what you still need, in one place. Start one in the Plan tab and it lands here.")
+                 ? "A Plan holds who's coming and what you still need, in one place. Start one and it lands here."
+                 : "A Plan holds who's coming and what you still need, in one place. Start one in the Plan tab and it lands here.")
                 .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
         }
     }
@@ -594,6 +661,9 @@ private struct NativePlanDetailSheet: View {
     /// The caller's accepted connections, loaded once alongside the Plan.
     /// Doubles as the invite source and the name book for the People list.
     @State private var connections: [NativePlanConnection] = []
+    /// C3: Prime Path ranked candidates, loaded after the Plan to avoid
+    /// blocking the initial render.
+    @State private var primePathNeeds: [NativePrimePathNeed] = []
 
     private var isCreator: Bool { plan?.creatorUserId == sessionStore.authenticatedUserID }
 
@@ -653,7 +723,7 @@ private struct NativePlanDetailSheet: View {
                 }
                 // Without this the list reads as outstanding arrangements
                 // Bytspot is working on. Only coffee has an attach path, and
-                // this is the durable surface — the create sheet's footnote is
+                // this is the durable surface - the create sheet's footnote is
                 // long gone by the time anyone reads this.
                 Text(NativePlanDisplay.openNeedsFootnote)
                     .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
@@ -701,7 +771,7 @@ private struct NativePlanDetailSheet: View {
                     if seat.role == "creator" { Text("HOST").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.purple) }
                     Spacer()
                     Text(seat.status.capitalized).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
-                    // Only the creator can remove, and never themselves — the
+                    // Only the creator can remove, and never themselves - the
                     // creator leaves by cancelling the Plan, which the router
                     // enforces too.
                     if isCreator && seat.role != "creator" && seat.userId != sessionStore.authenticatedUserID {
@@ -712,6 +782,11 @@ private struct NativePlanDetailSheet: View {
                     }
                 }
             }
+        }
+
+        // MARK: Prime Path (C3)
+        if !primePathNeeds.isEmpty {
+            primePathSection
         }
 
         if plan.lifecycle != "cancelled" && plan.state != "expired" && plan.state != "completed" {
@@ -740,11 +815,90 @@ private struct NativePlanDetailSheet: View {
         }
     }
 
+    // MARK: - Prime Path section (C3)
+
+    private var primePathSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(primePathNeeds, id: \.needKind) { need in
+                sectionHeader("\(NativePlanDisplay.needLabel(need.needKind)) — Prime Path")
+
+                if let prime = need.prime, let reason = need.reason {
+                    primePathCard(prime, reason: reason, isPrime: true)
+                }
+
+                if !need.alternates.isEmpty {
+                    if need.prime != nil {
+                        Text("Alternates").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textTertiary).padding(.top, 4)
+                    }
+                    ForEach(need.alternates) { candidate in
+                        primePathCard(candidate, reason: nil, isPrime: false)
+                    }
+                }
+            }
+        }
+    }
+
+    private func primePathCard(_ candidate: NativePrimePathCandidate, reason: String?, isPrime: Bool) -> some View {
+        let fulfillment = NativePlanDisplay.candidateFulfillment(candidate)
+        let accent: Color = {
+            switch fulfillment {
+            case .book: return NativeTheme.emerald
+            case .request: return NativeTheme.amber
+            case .details: return Color(hex: 0x9CA3AF)
+            }
+        }()
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Circle().fill(accent).frame(width: 8, height: 8)
+                Text(candidate.label)
+                    .font(.system(size: 15, weight: .black))
+                    .foregroundColor(NativeTheme.textPrimary)
+                    .lineLimit(2)
+                Spacer()
+                Text(NativePlanDisplay.sourceBadge(candidate))
+                    .font(.system(size: 10, weight: .black))
+                    .foregroundColor(candidate.discovered == true ? NativeTheme.purple : NativeTheme.textSecondary)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(candidate.discovered == true ? NativeTheme.purple.opacity(0.15) : NativeTheme.selectedControlSurface)
+                    .clipShape(Capsule())
+            }
+
+            HStack(spacing: 12) {
+                Text(NativePlanDisplay.seatsLabel(candidate))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(candidate.confirmableNow ? accent : NativeTheme.textTertiary)
+                Text(NativePlanDisplay.primePathCTA(candidate))
+                    .font(.system(size: 11, weight: .black))
+                    .foregroundColor(fulfillment == .details ? accent : .black)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(fulfillment == .details ? NativeTheme.selectedControlSurface : accent)
+                    .overlay(fulfillment == .details ? Capsule().stroke(accent.opacity(0.38), lineWidth: 1) : nil)
+                    .clipShape(Capsule())
+            }
+
+            if let reason {
+                Text(reason)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(NativeTheme.textSecondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(14)
+        .background(isPrime ? accent.opacity(0.06) : NativePolish.glassSurface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(isPrime ? accent.opacity(0.32) : NativePolish.softBorder, lineWidth: isPrime ? 1.4 : 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityIdentifier("native-prime-path-card-\(candidate.id)")
+    }
+
     @ViewBuilder private func actions(for plan: NativePlan) -> some View {
         if isCreator {
             // A Plan is a group object, and inviting is the one multi-person
             // action the creator drives. It is a secondary CTA, not the purple
-            // primary: inviting adds a seat, it does not confirm anyone — each
+            // primary: inviting adds a seat, it does not confirm anyone - each
             // invitee still answers for themselves.
             Button(action: { showInvite = true }) {
                 ctaLabel("Invite people", background: planRowBackground, foreground: NativeTheme.textPrimary)
@@ -759,7 +913,7 @@ private struct NativePlanDetailSheet: View {
             .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-add-coffee")
             if plan.lifecycle == "proposed" {
                 Button(action: { Task { await run { try await api().confirm(planID) } } }) {
-                    ctaLabel(busy ? "Working…" : "Confirm this Plan", background: NativeTheme.purple, foreground: .white)
+                    ctaLabel(busy ? "Working..." : "Confirm this Plan", background: NativeTheme.purple, foreground: .white)
                 }
                 .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-confirm")
             }
@@ -807,12 +961,28 @@ private struct NativePlanDetailSheet: View {
         // must never issue an authenticated tRPC call with a nil token.
         guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to update this Plan."; return }
         busy = true; defer { busy = false }
-        do { try await operation(); onChanged(); await reload() } catch { errorMessage = "That didn’t go through." }
+        do { try await operation(); onChanged(); await reload() } catch { errorMessage = "That didn't go through." }
     }
 
     private func reload() async {
         guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to see this Plan."; return }
-        do { plan = try await api().get(planID); errorMessage = nil } catch { errorMessage = "Couldn’t load this Plan." }
+        do { plan = try await api().get(planID); errorMessage = nil } catch { errorMessage = "Couldn't load this Plan." }
+        await loadPrimePath()
+    }
+
+    /// C3: Load Prime Path candidates after the Plan itself. A failure is
+    /// silent — the section simply doesn't appear.
+    private func loadPrimePath() async {
+        guard sessionStore.canAttachBearerToken else { return }
+        guard let plan, plan.lifecycle != "cancelled", plan.state != "expired", plan.state != "completed" else { primePathNeeds = []; return }
+        do {
+            let response = try await api().primePath(planID)
+            primePathNeeds = response.needs.filter { need in
+                need.prime != nil || !need.alternates.isEmpty
+            }
+        } catch {
+            primePathNeeds = []
+        }
     }
 
     private func socialAPI() -> NativeProfileDataAPI {
@@ -834,7 +1004,7 @@ private struct NativePlanDetailSheet: View {
 
     // Reaching someone not on Bytspot: hand the OS share sheet a plan link and
     // a short line the creator sends from their own device. Bytspot never sees
-    // the recipient's number — the phone invariant is the API's, and the client
+    // the recipient's number - the phone invariant is the API's, and the client
     // must not route around it. The link opens the /plan landing page.
     private func inviteByText(for plan: NativePlan) {
         guard let url = NativePlanDisplay.inviteLink(planId: plan.id, token: plan.joinToken) else { return }
@@ -847,12 +1017,12 @@ private struct NativePlanDetailSheet: View {
         guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to update this Plan."; return false }
         busy = true; defer { busy = false }
         do { try await api().invite(planID, userId: userId); onChanged(); await reload(); return true }
-        catch { errorMessage = "That didn’t go through."; return false }
+        catch { errorMessage = "That didn't go through."; return false }
     }
 }
 
 /// Inviting from the Plan. The source is the caller's accepted Bytspot
-/// connections — no phone numbers, no link to strangers — which is Option 2's
+/// connections - no phone numbers, no link to strangers - which is Option 2's
 /// whole point: reach the people you already know. Each row is a plain add;
 /// the invitee answers for themselves from their own Plan list.
 private struct NativePlanInviteSheet: View {
@@ -871,7 +1041,7 @@ private struct NativePlanInviteSheet: View {
                     Spacer()
                     Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 24, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
                 }
-                Text("People you’re connected to on Bytspot. Inviting adds them to the Plan; each person still answers for themselves.")
+                Text("People you're connected to on Bytspot. Inviting adds them to the Plan; each person still answers for themselves.")
                     .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
                 if people.isEmpty {
                     Text("No connections yet. Connect with people in Network, then invite them here.")
@@ -885,7 +1055,7 @@ private struct NativePlanInviteSheet: View {
                                 Text("Invited").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.purple)
                             } else {
                                 Button(action: { Task { busyID = person.id; if await onInvite(person.id) { invited.insert(person.id) }; busyID = nil } }) {
-                                    Text(busyID == person.id ? "…" : "Invite").font(.system(size: 12, weight: .black)).foregroundColor(.white)
+                                    Text(busyID == person.id ? "..." : "Invite").font(.system(size: 12, weight: .black)).foregroundColor(.white)
                                         .padding(.horizontal, 12).padding(.vertical, 6)
                                         .background(NativeTheme.purple).clipShape(Capsule())
                                 }
@@ -924,7 +1094,7 @@ private struct NativePlanInviteSheet: View {
 /// Starting a Plan. Title and intent are the only things the router demands;
 /// a time and a size are offered because the coffee sheet prefills from them,
 /// and needs are offered because "what a plan still needs" is the whole
-/// point of the object. Everything optional is genuinely optional — a Plan
+/// point of the object. Everything optional is genuinely optional - a Plan
 /// with no time is a real state the surface prints as "When TBD".
 private struct NativePlanCreateSheet: View {
     @ObservedObject var sessionStore: BytspotSessionStore
@@ -950,7 +1120,7 @@ private struct NativePlanCreateSheet: View {
     @State private var errorMessage: String?
     /// One key for the whole form session, not one per tap. The client times
     /// out at 8s, so a create that commits slowly surfaces as a connection
-    /// failure whose copy invites a retry — a fresh key each attempt would
+    /// failure whose copy invites a retry - a fresh key each attempt would
     /// turn that retry into a second Plan instead of the router's idempotent
     /// re-read of the first.
     @State private var idempotencyKey = UUID().uuidString
@@ -1092,7 +1262,7 @@ private struct NativePlanCreateSheet: View {
 
     private var submitButton: some View {
         Button(action: { Task { await submit() } }) {
-            Text(busy ? "Working…" : "Start a Plan")
+            Text(busy ? "Working..." : "Start a Plan")
                 .font(.system(size: 14, weight: .black)).foregroundColor(.white)
                 .frame(maxWidth: .infinity).padding(.vertical, 12)
                 .background(canSubmit ? NativeTheme.purple : NativeTheme.purple.opacity(0.35))
@@ -1136,14 +1306,14 @@ extension NativePlanDisplay {
     static func createFailureMessage(for error: Error) -> String {
         if let urlError = error as? URLError,
            [.timedOut, .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {
-            return "We couldn’t connect. Check your internet and try again."
+            return "We couldn't connect. Check your internet and try again."
         }
-        guard case let BytspotAPIClient.APIError.server(status, _) = error else { return "That didn’t go through." }
+        guard case let BytspotAPIClient.APIError.server(status, _) = error else { return "That didn't go through." }
         switch status {
         case 400: return "Check the title and what the plan is, then try again."
         case 401: return "Sign in to start a Plan."
         case 429: return "Too many plans just now. Wait a moment and try again."
-        default: return "That didn’t go through."
+        default: return "That didn't go through."
         }
     }
 }

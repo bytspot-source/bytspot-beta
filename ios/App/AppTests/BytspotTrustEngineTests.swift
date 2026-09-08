@@ -4351,7 +4351,15 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeLaunchPersonalizationStorage.walkKey, "bytspot_native_launch_walk")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.crewKey, "bytspot_native_launch_crew")
         XCTAssertEqual(NativeAuthLaunchContract.appFlow, ["splash", "landing", "location", "vibe", "walk", "crew", "recommendations", "main"])
-        XCTAssertEqual(BytspotNativeTab.allCases.map(\.rawValue), ["home", "plan", "discover", "map", "concierge", "profile"])
+        XCTAssertEqual(BytspotNativeTab.allCases.map(\.rawValue), ["home", "plan", "host", "discover", "map", "concierge", "profile"])
+        // Bottom bar carries five entries with Host in the centre; Map is a
+        // top-left destination and Profile the top-right avatar.
+        XCTAssertEqual(BytspotNativeTab.barTabs.map(\.rawValue), ["home", "plan", "host", "discover", "concierge"])
+        XCTAssertFalse(BytspotNativeTab.barTabs.contains(.map))
+        XCTAssertFalse(BytspotNativeTab.barTabs.contains(.profile))
+        XCTAssertEqual(BytspotNativeTab.barTabs.filter(\.isBarAction), [.host])
+        XCTAssertEqual(BytspotNativeTab.host.title, "Host")
+        XCTAssertEqual(BytspotNativeTab.host.icon, "plus")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🍸 Drinks"), "drinks")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🚶‍♀️ 10 min"), "medium")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "👫 Date night"), "date_night")

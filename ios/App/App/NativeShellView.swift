@@ -7,17 +7,24 @@ import CoreImage.CIFilterBuiltins
 import CryptoKit
 
 enum BytspotNativeTab: String, CaseIterable, Identifiable {
-    case home, plan, discover, map, concierge, profile
+    case home, plan, host, discover, map, concierge, profile
 
-    /// Profile is reached from the global top-right avatar, not the bottom bar,
-    /// so it is excluded here. The enum keeps the case for content routing.
-    static let barTabs: [BytspotNativeTab] = [.home, .plan, .discover, .map, .concierge]
+    /// Profile is reached from the global top-right avatar and Map from the
+    /// global top-left icon, so neither appears here. The enum keeps both
+    /// cases for content routing.
+    static let barTabs: [BytspotNativeTab] = [.home, .plan, .host, .discover, .concierge]
+
+    /// Host is an action, not a destination: it opens Host Studio over the
+    /// current tab instead of replacing the content, so it never becomes the
+    /// selected tab.
+    var isBarAction: Bool { self == .host }
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .home: return "Home"
         case .plan: return "Plan"
+        case .host: return "Host"
         case .discover: return "Discover"
         case .map: return "Map"
         case .concierge: return "Concierge"
@@ -28,6 +35,7 @@ enum BytspotNativeTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: return "house.fill"
         case .plan: return "calendar"
+        case .host: return "plus"
         case .discover: return "safari.fill"
         case .map: return "map.fill"
         case .concierge: return "sparkles"
@@ -280,6 +288,8 @@ struct BytspotNativeShellView: View {
     @State private var pendingProfilePanel: NativeProfilePanel?
     @State private var pendingDiscoverFilter: String?
     @State private var plainMapOpenGeneration = Self.previewInitialTab == .map ? 1 : 0
+    @State private var showHostStudio = false
+    @State private var hostStudioCircles: [NativeSocialCircle] = []
     @State private var suppressInitialTabRequestAfterLaunch = false
     @State private var postAuthHomeHoldGeneration = 0
     @State private var showValetPreviewSheet = false
@@ -352,7 +362,9 @@ struct BytspotNativeShellView: View {
             VStack(spacing: 0) {
                 Group {
                     switch selectedTab {
-                    case .home:
+                    // Host is a bar action that never becomes the selection;
+                    // Home is the defensive fallback if it ever does.
+                    case .home, .host:
                         NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth)
                     case .plan:
                         NativePlanTabView(sessionStore: sessionStore, openDiscoverFilter: openDiscoverFilter, openMap: { selectNativeTab(.map) })
@@ -374,6 +386,20 @@ struct BytspotNativeShellView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .topLeading) {
+                    // Map left the bottom bar: it is a destination reached from
+                    // the global top-left icon. Map itself and Profile own their
+                    // top chrome, so both are excluded.
+                    if selectedTab != .map && selectedTab != .profile {
+                        Button(action: { plainTabSelectionBinding.wrappedValue = .map }) {
+                            NativeRoundButton(symbol: BytspotNativeTab.map.icon, tint: NativeTheme.textPrimary, size: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.leading, 16)
+                        .accessibilityLabel("Map")
+                        .accessibilityIdentifier("native-global-map-button")
+                    }
+                }
                 .overlay(alignment: .topTrailing) {
                     // Profile lives in the global top-right avatar. Map keeps its
                     // own profile control in the map action stack, and Profile is
@@ -466,6 +492,11 @@ struct BytspotNativeShellView: View {
             nativeAuthenticationCover
                 .preferredColorScheme(.dark)
         }
+        .fullScreenCover(isPresented: $showHostStudio) {
+            NativeHostStudioView(circles: hostStudioCircles, membershipTier: membershipStore.tier)
+                .preferredColorScheme(effectivePreferredColorScheme)
+                .task { await loadHostStudioCircles() }
+        }
         .sheet(item: $contextualDestination) { destination in
             NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }, openNativeProfilePanel: { panel in openNativeProfile(panel: panel) }, requestNetworkAuthentication: { openNativeAuth(mode: .login, pendingIntent: .network) }, openAccess: { openNativeEquivalent(for: .access) })
             .preferredColorScheme(effectivePreferredColorScheme)
@@ -550,11 +581,32 @@ struct BytspotNativeShellView: View {
         Binding(
             get: { selectedTab },
             set: { tab in
+                // Host produces supply rather than browsing it, so it opens
+                // over the current tab and leaves the selection alone.
+                guard !tab.isBarAction else { requestHostStudio(); return }
                 requestLocationForNearbyContentIfNeeded(tab)
                 if tab == .map { preparePlainMapOpen() }
                 selectedTab = tab
             }
         )
+    }
+
+    private func requestHostStudio() {
+        guard sessionStore.isAuthenticated else {
+            openNativeAuth(mode: .login)
+            return
+        }
+        showHostStudio = true
+    }
+
+    /// Host Studio's invite step offers the caller's circles. The shell owns
+    /// the load now that Host is a bar entry rather than a Network sheet row.
+    private func loadHostStudioCircles() async {
+        guard sessionStore.isAuthenticated else {
+            hostStudioCircles = []
+            return
+        }
+        hostStudioCircles = await BytspotAPIClient().listSocialCirclesViaRpc().groups
     }
 
     private func preparePlainMapOpen() {
@@ -756,13 +808,20 @@ private struct BytspotNativeBottomTabBar: View {
         HStack(spacing: 0) {
             ForEach(BytspotNativeTab.barTabs) { tab in
                 Button(action: { select(tab) }) {
-                    tabItem(tab, isActive: selectedTab == tab)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .contentShape(Rectangle())
+                    Group {
+                        if tab.isBarAction {
+                            hostActionItem()
+                        } else {
+                            tabItem(tab, isActive: selectedTab == tab)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(tab.title) tab")
-                .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
+                .accessibilityLabel(tab.isBarAction ? "Host a moment" : "\(tab.title) tab")
+                .accessibilityIdentifier(tab.isBarAction ? "native-bottom-bar-host-action" : "native-bottom-bar-\(tab.rawValue)")
+                .accessibilityAddTraits(tab.isBarAction ? .isButton : (selectedTab == tab ? .isSelected : []))
             }
         }
         .padding(.horizontal, NativePolish.bottomBarInnerHorizontalPadding)
@@ -791,9 +850,32 @@ private struct BytspotNativeBottomTabBar: View {
         .background(RoundedRectangle(cornerRadius: NativePolish.bottomTabActiveRadius, style: .continuous).fill(isActive ? NativeTheme.selectedControlSurface : Color.clear))
     }
 
+    /// Host reads as the centre of the bar: a filled ring instead of a line
+    /// icon, because creating a moment is the one bar entry that produces
+    /// supply rather than browsing it.
+    private func hostActionItem() -> some View {
+        VStack(spacing: 3) {
+            ZStack {
+                Circle()
+                    .fill(LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+                Image(systemName: BytspotNativeTab.host.icon)
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            .frame(width: NativePolish.bottomBarHostRingSize, height: NativePolish.bottomBarHostRingSize)
+            .overlay(Circle().stroke(Color.white.opacity(0.22), lineWidth: 1))
+            .shadow(color: NativeTheme.cyan.opacity(0.35), radius: 10, x: 0, y: 4)
+            Text(BytspotNativeTab.host.title)
+                .font(.system(size: BytspotTheme.caption2Size, weight: .semibold))
+                .lineLimit(1)
+        }
+        .foregroundColor(NativeTheme.textPrimary)
+        .frame(maxWidth: .infinity, minHeight: NativePolish.bottomTabItemHeight)
+    }
+
     private func select(_ tab: BytspotNativeTab) {
         nativeImpactLight()
-        guard selectedTab != tab else { return }
+        guard tab.isBarAction || selectedTab != tab else { return }
         // Assign without an animation gate so the active pill moves on the
         // tap frame; content transitions are owned by the shell container.
         selectedTab = tab
@@ -17406,6 +17488,7 @@ enum NativePolish {
     static let bottomBarInnerHorizontalPadding: CGFloat = 4
     static let bottomBarInnerVerticalPadding: CGFloat = 8
     static let bottomTabItemHeight: CGFloat = 56
+    static let bottomBarHostRingSize: CGFloat = 38
     static let bottomTabActiveRadius: CGFloat = 14
     static let bottomBarShadowOpacity: Double = 0.40
     static let bottomBarShadowRadius: CGFloat = 24
@@ -18259,12 +18342,15 @@ enum NativeShellThemeSelfTests {
 
     private static func assertTabContract() {
         let tabs = BytspotNativeTab.allCases
-        precondition(tabs.map(\.title) == ["Home", "Plan", "Discover", "Map", "Concierge", "Profile"], "NativeShellThemeSelfTests: tab titles drifted from entry navigation.")
-        precondition(tabs.map(\.icon) == ["house.fill", "calendar", "safari.fill", "map.fill", "sparkles", "person.crop.circle.fill"], "NativeShellThemeSelfTests: tab SF Symbols drifted from migration mapping.")
-        // Profile is reached from the global top-right avatar, so the bottom
-        // bar shows five tabs and never Profile.
-        precondition(BytspotNativeTab.barTabs.map(\.title) == ["Home", "Plan", "Discover", "Map", "Concierge"], "NativeShellThemeSelfTests: bottom bar tab set drifted.")
+        precondition(tabs.map(\.title) == ["Home", "Plan", "Host", "Discover", "Map", "Concierge", "Profile"], "NativeShellThemeSelfTests: tab titles drifted from entry navigation.")
+        precondition(tabs.map(\.icon) == ["house.fill", "calendar", "plus", "safari.fill", "map.fill", "sparkles", "person.crop.circle.fill"], "NativeShellThemeSelfTests: tab SF Symbols drifted from migration mapping.")
+        // Profile is reached from the global top-right avatar and Map from the
+        // global top-left icon, so the bottom bar shows five entries and never
+        // either of those two.
+        precondition(BytspotNativeTab.barTabs.map(\.title) == ["Home", "Plan", "Host", "Discover", "Concierge"], "NativeShellThemeSelfTests: bottom bar tab set drifted.")
         precondition(!BytspotNativeTab.barTabs.contains(.profile), "NativeShellThemeSelfTests: Profile must not appear in the bottom bar.")
+        precondition(!BytspotNativeTab.barTabs.contains(.map), "NativeShellThemeSelfTests: Map is a top-left destination and must not appear in the bottom bar.")
+        precondition(BytspotNativeTab.barTabs.filter(\.isBarAction) == [.host], "NativeShellThemeSelfTests: Host must be the only bar action.")
     }
 
     private static func assertDefaultTierFallback() {

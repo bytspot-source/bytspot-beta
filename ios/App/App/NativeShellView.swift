@@ -11592,7 +11592,7 @@ private struct NativeDiscoverFeatureCard: View {
         if copy.contains("open now") { return NativeTheme.emerald }
         if copy.contains("closing") { return NativeTheme.orange }
         if copy.contains("opens soon") { return NativeTheme.cyan }
-        if copy.contains("hours pending") { return Color(hex: 0x9CA3AF) }
+        if copy.contains("hours pending") { return NativeTheme.neutral }
         return Color(hex: 0xEF4444)
     }
 
@@ -11695,14 +11695,14 @@ private struct NativeDiscoverFeatureCard: View {
             .clipShape(Capsule())
         case .details:
             HStack(spacing: 5) {
-                Circle().fill(Color(hex: 0x9CA3AF)).frame(width: 7, height: 7)
+                Circle().fill(NativeTheme.neutral).frame(width: 7, height: 7)
                 Text("Details").font(.system(size: 10, weight: .black))
             }
-            .foregroundColor(Color(hex: 0x9CA3AF))
+            .foregroundColor(NativeTheme.neutral)
             .padding(.horizontal, 9)
             .frame(minHeight: 24)
             .background(NativePolish.elevatedSurface.opacity(0.92))
-            .overlay(Capsule().stroke(Color(hex: 0x9CA3AF).opacity(0.30), lineWidth: 1))
+            .overlay(Capsule().stroke(NativeTheme.neutral.opacity(0.30), lineWidth: 1))
             .clipShape(Capsule())
         }
     }
@@ -11753,7 +11753,7 @@ private struct NativeDiscoverFeatureCard: View {
         switch cardFulfillment {
         case .book: return NativeTheme.emerald
         case .request: return NativeTheme.amber
-        case .details: return Color(hex: 0x9CA3AF)   // neutral grey
+        case .details: return NativeTheme.neutral   // neutral grey
         }
     }
 
@@ -12220,7 +12220,7 @@ private struct NativeVenueDetailView: View {
     private var infoSection: some View {
         VStack(spacing: 10) {
             if !NativeVenueDetailPresentation.isEventOrPassVenue(venue) {
-                infoRow("clock.fill", "Hours", openStatus.detail, openStatus.label, openStatus.label == "Hours pending" ? Color(hex: 0x9CA3AF) : NativeTheme.cyan)
+                infoRow("clock.fill", "Hours", openStatus.detail, openStatus.label, openStatus.label == "Hours pending" ? NativeTheme.neutral : NativeTheme.cyan)
             }
             if !NativeVenueDetailPresentation.isEventOrPassVenue(venue) && venue.distance != "Pass" && venue.distance != "Service" {
                 infoRow("mappin.and.ellipse", "Location", venue.address, venue.distance == "—" ? "Check nearby" : "\(venue.distance) away", NativeTheme.orange)

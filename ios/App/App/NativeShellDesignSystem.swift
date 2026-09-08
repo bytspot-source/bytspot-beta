@@ -46,6 +46,7 @@ enum BytspotTheme {
     static let blackAmberHex = 0xD97706
     static let emeraldHex = 0x10B981
     static let amberHex = 0xF59E0B
+    static let neutralHex = 0x9CA3AF
 
     static let cyan = bytspotDesignColor(hex: cyanHex)
     static let purple = bytspotDesignColor(hex: purpleHex)
@@ -55,6 +56,7 @@ enum BytspotTheme {
     static let blackAmber = bytspotDesignColor(hex: blackAmberHex)
     static let emerald = bytspotDesignColor(hex: emeraldHex)
     static let amber = bytspotDesignColor(hex: amberHex)
+    static let neutral = bytspotDesignColor(hex: neutralHex)
     static let slate950 = bytspotDesignColor(hex: 0x020617)
     static let slate900 = bytspotDesignColor(hex: 0x0F172A)
     static let green900 = bytspotDesignColor(hex: 0x064E3B)

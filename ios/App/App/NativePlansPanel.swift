@@ -844,7 +844,7 @@ private struct NativePlanDetailSheet: View {
             switch fulfillment {
             case .book: return NativeTheme.emerald
             case .request: return NativeTheme.amber
-            case .details: return Color(hex: 0x9CA3AF)
+            case .details: return NativeTheme.neutral
             }
         }()
 

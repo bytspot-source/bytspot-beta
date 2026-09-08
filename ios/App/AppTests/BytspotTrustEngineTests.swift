@@ -3350,6 +3350,25 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(rows.map(\.id), ["v2"])
     }
 
+    // MARK: - Find → Map staging (Find polish)
+
+    func testFindResultToVenueSummaryStagesWithUnknownParkingMarker() {
+        let result = NativeFindResult(origin: .resolved, id: "gp-1", slug: nil, googlePlaceId: "ChIJ", name: "Ponce City Market", address: "675 Ponce De Leon Ave", latitude: 33.7726, longitude: -84.3654, category: "dining", imageURL: nil, capability: "details")
+        let venue = result.toVenueSummary()
+        XCTAssertNotNil(venue)
+        XCTAssertEqual(venue?.name, "Ponce City Market")
+        XCTAssertEqual(venue?.category, "dining")
+        XCTAssertFalse(venue?.parking.isKnown ?? true, "Find-derived venue must carry isKnown=false")
+        XCTAssertEqual(venue?.latitude, 33.7726)
+    }
+
+    func testFindResultWithoutCoordinatesReturnsNilVenue() {
+        let noCoords = NativeFindResult(origin: .resolved, id: "gp-2", slug: nil, googlePlaceId: nil, name: "Nowhere", address: "Unknown", latitude: nil, longitude: nil, category: nil, imageURL: nil, capability: "details")
+        XCTAssertNil(noCoords.toVenueSummary())
+        let zeroCoords = NativeFindResult(origin: .resolved, id: "gp-3", slug: nil, googlePlaceId: nil, name: "Origin", address: "0,0", latitude: 0, longitude: 0, category: nil, imageURL: nil, capability: "details")
+        XCTAssertNil(zeroCoords.toVenueSummary(), "(0,0) is not a valid venue coordinate")
+    }
+
     func testParkingSummaryUnknownMarkerDefaultsToKnown() {
         let known = NativeParkingSummary(totalAvailable: 14, priceLabel: "$8/hr")
         XCTAssertTrue(known.isKnown, "Existing callers that omit isKnown must default to true")
@@ -3486,7 +3505,7 @@ final class NativeProfileDataAPITests: XCTestCase {
         let message = NativePlanDisplay.inviteMessage(title: "Rooftop then dinner")
         // Carries the plan title and reads as an invite, never a confirmation.
         XCTAssertTrue(message.contains("Rooftop then dinner"))
-        XCTAssertTrue(message.contains("say if you’re in"))
+        XCTAssertTrue(message.contains("say if you're in"))
         XCTAssertFalse(message.lowercased().contains("confirmed"))
         // The link is the server-rendered /plan landing, not a bare app link.
         XCTAssertEqual(NativePlanDisplay.inviteLink(planId: "plan-1")?.absoluteString, "https://bytspot.app/plan/plan-1")
@@ -3528,6 +3547,46 @@ final class NativeProfileDataAPITests: XCTestCase {
         // predating the Phase 2 fields still decodes rather than throwing.
         XCTAssertNil(item.coffeeReservationId)
         XCTAssertNil(item.reservation)
+    }
+
+    // MARK: - Prime Path display (C3)
+
+    func testCandidateFulfillmentMapsCapabilityToTier() {
+        let book = NativePrimePathCandidate(id: "c1", label: "Venue A", capability: "book", ownInventory: true, seats: 10, discovered: false, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        let request = NativePrimePathCandidate(id: "c2", label: "Venue B", capability: "request", ownInventory: true, seats: 5, discovered: true, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        let details = NativePrimePathCandidate(id: "c3", label: "Venue C", capability: "details", ownInventory: false, seats: 0, discovered: nil, minParty: 1, confirmableNow: false, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.candidateFulfillment(book), .book)
+        XCTAssertEqual(NativePlanDisplay.candidateFulfillment(request), .request)
+        XCTAssertEqual(NativePlanDisplay.candidateFulfillment(details), .details)
+    }
+
+    func testSeatsLabelShowsHonestAvailability() {
+        let open = NativePrimePathCandidate(id: "c1", label: "X", capability: "book", ownInventory: true, seats: 4, discovered: false, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.seatsLabel(open), "4 spots open")
+        let single = NativePrimePathCandidate(id: "c2", label: "X", capability: "book", ownInventory: true, seats: 1, discovered: false, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.seatsLabel(single), "1 spot open")
+        let unavailable = NativePrimePathCandidate(id: "c3", label: "X", capability: "book", ownInventory: true, seats: 10, discovered: false, minParty: 1, confirmableNow: false, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.seatsLabel(unavailable), "Not available right now")
+        let full = NativePrimePathCandidate(id: "c4", label: "X", capability: "book", ownInventory: true, seats: 0, discovered: false, minParty: 1, confirmableNow: false, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.seatsLabel(full), "Not available right now")
+    }
+
+    func testSourceBadgeDistinguishesDiscoveredFromAttached() {
+        let discovered = NativePrimePathCandidate(id: "d1", label: "X", capability: "request", ownInventory: true, seats: 5, discovered: true, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        let attached = NativePrimePathCandidate(id: "a1", label: "X", capability: "book", ownInventory: true, seats: 5, discovered: false, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.sourceBadge(discovered), "Suggestion")
+        XCTAssertEqual(NativePlanDisplay.sourceBadge(attached), "Your plan")
+    }
+
+    func testPrimePathCTAShowsAddToPlanForDiscoveredAndFulfillmentForAttached() {
+        let discovered = NativePrimePathCandidate(id: "d1", label: "X", capability: "book", ownInventory: true, seats: 5, discovered: true, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.primePathCTA(discovered), "Add to Plan")
+        let book = NativePrimePathCandidate(id: "a1", label: "X", capability: "book", ownInventory: true, seats: 5, discovered: false, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.primePathCTA(book), "Book on Bytspot")
+        let request = NativePrimePathCandidate(id: "a2", label: "X", capability: "request", ownInventory: true, seats: 5, discovered: false, minParty: 1, confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.primePathCTA(request), "Request")
+        let details = NativePrimePathCandidate(id: "a3", label: "X", capability: "details", ownInventory: false, seats: 0, discovered: nil, minParty: 1, confirmableNow: false, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        XCTAssertEqual(NativePlanDisplay.primePathCTA(details), "Details")
     }
 
     // MARK: - Plan invite link + join (Phase 2a)
@@ -4800,7 +4859,7 @@ final class NativePlanCreateTests: XCTestCase {
         XCTAssertNil(NativePlanDisplay.partySizeExceedsCoffeeNotice(2))
         XCTAssertEqual(
             NativePlanDisplay.partySizeExceedsCoffeeNotice(12),
-            "A coffee hold covers up to 8. A table for 12 needs the spot’s own say-so."
+            "A coffee hold covers up to 8. A table for 12 needs the spot's own say-so."
         )
     }
 
@@ -4817,7 +4876,7 @@ final class NativePlanCreateTests: XCTestCase {
         // whatever the server said.
         XCTAssertEqual(
             NativePlanDisplay.createFailureMessage(for: BytspotAPIClient.APIError.server(status: 500, body: "PrismaClientKnownRequestError")),
-            "That didn’t go through."
+            "That didn't go through."
         )
     }
 }

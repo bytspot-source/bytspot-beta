@@ -290,6 +290,7 @@ struct BytspotNativeShellView: View {
     @State private var plainMapOpenGeneration = Self.previewInitialTab == .map ? 1 : 0
     @State private var showHostStudio = false
     @State private var hostStudioCircles: [NativeSocialCircle] = []
+    @State private var mapReturnTab: BytspotNativeTab = .home
     @State private var suppressInitialTabRequestAfterLaunch = false
     @State private var postAuthHomeHoldGeneration = 0
     @State private var showValetPreviewSheet = false
@@ -388,9 +389,17 @@ struct BytspotNativeShellView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay(alignment: .topLeading) {
                     // Map left the bottom bar: it is a destination reached from
-                    // the global top-left icon. Map itself and Profile own their
-                    // top chrome, so both are excluded.
-                    if selectedTab != .map && selectedTab != .profile {
+                    // the global top-left icon, and once inside, the same corner
+                    // carries the only way back. Profile owns its own top chrome.
+                    if selectedTab == .map {
+                        Button(action: { commitSelectedTab(mapReturnTab) }) {
+                            NativeRoundButton(symbol: "chevron.left", tint: NativeTheme.textPrimary, size: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.leading, 16)
+                        .accessibilityLabel("Back to \(mapReturnTab.title)")
+                        .accessibilityIdentifier("native-map-back-button")
+                    } else if selectedTab != .profile {
                         Button(action: { plainTabSelectionBinding.wrappedValue = .map }) {
                             NativeRoundButton(symbol: BytspotNativeTab.map.icon, tint: NativeTheme.textPrimary, size: 44)
                         }
@@ -415,8 +424,10 @@ struct BytspotNativeShellView: View {
                     }
                 }
                 .animation(.interpolatingSpring(mass: 0.8, stiffness: 380, damping: 34, initialVelocity: 0), value: selectedTab)
-                BytspotNativeBottomTabBar(selectedTab: plainTabSelectionBinding, tier: activeTier)
-                    .fixedSize(horizontal: false, vertical: true)
+                if Self.tabBarIsVisible(for: selectedTab) {
+                    BytspotNativeBottomTabBar(selectedTab: plainTabSelectionBinding, tier: activeTier)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             if let welcomeBannerText {
                 VStack {
@@ -586,7 +597,7 @@ struct BytspotNativeShellView: View {
                 guard !tab.isBarAction else { requestHostStudio(); return }
                 requestLocationForNearbyContentIfNeeded(tab)
                 if tab == .map { preparePlainMapOpen() }
-                selectedTab = tab
+                commitSelectedTab(tab)
             }
         )
     }
@@ -697,7 +708,7 @@ struct BytspotNativeShellView: View {
         case .mapPicks:
             requestLocationForNearbyContentIfNeeded(.map)
             NativeHomeDashboardView.storeLaunchMapHandoff(snapshot: tabContentStore.snapshot(for: locationStore.coordinate), location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
-            selectedTab = .map
+            commitSelectedTab(.map)
         case .savePicks:
             forceHomeAfterSavePicksAuth()
         case .network:
@@ -761,7 +772,28 @@ struct BytspotNativeShellView: View {
         // Immediate state change: the tab bar highlight must respond on the
         // same frame as the tap. The content crossfade is animated separately
         // via the .animation modifier on the tab content container.
+        commitSelectedTab(tab)
+    }
+
+    /// Map is a full-screen destination rather than a bar tab, so entering it
+    /// has to record where the traveller came from to offer a way back.
+    private func commitSelectedTab(_ tab: BytspotNativeTab) {
+        if tab == .map, selectedTab != .map {
+            mapReturnTab = Self.mapReturnTarget(from: selectedTab)
+        }
         selectedTab = tab
+    }
+
+    /// The bar is the way out of every tab, so Map — which has no bar — is the
+    /// only surface that needs a back control.
+    static func tabBarIsVisible(for tab: BytspotNativeTab) -> Bool {
+        tab != .map
+    }
+
+    /// Never return into Map itself, and never into Host, which is an action
+    /// with no content of its own. Both fail closed to Home.
+    static func mapReturnTarget(from tab: BytspotNativeTab) -> BytspotNativeTab {
+        (tab == .map || tab.isBarAction) ? .home : tab
     }
 
     static func requiresLocationForNearbyContent(_ tab: BytspotNativeTab) -> Bool {
@@ -18351,6 +18383,12 @@ enum NativeShellThemeSelfTests {
         precondition(!BytspotNativeTab.barTabs.contains(.profile), "NativeShellThemeSelfTests: Profile must not appear in the bottom bar.")
         precondition(!BytspotNativeTab.barTabs.contains(.map), "NativeShellThemeSelfTests: Map is a top-left destination and must not appear in the bottom bar.")
         precondition(BytspotNativeTab.barTabs.filter(\.isBarAction) == [.host], "NativeShellThemeSelfTests: Host must be the only bar action.")
+        // Map is a destination: it hides the bar and offers a back control that
+        // never re-enters Map or the Host action.
+        precondition(!BytspotNativeShellView.tabBarIsVisible(for: .map), "NativeShellThemeSelfTests: Map must hide the bottom bar.")
+        precondition(BytspotNativeTab.barTabs.allSatisfy { BytspotNativeShellView.tabBarIsVisible(for: $0) }, "NativeShellThemeSelfTests: bar tabs must keep the bottom bar.")
+        precondition(BytspotNativeShellView.mapReturnTarget(from: .map) == .home, "NativeShellThemeSelfTests: Map back must fail closed to Home.")
+        precondition(BytspotNativeShellView.mapReturnTarget(from: .host) == .home, "NativeShellThemeSelfTests: Host is not a return destination.")
     }
 
     private static func assertDefaultTierFallback() {

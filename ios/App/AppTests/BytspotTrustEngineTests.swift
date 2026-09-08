@@ -4360,6 +4360,18 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(BytspotNativeTab.barTabs.filter(\.isBarAction), [.host])
         XCTAssertEqual(BytspotNativeTab.host.title, "Host")
         XCTAssertEqual(BytspotNativeTab.host.icon, "plus")
+        // Map is the only surface without a bar, so it is the only one that
+        // needs a back control.
+        XCTAssertFalse(BytspotNativeShellView.tabBarIsVisible(for: .map))
+        for tab in BytspotNativeTab.allCases where tab != .map {
+            XCTAssertTrue(BytspotNativeShellView.tabBarIsVisible(for: tab), "\(tab.rawValue) should keep the bar")
+        }
+        // Back from Map returns to the previous tab, and fails closed to Home
+        // rather than re-entering Map or the Host action.
+        XCTAssertEqual(BytspotNativeShellView.mapReturnTarget(from: .discover), .discover)
+        XCTAssertEqual(BytspotNativeShellView.mapReturnTarget(from: .plan), .plan)
+        XCTAssertEqual(BytspotNativeShellView.mapReturnTarget(from: .map), .home)
+        XCTAssertEqual(BytspotNativeShellView.mapReturnTarget(from: .host), .home)
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🍸 Drinks"), "drinks")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🚶‍♀️ 10 min"), "medium")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "👫 Date night"), "date_night")

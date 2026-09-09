@@ -1003,6 +1003,43 @@ struct BytspotMark: View {
     var body: some View { NativeBytspotMark(size: size, showGlow: showGlow) }
 }
 
+/// The mark as a dot sphere: points distributed by the Fibonacci lattice and
+/// projected orthographically, so the lattice reads as a globe rather than as a
+/// grid of circles. Depth is carried by dot radius and opacity alone -- there is
+/// no lighting model and nothing animates, because this draws at 38pt inside the
+/// tab bar on every screen and a live sphere there costs frames for nothing.
+struct BytspotDotGlobe: View {
+    let size: CGFloat
+    var dotCount: Int = 340
+
+    var body: some View {
+        Canvas { context, canvasSize in
+            let radius = min(canvasSize.width, canvasSize.height) / 2
+            let centre = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+            let golden = Double.pi * (3.0 - 5.0.squareRoot())
+            for index in 0..<dotCount {
+                let y = 1.0 - (Double(index) / Double(dotCount - 1)) * 2.0
+                let ringRadius = max(0, 1.0 - y * y).squareRoot()
+                let theta = golden * Double(index)
+                let x = cos(theta) * ringRadius
+                let z = sin(theta) * ringRadius
+                // Back hemisphere is dropped: overlapping far-side dots muddy the
+                // silhouette at small sizes instead of suggesting volume.
+                guard z >= 0 else { continue }
+                let depth = 0.45 + 0.55 * z
+                let dotRadius = radius * 0.052 * depth
+                let point = CGPoint(x: centre.x + CGFloat(x) * radius * 0.92,
+                                    y: centre.y - CGFloat(y) * radius * 0.92)
+                let tint = Color(hue: 0.72 - 0.20 * ((y + 1) / 2), saturation: 0.82, brightness: 0.62 + 0.38 * depth)
+                let rect = CGRect(x: point.x - dotRadius, y: point.y - dotRadius, width: dotRadius * 2, height: dotRadius * 2)
+                context.fill(Path(ellipseIn: rect), with: .color(tint.opacity(0.35 + 0.65 * depth)))
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
+
 private struct NativeBytspotMark: View {
     let size: CGFloat
     var showGlow: Bool = false

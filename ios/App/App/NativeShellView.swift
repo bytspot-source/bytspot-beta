@@ -953,19 +953,24 @@ private struct BytspotNativeBottomTabBar: View {
     private func centerItem(_ tab: BytspotNativeTab, isActive: Bool) -> some View {
         VStack(spacing: 3) {
             ZStack {
-                Circle()
-                    .fill(LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple], startPoint: .topLeading, endPoint: .bottomTrailing))
-                BytspotMark(size: NativePolish.bottomBarHostRingSize * 0.86)
+                Circle().fill(Color.black)
+                BytspotDotGlobe(size: NativePolish.bottomBarHostRingSize * 0.88)
             }
             .frame(width: NativePolish.bottomBarHostRingSize, height: NativePolish.bottomBarHostRingSize)
-            .overlay(Circle().stroke(Color.white.opacity(isActive ? 0.92 : 0.26), lineWidth: isActive ? 1.6 : 1))
-            .shadow(color: NativeTheme.cyan.opacity(isActive ? 0.85 : 0.35), radius: isActive ? 24 : 14, x: 0, y: 4)
+            // The globe is its own light source, so the centre wears no ring:
+            // a stroke plus a gradient plus a glow was three marks competing on
+            // one 38pt target. Selection is carried by the glow alone.
+            .shadow(color: NativeTheme.purple.opacity(isActive ? 0.90 : 0.40), radius: isActive ? 22 : 12, x: 0, y: 2)
             .scaleEffect(isActive && !reduceMotion ? 1.08 : 1)
             .frame(height: 24)
+            // The mark is the label, so the centre shows no caption. The text is
+            // still laid out and hidden so the centre keeps the exact row metrics
+            // of every other slot: the dot rail is shared by one travelling node,
+            // and a shorter centre would make that node jump as it crossed.
             Text(tab.barTitle)
                 .font(.system(size: BytspotTheme.caption2Size, weight: .semibold))
                 .lineLimit(1)
-                .foregroundColor(isActive ? NativeTheme.textPrimary : NativeTheme.textSecondary)
+                .hidden()
             dotRail(isActive: isActive)
         }
         .frame(maxWidth: .infinity, minHeight: NativePolish.bottomTabItemHeight)
@@ -17586,9 +17591,12 @@ private struct NativeScreenScroll<Content: View>: View {
 }
 
 enum NativePolish {
-    static let baseHex = 0x050507
-    static let panelHex = 0x080A10
-    static let elevatedHex = 0x101116
+    // The canvas is deep indigo, not black. True black gives a card nothing to
+    // sit in: it reads as a grey rectangle on nothing. A dark hue lets the same
+    // card feel lit, and lets one accent carry the whole screen.
+    static let baseHex = 0x0A0A1E
+    static let panelHex = 0x11142B
+    static let elevatedHex = 0x191D36
     static let screenPadding: CGFloat = 20
     static let sectionSpacing: CGFloat = 24
     static let cardRadius: CGFloat = 24
@@ -17644,7 +17652,10 @@ enum NativePolish {
     static let screenBackground = Color.adaptive(lightHex: 0xF5F7FA, darkHex: baseHex)
     static let glassSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: panelHex, lightAlpha: 0.78, darkAlpha: 0.88)
     static let elevatedSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: elevatedHex, lightAlpha: 0.92, darkAlpha: 0.90)
-    static let bottomBarSurface = NativeTheme.tabBarBackground
+    // The bar is glass: the tint sits in front of the material and stays thin
+    // enough that the material actually samples the content scrolling under it.
+    // An opaque fill here would blur nothing and simply read as a grey slab.
+    static let bottomBarSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0x0B0F16, lightAlpha: 0.42, darkAlpha: 0.34)
     static let mapBaseSurface = Color.adaptive(lightHex: 0xEFF4F8, darkHex: mapBaseHex)
     static let mapPanelSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: mapPanelHex, lightAlpha: 0.88, darkAlpha: 0.94)
     static let mapControlSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: mapPanelHex, lightAlpha: 0.92, darkAlpha: 0.94)
@@ -18457,12 +18468,13 @@ enum NativeShellThemeSelfTests {
     private static func assertTabContract() {
         let tabs = BytspotNativeTab.allCases
         precondition(tabs.map(\.title) == ["Home", "Plan", "Host", "Discover", "Map", "Concierge", "Profile"], "NativeShellThemeSelfTests: tab titles drifted from entry navigation.")
-        precondition(BytspotNativeTab.plan.barTitle == "Start Plan", "NativeShellThemeSelfTests: the centre must label itself with its verb.")
-        precondition(BytspotNativeTab.home.barTitle == BytspotNativeTab.home.title, "NativeShellThemeSelfTests: only the centre relabels in the bar.")
+        precondition(BytspotNativeTab.plan.barTitle == "Start Plan", "NativeShellThemeSelfTests: the centre must name itself with its verb.")
+        precondition(BytspotNativeTab.home.barTitle == BytspotNativeTab.home.title, "NativeShellThemeSelfTests: only the centre renames in the bar.")
         // The centre draws the brand mark rather than an SF Symbol, so no glyph
-        // name is asserted here. What must hold is that the bar calls it by its
-        // verb while every other surface keeps Plan a noun.
-        precondition(BytspotNativeTab.plan.barTitle == "Start Plan" && BytspotNativeTab.plan.title == "Plan", "NativeShellThemeSelfTests: the centre must read as a verb in the bar and a noun everywhere else.")
+        // name is asserted here, and it carries no visible caption: the mark is
+        // the label. The verb survives as the accessibility name, so the bar
+        // still calls it by its verb while every other surface keeps Plan a noun.
+        precondition(BytspotNativeTab.plan.barTitle == "Start Plan" && BytspotNativeTab.plan.title == "Plan", "NativeShellThemeSelfTests: the centre must read as a verb to VoiceOver and a noun everywhere else.")
         // Profile is reached from the global top-right avatar and Map from the
         // global top-left icon, so the bottom bar shows five entries and never
         // either of those two.

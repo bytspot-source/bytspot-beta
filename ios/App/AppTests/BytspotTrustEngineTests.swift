@@ -4373,8 +4373,9 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(BytspotNativeTab.barTabs.firstIndex(of: .plan), 2)
         XCTAssertEqual(BytspotNativeTab.barTabs.filter(\.requiresAuthentication), [.host])
         XCTAssertEqual(BytspotNativeTab.host.title, "Host")
-        // The centre labels itself with its verb; every other surface keeps
-        // the noun so back controls and diagnostics stay readable.
+        // The centre draws no caption -- the mark is the label -- but it still
+        // names itself with its verb to VoiceOver, while every other surface
+        // keeps the noun so back controls and diagnostics stay readable.
         XCTAssertEqual(BytspotNativeTab.plan.barTitle, "Start Plan")
         XCTAssertEqual(BytspotNativeTab.plan.title, "Plan")
         XCTAssertEqual(BytspotNativeTab.home.barTitle, "Home")

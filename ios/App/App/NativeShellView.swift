@@ -963,14 +963,15 @@ private struct BytspotNativeBottomTabBar: View {
             .shadow(color: NativeTheme.purple.opacity(isActive ? 0.90 : 0.40), radius: isActive ? 22 : 12, x: 0, y: 2)
             .scaleEffect(isActive && !reduceMotion ? 1.08 : 1)
             .frame(height: 24)
-            // The mark is the label, so the centre shows no caption. The text is
-            // still laid out and hidden so the centre keeps the exact row metrics
-            // of every other slot: the dot rail is shared by one travelling node,
-            // and a shorter centre would make that node jump as it crossed.
+            // The centre keeps its caption: it is the only slot that is a verb
+            // rather than a place, and an unlabelled control asks people to tap
+            // it to find out what it does. The mark carries the brand; the word
+            // carries the promise.
             Text(tab.barTitle)
                 .font(.system(size: BytspotTheme.caption2Size, weight: .semibold))
                 .lineLimit(1)
-                .hidden()
+                .minimumScaleFactor(0.85)
+                .foregroundColor(isActive ? NativeTheme.textPrimary : NativeTheme.textSecondary)
             dotRail(isActive: isActive)
         }
         .frame(maxWidth: .infinity, minHeight: NativePolish.bottomTabItemHeight)

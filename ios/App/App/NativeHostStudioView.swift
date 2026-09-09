@@ -300,10 +300,8 @@ struct NativeHostStudioView: View {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 ForEach(NativeHostCategory.allCases) { category in
                     Button(action: { nativeImpactLight(); selectCategory(category) }) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(category.emoji).font(.system(size: 27)); Text(category.title).font(.system(size: 14, weight: .black)); Text(category.hook).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.55)).lineLimit(2)
-                        }.frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading).padding(13).background(taxonomy.category == category ? tierAccent.opacity(0.16) : Color.white.opacity(0.055)).overlay(RoundedRectangle(cornerRadius: 19).stroke(taxonomy.category == category ? tierAccent : Color.white.opacity(0.08))).clipShape(RoundedRectangle(cornerRadius: 19))
-                    }.buttonStyle(.plain).accessibilityLabel(category.title)
+                        NativeEditionSleeve(category: category, selected: taxonomy.category == category, accent: tierAccent)
+                    }.buttonStyle(.plain).accessibilityLabel("\(category.title), edition \(category.edition)")
                 }
             }
             VStack(alignment: .leading, spacing: 9) {
@@ -1177,6 +1175,87 @@ struct NativePartyPhotoPicker: UIViewControllerRepresentable {
                 }
             }
             group.notify(queue: .main) { self.completion(images.compactMap { $0 }) }
+        }
+    }
+}
+
+/// Spark menu tile. A category is presented as a numbered edition sleeve:
+/// perforated spine, colour band carrying the name, and a line illustration on
+/// the field. Host Studio is a dark-only surface today, so only the night field
+/// is expressed here; the chassis inverts for day when that migration lands.
+private struct NativeEditionSleeve: View {
+    let category: NativeHostCategory
+    let selected: Bool
+    let accent: Color
+
+    private let spine: CGFloat = 13
+    private let field = Color(red: 0.075, green: 0.067, blue: 0.059)
+    private let ink = Color(red: 0.929, green: 0.894, blue: 0.824)
+
+    private var band: Color {
+        Color(red: Double((category.bandHex >> 16) & 0xFF) / 255,
+              green: Double((category.bandHex >> 8) & 0xFF) / 255,
+              blue: Double(category.bandHex & 0xFF) / 255)
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            band.frame(width: spine).overlay(alignment: .center) { perforation }
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(category.title)
+                        .font(.system(size: 16, weight: .bold, design: .serif))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Text(String(format: "EDITION %02d", category.edition))
+                        .font(.system(size: 8, weight: .black))
+                        .tracking(1.4)
+                        .foregroundColor(.white.opacity(0.72))
+                }
+                .padding(.horizontal, 11)
+                .padding(.vertical, 9)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(band)
+
+                Image(category.illustrationAsset)
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundColor(ink)
+                    .padding(9)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                Text(category.hook)
+                    .font(.system(size: 8, weight: .black))
+                    .tracking(0.5)
+                    .foregroundColor(ink.opacity(0.5))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 10)
+            }
+        }
+        .frame(height: 184)
+        .background(field)
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(selected ? accent : Color.white.opacity(0.10), lineWidth: selected ? 2 : 1))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// The stub edge. Punched in the field colour so it reads as a tear line
+    /// rather than decoration.
+    private var perforation: some View {
+        GeometryReader { geo in
+            let step: CGFloat = 11
+            let count = max(4, Int(geo.size.height / step))
+            VStack(spacing: 0) {
+                ForEach(0..<count, id: \.self) { _ in
+                    Circle().fill(field).frame(width: 3, height: 3).frame(maxHeight: .infinity)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .trailing)
+            .offset(x: geo.size.width / 2 - 1.5)
         }
     }
 }

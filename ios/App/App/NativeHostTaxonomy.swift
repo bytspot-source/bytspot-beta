@@ -33,18 +33,28 @@ enum NativeHostCategory: String, CaseIterable, Codable, Identifiable {
         }
     }
 
-    var emoji: String {
+    /// Sleeve number. The Spark menu is a set of editions, so position is part
+    /// of the artwork and must track `allCases`.
+    var edition: Int { (Self.allCases.firstIndex(of: self) ?? 0) + 1 }
+
+    /// Illustration in `Assets.xcassets/HostEditions`, drawn as a template so
+    /// it inherits the field ink instead of carrying its own colour.
+    var illustrationAsset: String { "HostEditions/\(rawValue)" }
+
+    /// Band colour. Identity only: these are creation templates, so a hue here
+    /// asserts nothing about supply and does not spend the earned-hue budget.
+    var bandHex: Int {
         switch self {
-        case .party: return "🎉"
-        case .nightlife: return "🪩"
-        case .music: return "🎵"
-        case .sports: return "🏆"
-        case .food: return "🍔"
-        case .social: return "🤝"
-        case .culture: return "🎨"
-        case .cars: return "🏎️"
-        case .outdoor: return "🌳"
-        case .community: return "🏙️"
+        case .party: return 0xB4552F
+        case .nightlife: return 0x8E2F63
+        case .music: return 0x2C5F7A
+        case .sports: return 0x2F6B45
+        case .food: return 0x9C3230
+        case .social: return 0x7A5230
+        case .culture: return 0x5B3B7A
+        case .cars: return 0x4A4F5C
+        case .outdoor: return 0x3F6B4F
+        case .community: return 0xA8632A
         }
     }
 

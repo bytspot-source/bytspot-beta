@@ -2344,6 +2344,17 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(Set(NativeHostType.catalog.map(\.printer)), Set(NativePartyTemplateID.allCases))
         XCTAssertTrue(NativeHostCategory.allCases.allSatisfy { !NativeHostType.types(in: $0).isEmpty })
         XCTAssertTrue(NativeHostType.catalog.allSatisfy { item in NativeHostType.types(in: item.category).contains(where: { type in type.id == item.id }) })
+
+        // Spark menu is a numbered edition set: contiguous from one, one sleeve
+        // per category, and a distinct band and illustration for each.
+        XCTAssertEqual(NativeHostCategory.allCases.map(\.edition), Array(1...NativeHostCategory.allCases.count))
+        XCTAssertEqual(NativeHostCategory.party.edition, 1)
+        XCTAssertEqual(NativeHostCategory.community.edition, 10)
+        XCTAssertEqual(Set(NativeHostCategory.allCases.map(\.bandHex)).count, NativeHostCategory.allCases.count)
+        XCTAssertTrue(NativeHostCategory.allCases.allSatisfy { $0.bandHex > 0 && $0.bandHex <= 0xFFFFFF })
+        XCTAssertEqual(NativeHostCategory.allCases.map(\.illustrationAsset), NativeHostCategory.allCases.map { "HostEditions/\($0.rawValue)" })
+        XCTAssertTrue(NativeHostCategory.allCases.allSatisfy { UIImage(named: $0.illustrationAsset) != nil })
+        XCTAssertTrue(NativeHostCategory.allCases.allSatisfy { !$0.hook.isEmpty && !$0.title.isEmpty })
         XCTAssertEqual(NativeHostType.type(id: "afrobeats")?.printer, .popUp)
         XCTAssertEqual(NativeHostType.type(id: "afrobeats")?.category, .nightlife)
         XCTAssertEqual(NativeHostType.type(id: "watch-party")?.printer, .premiere)

@@ -1014,7 +1014,7 @@ private struct NativeProfileTabView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 112)
         }
-        .background(NativePolish.screenBackground.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-profile-tab")
     }
 }
@@ -1060,7 +1060,7 @@ private struct NativeContextualDestinationView: View {
                                 .padding(.top, 16)
                                 .padding(.bottom, 112)
                         }
-                        .background(NativePolish.screenBackground.ignoresSafeArea())
+                        .background(NativeDeepSpaceGround())
                         .navigationBarHidden(true)
                     }
                 } else if case .party(let route) = destination {
@@ -1476,21 +1476,21 @@ private enum NativeProfileStyle {
     static let title = NativeTheme.textPrimary
     static let body = NativeTheme.textSecondary
     static let muted = NativeTheme.textTertiary
-    static let cardBorder = Color.adaptive(lightHex: 0x000000, darkHex: 0xFFFFFF, lightAlpha: 0.09, darkAlpha: 0.045)
-    static let strongBorder = Color.adaptive(lightHex: 0x000000, darkHex: 0xFFFFFF, lightAlpha: 0.12, darkAlpha: 0.065)
+    static let cardBorder = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.10, darkAlpha: 0.045)
+    static let strongBorder = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.16, darkAlpha: 0.065)
     static let hairline = NativePolish.softBorder
-    static let insetSurface = Color.adaptive(lightHex: 0x111827, darkHex: 0xFFFFFF, lightAlpha: 0.055, darkAlpha: 0.070)
-    static let nestedSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.46, darkAlpha: 0.038)
+    static let insetSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.085, darkAlpha: 0.070)
+    static let nestedSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.055, darkAlpha: 0.038)
     static let onVibrant = Color(hex: 0x050507)
-    static let menuIconSurface = Color.adaptive(lightHex: 0xE8F8FF, darkHex: 0x071F2A, lightAlpha: 1.0, darkAlpha: 0.92)
-    static let chipSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.58, darkAlpha: 0.08)
+    static let menuIconSurface = Color.adaptive(lightHex: 0x0E3444, darkHex: 0x071F2A, lightAlpha: 0.96, darkAlpha: 0.92)
+    static let chipSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.11, darkAlpha: 0.08)
     static let danger = Color.adaptive(lightHex: 0xDC2626, darkHex: 0xDC2626)
     static let dangerBorder = Color.adaptive(lightHex: 0xB91C1C, darkHex: 0xFCA5A5, lightAlpha: 0.34, darkAlpha: 0.78)
-    static let referralPillSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0x000000, lightAlpha: 0.56, darkAlpha: 0.34)
+    static let referralPillSurface = Color.adaptive(lightHex: 0x000000, darkHex: 0x000000, lightAlpha: 0.30, darkAlpha: 0.34)
 
     static func cardSurface(accent: Color? = nil) -> LinearGradient {
         LinearGradient(
-            colors: [Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0x111820, lightAlpha: 0.82, darkAlpha: 0.42), (accent ?? NativeTheme.cyan).opacity(0.038), Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0x0A0D12, lightAlpha: 0.62, darkAlpha: 0.24)],
+            colors: [Color.adaptive(lightHex: 0x232A50, darkHex: 0x111820, lightAlpha: 0.60, darkAlpha: 0.42), (accent ?? NativeTheme.cyan).opacity(0.038), Color.adaptive(lightHex: 0x1A2044, darkHex: 0x0A0D12, lightAlpha: 0.40, darkAlpha: 0.24)],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -1862,7 +1862,7 @@ private struct NativeProfilePanelSheet: View {
                 .padding(.bottom, 16)
                 .background(NativePolish.screenBackground)
         }
-        .background(NativePolish.screenBackground.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-profile-panel-\(panel.rawValue)")
     }
 
@@ -4051,7 +4051,7 @@ private struct NativeNetworkHubView: View {
                 .animation(.spring(response: 0.32, dampingFraction: 0.82), value: segment)
             }
         }
-        .background(NativePolish.screenBackground.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-network-hub")
         .task(id: sessionStore.isAuthenticated) { await refreshNetwork() }
         .fullScreenCover(isPresented: $showHostStudio) {
@@ -17349,7 +17349,7 @@ private struct NativeConciergeView: View {
 
     private var conciergeRadialBackground: some View {
         ZStack {
-            NativePolish.screenBackground
+            NativeDeepSpaceGround()
             RadialGradient(colors: [NativeTheme.purple.opacity(colorScheme == .dark ? 0.12 : 0.075), .clear], center: .topTrailing, startRadius: 8, endRadius: 280)
             RadialGradient(colors: [NativeTheme.cyan.opacity(colorScheme == .dark ? 0.09 : 0.055), .clear], center: .bottomLeading, startRadius: 8, endRadius: 260)
         }
@@ -17434,12 +17434,12 @@ private struct NativeConciergeMessageBubble: View {
     private var escalationBadge: some View {
         Text("Concierge review required")
             .font(.system(size: 12, weight: .black))
-            .foregroundColor(Color.adaptive(lightHex: 0x075985, darkHex: 0xCFFAFE))
+            .foregroundColor(Color.adaptive(lightHex: 0xCFFAFE, darkHex: 0xCFFAFE))
             .lineLimit(1)
             .minimumScaleFactor(0.82)
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
-            .background(Color.adaptive(lightHex: 0xE8F8FF, darkHex: 0x072633, lightAlpha: 1.0, darkAlpha: 0.86))
+            .background(Color.adaptive(lightHex: 0x0B3040, darkHex: 0x072633, lightAlpha: 0.92, darkAlpha: 0.86))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativeTheme.cyan.opacity(colorScheme == .dark ? 0.24 : 0.34), lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
@@ -17587,7 +17587,7 @@ private struct NativeScreenScroll<Content: View>: View {
     let content: Content
     init(@ViewBuilder content: () -> Content) { self.content = content() }
     // The floating tab bar is attached via safeAreaInset, so the scroll content is inset automatically.
-    var body: some View { ScrollView { VStack(alignment: .leading, spacing: NativePolish.sectionSpacing) { content }.padding(.horizontal, NativePolish.screenPadding).padding(.top, 20).padding(.bottom, 20) }.background(NativePolish.screenBackground.ignoresSafeArea()) }
+    var body: some View { ScrollView { VStack(alignment: .leading, spacing: NativePolish.sectionSpacing) { content }.padding(.horizontal, NativePolish.screenPadding).padding(.top, 20).padding(.bottom, 20) }.background(NativeDeepSpaceGround()) }
 }
 
 enum NativePolish {
@@ -17649,13 +17649,17 @@ enum NativePolish {
     static let mapParkingPinSize: CGFloat = 32
     static let mapVenuePinSize: CGFloat = 34
     static let mapTapZonePinSize: CGFloat = 40
-    static let screenBackground = Color.adaptive(lightHex: 0xF5F7FA, darkHex: baseHex)
-    static let glassSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: panelHex, lightAlpha: 0.78, darkAlpha: 0.88)
-    static let elevatedSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: elevatedHex, lightAlpha: 0.92, darkAlpha: 0.90)
+    // Light is the shallower deep space: the same ground, floor raised.
+    static let lightBaseHex = 0x161B3A
+    static let lightPanelHex = 0x1E2447
+    static let lightElevatedHex = 0x252C52
+    static let screenBackground = Color.adaptive(lightHex: lightBaseHex, darkHex: baseHex)
+    static let glassSurface = Color.adaptive(lightHex: lightPanelHex, darkHex: panelHex, lightAlpha: 0.86, darkAlpha: 0.88)
+    static let elevatedSurface = Color.adaptive(lightHex: lightElevatedHex, darkHex: elevatedHex, lightAlpha: 0.90, darkAlpha: 0.90)
     // The bar is glass: the tint sits in front of the material and stays thin
     // enough that the material actually samples the content scrolling under it.
     // An opaque fill here would blur nothing and simply read as a grey slab.
-    static let bottomBarSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0x0B0F16, lightAlpha: 0.42, darkAlpha: 0.34)
+    static let bottomBarSurface = Color.adaptive(lightHex: 0x141A38, darkHex: 0x0B0F16, lightAlpha: 0.40, darkAlpha: 0.34)
     static let mapBaseSurface = Color.adaptive(lightHex: 0xEFF4F8, darkHex: mapBaseHex)
     static let mapPanelSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: mapPanelHex, lightAlpha: 0.88, darkAlpha: 0.94)
     static let mapControlSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: mapPanelHex, lightAlpha: 0.92, darkAlpha: 0.94)

@@ -1,6 +1,30 @@
 import SwiftUI
 import UIKit
 
+/// The ground both appearances share: a navy field with two soft nebula glows,
+/// teal low-left and cyan high-right. A flat fill is what made the canvas read
+/// as dead space -- the card had nothing to sit in. The glows are wide and very
+/// low contrast on purpose: they should be felt as depth, never seen as shapes,
+/// and they must never compete with content for the eye.
+struct NativeDeepSpaceGround: View {
+    var body: some View {
+        ZStack {
+            NativePolish.screenBackground
+            GeometryReader { geo in
+                let span = max(geo.size.width, geo.size.height)
+                RadialGradient(colors: [NativeTheme.cyan.opacity(0.16), .clear],
+                               center: UnitPoint(x: 0.86, y: 0.08), startRadius: 0, endRadius: span * 0.78)
+                RadialGradient(colors: [Color(hue: 0.49, saturation: 0.85, brightness: 0.62).opacity(0.14), .clear],
+                               center: UnitPoint(x: 0.10, y: 0.82), startRadius: 0, endRadius: span * 0.72)
+                RadialGradient(colors: [NativeTheme.purple.opacity(0.10), .clear],
+                               center: UnitPoint(x: 0.50, y: 0.46), startRadius: 0, endRadius: span * 0.62)
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+}
+
 struct BytspotNativeBackground: View {
     let tier: BytspotTier
     var intent: String = ""
@@ -22,21 +46,26 @@ struct BytspotNativeBackground: View {
 }
 
 enum BytspotTheme {
-    static let background = Color.adaptive(lightHex: 0xF5F7FA, darkHex: 0x000000)
-    static let card = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0x1C1C1E, lightAlpha: 0.78, darkAlpha: 0.95)
-    static let panel = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0x1C1C1E, lightAlpha: 0.86, darkAlpha: 0.90)
-    static let tabBarBackground = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0x1C1C1E, lightAlpha: 0.94, darkAlpha: 0.90)
-    static let textPrimary = Color.adaptive(lightHex: 0x050507, darkHex: 0xFFFFFF, lightAlpha: 0.94, darkAlpha: 1.0)
-    static let textSecondary = Color.adaptive(lightHex: 0x0F172A, darkHex: 0xFFFFFF, lightAlpha: 0.70, darkAlpha: 0.70)
-    static let textTertiary = Color.adaptive(lightHex: 0x334155, darkHex: 0xFFFFFF, lightAlpha: 0.52, darkAlpha: 0.52)
-    static let inverseText = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0x000000)
-    static let surfaceStroke = Color.adaptive(lightHex: 0x000000, darkHex: 0xFFFFFF, lightAlpha: 0.13, darkAlpha: 0.12)
-    static let strongSurfaceStroke = Color.adaptive(lightHex: 0x000000, darkHex: 0xFFFFFF, lightAlpha: 0.18, darkAlpha: 0.24)
-    static let selectedControlSurface = Color.adaptive(lightHex: 0x111827, darkHex: 0xFFFFFF, lightAlpha: 0.08, darkAlpha: 0.25)
-    static let surfaceHighlight = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.50, darkAlpha: 0.045)
-    static let panelShadow = Color.adaptive(lightHex: 0x0F172A, darkHex: 0x000000, lightAlpha: 0.12, darkAlpha: 0.40)
-    static let softShadow = Color.adaptive(lightHex: 0x0F172A, darkHex: 0x000000, lightAlpha: 0.09, darkAlpha: 0.22)
-    static let textShadow = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0x000000, lightAlpha: 0.0, darkAlpha: 0.62)
+    // Both appearances are deep space; Light is the shallower of the two, not a
+    // white theme. That inverts every token below: ink is light in both modes
+    // and surfaces are translucent white over the ground rather than opaque
+    // white panels. Light exists to lift the floor for daylight legibility, so
+    // its surfaces and strokes are carried a little stronger than Dark's.
+    static let background = Color.adaptive(lightHex: 0x161B3A, darkHex: 0x000000)
+    static let card = Color.adaptive(lightHex: 0x252C52, darkHex: 0x1C1C1E, lightAlpha: 0.92, darkAlpha: 0.95)
+    static let panel = Color.adaptive(lightHex: 0x1E2447, darkHex: 0x1C1C1E, lightAlpha: 0.90, darkAlpha: 0.90)
+    static let tabBarBackground = Color.adaptive(lightHex: 0x1E2447, darkHex: 0x1C1C1E, lightAlpha: 0.92, darkAlpha: 0.90)
+    static let textPrimary = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.96, darkAlpha: 1.0)
+    static let textSecondary = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.74, darkAlpha: 0.70)
+    static let textTertiary = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.56, darkAlpha: 0.52)
+    static let inverseText = Color.adaptive(lightHex: 0x081026, darkHex: 0x000000)
+    static let surfaceStroke = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.15, darkAlpha: 0.12)
+    static let strongSurfaceStroke = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.28, darkAlpha: 0.24)
+    static let selectedControlSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.18, darkAlpha: 0.25)
+    static let surfaceHighlight = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.065, darkAlpha: 0.045)
+    static let panelShadow = Color.adaptive(lightHex: 0x000000, darkHex: 0x000000, lightAlpha: 0.34, darkAlpha: 0.40)
+    static let softShadow = Color.adaptive(lightHex: 0x000000, darkHex: 0x000000, lightAlpha: 0.20, darkAlpha: 0.22)
+    static let textShadow = Color.adaptive(lightHex: 0x000000, darkHex: 0x000000, lightAlpha: 0.48, darkAlpha: 0.62)
 
     static let cyanHex = 0x00BFFF
     static let purpleHex = 0xA855F7

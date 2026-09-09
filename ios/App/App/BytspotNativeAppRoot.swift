@@ -1010,7 +1010,7 @@ struct BytspotMark: View {
 /// tab bar on every screen and a live sphere there costs frames for nothing.
 struct BytspotDotGlobe: View {
     let size: CGFloat
-    var dotCount: Int = 340
+    var dotCount: Int = 150
 
     var body: some View {
         Canvas { context, canvasSize in
@@ -1026,13 +1026,21 @@ struct BytspotDotGlobe: View {
                 // Back hemisphere is dropped: overlapping far-side dots muddy the
                 // silhouette at small sizes instead of suggesting volume.
                 guard z >= 0 else { continue }
-                let depth = 0.45 + 0.55 * z
-                let dotRadius = radius * 0.052 * depth
-                let point = CGPoint(x: centre.x + CGFloat(x) * radius * 0.92,
-                                    y: centre.y - CGFloat(y) * radius * 0.92)
-                let tint = Color(hue: 0.72 - 0.20 * ((y + 1) / 2), saturation: 0.82, brightness: 0.62 + 0.38 * depth)
+                let point = CGPoint(x: centre.x + CGFloat(x) * radius * 0.90,
+                                    y: centre.y - CGFloat(y) * radius * 0.90)
+                // Curvature has to come from screen-space distance to the limb,
+                // not from the lattice phase: shading keyed to the spiral reads
+                // as speckle that averages flat, which is what made this a
+                // grille rather than a planet. Squaring the falloff darkens the
+                // rim hard enough to be read as a silhouette at 38pt.
+                let limb = min(1, hypot(x, y))
+                let curve = max(0, 1 - limb * limb)
+                let depth = 0.20 + 0.80 * curve
+                let dotRadius = radius * 0.075 * (0.55 + 0.45 * curve)
                 let rect = CGRect(x: point.x - dotRadius, y: point.y - dotRadius, width: dotRadius * 2, height: dotRadius * 2)
-                context.fill(Path(ellipseIn: rect), with: .color(tint.opacity(0.35 + 0.65 * depth)))
+                // One achromatic mark. On a coloured ground white is the only
+                // ink that stays the logo instead of joining the palette.
+                context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(0.28 + 0.72 * depth)))
             }
         }
         .frame(width: size, height: size)

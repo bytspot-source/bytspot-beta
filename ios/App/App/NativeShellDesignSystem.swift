@@ -57,7 +57,10 @@ enum BytspotTheme {
     static let tabBarBackground = Color.adaptive(lightHex: 0x1E2447, darkHex: 0x1C1C1E, lightAlpha: 0.92, darkAlpha: 0.90)
     static let textPrimary = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.96, darkAlpha: 1.0)
     static let textSecondary = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.74, darkAlpha: 0.70)
-    static let textTertiary = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.56, darkAlpha: 0.52)
+    // 0.52 measured exactly 4.50:1 on the lightest category card -- on the AA
+    // line with no margin, so any further lift of a card fill would put it
+    // under. Carried to 0.58 to keep headroom.
+    static let textTertiary = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.60, darkAlpha: 0.58)
     static let inverseText = Color.adaptive(lightHex: 0x081026, darkHex: 0x000000)
     static let surfaceStroke = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.15, darkAlpha: 0.12)
     static let strongSurfaceStroke = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.28, darkAlpha: 0.24)

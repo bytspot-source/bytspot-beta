@@ -867,7 +867,7 @@ private struct BytspotNativeBottomTabBar: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
-                    .scaleEffect(pressedTab == tab ? 0.94 : 1)
+                    .scaleEffect(pressedTab == tab && !reduceMotion ? 0.94 : 1)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(tab.barTitle) tab")
@@ -955,7 +955,7 @@ private struct BytspotNativeBottomTabBar: View {
             ZStack {
                 Circle()
                     .fill(LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple], startPoint: .topLeading, endPoint: .bottomTrailing))
-                BytspotMark(size: NativePolish.bottomBarHostRingSize * 0.72)
+                BytspotMark(size: NativePolish.bottomBarHostRingSize * 0.86)
             }
             .frame(width: NativePolish.bottomBarHostRingSize, height: NativePolish.bottomBarHostRingSize)
             .overlay(Circle().stroke(Color.white.opacity(isActive ? 0.92 : 0.26), lineWidth: isActive ? 1.6 : 1))

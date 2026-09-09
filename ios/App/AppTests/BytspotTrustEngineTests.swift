@@ -4352,14 +4352,22 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeLaunchPersonalizationStorage.crewKey, "bytspot_native_launch_crew")
         XCTAssertEqual(NativeAuthLaunchContract.appFlow, ["splash", "landing", "location", "vibe", "walk", "crew", "recommendations", "main"])
         XCTAssertEqual(BytspotNativeTab.allCases.map(\.rawValue), ["home", "plan", "host", "discover", "map", "concierge", "profile"])
-        // Bottom bar carries five entries with Host in the centre; Map is a
+        // Bottom bar carries five entries with Plan in the centre; Map is a
         // top-left destination and Profile the top-right avatar.
-        XCTAssertEqual(BytspotNativeTab.barTabs.map(\.rawValue), ["home", "plan", "host", "discover", "concierge"])
+        XCTAssertEqual(BytspotNativeTab.barTabs.map(\.rawValue), ["home", "host", "plan", "discover", "concierge"])
         XCTAssertFalse(BytspotNativeTab.barTabs.contains(.map))
         XCTAssertFalse(BytspotNativeTab.barTabs.contains(.profile))
-        XCTAssertEqual(BytspotNativeTab.barTabs.filter(\.isBarAction), [.host])
+        // Every slot is a destination, so exactly one can hold the selection.
+        XCTAssertEqual(BytspotNativeTab.barTabs.filter(\.isBarCenter), [.plan])
+        XCTAssertEqual(BytspotNativeTab.barTabs.firstIndex(of: .plan), 2)
+        XCTAssertEqual(BytspotNativeTab.barTabs.filter(\.requiresAuthentication), [.host])
         XCTAssertEqual(BytspotNativeTab.host.title, "Host")
-        XCTAssertEqual(BytspotNativeTab.host.icon, "plus")
+        // The centre labels itself with its verb; every other surface keeps
+        // the noun so back controls and diagnostics stay readable.
+        XCTAssertEqual(BytspotNativeTab.plan.barTitle, "Start Plan")
+        XCTAssertEqual(BytspotNativeTab.plan.title, "Plan")
+        XCTAssertEqual(BytspotNativeTab.home.barTitle, "Home")
+        XCTAssertEqual(BytspotNativeTab.plan.icon, "plus")
         // Map is the only surface without a bar, so it is the only one that
         // needs a back control.
         XCTAssertFalse(BytspotNativeShellView.tabBarIsVisible(for: .map))
@@ -4367,11 +4375,13 @@ final class NativeAuthLaunchInputTests: XCTestCase {
             XCTAssertTrue(BytspotNativeShellView.tabBarIsVisible(for: tab), "\(tab.rawValue) should keep the bar")
         }
         // Back from Map returns to the previous tab, and fails closed to Home
-        // rather than re-entering Map or the Host action.
+        // rather than re-entering Map.
         XCTAssertEqual(BytspotNativeShellView.mapReturnTarget(from: .discover), .discover)
         XCTAssertEqual(BytspotNativeShellView.mapReturnTarget(from: .plan), .plan)
         XCTAssertEqual(BytspotNativeShellView.mapReturnTarget(from: .map), .home)
-        XCTAssertEqual(BytspotNativeShellView.mapReturnTarget(from: .host), .home)
+        // Host is a destination now, so Map must hand it back rather than
+        // dropping the caller on Home.
+        XCTAssertEqual(BytspotNativeShellView.mapReturnTarget(from: .host), .host)
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🍸 Drinks"), "drinks")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "🚶‍♀️ 10 min"), "medium")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "👫 Date night"), "date_night")

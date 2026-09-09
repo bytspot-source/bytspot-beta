@@ -12,12 +12,20 @@ enum BytspotNativeTab: String, CaseIterable, Identifiable {
     /// Profile is reached from the global top-right avatar and Map from the
     /// global top-left icon, so neither appears here. The enum keeps both
     /// cases for content routing.
-    static let barTabs: [BytspotNativeTab] = [.home, .plan, .host, .discover, .concierge]
+    static let barTabs: [BytspotNativeTab] = [.home, .host, .plan, .discover, .concierge]
 
-    /// Host is an action, not a destination: it opens Host Studio over the
-    /// current tab instead of replacing the content, so it never becomes the
-    /// selected tab.
-    var isBarAction: Bool { self == .host }
+    /// Every bar slot is a destination and can hold the selection. Plan sits
+    /// in the centre and keeps the ring because starting one is the reason to
+    /// go there, but it is a place like the rest.
+    var isBarCenter: Bool { self == .plan }
+
+    /// Host Studio is a workbench for a signed-in caller; sending an anonymous
+    /// one there would open a surface they cannot use.
+    var requiresAuthentication: Bool { self == .host }
+
+    /// The bar labels the centre with its verb. Everywhere else — back
+    /// controls, accessibility, diagnostics — Plan stays a noun.
+    var barTitle: String { self == .plan ? "Start Plan" : title }
 
     var id: String { rawValue }
     var title: String {
@@ -34,8 +42,13 @@ enum BytspotNativeTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .home: return "house.fill"
-        case .plan: return "calendar"
-        case .host: return "plus"
+        // The centre ring carries the create verb; Plan owns the plus now.
+        case .plan: return "plus"
+        case .host:
+            // The door is Host Studio's own metaphor, but SF Symbols only
+            // gained it in 16; fall back to admission on 15.
+            if #available(iOS 16.0, *) { return "door.left.hand.closed" }
+            return "ticket.fill"
         case .discover: return "safari.fill"
         case .map: return "map.fill"
         case .concierge: return "sparkles"
@@ -363,10 +376,11 @@ struct BytspotNativeShellView: View {
             VStack(spacing: 0) {
                 Group {
                     switch selectedTab {
-                    // Host is a bar action that never becomes the selection;
-                    // Home is the defensive fallback if it ever does.
-                    case .home, .host:
+                    case .home:
                         NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth)
+                    case .host:
+                        NativeHostStudioView(circles: hostStudioCircles, membershipTier: membershipStore.tier, presentation: .tab)
+                            .task { await loadHostStudioCircles() }
                     case .plan:
                         NativePlanTabView(sessionStore: sessionStore, openDiscoverFilter: openDiscoverFilter, openMap: { selectNativeTab(.map) })
                     case .discover:
@@ -503,11 +517,6 @@ struct BytspotNativeShellView: View {
             nativeAuthenticationCover
                 .preferredColorScheme(.dark)
         }
-        .fullScreenCover(isPresented: $showHostStudio) {
-            NativeHostStudioView(circles: hostStudioCircles, membershipTier: membershipStore.tier)
-                .preferredColorScheme(effectivePreferredColorScheme)
-                .task { await loadHostStudioCircles() }
-        }
         .sheet(item: $contextualDestination) { destination in
             NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }, openNativeProfilePanel: { panel in openNativeProfile(panel: panel) }, requestNetworkAuthentication: { openNativeAuth(mode: .login, pendingIntent: .network) }, openAccess: { openNativeEquivalent(for: .access) })
             .preferredColorScheme(effectivePreferredColorScheme)
@@ -592,22 +601,18 @@ struct BytspotNativeShellView: View {
         Binding(
             get: { selectedTab },
             set: { tab in
-                // Host produces supply rather than browsing it, so it opens
-                // over the current tab and leaves the selection alone.
-                guard !tab.isBarAction else { requestHostStudio(); return }
+                // Host Studio is a destination now, but still a signed-in one:
+                // send an anonymous caller to auth rather than to a workbench
+                // that cannot load anything.
+                guard !(tab.requiresAuthentication && !sessionStore.isAuthenticated) else {
+                    openNativeAuth(mode: .login)
+                    return
+                }
                 requestLocationForNearbyContentIfNeeded(tab)
                 if tab == .map { preparePlainMapOpen() }
                 commitSelectedTab(tab)
             }
         )
-    }
-
-    private func requestHostStudio() {
-        guard sessionStore.isAuthenticated else {
-            openNativeAuth(mode: .login)
-            return
-        }
-        showHostStudio = true
     }
 
     /// Host Studio's invite step offers the caller's circles. The shell owns
@@ -794,7 +799,7 @@ struct BytspotNativeShellView: View {
     /// Never return into Map itself, and never into Host, which is an action
     /// with no content of its own. Both fail closed to Home.
     static func mapReturnTarget(from tab: BytspotNativeTab) -> BytspotNativeTab {
-        (tab == .map || tab.isBarAction) ? .home : tab
+        tab == .map ? .home : tab
     }
 
     static func requiresLocationForNearbyContent(_ tab: BytspotNativeTab) -> Bool {
@@ -842,8 +847,8 @@ private struct BytspotNativeBottomTabBar: View {
             ForEach(BytspotNativeTab.barTabs) { tab in
                 Button(action: { select(tab) }) {
                     Group {
-                        if tab.isBarAction {
-                            hostActionItem()
+                        if tab.isBarCenter {
+                            centerItem(tab, isActive: selectedTab == tab)
                         } else {
                             tabItem(tab, isActive: selectedTab == tab)
                         }
@@ -852,9 +857,9 @@ private struct BytspotNativeBottomTabBar: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(tab.isBarAction ? "Host a moment" : "\(tab.title) tab")
-                .accessibilityIdentifier(tab.isBarAction ? "native-bottom-bar-host-action" : "native-bottom-bar-\(tab.rawValue)")
-                .accessibilityAddTraits(tab.isBarAction ? .isButton : (selectedTab == tab ? .isSelected : []))
+                .accessibilityLabel("\(tab.barTitle) tab")
+                .accessibilityIdentifier("native-bottom-bar-\(tab.rawValue)")
+                .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
             }
         }
         .padding(.horizontal, NativePolish.bottomBarInnerHorizontalPadding)
@@ -883,32 +888,32 @@ private struct BytspotNativeBottomTabBar: View {
         .background(RoundedRectangle(cornerRadius: NativePolish.bottomTabActiveRadius, style: .continuous).fill(isActive ? NativeTheme.selectedControlSurface : Color.clear))
     }
 
-    /// Host reads as the centre of the bar: a filled ring instead of a line
-    /// icon, because creating a moment is the one bar entry that produces
-    /// supply rather than browsing it.
-    private func hostActionItem() -> some View {
+    /// The centre reads as a filled ring rather than a line icon, because it
+    /// is the one bar entry that produces something instead of browsing it.
+    /// It still takes the selection, so the bar always marks one place.
+    private func centerItem(_ tab: BytspotNativeTab, isActive: Bool) -> some View {
         VStack(spacing: 3) {
             ZStack {
                 Circle()
                     .fill(LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple], startPoint: .topLeading, endPoint: .bottomTrailing))
-                Image(systemName: BytspotNativeTab.host.icon)
+                Image(systemName: tab.icon)
                     .font(.system(size: 19, weight: .bold))
                     .foregroundColor(.white)
             }
             .frame(width: NativePolish.bottomBarHostRingSize, height: NativePolish.bottomBarHostRingSize)
-            .overlay(Circle().stroke(Color.white.opacity(0.22), lineWidth: 1))
-            .shadow(color: NativeTheme.cyan.opacity(0.35), radius: 10, x: 0, y: 4)
-            Text(BytspotNativeTab.host.title)
+            .overlay(Circle().stroke(Color.white.opacity(isActive ? 0.92 : 0.22), lineWidth: isActive ? 1.6 : 1))
+            .shadow(color: NativeTheme.cyan.opacity(isActive ? 0.85 : 0.35), radius: isActive ? 16 : 10, x: 0, y: 4)
+            Text(tab.barTitle)
                 .font(.system(size: BytspotTheme.caption2Size, weight: .semibold))
                 .lineLimit(1)
         }
-        .foregroundColor(NativeTheme.textPrimary)
+        .foregroundColor(isActive ? NativeTheme.textPrimary : NativeTheme.textSecondary)
         .frame(maxWidth: .infinity, minHeight: NativePolish.bottomTabItemHeight)
     }
 
     private func select(_ tab: BytspotNativeTab) {
         nativeImpactLight()
-        guard tab.isBarAction || selectedTab != tab else { return }
+        guard selectedTab != tab else { return }
         // Assign without an animation gate so the active pill moves on the
         // tap frame; content transitions are owned by the shell container.
         selectedTab = tab
@@ -18376,20 +18381,26 @@ enum NativeShellThemeSelfTests {
     private static func assertTabContract() {
         let tabs = BytspotNativeTab.allCases
         precondition(tabs.map(\.title) == ["Home", "Plan", "Host", "Discover", "Map", "Concierge", "Profile"], "NativeShellThemeSelfTests: tab titles drifted from entry navigation.")
-        precondition(tabs.map(\.icon) == ["house.fill", "calendar", "plus", "safari.fill", "map.fill", "sparkles", "person.crop.circle.fill"], "NativeShellThemeSelfTests: tab SF Symbols drifted from migration mapping.")
+        precondition(BytspotNativeTab.plan.barTitle == "Start Plan", "NativeShellThemeSelfTests: the centre must label itself with its verb.")
+        precondition(BytspotNativeTab.home.barTitle == BytspotNativeTab.home.title, "NativeShellThemeSelfTests: only the centre relabels in the bar.")
+        precondition(BytspotNativeTab.plan.icon == "plus", "NativeShellThemeSelfTests: the centre ring must carry the create verb.")
         // Profile is reached from the global top-right avatar and Map from the
         // global top-left icon, so the bottom bar shows five entries and never
         // either of those two.
-        precondition(BytspotNativeTab.barTabs.map(\.title) == ["Home", "Plan", "Host", "Discover", "Concierge"], "NativeShellThemeSelfTests: bottom bar tab set drifted.")
+        precondition(BytspotNativeTab.barTabs.map(\.title) == ["Home", "Host", "Plan", "Discover", "Concierge"], "NativeShellThemeSelfTests: bottom bar tab set drifted.")
         precondition(!BytspotNativeTab.barTabs.contains(.profile), "NativeShellThemeSelfTests: Profile must not appear in the bottom bar.")
         precondition(!BytspotNativeTab.barTabs.contains(.map), "NativeShellThemeSelfTests: Map is a top-left destination and must not appear in the bottom bar.")
-        precondition(BytspotNativeTab.barTabs.filter(\.isBarAction) == [.host], "NativeShellThemeSelfTests: Host must be the only bar action.")
+        // Every bar slot is a destination now, so exactly one of them can hold
+        // the selection and the centre is the middle of the five.
+        precondition(BytspotNativeTab.barTabs.filter(\.isBarCenter) == [.plan], "NativeShellThemeSelfTests: Plan must be the only bar centre.")
+        precondition(BytspotNativeTab.barTabs.firstIndex(of: .plan) == 2, "NativeShellThemeSelfTests: the centre must sit in the middle of the bar.")
+        precondition(BytspotNativeTab.barTabs.filter(\.requiresAuthentication) == [.host], "NativeShellThemeSelfTests: Host Studio must be the only bar entry that demands a signed-in caller.")
         // Map is a destination: it hides the bar and offers a back control that
-        // never re-enters Map or the Host action.
+        // never re-enters Map.
         precondition(!BytspotNativeShellView.tabBarIsVisible(for: .map), "NativeShellThemeSelfTests: Map must hide the bottom bar.")
         precondition(BytspotNativeTab.barTabs.allSatisfy { BytspotNativeShellView.tabBarIsVisible(for: $0) }, "NativeShellThemeSelfTests: bar tabs must keep the bottom bar.")
         precondition(BytspotNativeShellView.mapReturnTarget(from: .map) == .home, "NativeShellThemeSelfTests: Map back must fail closed to Home.")
-        precondition(BytspotNativeShellView.mapReturnTarget(from: .host) == .home, "NativeShellThemeSelfTests: Host is not a return destination.")
+        precondition(BytspotNativeShellView.mapReturnTarget(from: .host) == .host, "NativeShellThemeSelfTests: Host is a destination and must be returned to.")
     }
 
     private static func assertDefaultTierFallback() {

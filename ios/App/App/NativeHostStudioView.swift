@@ -104,10 +104,16 @@ enum NativePartySharePresentation {
 struct NativeHostStudioView: View {
     private enum Step: Int, CaseIterable { case spark, build, door, invite }
 
+    /// Host Studio is reached two ways: presented over another surface, where
+    /// it owns a way back, and as the Host tab, where the bar is the way out
+    /// and a back control would dismiss nothing.
+    enum Presentation { case cover, tab }
+
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     let circles: [NativeSocialCircle]
     let membershipTier: BytspotTier
+    var presentation: Presentation = .cover
 
     @State private var step: Step = .spark
     @State private var taxonomy = NativeHostTaxonomySelection.default
@@ -204,8 +210,13 @@ struct NativeHostStudioView: View {
 
     private var header: some View {
         HStack {
-            Button(action: { dismiss() }) { Label("Network", systemImage: "chevron.left").font(.system(size: 14, weight: .bold)) }
-                .buttonStyle(.plain).foregroundColor(.white)
+            if presentation == .cover {
+                // The label named the Network sheet that used to present this;
+                // it is reached from the bar now, so say what the control does.
+                Button(action: { dismiss() }) { Label("Close", systemImage: "chevron.left").font(.system(size: 14, weight: .bold)) }
+                    .buttonStyle(.plain).foregroundColor(.white)
+                    .accessibilityIdentifier("native-host-studio-close")
+            }
             Spacer()
             VStack(spacing: 1) {
                 Text("HOST STUDIO").font(.system(size: 10, weight: .black)).tracking(1.8).foregroundColor(NativeTheme.pink)

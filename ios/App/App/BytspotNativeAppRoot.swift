@@ -993,6 +993,16 @@ private struct NativeLaunchLocationScreen: View {
     }
 }
 
+/// The bottom bar's centre needs the mark from another file. The canonical
+/// drawing below stays private and unduplicated so the brand-mark geometry
+/// gate keeps reading exactly one Swift surface; this only re-exports it.
+struct BytspotMark: View {
+    let size: CGFloat
+    var showGlow: Bool = false
+
+    var body: some View { NativeBytspotMark(size: size, showGlow: showGlow) }
+}
+
 private struct NativeBytspotMark: View {
     let size: CGFloat
     var showGlow: Bool = false

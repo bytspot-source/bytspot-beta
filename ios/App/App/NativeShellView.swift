@@ -841,6 +841,18 @@ struct BytspotNativeShellView: View {
 private struct BytspotNativeBottomTabBar: View {
     @Binding var selectedTab: BytspotNativeTab
     let tier: BytspotTier
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var barMarks
+    @State private var pressedTab: BytspotNativeTab?
+    @State private var bloomDimmed = false
+
+    /// Settles, no bounce. One curve for every state change in the bar so the
+    /// dot, the bloom and both tints arrive together.
+    private static let travel = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.32)
+    private static let dip = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.16)
+    private static let pressCurve = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.09)
+
+    private var motion: Animation? { reduceMotion ? nil : Self.travel }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -855,11 +867,22 @@ private struct BytspotNativeBottomTabBar: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
+                    .scaleEffect(pressedTab == tab ? 0.94 : 1)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(tab.barTitle) tab")
                 .accessibilityIdentifier("native-bottom-bar-\(tab.rawValue)")
                 .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { _ in
+                            guard pressedTab != tab else { return }
+                            withAnimation(reduceMotion ? nil : Self.pressCurve) { pressedTab = tab }
+                        }
+                        .onEnded { _ in
+                            withAnimation(reduceMotion ? nil : Self.pressCurve) { pressedTab = nil }
+                        }
+                )
             }
         }
         .padding(.horizontal, NativePolish.bottomBarInnerHorizontalPadding)
@@ -875,48 +898,101 @@ private struct BytspotNativeBottomTabBar: View {
         .padding(.bottom, NativePolish.bottomBarBottomPadding)
     }
 
+    /// A glyph is solid in every state. Selection is carried by tint, by the
+    /// single travelling bloom behind the glyph, and by the dot under the
+    /// label -- never by swapping an outline for a fill, and never by changing
+    /// weight, both of which reflow the row.
     private func tabItem(_ tab: BytspotNativeTab, isActive: Bool) -> some View {
         VStack(spacing: 3) {
-            Image(systemName: tab.icon)
-                .font(.system(size: 20, weight: isActive ? .semibold : .regular))
+            ZStack {
+                if isActive { bloom }
+                Image(systemName: tab.icon)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(isActive ? NativeTheme.textPrimary : NativeTheme.textSecondary)
+            }
+            .frame(height: 24)
             Text(tab.title)
-                .font(.system(size: BytspotTheme.caption2Size, weight: isActive ? .semibold : .regular))
+                .font(.system(size: BytspotTheme.caption2Size, weight: .semibold))
                 .lineLimit(1)
+                .foregroundColor(isActive ? NativeTheme.textPrimary : NativeTheme.textSecondary)
+            dotRail(isActive: isActive)
         }
-        .foregroundColor(isActive ? NativeTheme.textPrimary : NativeTheme.textSecondary)
         .frame(maxWidth: .infinity, minHeight: NativePolish.bottomTabItemHeight)
-        .background(RoundedRectangle(cornerRadius: NativePolish.bottomTabActiveRadius, style: .continuous).fill(isActive ? NativeTheme.selectedControlSurface : Color.clear))
     }
 
-    /// The centre reads as a filled ring rather than a line icon, because it
-    /// is the one bar entry that produces something instead of browsing it.
-    /// It still takes the selection, so the bar always marks one place.
+    /// One node for the whole bar: it travels to the selected slot rather than
+    /// fading out here and in over there. It dips as it crosses behind the
+    /// centre ring so the ring stays the brightest thing in the bar.
+    private var bloom: some View {
+        Circle()
+            .fill(RadialGradient(colors: [NativeTheme.cyan.opacity(0.55), NativeTheme.cyan.opacity(0.0)], center: .center, startRadius: 0, endRadius: 21))
+            .frame(width: 42, height: 42)
+            .opacity(bloomDimmed ? 0.2 : 1)
+            .matchedGeometryEffect(id: "native-bar-bloom", in: barMarks)
+            .allowsHitTesting(false)
+    }
+
+    /// The dot answers "where am I" with exactly one mark, and every slot --
+    /// including the centre -- can own it.
+    private func dotRail(isActive: Bool) -> some View {
+        ZStack {
+            if isActive {
+                Circle()
+                    .fill(NativeTheme.cyan)
+                    .frame(width: 3.5, height: 3.5)
+                    .matchedGeometryEffect(id: "native-bar-dot", in: barMarks)
+            }
+        }
+        .frame(height: 4)
+    }
+
+    /// The centre carries the brand mark inside a ring: it takes the dot like
+    /// any other slot, so the bar still marks exactly one place, but the ring
+    /// also reads as the one slot where you make something. It never takes the
+    /// travelling bloom -- the ring is already its own light source.
     private func centerItem(_ tab: BytspotNativeTab, isActive: Bool) -> some View {
         VStack(spacing: 3) {
             ZStack {
                 Circle()
                     .fill(LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple], startPoint: .topLeading, endPoint: .bottomTrailing))
-                Image(systemName: tab.icon)
-                    .font(.system(size: 19, weight: .bold))
-                    .foregroundColor(.white)
+                BytspotMark(size: NativePolish.bottomBarHostRingSize * 0.72)
             }
             .frame(width: NativePolish.bottomBarHostRingSize, height: NativePolish.bottomBarHostRingSize)
-            .overlay(Circle().stroke(Color.white.opacity(isActive ? 0.92 : 0.22), lineWidth: isActive ? 1.6 : 1))
-            .shadow(color: NativeTheme.cyan.opacity(isActive ? 0.85 : 0.35), radius: isActive ? 16 : 10, x: 0, y: 4)
+            .overlay(Circle().stroke(Color.white.opacity(isActive ? 0.92 : 0.26), lineWidth: isActive ? 1.6 : 1))
+            .shadow(color: NativeTheme.cyan.opacity(isActive ? 0.85 : 0.35), radius: isActive ? 24 : 14, x: 0, y: 4)
+            .scaleEffect(isActive && !reduceMotion ? 1.08 : 1)
+            .frame(height: 24)
             Text(tab.barTitle)
                 .font(.system(size: BytspotTheme.caption2Size, weight: .semibold))
                 .lineLimit(1)
+                .foregroundColor(isActive ? NativeTheme.textPrimary : NativeTheme.textSecondary)
+            dotRail(isActive: isActive)
         }
-        .foregroundColor(isActive ? NativeTheme.textPrimary : NativeTheme.textSecondary)
         .frame(maxWidth: .infinity, minHeight: NativePolish.bottomTabItemHeight)
     }
 
     private func select(_ tab: BytspotNativeTab) {
         nativeImpactLight()
         guard selectedTab != tab else { return }
-        // Assign without an animation gate so the active pill moves on the
-        // tap frame; content transitions are owned by the shell container.
-        selectedTab = tab
+        let crossesCentre = crossesBarCentre(from: selectedTab, to: tab)
+        withAnimation(motion) { selectedTab = tab }
+        // The bloom only dims when it actually passes behind the ring, so a
+        // move between two neighbouring slots stays at full strength.
+        guard !reduceMotion, crossesCentre else { return }
+        withAnimation(Self.dip) { bloomDimmed = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            withAnimation(Self.dip) { bloomDimmed = false }
+        }
+    }
+
+    /// True when the travelling bloom has to pass the centre ring to get from
+    /// one slot to the other. The centre itself never holds the bloom.
+    private func crossesBarCentre(from: BytspotNativeTab, to: BytspotNativeTab) -> Bool {
+        let tabs = BytspotNativeTab.barTabs
+        guard let centre = tabs.firstIndex(where: \.isBarCenter),
+              let a = tabs.firstIndex(of: from), let b = tabs.firstIndex(of: to),
+              a != centre, b != centre else { return false }
+        return (a < centre && b > centre) || (a > centre && b < centre)
     }
 }
 
@@ -18383,7 +18459,10 @@ enum NativeShellThemeSelfTests {
         precondition(tabs.map(\.title) == ["Home", "Plan", "Host", "Discover", "Map", "Concierge", "Profile"], "NativeShellThemeSelfTests: tab titles drifted from entry navigation.")
         precondition(BytspotNativeTab.plan.barTitle == "Start Plan", "NativeShellThemeSelfTests: the centre must label itself with its verb.")
         precondition(BytspotNativeTab.home.barTitle == BytspotNativeTab.home.title, "NativeShellThemeSelfTests: only the centre relabels in the bar.")
-        precondition(BytspotNativeTab.plan.icon == "plus", "NativeShellThemeSelfTests: the centre ring must carry the create verb.")
+        // The centre draws the brand mark rather than an SF Symbol, so no glyph
+        // name is asserted here. What must hold is that the bar calls it by its
+        // verb while every other surface keeps Plan a noun.
+        precondition(BytspotNativeTab.plan.barTitle == "Start Plan" && BytspotNativeTab.plan.title == "Plan", "NativeShellThemeSelfTests: the centre must read as a verb in the bar and a noun everywhere else.")
         // Profile is reached from the global top-right avatar and Map from the
         // global top-left icon, so the bottom bar shows five entries and never
         // either of those two.

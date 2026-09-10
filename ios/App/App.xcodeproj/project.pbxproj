@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D6B000012026091000000001 /* NativeDiscoverBookableTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6B000022026091000000001 /* NativeDiscoverBookableTests.swift */; };
+		D6B000012026091000000002 /* NativeDiscoverAddToPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6B000022026091000000002 /* NativeDiscoverAddToPlanTests.swift */; };
 		1D765AAFA6F2C3ED2D7774D1 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 561F60551ECB3B73349A69A9 /* Foundation.framework */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
@@ -93,6 +95,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		D6B000022026091000000001 /* NativeDiscoverBookableTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiscoverBookableTests.swift; sourceTree = "<group>"; };
+		D6B000022026091000000002 /* NativeDiscoverAddToPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiscoverAddToPlanTests.swift; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		504EC30E1FED79650016851F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -181,6 +185,8 @@
 			isa = PBXGroup;
 			children = (
 				9A1129492FA586137FE60C71 /* BytspotTrustEngineTests.swift */,
+				D6B000022026091000000001 /* NativeDiscoverBookableTests.swift */,
+				D6B000022026091000000002 /* NativeDiscoverAddToPlanTests.swift */,
 				A13F0F002D0000000000F000 /* NativePartyArrivalTests.swift */,
 				A13F13082D00000000001308 /* BookableTemplatesTests.swift */,
 			);
@@ -469,6 +475,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				B3D8A6E7D100EEDA96C20BD3 /* BytspotTrustEngineTests.swift in Sources */,
+				D6B000012026091000000001 /* NativeDiscoverBookableTests.swift in Sources */,
+				D6B000012026091000000002 /* NativeDiscoverAddToPlanTests.swift in Sources */,
 				A13F0F012D0000000000F001 /* NativePartyArrivalTests.swift in Sources */,
 				A13F13092D00000000001309 /* BookableTemplatesTests.swift in Sources */,
 			);

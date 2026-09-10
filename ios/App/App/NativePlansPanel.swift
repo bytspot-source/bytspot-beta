@@ -4,6 +4,8 @@ extension Notification.Name {
     /// Posted when a link holder is seated on a Plan via joinByToken, so any
     /// live Plan list reloads to show the newly joined Plan.
     static let nativePlanDidJoin = Notification.Name("bytspot.nativePlanDidJoin")
+    /// A Discover selection changed a Plan (or a write needs reconciliation).
+    static let nativePlanDidChange = Notification.Name("bytspot.nativePlanDidChange")
 }
 
 /// One Plan as the API returns it. Every field the client needs to render lives
@@ -84,6 +86,51 @@ struct NativePlanBookableOffering: Codable, Equatable, Identifiable {
 }
 
 struct NativePlanBookables: Codable { let offerings: [NativePlanBookableOffering] }
+
+/// Presentation identity only; never sent as a supply ID or an idempotency key.
+/// Pass an offering only when Discover has its actual canonical association.
+/// Details and redirects without that association remain plain References.
+struct NativeDiscoverPlanSelection: Identifiable, Equatable {
+    let id: UUID
+    let title: String
+    let needKind: String
+    let offering: NativePlanBookableOffering?
+
+    init(id: UUID = UUID(), title: String, needKind: String, offering: NativePlanBookableOffering? = nil) {
+        self.id = id
+        self.title = title
+        self.needKind = needKind
+        self.offering = offering
+    }
+
+    var referenceTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var normalizedNeed: String { needKind.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var isValid: Bool {
+        guard !referenceTitle.isEmpty, !normalizedNeed.isEmpty, normalizedNeed.utf16.count <= 40 else { return false }
+        if let offering { return !offering.sourceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return referenceTitle.utf16.count <= 120
+    }
+
+    func addRequest(planID: String) -> NativePlanWriteRequest {
+        if let offering { return NativePlanContract.addRequest(planID: planID, selections: [offering.selection]) }
+        // Actual plans.attach signature: no supplyRef, URL, capability, or metadata.
+        return NativePlanWriteRequest(path: "/trpc/plans.attach",
+                                      input: ["planId": planID, "title": referenceTitle, "needKind": normalizedNeed])
+    }
+
+    func createRequest(idempotencyKey: String) -> NativePlanWriteRequest {
+        let request = NativePlanContract.createRequest(
+            idempotencyKey: idempotencyKey,
+            title: NativePlanDisplay.clamped(referenceTitle, utf16Limit: 80),
+            intent: "Explore \(NativePlanDisplay.clamped(referenceTitle, utf16Limit: 120)).",
+            startsAt: nil, partySize: nil, needs: [], bookableSelections: offering.map { [$0.selection] } ?? [])
+        // The router accepts all Discover need strings, not just the legacy
+        // create form's six checklist options. Do not silently drop e.g. events.
+        var input = request.input
+        input["needs"] = [normalizedNeed]
+        return NativePlanWriteRequest(path: request.path, input: input)
+    }
+}
 
 /// In-memory only. Opening or cancelling a picker never issues a write.
 struct NativePlanBookableDraft: Equatable {
@@ -205,7 +252,16 @@ struct NativePrimePathResponse: Codable, Equatable {
     let needs: [NativePrimePathNeed]
 }
 
-struct NativePlanAPI {
+/// Injectable seam for the Discover sheet's read/write state-machine tests.
+protocol NativeDiscoverPlanAdding {
+    func list() async throws -> [NativePlan]
+    func get(_ planID: String) async throws -> NativePlan
+    func create(_ request: NativePlanWriteRequest) async throws -> String
+    func addBookables(_ request: NativePlanWriteRequest) async throws -> [String]
+    func attachReference(_ request: NativePlanWriteRequest) async throws
+}
+
+struct NativePlanAPI: NativeDiscoverPlanAdding {
     let client: BytspotAPIClient
 
     func list() async throws -> [NativePlan] {
@@ -286,6 +342,15 @@ struct NativePlanAPI {
             throw BytspotAPIClient.APIError.invalidResponse
         }
         return ids
+    }
+
+    /// NOT idempotent for References. The caller must never automatically
+    /// repeat this operation after a lost or malformed response.
+    func attachReference(_ request: NativePlanWriteRequest) async throws {
+        let payload = try await client.trpcPayload(path: request.path, method: "POST", input: request.input)
+        guard let object = payload as? [String: Any], let id = object["id"] as? String, !id.isEmpty else {
+            throw BytspotAPIClient.APIError.invalidResponse
+        }
     }
 
     /// The caller never states the capability - the server derives it from the
@@ -637,6 +702,310 @@ enum NativePlanDisplay {
     }
 }
 
+// MARK: - Discover Add to Plan
+
+/// A frozen destination and create key survive retries. Reference attach is a
+/// separate, at-most-once step: even a server error may follow a committed write.
+@MainActor
+final class NativeDiscoverAddToPlanModel: ObservableObject {
+    enum Destination: Equatable {
+        case existing(id: String, title: String)
+        case newPlan
+    }
+
+    let selection: NativeDiscoverPlanSelection
+    @Published var destination: Destination?
+    @Published private(set) var plans: [NativePlan] = []
+    @Published private(set) var isLoading = false
+    @Published private(set) var isSaving = false
+    @Published private(set) var loadFailed = false
+    @Published private(set) var errorMessage: String?
+    @Published private(set) var frozenDestination: Destination?
+    @Published private(set) var referenceAttachStarted = false
+    private var userID: String?
+    private var generation = UUID()
+    private var loadGeneration = UUID()
+    private var creationKey = UUID().uuidString
+    private var createdPlanID: String?
+
+    init(selection: NativeDiscoverPlanSelection) { self.selection = selection }
+
+    var allowsEdits: Bool { frozenDestination == nil && !isSaving }
+    var canSubmit: Bool { selection.isValid && destination != nil && !isSaving && !referenceAttachStarted }
+
+    static func isEditable(_ plan: NativePlan, userID: String?) -> Bool {
+        ["proposed", "confirmed"].contains(plan.lifecycle) && NativePlanDisplay.canAddBookables(plan, userID: userID)
+    }
+
+    func bind(userID: String?) {
+        guard self.userID != userID else { return }
+        invalidate()
+        self.userID = userID
+        plans = []; destination = nil; frozenDestination = nil
+        createdPlanID = nil; creationKey = UUID().uuidString
+        referenceAttachStarted = false; errorMessage = nil; loadFailed = false
+    }
+
+    /// Invalidates work when the sheet disappears or credentials change. Keep
+    /// retry identity and the at-most-once latch for the same member.
+    func invalidate() {
+        generation = UUID(); loadGeneration = UUID()
+        isLoading = false; isSaving = false
+    }
+
+    func load(api: NativeDiscoverPlanAdding, userID: String, isCurrent: () -> Bool) async {
+        guard isCurrent(), self.userID == userID else { return }
+        let scope = generation
+        let load = UUID(); loadGeneration = load
+        isLoading = true; loadFailed = false
+        do {
+            let rows = try await api.list()
+            guard isCurrent(), generation == scope, loadGeneration == load, !Task.isCancelled else { return }
+            plans = rows.filter { Self.isEditable($0, userID: userID) }
+            isLoading = false
+        } catch {
+            guard isCurrent(), generation == scope, loadGeneration == load, !Task.isCancelled else { return }
+            isLoading = false; loadFailed = true
+        }
+    }
+
+    /// Called only by the explicit confirmation button, never by a task on open.
+    func save(api: NativeDiscoverPlanAdding, userID: String, isCurrent: () -> Bool) async -> String? {
+        guard isCurrent(), self.userID == userID, canSubmit,
+              let target = frozenDestination ?? destination else { return nil }
+        frozenDestination = target
+        isSaving = true; errorMessage = nil
+        let scope = generation
+        func current() -> Bool { isCurrent() && self.generation == scope && !Task.isCancelled }
+        defer { if generation == scope { isSaving = false } }
+        do {
+            let planID: String
+            switch target {
+            case .existing(let id, _): planID = id
+            case .newPlan:
+                if let createdPlanID { planID = createdPlanID }
+                else {
+                    planID = try await api.create(selection.createRequest(idempotencyKey: creationKey))
+                    guard current() else { return nil }
+                    createdPlanID = planID
+                    notifyChange(planID)
+                }
+                // createWithBookables is atomic. A matching retry returns the
+                // same Plan, and cannot resurrect a deleted Plan or selection.
+                if selection.offering != nil { return planID }
+            }
+
+            // Refresh ownership/lifecycle immediately before attaching; the
+            // router repeats these checks in its write transaction.
+            let plan = try await api.get(planID)
+            guard current() else { return nil }
+            guard Self.isEditable(plan, userID: userID) else {
+                errorMessage = "This Plan is no longer editable by you. Close and choose another Plan."
+                return nil
+            }
+            let request = selection.addRequest(planID: planID)
+            if let offering = selection.offering {
+                let matches = plan.items.filter {
+                    NativePlanDisplay.selectedSourceIDs(in: [$0]).contains(offering.selection.id)
+                }
+                guard matches.count <= 1 else {
+                    errorMessage = "This offering has multiple existing items. Open the Plan to resolve them before adding it."
+                    return nil
+                }
+                if matches.contains(where: { $0.status == "cancelled" }) {
+                    errorMessage = "This selection is in the Plan's cancelled history. Adding it cannot restore it."
+                    return nil
+                }
+                if matches.isEmpty { _ = try await api.addBookables(request) }
+            } else {
+                // No source identity means no safe dedupe or read reconciliation.
+                // Never infer success from another item with the same title.
+                referenceAttachStarted = true
+                try await api.attachReference(request)
+            }
+            guard current() else { return nil }
+            notifyChange(planID)
+            return planID
+        } catch {
+            guard current() else { return nil }
+            if referenceAttachStarted {
+                errorMessage = "The Reference may have been added. We won't send it again because that could duplicate it. Close and check the Plan before adding again."
+                if case .existing(let id, _) = target { notifyChange(id) }
+                else if let createdPlanID { notifyChange(createdPlanID) }
+            } else if createdPlanID != nil {
+                errorMessage = "Your Plan was created, but the selection wasn't sent yet. Retry to check the Plan and add it; no second Plan will be created."
+            } else {
+                errorMessage = "Couldn't verify the save. Retry uses the same destination and request, without reserving or paying. If you close, check Plans before starting again."
+            }
+            return nil
+        }
+    }
+
+    private func notifyChange(_ planID: String) {
+        NotificationCenter.default.post(name: .nativePlanDidChange, object: nil, userInfo: ["planId": planID])
+    }
+}
+
+/// Reusable across all Discover capability cards. onAdded receives a Plan ID,
+/// not a booking. If it opens detail, the caller should defer presentation until
+/// this sheet's onDismiss. onSignIn similarly hands presentation to the caller.
+@MainActor
+struct NativeDiscoverAddToPlanSheet: View {
+    let selection: NativeDiscoverPlanSelection
+    @ObservedObject var sessionStore: BytspotSessionStore
+    let onSignIn: () -> Void
+    let onAdded: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var model: NativeDiscoverAddToPlanModel
+    @State private var reloadGeneration = UUID()
+    @State private var isVisible = false
+
+    init(selection: NativeDiscoverPlanSelection, sessionStore: BytspotSessionStore,
+         onSignIn: @escaping () -> Void, onAdded: @escaping (String) -> Void) {
+        self.selection = selection
+        self.sessionStore = sessionStore
+        self.onSignIn = onSignIn
+        self.onAdded = onAdded
+        _model = StateObject(wrappedValue: NativeDiscoverAddToPlanModel(selection: selection))
+    }
+
+    private var signedIn: Bool {
+        sessionStore.canAttachBearerToken && sessionStore.authenticatedUserID?.isEmpty == false
+    }
+    private var loadID: String { "\(sessionStore.authenticatedUserID ?? "signed-out"):\(reloadGeneration)" }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Add to Plan").font(.title2.bold())
+                    Spacer()
+                    Button(model.allowsEdits ? "Cancel" : "Close") { dismiss() }
+                        .frame(minWidth: 44, minHeight: 44).disabled(model.isSaving)
+                }
+                Text(selection.title).font(.headline)
+                Text(selection.offering == nil
+                     ? "Reference only. Saved as a title and category; nothing is requested, reserved or paid for."
+                     : NativePlanDisplay.bookablesFootnote)
+                    .font(.subheadline).foregroundColor(NativeTheme.textSecondary)
+                if !signedIn {
+                    Text("Sign in to add to your Plans.")
+                    Button("Sign in") { dismiss(); onSignIn() }.frame(minHeight: 44)
+                } else if !selection.isValid {
+                    Text("This selection needs a title and a valid category before it can be added.")
+                        .foregroundColor(NativeTheme.orange)
+                } else {
+                    destinations
+                    if let error = model.errorMessage {
+                        Text(error).font(.subheadline).foregroundColor(NativeTheme.orange)
+                    }
+                }
+            }
+            .padding(20)
+        }
+        .foregroundColor(NativeTheme.textPrimary)
+        .background(NativeDeepSpaceGround())
+        .safeAreaInset(edge: .bottom) {
+            if signedIn && selection.isValid {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let target = model.frozenDestination ?? model.destination {
+                        Text(confirmation(for: target)).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                    }
+                    Button(action: save) {
+                        HStack {
+                            if model.isSaving { ProgressView().tint(.black) }
+                            Text(model.isSaving ? "Adding…" : model.referenceAttachStarted ? "Check Plan before adding again" :
+                                 model.frozenDestination != nil ? "Retry same request" : model.destination == .newPlan ? "Create Plan & add" : "Add to selected Plan")
+                                .font(.headline)
+                        }
+                        .foregroundColor(.black).frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain).disabled(!model.canSubmit)
+                    .accessibilityIdentifier("native-discover-plan-confirm")
+                }
+                .padding(16).background(.ultraThinMaterial)
+            }
+        }
+        .interactiveDismissDisabled(model.isSaving)
+        .onAppear { isVisible = true }
+        .onDisappear { isVisible = false; model.invalidate() }
+        .onChange(of: sessionStore.token) { _ in
+            model.invalidate(); reloadGeneration = UUID()
+        }
+        .task(id: loadID) { await load() }
+        .accessibilityIdentifier("native-discover-add-to-plan")
+    }
+
+    @ViewBuilder private var destinations: some View {
+        Text("Your editable Plans").font(.headline)
+        if model.isLoading { ProgressView("Loading Plans…") }
+        if model.loadFailed {
+            Text("Couldn't load Plans.").foregroundColor(NativeTheme.orange)
+            Button("Retry loading Plans") { reloadGeneration = UUID() }
+                .frame(minHeight: 44).disabled(model.isSaving)
+        } else if !model.isLoading && model.plans.isEmpty {
+            Text("No editable Plans yet. Create one with this selection.")
+                .foregroundColor(NativeTheme.textSecondary)
+        }
+        ForEach(model.plans) { plan in
+            destinationRow(.existing(id: plan.id, title: plan.title), title: plan.title,
+                           subtitle: NativePlanDisplay.rowSubtitle(state: plan.state, readiness: plan.readiness))
+        }
+        destinationRow(.newPlan, title: "Create a new Plan", subtitle: "\(NativePlanDisplay.clamped(selection.referenceTitle, utf16Limit: 80)) · When TBD")
+    }
+
+    private func destinationRow(_ target: NativeDiscoverAddToPlanModel.Destination, title: String, subtitle: String) -> some View {
+        Button { model.destination = target } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.headline)
+                    Text(subtitle).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                }
+                Spacer()
+                Image(systemName: model.destination == target ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(NativeTheme.textPrimary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .padding(12).background(planRowBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain).disabled(!model.allowsEdits)
+        .accessibilityAddTraits(model.destination == target ? .isSelected : [])
+    }
+
+    private func confirmation(for target: NativeDiscoverAddToPlanModel.Destination) -> String {
+        switch target {
+        case .existing(_, let title): return "Add this selection to “\(title)”?"
+        case .newPlan: return "Create a Plan with this selection? The time stays TBD."
+        }
+    }
+
+    @MainActor private func load() async {
+        model.bind(userID: signedIn ? sessionStore.authenticatedUserID : nil)
+        guard signedIn, let userID = sessionStore.authenticatedUserID, let credential = sessionStore.token else { return }
+        // Freeze the credential for this operation: never obtain another user's
+        // bearer from a provider after an await. Never persist or log it.
+        let api = NativePlanAPI(client: BytspotAPIClient(tokenProvider: { credential }))
+        await model.load(api: api, userID: userID, isCurrent: {
+            sessionStore.canAttachBearerToken && sessionStore.authenticatedUserID == userID && sessionStore.token == credential
+        })
+    }
+
+    @MainActor private func save() {
+        guard signedIn, let userID = sessionStore.authenticatedUserID, let credential = sessionStore.token else { return }
+        let api = NativePlanAPI(client: BytspotAPIClient(tokenProvider: { credential }))
+        Task { @MainActor in
+            let current = { isVisible && sessionStore.canAttachBearerToken && sessionStore.authenticatedUserID == userID && sessionStore.token == credential }
+            if let planID = await model.save(api: api, userID: userID, isCurrent: current), current() {
+                onAdded(planID)
+                dismiss()
+            }
+        }
+    }
+}
+
 private let planRowBackground = Color.white.opacity(0.06)
 
 private struct NativePlanBookableSelectionRows: View {
@@ -836,10 +1205,9 @@ private struct NativePlanBookablesPickerSheet: View {
 
 /// The Plans surface. The caller can see their plans, confirm or cancel the
 /// ones they own, and respond to the ones they're invited to. Phase 2 adds the
-/// surface that produces a Plan in the first place, plus one attach path -
-/// coffee - because it is the first supply Bytspot can actually hold. Invite
-/// and general Discover attach are still left off until Discover has a
-/// supported "Add to Plan" hook.
+/// surface that produces a Plan in the first place. Discover can add canonical
+/// Bookables or plain References through NativeDiscoverAddToPlanSheet without
+/// invoking the separate reservation or payment paths.
 struct NativePlansPanel: View {
     @ObservedObject var sessionStore: BytspotSessionStore
     /// When set, a still-open need in a Plan becomes a one-tap route to the
@@ -952,6 +1320,9 @@ struct NativePlansPanel: View {
         // The join sheet seats a link holder while this list is already loaded;
         // reload so the newly joined Plan is present when the sheet dismisses.
         .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidJoin)) { _ in
+            Task { await reload() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidChange)) { _ in
             Task { await reload() }
         }
         .sheet(item: Binding<PlanSheetID?>(

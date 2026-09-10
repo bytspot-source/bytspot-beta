@@ -9,8 +9,8 @@ import CryptoKit
 enum BytspotNativeTab: String, CaseIterable, Identifiable {
     case home, plan, host, discover, map, concierge, profile
 
-    /// Profile is reached from the global top-right avatar and Map from the
-    /// global top-left icon, so neither appears here. The enum keeps both
+    /// Profile is reached from the global top-left avatar and Map from the
+    /// global top-right icon, so neither appears here. The enum keeps both
     /// cases for content routing.
     static let barTabs: [BytspotNativeTab] = [.home, .host, .plan, .discover, .concierge]
 
@@ -815,7 +815,7 @@ struct BytspotNativeShellView: View {
     }
 
     static func showsGlobalHeaderControls(for tab: BytspotNativeTab) -> Bool {
-        tab != .host && tab != .map && tab != .profile
+        tab != .host && tab != .map
     }
 
     static func tabBarIsVisible(for tab: BytspotNativeTab) -> Bool {
@@ -11135,9 +11135,7 @@ private struct NativeDiscoverView: View {
             }
             Spacer(minLength: 8)
         }
-        // Profile is the global top-right avatar; leave room for it so the
-        // title never runs under the floating control.
-        .padding(.trailing, 56)
+        // Navigation lives in a separate shell row; no corner spacer needed.
         .padding(.bottom, 4)
     }
 
@@ -17092,10 +17090,7 @@ private struct NativeConciergeView: View {
                     }
                 }
                 Spacer()
-                // The header carries no Concierge controls now. The trailing
-                // inset still clears the global top-right avatar, which the
-                // shell draws over every tab.
-                Color.clear.frame(width: 52, height: 1)
+                // The shell reserves navigation above this header, not over it.
             }
             .padding(.horizontal, 16)
             .padding(.top, 24)
@@ -18524,12 +18519,12 @@ enum NativeShellThemeSelfTests {
         // the label. The verb survives as the accessibility name, so the bar
         // still calls it by its verb while every other surface keeps Plan a noun.
         precondition(BytspotNativeTab.plan.barTitle == "Start Plan" && BytspotNativeTab.plan.title == "Plan", "NativeShellThemeSelfTests: the centre must read as a verb to VoiceOver and a noun everywhere else.")
-        // Profile is reached from the global top-right avatar and Map from the
-        // global top-left icon, so the bottom bar shows five entries and never
+        // Profile is reached from the global top-left avatar and Map from the
+        // global top-right icon, so the bottom bar shows five entries and never
         // either of those two.
         precondition(BytspotNativeTab.barTabs.map(\.title) == ["Home", "Host", "Plan", "Discover", "Concierge"], "NativeShellThemeSelfTests: bottom bar tab set drifted.")
         precondition(!BytspotNativeTab.barTabs.contains(.profile), "NativeShellThemeSelfTests: Profile must not appear in the bottom bar.")
-        precondition(!BytspotNativeTab.barTabs.contains(.map), "NativeShellThemeSelfTests: Map is a top-left destination and must not appear in the bottom bar.")
+        precondition(!BytspotNativeTab.barTabs.contains(.map), "NativeShellThemeSelfTests: Map is a top-right destination and must not appear in the bottom bar.")
         // Every bar slot is a destination now, so exactly one of them can hold
         // the selection and the centre is the middle of the five.
         precondition(BytspotNativeTab.barTabs.filter(\.isBarCenter) == [.plan], "NativeShellThemeSelfTests: Plan must be the only bar centre.")

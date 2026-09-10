@@ -2414,8 +2414,8 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(Set(NativeHostCategory.allCases.map(\.bandHex)), Set([NativeTheme.cyanHex, NativeTheme.purpleHex, NativeTheme.pinkHex]))
         XCTAssertFalse(BytspotNativeShellView.showsGlobalHeaderControls(for: .host))
         XCTAssertFalse(BytspotNativeShellView.showsGlobalHeaderControls(for: .map))
-        XCTAssertFalse(BytspotNativeShellView.showsGlobalHeaderControls(for: .profile))
-        for tab in [BytspotNativeTab.home, .plan, .discover, .concierge] {
+        XCTAssertTrue(BytspotNativeShellView.showsGlobalHeaderControls(for: .profile), "Profile must retain the top-right Map shortcut.")
+        for tab in [BytspotNativeTab.home, .plan, .discover, .concierge, .profile] {
             XCTAssertTrue(BytspotNativeShellView.showsGlobalHeaderControls(for: tab))
         }
         XCTAssertTrue(NativeHostCategory.allCases.allSatisfy { $0.bandHex > 0 && $0.bandHex <= 0xFFFFFF })

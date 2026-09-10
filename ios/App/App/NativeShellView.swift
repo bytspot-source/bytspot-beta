@@ -5795,6 +5795,12 @@ private struct NativeGuestSavePromptSheet: View {
         }
         .padding(20)
         .background(NativeDeepSpaceGround())
+        // Short content in a .large sheet left the container visible above and
+        // below the ground -- systemBackground, so a white band in Light. The
+        // detent sizes the sheet to the content; the clear background stops the
+        // container painting behind it either way.
+        .presentationDetents([.height(320)])
+        .presentationBackground(.clear)
         .accessibilityIdentifier("native-guest-save-prompt")
     }
 }

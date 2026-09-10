@@ -4510,6 +4510,303 @@ final class NativeAuthLaunchInputTests: XCTestCase {
     }
 }
 
+/// Uses the existing AppTests/XCTest baseline; no new target or toolchain.
+final class NativePlanBookablesContractTests: XCTestCase {
+    private func offering(_ id: String = "spot-1", kind: NativePlanBookableSelection.SourceKind = .coffeeSpot,
+                          capability: String = "request", title: String = "Coffee spot") -> NativePlanBookableOffering {
+        .init(id: "\(kind.rawValue):\(id)", sourceKind: kind, sourceId: id,
+              category: kind == .coffeeSpot ? "coffee" : "party", title: title, subtitle: nil, capability: capability)
+    }
+
+    private func create(_ selections: [NativePlanBookableSelection] = [], title: String = "  Catch up  ") -> NativePlanWriteRequest {
+        NativePlanContract.createRequest(idempotencyKey: "plan-draft-test", title: title, intent: "  Together  ",
+                                         startsAt: nil, partySize: nil, needs: [], bookableSelections: selections)
+    }
+
+    private func item(_ overrides: [String: Any] = [:]) throws -> NativePlan.Item {
+        var row: [String: Any] = ["id": "item-1", "needKind": "coffee", "title": "Coffee spot", "capability": "request", "status": "available"]
+        row.merge(overrides) { _, new in new }
+        return try JSONDecoder().decode(NativePlan.Item.self, from: JSONSerialization.data(withJSONObject: row))
+    }
+
+    private func plan(lifecycle: String = "proposed", state: String = "proposed") -> NativePlan {
+        NativePlan(id: "plan-1", title: "Catch up", intent: "Together", creatorUserId: "creator", startsAt: nil,
+                   endsAt: nil, areaLabel: nil, partySize: nil, needs: [], lifecycle: lifecycle, state: state,
+                   readiness: .init(going: 1, maybe: 0, pending: 0, declined: 0, total: 1), openNeeds: [],
+                   participants: [], items: [], joinToken: nil)
+    }
+
+    func testDeleteRequiresCreatorAndExplicitServerPermission() throws {
+        var value = plan()
+        XCTAssertFalse(NativePlanDisplay.canDelete(value, userID: "creator"), "Old APIs fail closed.")
+        value.canDelete = true
+        XCTAssertTrue(NativePlanDisplay.canDelete(value, userID: "creator"))
+        XCTAssertFalse(NativePlanDisplay.canDelete(value, userID: "guest"))
+        XCTAssertFalse(NativePlanDisplay.canDelete(value, userID: nil))
+        value.canDelete = false
+        XCTAssertFalse(NativePlanDisplay.canDelete(value, userID: "creator"))
+        let decoded = try JSONDecoder().decode(NativePlan.self, from: JSONEncoder().encode(value))
+        XCTAssertEqual(decoded.canDelete, false)
+    }
+
+    func testDerivedBookedFlagWinsOverUnbookedStoredStatus() throws {
+        let booked = try item(["partyId": "party-1", "capability": "book", "booked": true])
+        XCTAssertEqual(NativePlanDisplay.itemStatusLabel(booked), "Booked")
+        XCTAssertEqual(NativePlanDisplay.itemStatusLabel(try item()), "Not booked")
+    }
+
+    func testReservationUpgradeRetainsCatalogSelectionIdentity() throws {
+        let upgraded = try item(["coffeeReservationId": "reservation-1", "selectionKey": "coffeeSpot:spot-1"])
+        XCTAssertEqual(NativePlanDisplay.selectedSourceIDs(in: [upgraded]), ["coffeeSpot:spot-1"])
+        XCTAssertNil(NativePlanDisplay.coffeeRequestSpotID(upgraded))
+    }
+
+    func testNoSelectionUsesExistingCreateAndOmitsOptionalFields() throws {
+        let request = create()
+        XCTAssertEqual(request.path, "/trpc/plans.create")
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: BytspotAPIClient.trpcMutationBody(request.input)) as? [String: Any])
+        XCTAssertEqual(Set(body.keys), Set(["idempotencyKey", "title", "intent", "needs"]))
+        XCTAssertEqual(body["title"] as? String, "Catch up")
+        XCTAssertEqual(body["intent"] as? String, "Together")
+        XCTAssertEqual(body["needs"] as? [String], [])
+    }
+
+    func testSelectedCreateIsOneAtomicPayloadWithOnlySourceReferences() throws {
+        let coffee = offering().selection
+        let party = offering("party-1", kind: .party, capability: "book").selection
+        let request = NativePlanContract.createRequest(idempotencyKey: "atomic-test", title: "Plan", intent: "Together",
+            startsAt: Date(timeIntervalSince1970: 2_000_000_000), partySize: 4, needs: ["coffee"], bookableSelections: [coffee, party, coffee])
+        XCTAssertEqual(request.path, "/trpc/plans.createWithBookables")
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: BytspotAPIClient.trpcMutationBody(request.input)) as? [String: Any])
+        XCTAssertEqual(body["idempotencyKey"] as? String, "atomic-test")
+        XCTAssertEqual(body["partySize"] as? Int, 4)
+        XCTAssertNotNil(body["startsAt"] as? String)
+        XCTAssertEqual(body["bookableSelections"] as? [[String: String]], [
+            ["sourceKind": "coffeeSpot", "sourceId": "spot-1"], ["sourceKind": "party", "sourceId": "party-1"]
+        ])
+        XCTAssertNil(body["status"])
+        XCTAssertNil(body["capability"])
+        XCTAssertNil(body["bookableId"])
+    }
+
+    func testAddPayloadHasNoInventedKeyCapabilityOrPersistedCatalogID() throws {
+        let request = NativePlanContract.addRequest(planID: "plan-1", selections: [offering().selection, offering().selection])
+        XCTAssertEqual(request.path, "/trpc/plans.addBookables")
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: BytspotAPIClient.trpcMutationBody(request.input)) as? [String: Any])
+        XCTAssertEqual(Set(body.keys), Set(["planId", "bookableSelections"]))
+        XCTAssertEqual(body["planId"] as? String, "plan-1")
+        XCTAssertEqual(body["bookableSelections"] as? [[String: String]], [["sourceKind": "coffeeSpot", "sourceId": "spot-1"]])
+    }
+
+    func testCatalogDecodesOptionalSubtitleAndPreservesSupplierCapabilities() throws {
+        let rows: [[String: Any]] = [
+            ["id": "coffeeSpot:c", "sourceKind": "coffeeSpot", "sourceId": "c", "category": "coffee", "title": "Cafe", "capability": "request"],
+            ["id": "party:p", "sourceKind": "party", "sourceId": "p", "category": "party", "title": "Party", "subtitle": "Tonight", "capability": "book"],
+            ["id": "party:r", "sourceKind": "party", "sourceId": "r", "category": "culture", "title": "Reference", "capability": "details"]
+        ]
+        let response = try JSONDecoder().decode(NativePlanBookables.self, from: JSONSerialization.data(withJSONObject: ["offerings": rows]))
+        XCTAssertEqual(response.offerings.map(\.capability), ["request", "book", "details"])
+        XCTAssertEqual(response.offerings.map(\.selection.id), ["coffeeSpot:c", "party:p", "party:r"])
+        XCTAssertNil(response.offerings[0].subtitle)
+        XCTAssertEqual(response.offerings[1].subtitle, "Tonight")
+        XCTAssertThrowsError(try JSONDecoder().decode(NativePlanBookables.self, from: Data("{}".utf8)), "Malformed is an error, not empty.")
+    }
+
+    func testSelectedCoffeeDecodesAlongsideLegacyAndReservationItems() throws {
+        let legacy = try item()
+        XCTAssertNil(legacy.coffeeSpotId)
+        XCTAssertNil(NativePlanDisplay.coffeeRequestSpotID(legacy))
+        let selected = try item(["coffeeSpotId": "spot-1"])
+        XCTAssertEqual(selected.coffeeSpotId, "spot-1")
+        XCTAssertEqual(NativePlanDisplay.coffeeRequestSpotID(selected), "spot-1")
+        XCTAssertEqual(NativePlanDisplay.itemStatusLabel(selected.status), "Not booked")
+        let reserved = try item(["coffeeSpotId": "spot-1", "coffeeReservationId": "reservation-1", "status": "requested",
+                                 "reservation": ["status": "held", "holdExpiresAt": "2030-01-01T00:00:00Z"]])
+        XCTAssertNil(NativePlanDisplay.coffeeRequestSpotID(reserved))
+        XCTAssertEqual(reserved.reservation?.status, "held")
+        XCTAssertNotEqual(NativePlanDisplay.itemStatusLabel(reserved.status), "Not booked")
+        XCTAssertNil(NativePlanDisplay.coffeeRequestSpotID(try item(["coffeeSpotId": "spot-1", "capability": "details"])))
+        XCTAssertNil(NativePlanDisplay.coffeeRequestSpotID(try item(["coffeeSpotId": "", "capability": "request"])))
+    }
+
+    func testGetAndListDecodeSelectedItemsWithoutRequiringCoffeeSpotOnLegacyRows() throws {
+        let selected = try item(["coffeeSpotId": "spot-1"])
+        let legacy = try item()
+        var row = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(plan())) as? [String: Any])
+        row["items"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode([selected, legacy]))
+        let detail = try JSONDecoder().decode(NativePlan.self, from: JSONSerialization.data(withJSONObject: row))
+        let list = try JSONDecoder().decode(NativePlansList.self, from: JSONSerialization.data(withJSONObject: ["plans": [row]]))
+        XCTAssertEqual(detail.items, [selected, legacy])
+        XCTAssertEqual(list.plans.first?.items, detail.items)
+        XCTAssertEqual(detail.items.first?.coffeeSpotId, "spot-1")
+        XCTAssertNil(detail.items.last?.coffeeSpotId)
+    }
+
+    func testAvailablePartyIsUnbookedRegardlessOfCapability() throws {
+        for capability in ["book", "request", "details"] {
+            let selected = try item(["partyId": "party-1", "capability": capability])
+            XCTAssertEqual(NativePlanDisplay.itemStatusLabel(selected.status), "Not booked")
+            XCTAssertEqual(selected.capability, capability)
+            XCTAssertNil(NativePlanDisplay.coffeeRequestSpotID(selected))
+        }
+    }
+
+    func testExistingSelectionsReconcileBySourceNotItemID() throws {
+        let items = [try item(["coffeeSpotId": "spot-1"]), try item(["partyId": "party-1"])]
+        XCTAssertEqual(NativePlanDisplay.selectedSourceIDs(in: items), Set(["coffeeSpot:spot-1", "party:party-1"]))
+        XCTAssertFalse(NativePlanDisplay.selectedSourceIDs(in: items).contains("item-1"))
+    }
+
+    func testDraftUsesStableIdentityDeduplicatesAndAllowsRemovalAtLimit() {
+        var draft = NativePlanBookableDraft()
+        for index in 0..<14 { draft.toggle(offering("\(index)")) }
+        XCTAssertEqual(draft.offerings.count, 12)
+        XCTAssertEqual(draft.selections.first?.id, "coffeeSpot:0")
+        // Titles/capabilities can change across catalog loads, identity cannot.
+        XCTAssertTrue(draft.contains(offering("0", capability: "details", title: "Renamed")))
+        draft.toggle(offering("0", title: "Renamed"))
+        XCTAssertEqual(draft.offerings.count, 11)
+        draft.toggle(offering("13"))
+        XCTAssertEqual(draft.offerings.count, 12)
+        XCTAssertEqual(draft.selections.last?.id, "coffeeSpot:13")
+        draft.remove("coffeeSpot:13")
+        XCTAssertFalse(draft.selections.contains(offering("13").selection))
+    }
+
+    func testPayloadDedupIsStableAndBoundedAcrossSourceKinds() {
+        let coffee = offering("same").selection
+        let party = offering("same", kind: .party).selection
+        let rows = NativePlanContract.selectionInput([coffee, coffee, party] + (0..<20).map { offering("\($0)").selection })
+        XCTAssertEqual(rows.count, 12)
+        XCTAssertEqual(rows[0], ["sourceKind": "coffeeSpot", "sourceId": "same"])
+        XCTAssertEqual(rows[1], ["sourceKind": "party", "sourceId": "same"])
+    }
+
+    func testPickerDraftIsLocalUntilDoneAndCancelLeavesParentUnchanged() {
+        let parent = NativePlanBookableDraft()
+        var picker = parent
+        picker.toggle(offering())
+        XCTAssertTrue(parent.offerings.isEmpty)
+        XCTAssertEqual(picker.offerings.count, 1)
+        // Discarding the value performs no API operation or persistence.
+        picker = parent
+        XCTAssertTrue(picker.selections.isEmpty)
+        XCTAssertNil(NativePlanWriteDraft().request)
+    }
+
+    func testRetryFreezesRoutePayloadAndKeyAndRejectsConcurrentSubmit() throws {
+        for original in [create(), create([offering().selection]), NativePlanContract.addRequest(planID: "plan-1", selections: [offering().selection])] {
+            var write = NativePlanWriteDraft()
+            XCTAssertTrue(write.allowsEdits)
+            let first = try XCTUnwrap(write.begin(original))
+            XCTAssertTrue(write.isSaving)
+            XCTAssertFalse(write.allowsEdits)
+            XCTAssertNil(write.begin(create(title: "Duplicate tap")))
+            write.finish() // Includes ambiguous timeout / lost-response failures.
+            XCTAssertFalse(write.isSaving)
+            XCTAssertFalse(write.allowsEdits)
+            let retry = try XCTUnwrap(write.begin(create([offering("other").selection], title: "Changed")))
+            XCTAssertEqual(retry.path, first.path)
+            XCTAssertEqual(try JSONSerialization.data(withJSONObject: retry.input, options: [.sortedKeys]),
+                           try JSONSerialization.data(withJSONObject: first.input, options: [.sortedKeys]))
+        }
+    }
+
+    func testCategoryLoadRejectsStaleSuccessAndFailureAndDistinguishesEmpty() {
+        var load = NativePlanBookableLoadState()
+        let firstCoffee = load.begin()
+        _ = load.begin() // Party
+        let lastCoffee = load.begin()
+        load.finish([offering("stale")], generation: firstCoffee)
+        XCTAssertTrue(load.isLoading)
+        XCTAssertTrue(load.offerings.isEmpty)
+        load.finish(nil, generation: firstCoffee)
+        XCTAssertFalse(load.failed)
+        load.finish([], generation: lastCoffee)
+        XCTAssertFalse(load.failed)
+        XCTAssertFalse(load.isLoading)
+        let retry = load.begin()
+        load.finish(nil, generation: retry)
+        XCTAssertTrue(load.failed)
+        let recovered = load.begin()
+        load.finish([offering(), offering(), offering("party", kind: .party)], generation: recovered)
+        XCTAssertFalse(load.failed)
+        XCTAssertEqual(load.offerings.count, 2)
+    }
+
+    func testOnlyCreatorOfMutablePlanCanAdd() {
+        XCTAssertTrue(NativePlanDisplay.canAddBookables(plan(), userID: "creator"))
+        XCTAssertFalse(NativePlanDisplay.canAddBookables(plan(), userID: "guest"))
+        XCTAssertFalse(NativePlanDisplay.canAddBookables(plan(), userID: nil))
+        for terminal in ["cancelled", "expired", "completed"] {
+            XCTAssertFalse(NativePlanDisplay.canAddBookables(plan(state: terminal), userID: "creator"))
+            XCTAssertFalse(NativePlanDisplay.canAddBookables(plan(lifecycle: terminal), userID: "creator"))
+        }
+    }
+
+    func testAPIQueriesCatalogAndOnlyUsesPlanMutationsForSelections() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [NativePartyURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        defer { NativePartyURLProtocolStub.handler = nil; session.invalidateAndCancel() }
+        let api = NativePlanAPI(client: BytspotAPIClient(baseURL: URL(string: "https://party.test")!, urlSession: session))
+        var paths: [String] = []
+        NativePartyURLProtocolStub.handler = { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            switch path {
+            case "/trpc/plans.bookables":
+                XCTAssertEqual(request.httpMethod, "GET")
+                let components = try XCTUnwrap(URLComponents(url: request.url!, resolvingAgainstBaseURL: false))
+                let input = try XCTUnwrap(components.queryItems?.first { $0.name == "input" }?.value)
+                let query = try JSONSerialization.jsonObject(with: Data(input.utf8)) as? [String: String]
+                XCTAssertEqual(query, ["category": "coffee"])
+                return (200, Data("{\"result\":{\"data\":{\"offerings\":[{\"id\":\"coffeeSpot:spot-1\",\"sourceKind\":\"coffeeSpot\",\"sourceId\":\"spot-1\",\"category\":\"coffee\",\"title\":\"Coffee spot\",\"capability\":\"request\"}]}}}".utf8))
+            case "/trpc/plans.create", "/trpc/plans.createWithBookables", "/trpc/plans.addBookables":
+                XCTAssertEqual(request.httpMethod, "POST")
+                let data = try XCTUnwrap(NativePartyURLProtocolStub.bodyData(for: request))
+                let body = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+                if path == "/trpc/plans.create" { XCTAssertNil(body["bookableSelections"]) }
+                else {
+                    XCTAssertEqual(body["bookableSelections"] as? [[String: String]], [["sourceKind": "coffeeSpot", "sourceId": "spot-1"]])
+                }
+                let response: [String: Any] = path == "/trpc/plans.addBookables" ? ["ids": ["item-1"]] : ["id": "plan-1"]
+                return (200, try JSONSerialization.data(withJSONObject: ["result": ["data": response]]))
+            default:
+                XCTFail("Selecting a Bookable must not enter a reservation, RSVP, payment or pass route: \(path)")
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let rows = try await api.bookables(category: "coffee")
+        XCTAssertEqual(rows.map(\.selection), [offering().selection])
+        let emptyPlanID = try await api.create(create())
+        let selectedPlanID = try await api.create(create(rows.map(\.selection)))
+        let ids = try await api.addBookables(NativePlanContract.addRequest(planID: selectedPlanID, selections: rows.map(\.selection)))
+        XCTAssertEqual(emptyPlanID, "plan-1")
+        XCTAssertEqual(selectedPlanID, "plan-1")
+        XCTAssertEqual(ids, ["item-1"])
+        XCTAssertEqual(paths, ["/trpc/plans.bookables", "/trpc/plans.create", "/trpc/plans.createWithBookables", "/trpc/plans.addBookables"])
+
+        NativePartyURLProtocolStub.handler = { _ in (503, Data("{}".utf8)) }
+        do {
+            _ = try await api.bookables(category: "coffee")
+            XCTFail("A failed request must throw, not become an empty catalog.")
+        } catch { /* Expected: the picker displays its retryable failure state. */ }
+        NativePartyURLProtocolStub.handler = { _ in (200, Data("{\"result\":{\"data\":{\"offerings\":[]}}}".utf8)) }
+        let empty = try await api.bookables(category: "coffee")
+        XCTAssertTrue(empty.isEmpty)
+    }
+
+    func testCategoriesReuseCanonicalDomainsWithCoffeeUnderBookables() {
+        let bookables = NativePlanBookableCategories.bookables
+        XCTAssertEqual(bookables.first?.id, BookableDomainID.coffee.rawValue)
+        XCTAssertEqual(bookables.first?.title, "Coffee")
+        XCTAssertEqual(Set(bookables.map(\.id)), Set(BookableDomainID.allCases.map(\.rawValue)))
+        XCTAssertEqual(Set(bookables.map(\.id)).count, bookables.count)
+        XCTAssertTrue(bookables.contains { $0.id == BookableDomainID.events.rawValue })
+    }
+}
+
 final class NativeAppearanceModeContractTests: XCTestCase {
     func testAppearanceModeInteractiveSelectionContract() {
         XCTAssertEqual(NativeAppearanceMode.defaultsKey, "bytspot_native_appearance_mode")

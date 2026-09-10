@@ -383,6 +383,9 @@ struct BytspotNativeShellView: View {
             // everything below it -- as a black slab.
             NativeDeepSpaceGround()
             VStack(spacing: 0) {
+                // A sibling row reserves space even while the tab scrolls.
+                // Only the background, not controls/content, ignores safe areas.
+                shellNavigationRow
                 Group {
                     switch selectedTab {
                     case .home:
@@ -410,42 +413,7 @@ struct BytspotNativeShellView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay(alignment: .topLeading) {
-                    // Map left the bottom bar: it is a destination reached from
-                    // the global top-left icon, and once inside, the same corner
-                    // carries the only way back. Profile owns its own top chrome.
-                    if selectedTab == .map {
-                        Button(action: { commitSelectedTab(mapReturnTab) }) {
-                            NativeRoundButton(symbol: "chevron.left", tint: NativeTheme.textPrimary, size: 44)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.leading, 16)
-                        .accessibilityLabel("Back to \(mapReturnTab.title)")
-                        .accessibilityIdentifier("native-map-back-button")
-                    } else if Self.showsGlobalHeaderControls(for: selectedTab) {
-                        Button(action: { plainTabSelectionBinding.wrappedValue = .map }) {
-                            NativeRoundButton(symbol: BytspotNativeTab.map.icon, tint: NativeTheme.textPrimary, size: 44)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.leading, 16)
-                        .accessibilityLabel("Map")
-                        .accessibilityIdentifier("native-global-map-button")
-                    }
-                }
-                .overlay(alignment: .topTrailing) {
-                    // Profile lives in the global top-right avatar. Map keeps its
-                    // own profile control in the map action stack, and Profile is
-                    // itself the destination, so both are excluded.
-                    if Self.showsGlobalHeaderControls(for: selectedTab) {
-                        Button(action: { openNativeProfile(panel: nil) }) {
-                            NativeRoundButton(symbol: "person.crop.circle.fill", tint: NativeTheme.textPrimary, size: 44)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.trailing, 16)
-                        .accessibilityLabel("Profile")
-                        .accessibilityIdentifier("native-global-profile-avatar")
-                    }
-                }
+                .clipped() // Scroll content cannot paint over the navigation row.
                 .environment(\.nativeDeepSpaceGroundDrawn, true)
                 .animation(.interpolatingSpring(mass: 0.8, stiffness: 380, damping: 34, initialVelocity: 0), value: selectedTab)
                 if Self.tabBarIsVisible(for: selectedTab) {
@@ -812,6 +780,40 @@ struct BytspotNativeShellView: View {
     /// only surface that needs a back control.
     /// Host owns focused wizard chrome in both tab and sheet presentations.
     /// Other consumer tabs retain their existing Map and Profile shortcuts.
+    @ViewBuilder private var shellNavigationRow: some View {
+        if Self.showsGlobalHeaderControls(for: selectedTab) || selectedTab == .map {
+            HStack(spacing: 0) {
+                Button(action: { openNativeProfile(panel: nil) }) {
+                    NativeRoundButton(symbol: "person.crop.circle.fill", tint: NativeTheme.textPrimary, size: NativeNavigationLayout.controlSize)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Profile")
+                .accessibilityIdentifier("native-global-profile-avatar")
+                Spacer(minLength: NativeNavigationLayout.contentGap)
+                if selectedTab == .map {
+                    Button(action: { commitSelectedTab(mapReturnTab) }) {
+                        NativeRoundButton(symbol: "chevron.left", tint: NativeTheme.textPrimary, size: NativeNavigationLayout.controlSize)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Back to \(mapReturnTab.title)")
+                    .accessibilityIdentifier("native-map-back-button")
+                } else {
+                    Button(action: { plainTabSelectionBinding.wrappedValue = .map }) {
+                        NativeRoundButton(symbol: BytspotNativeTab.map.icon, tint: NativeTheme.textPrimary, size: NativeNavigationLayout.controlSize)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Map")
+                    .accessibilityIdentifier("native-global-map-button")
+                }
+            }
+            .frame(height: NativeNavigationLayout.controlSize)
+            .padding(.horizontal, NativeNavigationLayout.horizontalInset)
+            .padding(.top, NativeNavigationLayout.topPadding)
+            .padding(.bottom, NativeNavigationLayout.contentGap)
+            .accessibilityIdentifier("native-shell-navigation-row")
+        }
+    }
+
     static func showsGlobalHeaderControls(for tab: BytspotNativeTab) -> Bool {
         tab != .host && tab != .map && tab != .profile
     }
@@ -14741,6 +14743,7 @@ private struct NativeMapExploreView: View {
             .shadow(color: Color.black.opacity(0.35), radius: 12, x: 0, y: 3)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("native-map-search-bar")
     }
 
     private func openMapSearch() {
@@ -14950,7 +14953,6 @@ private struct NativeMapExploreView: View {
 
     private var mapControls: some View {
         VStack(alignment: .trailing, spacing: NativePolish.mapActionStackSpacing) {
-            Button(action: { openNativeProfile(nil) }) { NativeRoundButton(symbol: "person.crop.circle.fill", tint: NativeTheme.textPrimary, size: Self.rightSecondaryActionControlSize) }
             Button(action: { if !showFunctionSheet { didOpenMapContext = true }; showFunctionSheet.toggle(); nativeImpactLight() }) { NativeRoundButton(symbol: "square.3.layers.3d.top.filled", tint: NativeTheme.textPrimary, size: Self.rightActionControlSize, isActive: showFunctionSheet) }
             Button(action: { cycleRecenterMode() }) { NativeMapRecenterButton(mode: recenterMode, size: Self.rightActionControlSize, heading: headingProvider.heading) }
             if showFullRightActionStack {
@@ -17644,13 +17646,14 @@ enum NativePolish {
     static let mapBaseHex = 0x050505
     static let mapPanelHex = 0x080A10
     static let mapActiveCyanHex = 0x06242B
-    static let mapSearchLeadingInset: CGFloat = 12
-    static let mapSearchTrailingInset: CGFloat = 80
-    static let mapSearchTopInset: CGFloat = 16
+    static let mapSearchLeadingInset: CGFloat = NativeNavigationLayout.horizontalInset
+    static let mapSearchTrailingInset: CGFloat = NativeNavigationLayout.horizontalInset
+    // The shell row already supplies the 12pt navigation-to-content gap.
+    static let mapSearchTopInset: CGFloat = 0
     static let mapSearchHeight: CGFloat = 48
     static let mapSearchRadius: CGFloat = 24
     static let mapActionTopInset: CGFloat = 112
-    static let mapActionTrailingInset: CGFloat = 16
+    static let mapActionTrailingInset: CGFloat = NativeNavigationLayout.horizontalInset
     static let mapActionStackSpacing: CGFloat = 8
     static let mapActionPrimarySize: CGFloat = 48
     static let mapActionSecondarySize: CGFloat = 44
@@ -18664,7 +18667,7 @@ enum NativeMapParitySelfTests {
         precondition(NativeMapExploreView.crowdLevelColorHex == [BytspotTheme.emeraldHex, BytspotTheme.cyanHex, BytspotTheme.orangeHex, BytspotTheme.pinkHex], "NativeMapParitySelfTests: Map crowd level color contract drifted.")
         precondition(NativeMapExploreView.accessPinColorHex == BytspotTheme.pinkHex, "NativeMapParitySelfTests: Access pins must use NativeTheme.pink #D946EF.")
         precondition(NativeMapExploreView.searchOverlayCornerRadius == 24 && NativeMapExploreView.rightActionControlSize == 48 && NativeMapExploreView.rightSecondaryActionControlSize == 44, "NativeMapParitySelfTests: Map screenshot-level layout metrics drifted.")
-        precondition(NativePolish.mapSearchLeadingInset == 12 && NativePolish.mapSearchTrailingInset == 80 && NativePolish.mapSearchTopInset == 16, "NativeMapParitySelfTests: React MapSearchBar inset contract drifted.")
+        precondition(NativePolish.mapSearchLeadingInset == NativeNavigationLayout.horizontalInset && NativePolish.mapSearchTrailingInset == NativeNavigationLayout.horizontalInset && NativePolish.mapSearchTopInset == 0, "NativeMapParitySelfTests: Map search must align below the shell-owned navigation row.")
         precondition(NativePolish.mapActionTopInset == 112 && NativePolish.mapActionTrailingInset == 16 && NativePolish.mapActionStackSpacing == 8, "NativeMapParitySelfTests: React MapActionStack inset contract drifted.")
         precondition(NativePolish.mapSheetHorizontalInset == 12 && NativePolish.mapSheetRadius == 28 && NativePolish.mapSheetCloseSize == 64, "NativeMapParitySelfTests: Map Functions sheet metrics drifted.")
         precondition(NativePolish.mapFunctionButtonHeight == 108 && NativePolish.mapFunctionRowHeight == 96 && NativePolish.mapFunctionRowGap == 8, "NativeMapParitySelfTests: Tesla-Lens Map Functions density metrics drifted.")

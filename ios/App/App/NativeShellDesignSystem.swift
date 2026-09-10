@@ -1,4 +1,15 @@
 import SwiftUI
+
+/// Shell-owned navigation row, mirrored by --navigation-* in globals.css.
+/// UIKit/SwiftUI owns the device safe area; these values are inside it.
+/// Reserve this row outside scroll content, never as a scrolling spacer.
+enum NativeNavigationLayout {
+    static let controlSize: CGFloat = 44
+    static let horizontalInset: CGFloat = 16
+    static let topPadding: CGFloat = 8
+    static let contentGap: CGFloat = 12
+    static let rowHeight: CGFloat = topPadding + controlSize + contentGap
+}
 import UIKit
 
 /// The ground both appearances share: a navy field with two soft nebula glows,

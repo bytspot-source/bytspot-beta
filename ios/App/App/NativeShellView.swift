@@ -14688,23 +14688,27 @@ private struct NativeMapExploreView: View {
             HStack(spacing: 12) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 19, weight: .black))
-                    .foregroundColor(NativeTheme.cyan.opacity(0.88))
+                    .foregroundColor(NativeTheme.cyan)
                 Text("Search destination or service type")
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(NativeTheme.textTertiary)
+                    .foregroundColor(NativeTheme.textSecondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.76)
                 Spacer(minLength: 0)
             }
+            // The capsule is gone: no fill, no material, no border, no shadow.
+            // The map is the surface and only the mark and the words float on
+            // it. Tertiary ink was tuned to sit on a dark panel that no longer
+            // exists, so it moves up to secondary, and the glyphs carry their
+            // own soft shadow -- the map underneath is user-controlled and can
+            // pan a white building under the text, which no token can defend
+            // against.
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity)
             .frame(height: NativePolish.mapSearchHeight)
-            .background(NativePolish.mapControlSurface)
-            .background(.ultraThinMaterial)
-            .overlay(RoundedRectangle(cornerRadius: Self.searchOverlayCornerRadius, style: .continuous).stroke(NativePolish.strongBorder, lineWidth: 1))
-            .overlay(RoundedRectangle(cornerRadius: Self.searchOverlayCornerRadius, style: .continuous).fill(LinearGradient(colors: [NativeTheme.surfaceHighlight, Color.clear], startPoint: .topLeading, endPoint: .bottomTrailing)).allowsHitTesting(false))
-            .clipShape(RoundedRectangle(cornerRadius: Self.searchOverlayCornerRadius, style: .continuous))
-            .shadow(color: NativeTheme.panelShadow, radius: 20, x: 0, y: 12)
+            .contentShape(RoundedRectangle(cornerRadius: Self.searchOverlayCornerRadius, style: .continuous))
+            .shadow(color: Color.black.opacity(0.55), radius: 5, x: 0, y: 1)
+            .shadow(color: Color.black.opacity(0.35), radius: 12, x: 0, y: 3)
         }
         .buttonStyle(.plain)
     }

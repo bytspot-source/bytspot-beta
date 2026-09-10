@@ -51,7 +51,10 @@ enum BytspotNativeTab: String, CaseIterable, Identifiable {
             return "ticket.fill"
         case .discover: return "safari.fill"
         case .map: return "map.fill"
-        case .concierge: return "sparkles"
+        // sparkles measured 123.7pt2 of ink at 0.08 fill against a ~300pt2 row
+        // norm -- the only glyph in the bar that was not a filled mass, and it
+        // visibly under-weighed the right end of the capsule.
+        case .concierge: return "bubble.left.and.bubble.right.fill"
         case .profile: return "person.crop.circle.fill"
         }
     }
@@ -17129,7 +17132,7 @@ private struct NativeConciergeView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 16)
             }
-            .onChange(of: messages.count) { _ in withAnimation(.easeOut(duration: 0.22)) { proxy.scrollTo(messages.last?.id, anchor: .bottom) } }
+            .onChange(of: messages.count) { _ in withAnimation(NativePolish.conciergeMessageSpring) { proxy.scrollTo(messages.last?.id, anchor: .bottom) } }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
@@ -17638,6 +17641,8 @@ enum NativePolish {
     static let chipHeight: CGFloat = 36
     static let bottomBarHeight: CGFloat = 72
     static let bottomBarRadius: CGFloat = 24
+    /// Message entry and transcript follow: stiffness 320, damping 30, mass 0.8.
+    static let conciergeMessageSpring = Animation.interpolatingSpring(mass: 0.8, stiffness: 320, damping: 30)
     static let bottomBarHorizontalPadding: CGFloat = 16
     static let bottomBarBottomPadding: CGFloat = 8
     static let bottomBarInnerHorizontalPadding: CGFloat = 4

@@ -35,11 +35,11 @@ final class NativeDiscoverM6BrowseTests: XCTestCase {
     func testReferencesNeverClaimSupportedActionOrAvailability() {
         let reference = NativeDiscoverBrowsePolicy.presentation(offering: nil)
         XCTAssertEqual(reference.capability, .details)
-        XCTAssertEqual(reference.statusLabel, "Reference")
+        XCTAssertEqual(reference.statusLabel, "Listed")
         XCTAssertNil(reference.primaryActionTitle)
         XCTAssertNil(reference.actionHex)
         XCTAssertEqual(reference.ringStyle, .dot)
-        XCTAssertEqual(NativeDiscoverBrowsePolicy.availabilityLine(offering: nil), "Availability unconfirmed")
+        XCTAssertEqual(NativeDiscoverBrowsePolicy.availabilityLine(offering: nil), "Place discovery · Bytspot does not control availability")
         for subtitle in ["Live venue from bytspot-api", "Here", "Confirmed", "Limited seats", "Premium", "Available now", "Verified place"] {
             XCTAssertNil(NativeDiscoverBrowsePolicy.referenceSubtitle(subtitle))
         }
@@ -54,7 +54,7 @@ final class NativeDiscoverM6BrowseTests: XCTestCase {
         for card in references {
             let presentation = NativeDiscoverBrowsePolicy.referencePresentation(for: card)
             XCTAssertEqual(presentation.capability, .details)
-            XCTAssertEqual(presentation.statusLabel, "Reference")
+            XCTAssertEqual(presentation.statusLabel, "Listed")
             XCTAssertNil(presentation.primaryActionTitle)
             XCTAssertNil(presentation.actionHex)
         }
@@ -101,12 +101,10 @@ final class NativeDiscoverM6BrowseTests: XCTestCase {
         for capability in ["book", "request", "redirect", "details"] {
             let party = offering("party-a", kind: .party, category: "dining", capability: capability)
             XCTAssertNil(NativeDiscoverBrowsePolicy.executableActionTitle(offering: party))
-            if capability == "book" || capability == "request" {
-                XCTAssertEqual(NativeDiscoverBrowsePolicy.presentation(offering: party).capability.rawValue, capability,
-                               "Read-only native routing must not erase the server's Bookable capability.")
-            }
+            XCTAssertEqual(NativeDiscoverBrowsePolicy.presentation(offering: party).capability, .details,
+                           "Party admission is separate from place booking, even when Plan projection uses book internally.")
             XCTAssertEqual(NativeDiscoverBrowsePolicy.partyRoute(offering: party)?.partyID, "party-a")
-            XCTAssertTrue(NativeDiscoverBrowsePolicy.availabilityLine(offering: party).contains("booking isn't supported"))
+            XCTAssertTrue(NativeDiscoverBrowsePolicy.availabilityLine(offering: party).contains("Party admission"))
             let selection = NativeDiscoverPlanSelection(title: party.title, needKind: party.category, offering: party)
             XCTAssertEqual(selection.offering?.selection, party.selection)
             XCTAssertEqual(selection.addRequest(planID: "plan-a").path, "/trpc/plans.addBookables")
@@ -632,11 +630,13 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeLiveContentV2Contract.partyDraftDeleteRoute, "/trpc/events.drafts.delete")
     }
 
-    func testVenueDetailPresentationUsesCategorySpecificPrimaryLabels() {
+    func testVenueDetailCategoryCannotInventAnAdmissionOrBookingAction() {
         let primaryAction = NativeVenueDetailContract.actions.first { $0.id == "getTickets" }!
-        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking · Pickup or delivery")), "View Menu")
-        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: venue(name: "GH Akwaaba Pass", category: "service", address: "FIFA Matchday Pass · Premium Event Access")), "View Pass")
-        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: venue(name: "Events Worth Leaving For", category: "entertainment", address: "Shows and event experiences")), "Get Tickets")
+        for place in [venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking · Pickup or delivery"),
+                      venue(name: "GH Akwaaba Pass", category: "service", address: "FIFA Matchday Pass · Premium Event Access"),
+                      venue(name: "Events Worth Leaving For", category: "entertainment", address: "Shows and event experiences")] {
+            XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: place), "Details")
+        }
     }
 
     // MARK: - Discover card control gate (local vs vendor)
@@ -926,18 +926,24 @@ final class BytspotTrustEngineTests: XCTestCase {
     func testLocalDiningVenueNeverEarnsMenuChrome() {
         let primaryAction = NativeVenueDetailContract.actions.first { $0.id == "getTickets" }!
         let localDiner = venue(name: "Local Diner", category: "dining", address: "Open now")
-        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: localDiner), "Plan Dining")
+        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: localDiner), "Details")
         XCTAssertEqual(NativeVenueDetailPresentation.actionSystemImage(for: primaryAction, venue: localDiner), "fork.knife")
         let section = NativeVenueDetailPresentation.detailSection(for: localDiner)
-        XCTAssertEqual(section?.title, "Good for")
+        XCTAssertEqual(section?.title, "Place details")
+        XCTAssertEqual(section?.highlights, ["Route", "Add to Plan"])
         XCTAssertFalse(section?.highlights.contains("Menu preview") ?? true, "Local dining must not advertise menu items.")
     }
 
-    func testControlledDiningVenueKeepsMenuChrome() {
+    func testLegacyPatchBadgeDoesNotGrantMenuInventoryInPlaceDetails() {
         let primaryAction = NativeVenueDetailContract.actions.first { $0.id == "getTickets" }!
         let patchDiner = venue(name: "Colony Square", category: "dining", address: "1197 Peachtree St NE", patchId: "BYT424-0301-P")
-        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: patchDiner), "View Menu")
-        XCTAssertEqual(NativeVenueDetailPresentation.detailSection(for: patchDiner)?.title, "Included")
+        // A legacy control badge is not a source-backed menu or booking offering.
+        XCTAssertTrue(NativeDiscoverCardControl.isControlled(venue: patchDiner))
+        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: patchDiner), "Details")
+        let section = NativeVenueDetailPresentation.detailSection(for: patchDiner)
+        XCTAssertEqual(section?.title, "Place details")
+        XCTAssertEqual(section?.highlights, ["Route", "Add to Plan"])
+        XCTAssertFalse(section?.highlights.contains("Menu preview") ?? true)
     }
 
     func testCanonicalDiscoverCardsCarryVendorControlAndClonesStayLocal() {
@@ -974,20 +980,18 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Colony Square", category: "dining", address: "1197 Peachtree St NE", patchId: "BYT424-0301-P")), "VERIFIED PATCH")
     }
 
-    func testVenueDetailCategorySectionsArePurposeBuilt() {
-        let broni = NativeVenueDetailPresentation.detailSection(for: venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking · Pickup or delivery"))
-        XCTAssertEqual(broni?.title, "Included")
-        XCTAssertEqual(broni?.systemImage, "fork.knife")
-        XCTAssertTrue(broni?.highlights.contains("Jollof + chicken") == true)
-
-        let gh = NativeVenueDetailPresentation.detailSection(for: venue(name: "GH Akwaaba Pass", category: "service", address: "FIFA Matchday Pass · Premium Event Access"))
-        XCTAssertEqual(gh?.title, "Included")
-        XCTAssertEqual(gh?.systemImage, "ticket.fill")
-        XCTAssertTrue(gh?.highlights.contains("Digital pass delivery") == true)
+    func testVenueDetailCategoryDoesNotInventIncludedProducts() {
+        for place in [venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking · Pickup or delivery"),
+                      venue(name: "GH Akwaaba Pass", category: "service", address: "FIFA Matchday Pass · Premium Event Access")] {
+            let section = NativeVenueDetailPresentation.detailSection(for: place)
+            XCTAssertEqual(section?.title, "Place details")
+            XCTAssertEqual(section?.systemImage, "mappin")
+            XCTAssertEqual(section?.highlights, ["Route", "Add to Plan"])
+        }
     }
 
     func testVenueHoursCoffeeParity() {
-        XCTAssertEqual(NativeVenueHours.openStatus(category: "coffee", hour: 8, minute: 0, weekday: 3).label, "Open Now")
+        XCTAssertEqual(NativeVenueHours.openStatus(category: "coffee", hour: 8, minute: 0, weekday: 3).label, "Hours unknown")
         XCTAssertFalse(NativeVenueHours.openStatus(category: "coffee", hour: 5, minute: 0, weekday: 3).isOpen)
     }
 
@@ -2627,7 +2631,7 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(Set(NativeHostCategory.allCases.map(\.bandHex)), Set([NativeTheme.cyanHex, NativeTheme.purpleHex, NativeTheme.pinkHex]))
         XCTAssertFalse(BytspotNativeShellView.showsGlobalHeaderControls(for: .host))
         XCTAssertFalse(BytspotNativeShellView.showsGlobalHeaderControls(for: .map))
-        XCTAssertTrue(BytspotNativeShellView.showsGlobalHeaderControls(for: .profile), "Profile must retain the top-right Map shortcut.")
+        XCTAssertTrue(BytspotNativeShellView.showsGlobalHeaderControls(for: .profile), "Profile must retain the top-left Map shortcut.")
         for tab in [BytspotNativeTab.home, .plan, .discover, .concierge, .profile] {
             XCTAssertTrue(BytspotNativeShellView.showsGlobalHeaderControls(for: tab))
         }
@@ -4644,7 +4648,7 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeAuthLaunchContract.appFlow, ["splash", "landing", "location", "vibe", "walk", "crew", "recommendations", "main"])
         XCTAssertEqual(BytspotNativeTab.allCases.map(\.rawValue), ["home", "plan", "host", "discover", "map", "concierge", "profile"])
         // Bottom bar carries five entries with Plan in the centre; Map is a
-        // top-right destination and Profile the top-left avatar.
+        // top-left destination and Profile the top-right avatar.
         XCTAssertEqual(BytspotNativeTab.barTabs.map(\.rawValue), ["home", "host", "plan", "discover", "concierge"])
         XCTAssertFalse(BytspotNativeTab.barTabs.contains(.map))
         XCTAssertFalse(BytspotNativeTab.barTabs.contains(.profile))

@@ -226,8 +226,11 @@ enum NativeDiscoverListing {
 
 // MARK: - Discover M6 canonical offering policy
 
-/// Browse capability, deliberately separate from the legacy fulfillment policy.
-/// A capability is not a booking, a hold, or a confirmation.
+/// Four presentation states: Book, Request, External (redirect), Listed (details).
+/// A generic catalog capability is not a controlled booking or confirmation.
+/// Book stays dormant: booking.createCheckout is not registered and generic
+/// payments.checkout cannot establish controlled inventory. Party is a preview,
+/// never a Book action. Only the exact Coffee request route is executable today.
 enum NativeDiscoverBookableCapability: String, Equatable {
     case book, request, redirect, details
 }
@@ -257,8 +260,8 @@ struct NativeDiscoverBookablePresentation: Equatable {
                 resolved = .details
             } else {
                 switch (offering.sourceKind, offering.capability) {
-                case (.party, "book"): resolved = .book
-                case (.party, "request"), (.coffeeSpot, "request"): resolved = .request
+                case (.coffeeSpot, "request"): resolved = .request
+                case (.party, _): resolved = .details
                 case (_, "redirect"): resolved = .redirect
                 default: resolved = .details
                 }
@@ -294,10 +297,10 @@ struct NativeDiscoverBookablePresentation: Equatable {
 
     var statusLabel: String {
         switch capability {
-        case .book: return "Bookable"
+        case .book: return "Book"
         case .request: return "Request"
         case .redirect: return "External"
-        case .details: return "Reference"
+        case .details: return "Listed"
         }
     }
 
@@ -322,7 +325,7 @@ struct NativeDiscoverBookablePresentation: Equatable {
         case .book: return "Review availability before booking"
         case .request: return "Subject to host acceptance"
         case .redirect: return "Availability and confirmation are handled by the provider, not Bytspot"
-        case .details: return "Availability unconfirmed"
+        case .details: return "Place discovery · Bytspot does not control availability"
         }
     }
 

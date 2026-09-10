@@ -2290,7 +2290,10 @@ struct NativeDiscoverSummary: Identifiable, Equatable {
     let latitude: Double?
     let longitude: Double?
 
-    init(id: String, type: String, title: String, subtitle: String, distance: String, rating: String, icon: String, verified: Bool, entryType: String, cta: String, imageUrl: URL?, categoryLabel: String, badgeText: String, metadataLine: String, features: [String], vibeScore: Int, availability: String, membershipRequired: Bool, control: String = NativeDiscoverCardControl.local, latitude: Double? = nil, longitude: Double? = nil) {
+    /// A source-provided address, never inferred from marketing subtitle text.
+    let address: String?
+
+    init(id: String, type: String, title: String, subtitle: String, distance: String, rating: String, icon: String, verified: Bool, entryType: String, cta: String, imageUrl: URL?, categoryLabel: String, badgeText: String, metadataLine: String, features: [String], vibeScore: Int, availability: String, membershipRequired: Bool, control: String = NativeDiscoverCardControl.local, latitude: Double? = nil, longitude: Double? = nil, address: String? = nil) {
         self.id = id
         self.type = type
         self.title = title
@@ -2312,6 +2315,7 @@ struct NativeDiscoverSummary: Identifiable, Equatable {
         self.control = control
         self.latitude = latitude
         self.longitude = longitude
+        self.address = address
     }
 
     var hasKnownCoordinates: Bool {
@@ -3186,7 +3190,8 @@ final class NativeTabContentStore: ObservableObject {
                 membershipRequired: false,
                 control: NativeDiscoverCardControl.isControlled(venue: venue) ? NativeDiscoverCardControl.vendor : NativeDiscoverCardControl.local,
                 latitude: venue.latitude,
-                longitude: venue.longitude
+                longitude: venue.longitude,
+                address: venue.address
             )
         }
     }
@@ -3310,7 +3315,7 @@ final class NativeTabContentStore: ObservableObject {
             }
             if !isAtlantaRegion, venue == nil, !isLocalPlaceCard, !isLocationQueriedValueCard { return nil }
             guard let venue, let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) else { return card }
-            return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, control: card.control, latitude: card.latitude, longitude: card.longitude)
+            return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, control: card.control, latitude: card.latitude, longitude: card.longitude, address: card.address)
         }
     }
 
@@ -3358,7 +3363,8 @@ final class NativeTabContentStore: ObservableObject {
             availability: "Live place",
             membershipRequired: false,
             latitude: place.latitude,
-            longitude: place.longitude
+            longitude: place.longitude,
+            address: place.address
         )
     }
 

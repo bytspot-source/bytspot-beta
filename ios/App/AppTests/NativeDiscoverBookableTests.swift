@@ -12,17 +12,17 @@ final class NativeDiscoverBookablePolicyTests: XCTestCase {
         for category in NativeDiscoverBookablePresentation.railTokens {
             let card = NativeDiscoverBookablePresentation(offering: offering("details", category: category))
             XCTAssertEqual(card.capability, .details)
-            XCTAssertEqual(card.statusLabel, "Reference")
+            XCTAssertEqual(card.statusLabel, "Listed")
             XCTAssertNil(card.actionHex)
             XCTAssertNil(card.primaryActionTitle)
         }
-        let book = NativeDiscoverBookablePresentation(offering: offering("book"))
-        XCTAssertEqual(book.capability, .book)
-        XCTAssertEqual(book.primaryActionTitle, "Book")
-        XCTAssertEqual(book.statusLabel, "Bookable")
-        XCTAssertEqual(book.ringStyle, .solid)
-        XCTAssertEqual(book.actionHex, 0x00BFFF)
-        XCTAssertFalse(book.availabilityLine.contains("Confirmed"))
+        let party = NativeDiscoverBookablePresentation(offering: offering("book"))
+        XCTAssertEqual(party.capability, .details)
+        XCTAssertNil(party.primaryActionTitle)
+        XCTAssertEqual(party.statusLabel, "Listed")
+        XCTAssertEqual(party.ringStyle, .dot)
+        XCTAssertNil(party.actionHex)
+        XCTAssertFalse(party.availabilityLine.contains("Confirmed"))
         let coffee = NativeDiscoverBookablePresentation(offering: offering("request", kind: .coffeeSpot))
         XCTAssertEqual(coffee.capability, .request)
         XCTAssertEqual(coffee.ringStyle, .dashed)
@@ -38,7 +38,7 @@ final class NativeDiscoverBookablePolicyTests: XCTestCase {
         for id in ["", " ", "a/b", "a?b", "a\nb"] {
             XCTAssertEqual(NativeDiscoverBookablePresentation(offering: offering("book", sourceID: id)).capability, .details)
         }
-        XCTAssertEqual(NativeDiscoverBookablePresentation().statusLabel, "Reference")
+        XCTAssertEqual(NativeDiscoverBookablePresentation().statusLabel, "Listed")
     }
 
     func testNamedHTTPSHandoffRemainsNeutralAndExternal() throws {

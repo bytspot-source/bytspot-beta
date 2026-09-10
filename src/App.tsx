@@ -1,3 +1,4 @@
+import './styles/globals.css';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, MapPin, Star, Navigation, Sparkles, Sun, Mic, Menu, Heart, Wind, CheckCircle2, XCircle, ReceiptText } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
@@ -1499,9 +1500,50 @@ export default function App() {
       </div>
 
       {/* Main Content */}
-      <div className="relative max-w-[393px] mx-auto min-h-screen flex flex-col">
-        {/* Status Bar Space — respects iOS notch / Dynamic Island */}
-        <div style={{ height: 'max(3rem, var(--safe-area-top, 0px))' }} />
+      <div className="app-navigation-shell relative max-w-[393px] mx-auto" data-testid="app-navigation-shell">
+        {/* One shell-owned row: Profile left, Map / map return right. */}
+        <nav className="app-navigation-row" aria-label="Top navigation" data-testid="app-navigation-row">
+          <motion.button
+            type="button"
+            onClick={openProfileMain}
+            aria-label="Open profile"
+            data-testid="open-profile-button"
+            className="app-navigation-control app-navigation-profile"
+            whileTap={{ scale: 0.9 }}
+            transition={springConfig}
+          >
+            <Menu className="h-[18px] w-[18px] text-white" strokeWidth={2.5} />
+          </motion.button>
+          {activeTab === 'map' ? (
+            <motion.button
+              type="button"
+              onClick={() => {
+                setActiveTab('home');
+                setSelectedDestination(undefined);
+                setSelectedMapFunction(undefined);
+              }}
+              aria-label="Back to home"
+              data-testid="map-back-button"
+              className="app-navigation-control"
+              whileTap={{ scale: 0.9 }}
+              transition={springConfig}
+            >
+              Back
+            </motion.button>
+          ) : (
+            <motion.button
+              type="button"
+              onClick={() => setActiveTab('map')}
+              aria-label="Open map"
+              data-testid="open-map-button"
+              className="app-navigation-control app-navigation-map"
+              whileTap={{ scale: 0.9 }}
+              transition={springConfig}
+            >
+              <Navigation className="h-5 w-5" strokeWidth={2.5} />
+            </motion.button>
+          )}
+        </nav>
 
         {/* Offline Banner — visible when device loses connectivity */}
         <AnimatePresence>
@@ -1523,39 +1565,11 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Enhanced Header - Only on Home */}
-        {activeTab === 'home' && (
-          <EnhancedHeader
-            onProfileClick={openProfileMain}
-            scrollContainerRef={homeScrollRef}
-            weather={weather.current}
-            weatherLoading={weather.loading}
-            city={userCity}
-          />
-        )}
-
-        {/* Smart Search Bar - Only on Home */}
-        {activeTab === 'home' && (
-          <div className="px-4 mb-4">
-            <SmartSearchBar
-              value={searchValue}
-              onChange={setSearchValue}
-              onSubmit={handleSearch}
-              onSuggestionClick={handleSuggestionClick}
-              isDarkMode={isDarkMode}
-              venues={apiVenues}
-              onVenueClick={(venue) => {
-                setSelectedSearchVenue(venue);
-                setSearchValue('');
-              }}
-            />
-          </div>
-        )}
-
-        {/* Tab Content — bottom padding accounts for BottomNav + safe area */}
+        {/* The clipped viewport is a sibling below navigation, never behind it. */}
         <div
-          className="flex-1 relative"
-          style={{ minHeight: 0, paddingBottom: 'calc(6rem + var(--safe-area-bottom, 0px))' }}
+          className="app-tab-viewport"
+          data-testid="app-tab-viewport"
+          style={{ marginBottom: 'calc(6rem + var(--safe-area-bottom, 0px))' }}
         >
           {/* popLayout mounts the incoming tab immediately instead of
               serializing exit → enter, which stacked ~400ms of dead time on
@@ -1575,6 +1589,27 @@ export default function App() {
                   onScroll={handleScroll}
                   className="absolute inset-0 overflow-y-auto"
                 >
+                {/* Home stats/search scroll inside the reserved content viewport. */}
+                <EnhancedHeader
+                  scrollContainerRef={homeScrollRef}
+                  weather={weather.current}
+                  weatherLoading={weather.loading}
+                  city={userCity}
+                />
+                <div className="px-4 mb-4">
+                  <SmartSearchBar
+                    value={searchValue}
+                    onChange={setSearchValue}
+                    onSubmit={handleSearch}
+                    onSuggestionClick={handleSuggestionClick}
+                    isDarkMode={isDarkMode}
+                    venues={apiVenues}
+                    onVenueClick={(venue) => {
+                      setSelectedSearchVenue(venue);
+                      setSearchValue('');
+                    }}
+                  />
+                </div>
                 {onboardingPreview && (
                   <motion.div
                     className="px-4 mb-4 pt-2"
@@ -2291,11 +2326,6 @@ export default function App() {
                     onOpenConciergeRequest={(prefill) => {
                       setConciergePrefill(prefill);
                       setActiveTab('concierge');
-                    }}
-                    onBackToHome={() => {
-                      setActiveTab('home');
-                      setSelectedDestination(undefined);
-                      setSelectedMapFunction(undefined);
                     }}
                     onBookRide={(v) => {
                       if (v) setRideDestination(v);

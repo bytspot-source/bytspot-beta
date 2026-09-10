@@ -2387,6 +2387,18 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativeHostStudioStep.door.validationMessage(title: release.title, venue: release.venueName, draftMessage: release.validationMessage, identityMessage: nil), "Add the release title.")
     }
 
+    func testShellNavigationReservesOneSafeAreaRelativeRow() {
+        XCTAssertEqual(NativeNavigationLayout.controlSize, 44)
+        XCTAssertEqual(NativeNavigationLayout.horizontalInset, 16)
+        XCTAssertEqual(NativeNavigationLayout.topPadding, 8)
+        XCTAssertEqual(NativeNavigationLayout.contentGap, 12)
+        XCTAssertEqual(NativeNavigationLayout.rowHeight, 64)
+        XCTAssertEqual(NativePolish.mapSearchLeadingInset, NativeNavigationLayout.horizontalInset)
+        XCTAssertEqual(NativePolish.mapSearchTrailingInset, NativeNavigationLayout.horizontalInset)
+        XCTAssertEqual(NativePolish.mapSearchTopInset, 0, "The shell already reserves navigation clearance.")
+        XCTAssertGreaterThanOrEqual(NativePolish.mapActionTopInset, NativePolish.mapSearchHeight + NativeNavigationLayout.contentGap)
+    }
+
     func testNativeHostStudioContractCoversPartyOperatingSystem() {
         XCTAssertEqual(NativePartyTemplate.catalog.map(\.id), [.listeningParty, .comedyNight, .premiere, .privateParty, .fanMeetup, .releaseParty, .popUp])
         XCTAssertEqual(NativeHostCategory.allCases.map(\.rawValue), ["party", "nightlife", "music", "sports", "food-drink", "social", "culture", "cars", "outdoor", "community"])
@@ -4419,7 +4431,7 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeAuthLaunchContract.appFlow, ["splash", "landing", "location", "vibe", "walk", "crew", "recommendations", "main"])
         XCTAssertEqual(BytspotNativeTab.allCases.map(\.rawValue), ["home", "plan", "host", "discover", "map", "concierge", "profile"])
         // Bottom bar carries five entries with Plan in the centre; Map is a
-        // top-left destination and Profile the top-right avatar.
+        // top-right destination and Profile the top-left avatar.
         XCTAssertEqual(BytspotNativeTab.barTabs.map(\.rawValue), ["home", "host", "plan", "discover", "concierge"])
         XCTAssertFalse(BytspotNativeTab.barTabs.contains(.map))
         XCTAssertFalse(BytspotNativeTab.barTabs.contains(.profile))
@@ -4553,6 +4565,18 @@ final class NativePlanBookablesContractTests: XCTestCase {
         let booked = try item(["partyId": "party-1", "capability": "book", "booked": true])
         XCTAssertEqual(NativePlanDisplay.itemStatusLabel(booked), "Booked")
         XCTAssertEqual(NativePlanDisplay.itemStatusLabel(try item()), "Not booked")
+    }
+
+    func testDeletePermissionDoesNotExcludeUnbookedTerminalPlans() {
+        for (lifecycle, state) in [("proposed", "proposed"), ("proposed", "expired"), ("confirmed", "confirmed"), ("confirmed", "completed"), ("cancelled", "cancelled")] {
+            var value = plan(lifecycle: lifecycle, state: state)
+            for permission in [nil, false, true] as [Bool?] {
+                value.canDelete = permission
+                XCTAssertEqual(NativePlanDisplay.canDelete(value, userID: "creator"), permission == true)
+                XCTAssertFalse(NativePlanDisplay.canDelete(value, userID: "guest"))
+                XCTAssertFalse(NativePlanDisplay.canDelete(value, userID: nil))
+            }
+        }
     }
 
     func testReservationUpgradeRetainsCatalogSelectionIdentity() throws {

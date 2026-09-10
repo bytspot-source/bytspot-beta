@@ -26,7 +26,7 @@ struct NativePlanTabView: View {
         // surface instead so the tab reads correctly in Light and Dark, and so
         // NativePlansPanel renders in the same adaptive context it uses inside
         // the Profile panel.
-        .background(NativePolish.screenBackground.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
     }
 
     private var header: some View {

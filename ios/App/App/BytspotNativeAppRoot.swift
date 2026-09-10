@@ -69,6 +69,11 @@ enum NativeAppearanceMode: String, CaseIterable, Identifiable {
                 window.overrideUserInterfaceStyle = mode.uiUserInterfaceStyle
             }
         }
+        // This app is not scene-based: AppDelegate builds its own UIWindow, so it
+        // belongs to no UIWindowScene and the loop above never reaches it. Without
+        // this the Appearance setting is inert -- every adaptive token resolves
+        // against an untouched trait collection and falls to its dark branch.
+        (UIApplication.shared.delegate as? AppDelegate)?.window?.overrideUserInterfaceStyle = mode.uiUserInterfaceStyle
     }
 
     @MainActor static func currentWindowColorScheme() -> ColorScheme? {
@@ -172,7 +177,7 @@ struct BytspotNativeAppRoot: View {
             .environmentObject(appearanceRuntimeStore)
             .environmentObject(locationStore)
             .onAppear {
-                NativeAppearanceMode.applyWindowStyle(NativeJourneyAtmosphere(rawValue: launchAtmosphere) == .nightlight ? .dark : effectiveAppearance)
+                NativeAppearanceMode.applyWindowStyle(resolvedAppearance)
                 navigation.drainPendingURLs()
                 bridgeStore.injectPatchScanBridgeSmokeTestIfRequested()
                 locationStore.startIfAuthorized()
@@ -209,7 +214,7 @@ struct BytspotNativeAppRoot: View {
                 Task { await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate) }
             }
             .onChange(of: launchAtmosphere) { _ in
-                NativeAppearanceMode.applyWindowStyle(NativeJourneyAtmosphere(rawValue: launchAtmosphere) == .nightlight ? .dark : effectiveAppearance)
+                NativeAppearanceMode.applyWindowStyle(resolvedAppearance)
             }
             .onOpenURL { navigation.notifyPatchScanned(url: $0, source: .deepLink); _ = navigation.handle(url: $0) }
             .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
@@ -232,11 +237,21 @@ struct BytspotNativeAppRoot: View {
                 let selected = NativeAppearanceMode.resolved(raw: notification.userInfo?[NativeAppearanceMode.userSelectionUserInfoKey] as? String)
                 appearanceRuntimeStore.applyUserSelection(selected)
             }
-            .onChange(of: appearanceRaw) { _ in NativeAppearanceMode.applyWindowStyle(effectiveAppearance) }
+            .onChange(of: appearanceRaw) { _ in NativeAppearanceMode.applyWindowStyle(resolvedAppearance) }
+    }
+
+    /// The launch journey's nightlight atmosphere may imply dark, but only while
+    /// the user has expressed no preference of their own. An explicit Appearance
+    /// choice always outranks it: previously picking nightlight once wrote a
+    /// defaults key that made Light permanently unreachable, with nothing in the
+    /// UI to explain why the setting had stopped responding.
+    private var resolvedAppearance: NativeAppearanceMode {
+        guard effectiveAppearance == .system else { return effectiveAppearance }
+        return NativeJourneyAtmosphere(rawValue: launchAtmosphere) == .nightlight ? .dark : .system
     }
 
     private var journeyPreferredColorScheme: ColorScheme? {
-        NativeJourneyAtmosphere(rawValue: launchAtmosphere) == .nightlight ? .dark : effectiveAppearance.preferredColorScheme
+        resolvedAppearance.preferredColorScheme
     }
 
     private var shouldShowLaunchFlow: Bool {

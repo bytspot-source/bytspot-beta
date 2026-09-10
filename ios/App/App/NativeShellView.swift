@@ -11594,7 +11594,11 @@ private struct NativeDiscoverFeatureCard: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(displayCategory)
                                 .font(.system(size: 12, weight: .black))
-                                .foregroundColor(cardFulfillment == .details ? NativeTheme.textPrimary.opacity(0.86) : NativeProfileStyle.onVibrant)
+                                // A details card fills this pill with `neutral`, a mid
+                                // grey, so white ink measured 2.27:1 in both appearances.
+                                // Mid fills take dark ink; only the saturated fulfilment
+                                // accents are dark enough to carry white.
+                                .foregroundColor(cardFulfillment == .details ? NativeTheme.inverseText.opacity(0.92) : NativeProfileStyle.onVibrant)
                                 .padding(.horizontal, 13)
                                 .frame(minHeight: 36)
                                 .background(categoryGradient)
@@ -17670,9 +17674,12 @@ enum NativePolish {
     static let mapPanelSurface = Color.adaptive(lightHex: lightPanelHex, darkHex: mapPanelHex, lightAlpha: 0.90, darkAlpha: 0.94)
     static let mapControlSurface = Color.adaptive(lightHex: lightElevatedHex, darkHex: mapPanelHex, lightAlpha: 0.94, darkAlpha: 0.94)
     static let mapRoadSurface = Color.adaptive(lightHex: 0x232A50, darkHex: mapPanelHex, lightAlpha: 0.90, darkAlpha: 0.96)
-    static let mapGridLine = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.055, darkAlpha: 0.030)
-    static let mapRoadLine = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.20, darkAlpha: 0.13)
-    static let mapLabelText = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.34, darkAlpha: 0.18)
+    // Dark measured flatter than Light once Light was converted -- roads 1.39:1
+    // and grid 1.26:1 against the base, which is a map you cannot read. The dark
+    // branch is carried up to sit near its light counterpart.
+    static let mapGridLine = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.055, darkAlpha: 0.055)
+    static let mapRoadLine = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.20, darkAlpha: 0.22)
+    static let mapLabelText = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.34, darkAlpha: 0.38)
     static let softBorder = NativeTheme.surfaceStroke
     static let strongBorder = NativeTheme.strongSurfaceStroke
     static func brandGradient() -> LinearGradient { LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple, NativeTheme.pink], startPoint: .topLeading, endPoint: .bottomTrailing) }

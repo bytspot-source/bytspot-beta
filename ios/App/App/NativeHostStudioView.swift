@@ -101,8 +101,48 @@ enum NativePartySharePresentation {
     }
 }
 
+/// Presentation names change without changing the draft's four-stage flow.
+/// Navigation never owns (or resets) any of the host's form state.
+enum NativeHostStudioStep: Int, CaseIterable {
+    case spark, build, door, invite
+
+    var title: String {
+        switch self {
+        case .spark: return "Edition"
+        case .build: return "Details"
+        case .door: return "Access"
+        case .invite: return "Review"
+        }
+    }
+
+    var previous: Self { Self(rawValue: rawValue - 1) ?? .spark }
+    var next: Self { Self(rawValue: rawValue + 1) ?? .invite }
+    var primaryTitle: String { self == .invite ? "Publish party" : "Continue to \(next.title)" }
+
+    func validationMessage(title: String, venue: String, draftMessage: String?, identityMessage: String?) -> String? {
+        if self == .build && (title.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 || venue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+            return "Add a title and venue before setting the door."
+        }
+        if self == .door { return draftMessage }
+        if self == .invite { return identityMessage }
+        return nil
+    }
+}
+
+enum NativeHostStudioPresentation {
+    /// This printer has an additional required text field; its format remains
+    /// optional, but its title must stay alongside the always-visible essentials.
+    static func requiresReleaseTitle(for templateID: NativePartyTemplateID) -> Bool {
+        templateID == .releaseParty
+    }
+
+    static func animation(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .interpolatingSpring(mass: 0.8, stiffness: 320, damping: 30, initialVelocity: 0)
+    }
+}
+
 struct NativeHostStudioView: View {
-    private enum Step: Int, CaseIterable { case spark, build, door, invite }
+    private typealias Step = NativeHostStudioStep
 
     /// Host Studio is reached two ways: presented over another surface, where
     /// it owns a way back, and as the Host tab, where the bar is the way out
@@ -110,12 +150,15 @@ struct NativeHostStudioView: View {
     enum Presentation { case cover, tab }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     let circles: [NativeSocialCircle]
     let membershipTier: BytspotTier
     var presentation: Presentation = .cover
 
     @State private var step: Step = .spark
+    @State private var expandedSections: Set<String> = []
     @State private var taxonomy = NativeHostTaxonomySelection.default
     @State private var templateID: NativePartyTemplateID = NativeHostTaxonomySelection.default.type.printer
     @State private var title = ""
@@ -177,21 +220,24 @@ struct NativeHostStudioView: View {
 
     private var displayTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? template.name : title }
 
-    /// Wizard accent follows the selected party tier from step 1 through publish.
-    /// Reuses the shared checkout/pass palette in BytspotTheme so hosts see the
-    /// same tier tokens guests will see on the Party Pass.
-    private var tierAccent: Color { BytspotTheme.accent(for: requiredTier) }
+    private var studioAnimation: Animation? { NativeHostStudioPresentation.animation(reduceMotion: reduceMotion) }
+    private var choiceColumns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 8), count: dynamicTypeSize.isAccessibilitySize ? 1 : 2)
+    }
 
     var body: some View {
         ZStack {
-            BytspotNativeBackground(tier: requiredTier).ignoresSafeArea()
+            NativeDeepSpaceGround()
             VStack(spacing: 0) {
                 header
                 if let party = publishPresentation.party { partyPass(party) }
                 else { studio }
             }
         }
-        .preferredColorScheme(.dark)
+        .foregroundColor(NativeTheme.textPrimary)
+        .tint(NativeTheme.cyan)
+        .transaction { if reduceMotion { $0.disablesAnimations = true } }
+        .task { await prefillHostIdentity() }
         .accessibilityIdentifier("native-host-studio")
         .onChange(of: sessionStore.token ?? "") { _ in
             guard isPublishing else { return }
@@ -209,80 +255,61 @@ struct NativeHostStudioView: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 8) {
+            Text("Host Studio").font(.headline).accessibilityAddTraits(.isHeader)
+            Spacer()
             if presentation == .cover {
-                // The label named the Network sheet that used to present this;
-                // it is reached from the bar now, so say what the control does.
-                Button(action: { dismiss() }) { Label("Close", systemImage: "chevron.left").font(.system(size: 14, weight: .bold)) }
-                    .buttonStyle(.plain).foregroundColor(.white)
-                    .accessibilityIdentifier("native-host-studio-close")
+                Button(action: { dismiss() }) {
+                    Label("Close", systemImage: "xmark").font(.subheadline.weight(.semibold))
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-host-studio-close")
             }
-            Spacer()
-            VStack(spacing: 1) {
-                Text("HOST STUDIO").font(.system(size: 10, weight: .black)).tracking(1.8).foregroundColor(NativeTheme.pink)
-                Text("The backstage").font(.system(size: 11, weight: .semibold)).foregroundColor(.white.opacity(0.52))
-            }
-            Spacer()
-            Text("\(requiredTier.displayName.uppercased()) TIER").font(.system(size: 9, weight: .black)).foregroundColor(tierAccent).padding(.horizontal, 9).frame(height: 28).background(tierAccent.opacity(0.13)).clipShape(Capsule()).accessibilityLabel("Party tier \(requiredTier.displayName)")
         }
-        .padding(.horizontal, 18).frame(height: 58).background(Color.black.opacity(0.72))
+        .padding(.horizontal, 16).padding(.vertical, 8)
     }
 
     private var studio: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                progress
-                hero
-                stepContent
-                if !publishPresentation.message.isEmpty { Text(publishPresentation.message).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.orange).accessibilityIdentifier("native-host-studio-message") }
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 24) {
+                    progress.id("host-step-top")
+                    stepContent
+                }
+                .padding(.horizontal, 16).padding(.vertical, 16)
+            }
+            .onChange(of: step) { _ in proxy.scrollTo("host-step-top", anchor: .top) }
+        }
+        // The shell reserves its own bar area. Inset this content, not the
+        // window, so the footer sits above that bar and above the keyboard.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                if !publishPresentation.message.isEmpty {
+                    Text(publishPresentation.message).font(.footnote.weight(.semibold))
+                        .foregroundColor(NativeTheme.orange)
+                        .accessibilityIdentifier("native-host-studio-message")
+                }
                 navigationButtons
             }
-            .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 34)
+            .padding(16).background(NativeHostStudioSurfaceFill())
         }
     }
 
     private var progress: some View {
-        HStack(spacing: 7) {
-            ForEach(Array(Step.allCases.enumerated()), id: \.offset) { index, item in
-                VStack(spacing: 5) {
-                    Capsule().fill(index <= step.rawValue ? tierAccent : Color.white.opacity(0.12)).frame(height: 4)
-                    Text(["Spark", "Build", "Door", "Invite"][index]).font(.system(size: 9.5, weight: .bold)).foregroundColor(item == step ? .white : .white.opacity(0.38))
+        HStack(alignment: .top, spacing: 8) {
+            ForEach(Step.allCases, id: \.rawValue) { item in
+                VStack(alignment: .leading, spacing: 8) {
+                    Capsule().fill(item.rawValue <= step.rawValue ? NativeTheme.cyan : NativeTheme.surfaceStroke).frame(height: 4)
+                    Text(item.title).font(.caption.weight(item == step ? .bold : .medium))
+                        .foregroundColor(item == step ? NativeTheme.textPrimary : NativeTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-        }.accessibilityElement(children: .combine).accessibilityLabel("Host Studio step \(step.rawValue + 1) of 4")
-    }
-
-    private var hero: some View {
-        ZStack(alignment: .topTrailing) {
-            templateGradient
-            Text(template.emoji).font(.system(size: 88)).opacity(0.17).offset(x: 13, y: -18)
-            VStack(alignment: .leading, spacing: 9) {
-                Text("BYTSPOT PRESENTS").font(.system(size: 9.5, weight: .black)).tracking(1.7).foregroundColor(.white.opacity(0.65))
-                Spacer(minLength: 18)
-                Text(displayTitle).font(.system(size: 29, weight: .black, design: .rounded)).lineLimit(2).minimumScaleFactor(0.78)
-                Text(tagline.isEmpty ? template.hook : tagline).font(.system(size: 12.5, weight: .semibold)).foregroundColor(.white.opacity(0.74)).lineLimit(2)
-                HStack(spacing: 7) { heroChip(requiredTier.displayName); heroChip(accessMode.title); heroChip(startsAt.formatted(date: .abbreviated, time: .shortened)) }
-            }.padding(21)
         }
-        .frame(minHeight: 210).clipShape(RoundedRectangle(cornerRadius: 29, style: .continuous)).shadow(color: NativeTheme.purple.opacity(0.22), radius: 22, y: 12)
-    }
-
-    private var templateGradient: some View {
-        let colors: [Color]
-        switch templateID {
-        case .listeningParty: colors = [NativeTheme.pink, NativeTheme.purple900, NativeTheme.slate950]
-        case .comedyNight: colors = [NativeTheme.orange, Color.red.opacity(0.62), NativeTheme.slate950]
-        case .premiere: colors = [NativeTheme.cyan, Color.blue.opacity(0.72), NativeTheme.slate950]
-        case .privateParty: colors = [NativeTheme.emerald, NativeTheme.green900, NativeTheme.slate950]
-        case .fanMeetup: colors = [NativeTheme.purple, Color.indigo, NativeTheme.slate950]
-        case .releaseParty: colors = [NativeTheme.pink, Color.red.opacity(0.60), NativeTheme.slate950]
-        case .popUp: colors = [NativeTheme.orange, NativeTheme.purple900, NativeTheme.slate950]
-        }
-        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    private func heroChip(_ text: String) -> some View {
-        Text(text.uppercased()).font(.system(size: 8.5, weight: .black)).lineLimit(1).padding(.horizontal, 8).frame(height: 25).background(Color.black.opacity(0.31)).clipShape(Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(step.title), step \(step.rawValue + 1) of 4")
     }
 
     @ViewBuilder private var stepContent: some View {
@@ -295,94 +322,94 @@ struct NativeHostStudioView: View {
     }
 
     private var sparkContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeading("SPARK THE VIBE", "What kind of night?", "Pick a category. Then a type. Same room printer.")
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+        VStack(alignment: .leading, spacing: 24) {
+            sectionHeading("Choose your edition", "Start with a category, then choose the type of gathering.")
+            LazyVGrid(columns: choiceColumns, spacing: 8) {
                 ForEach(NativeHostCategory.allCases) { category in
-                    Button(action: { nativeImpactLight(); selectCategory(category) }) {
-                        NativeEditionSleeve(category: category, selected: taxonomy.category == category, accent: tierAccent)
-                    }.buttonStyle(.plain).accessibilityLabel("\(category.title), edition \(category.edition)")
+                    Button(action: { nativeImpactLight(); withAnimation(studioAnimation) { selectCategory(category) } }) {
+                        NativeHostCategoryCard(category: category, selected: taxonomy.category == category)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(category.title)
+                    .accessibilityValue(taxonomy.category == category ? "Selected" : "Not selected")
+                    .accessibilityAddTraits(taxonomy.category == category ? .isSelected : [])
                 }
             }
-            VStack(alignment: .leading, spacing: 9) {
-                Text("TYPE").studioLabel()
-                Text("This is a tag. The door is still RSVP, ticket, or approval.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Type").studioLabel()
+                LazyVGrid(columns: choiceColumns, spacing: 8) {
                     ForEach(NativeHostType.types(in: taxonomy.category)) { type in
-                        Button(action: { nativeImpactLight(); selectType(type) }) {
-                            Text(type.name)
-                                .font(.system(size: 12, weight: .black))
-                                .frame(maxWidth: .infinity, minHeight: 38)
-                                .foregroundColor(taxonomy.type.id == type.id ? .black : .white)
-                                .background(taxonomy.type.id == type.id ? Color.white : Color.white.opacity(0.06))
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }.buttonStyle(.plain).accessibilityLabel(type.name)
+                        Button(action: { nativeImpactLight(); withAnimation(studioAnimation) { selectType(type) } }) {
+                            Text(type.name).font(.subheadline.weight(.semibold))
+                                .padding(8).frame(maxWidth: .infinity, minHeight: 44)
+                                .studioSurface(selected: taxonomy.type.id == type.id)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityValue(taxonomy.type.id == type.id ? "Selected" : "Not selected")
+                        .accessibilityAddTraits(taxonomy.type.id == type.id ? .isSelected : [])
                     }
                 }
-            }.padding(14).studioSurface()
-            VStack(alignment: .leading, spacing: 9) {
-                Text("FORMAT · OPTIONAL").studioLabel()
+            }
+            optionalSection("Format & age", icon: "slider.horizontal.3") {
+                Text("Format · optional").studioLabel()
                 taxonomyChipRow(titles: taxonomy.category.formats.map(\.title), selected: taxonomy.format?.title) { title in
                     let format = taxonomy.category.formats.first { $0.title == title }
                     taxonomy.format = taxonomy.format == format ? nil : format
                 }
-                Text("AGE · OPTIONAL").studioLabel()
+                Text("Age · optional").studioLabel()
                 taxonomyChipRow(titles: NativeHostAgeRule.allCases.map(\.title), selected: taxonomy.age?.title) { title in
                     let age = NativeHostAgeRule.allCases.first { $0.title == title }
                     taxonomy.age = taxonomy.age == age ? nil : age
                 }
-            }.padding(14).studioSurface()
-            VStack(alignment: .leading, spacing: 9) {
-                Text("PARTY TIER").studioLabel()
-                HStack(spacing: 7) {
-                    ForEach([BytspotTier.green, .platinum, .black], id: \.rawValue) { tier in tierOptionCard(tier) }
-                }
-                Text("The studio re-skins to the selected tier instantly. The same palette follows this Party to its pass and checkout.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
-            }.padding(14).studioSurface()
-        }
-    }
-
-    private func tierOptionCard(_ tier: BytspotTier) -> some View {
-        let accent = BytspotTheme.accent(for: tier)
-        let selected = requiredTier == tier
-        return Button(action: { nativeImpactLight(); requiredTier = tier }) {
-            Text(tier.displayName)
-                .font(.system(size: 11, weight: .black))
-                .foregroundColor(selected ? (tier == .black ? accent : .black) : accent)
-                .frame(maxWidth: .infinity).frame(height: 38)
-                .background(tierOptionBackground(tier, selected: selected))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? accent : accent.opacity(0.30)))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-        }.buttonStyle(.plain).accessibilityLabel("\(tier.displayName) tier")
-    }
-
-    /// Tier-shaped option surfaces: Green = emerald fill, Platinum = silver/light
-    /// gradient over the cyan token, Black = OLED deep black with the amber accent.
-    @ViewBuilder private func tierOptionBackground(_ tier: BytspotTier, selected: Bool) -> some View {
-        if !selected {
-            BytspotTheme.accent(for: tier).opacity(0.10)
-        } else {
-            switch tier {
-            case .green: BytspotTheme.accent(for: .green)
-            case .platinum: LinearGradient(colors: [Color.white, BytspotTheme.accent(for: .platinum).opacity(0.85)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            case .black: NativeTheme.slate950
             }
         }
     }
 
+    private func tierOptionCard(_ tier: BytspotTier) -> some View {
+        let selected = requiredTier == tier
+        return Button(action: { nativeImpactLight(); requiredTier = tier }) {
+            HStack(spacing: 8) {
+                Text(tier.displayName).font(.subheadline.weight(.semibold))
+                if selected { Image(systemName: "checkmark").foregroundColor(NativeTheme.cyan) }
+            }
+            .padding(8).frame(maxWidth: .infinity, minHeight: 44)
+            .studioSurface(selected: selected)
+        }
+        .buttonStyle(.plain).accessibilityLabel("\(tier.displayName) tier")
+        .accessibilityValue(selected ? "Selected" : "Not selected")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
     private var buildContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeading("BUILD THE MOMENT", "Make it yours.", "Name the night, set the place, and shape the run of show.")
-            field("Party title", text: $title, icon: "sparkles", prompt: "Give the night a name")
-            field("Party tagline", text: $tagline, icon: "quote.bubble.fill", prompt: "One-line hook")
-            templateConfigurationEditor
-            partyMediaEditor
-            DatePicker("Party date and time", selection: $startsAt, displayedComponents: [.date, .hourAndMinute]).font(.system(size: 13, weight: .bold)).padding(13).studioSurface()
-            field("Party venue", text: $venueName, icon: "mappin.and.ellipse", prompt: "Venue or secret location")
-            registeredVenueSuggestions
-            locationDisclosureEditor
-            officialDestinationsEditor
-            runOfShowEditor
+        VStack(alignment: .leading, spacing: 24) {
+            sectionHeading("Set the details", "Name your gathering and tell guests when and where.")
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Essentials").studioLabel()
+                field("Party title", text: $title, icon: "sparkles", prompt: "Give the night a name")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Date & time").studioLabel()
+                    DatePicker("Party date and time", selection: $startsAt, displayedComponents: [.date, .hourAndMinute])
+                        .labelsHidden().font(.body).frame(minHeight: 44)
+                        .accessibilityLabel("Party date and time")
+                }
+                field("Party venue", text: $venueName, icon: "mappin.and.ellipse", prompt: "Venue or secret location")
+                registeredVenueSuggestions
+                locationDisclosureEditor
+                // Release title is validated by the printer; never bury it in
+                // an optional disclosure alongside the format controls.
+                if NativeHostStudioPresentation.requiresReleaseTitle(for: templateID) {
+                    field("Release title", text: $releaseTitle, icon: "music.note.list", prompt: "Single, album, mix, or video title")
+                }
+            }
+            optionalSection("Tagline & cover", icon: "photo") {
+                field("Party tagline", text: $tagline, icon: "quote.bubble.fill", prompt: "One-line hook")
+                partyMediaEditor
+            }
+            if templateID != .comedyNight && templateID != .premiere {
+                optionalSection("Template options", icon: "slider.horizontal.3") { templateConfigurationEditor }
+            }
+            optionalSection("Run of show", icon: "clock") { runOfShowEditor }
+            optionalSection("Host destinations", icon: "link") { officialDestinationsEditor }
         }
     }
 
@@ -393,20 +420,17 @@ struct NativeHostStudioView: View {
         case .fanMeetup:
             templatePicker("MEETUP FORMAT", selection: $fanMeetupFormat, options: NativeFanMeetupFormat.allCases)
         case .releaseParty:
-            VStack(alignment: .leading, spacing: 10) {
-                templatePicker("RELEASE FORMAT", selection: $releaseFormat, options: NativeReleaseFormat.allCases)
-                field("Release title", text: $releaseTitle, icon: "music.note.list", prompt: "Single, album, mix, or video title")
-            }.padding(14).studioSurface()
+            templatePicker("Release format", selection: $releaseFormat, options: NativeReleaseFormat.allCases)
         case .popUp:
-            VStack(alignment: .leading, spacing: 7) {
-                Text("POP-UP LOCATION").studioLabel()
-                Text(locationDisclosure.recipientExplanation).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
-            }.padding(14).studioSurface()
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Pop-up location").studioLabel()
+                Text(locationDisclosure.recipientExplanation).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+            }
         case .privateParty:
-            VStack(alignment: .leading, spacing: 7) {
-                templatePicker("GUEST LIST", selection: $privateGuestPolicy, options: NativePrivatePartyGuestPolicy.allCases)
-                Text("Private Parties always use host approval. Named guest enforcement is introduced with the authorized guest action.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
-            }.padding(14).studioSurface()
+            VStack(alignment: .leading, spacing: 8) {
+                templatePicker("Guest list", selection: $privateGuestPolicy, options: NativePrivatePartyGuestPolicy.allCases)
+                Text("Private Parties always use host approval. Named guest enforcement is introduced with the authorized guest action.").font(.footnote).foregroundColor(NativeTheme.textSecondary)
+            }
         case .comedyNight, .premiere:
             EmptyView()
         }
@@ -414,10 +438,10 @@ struct NativeHostStudioView: View {
 
     private var locationDisclosureEditor: some View {
         VStack(alignment: .leading, spacing: 8) {
-            templatePicker("LOCATION ON PARTY PASS", selection: $locationDisclosure, options: NativePartyLocationDisclosure.allCases)
-            Text(locationDisclosure.recipientExplanation).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+            templatePicker("Location on Party Pass", selection: $locationDisclosure, options: NativePartyLocationDisclosure.allCases)
+            Text(locationDisclosure.recipientExplanation).font(.footnote).foregroundColor(NativeTheme.textSecondary)
         }
-        .padding(14).studioSurface()
+        .padding(16).studioSurface()
         // Selecting "After approval" moves the door to Private Approval because
         // only that mode has an approver. The write is recorded so the door step
         // can attribute it, rather than the host finding a choice they did not
@@ -436,29 +460,31 @@ struct NativeHostStudioView: View {
     /// existing party clock (offsets roll to the next day for all-day rooms),
     /// plus an optional host-set end. No second clock, no cron.
     private var runOfShowEditor: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text("RUN OF SHOW").studioLabel()
-            Text("Times ride the party clock. A beat earlier than the start rolls to the next day.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Times ride the party clock. A beat earlier than the start rolls to the next day.").font(.footnote).foregroundColor(NativeTheme.textSecondary)
             ForEach(Array(template.itinerary.enumerated()), id: \.offset) { index, item in
-                HStack(spacing: 10) {
-                    Text("\(index + 1)").font(.system(size: 10, weight: .black)).foregroundColor(.black).frame(width: 23, height: 23).background(NativeTheme.cyan).clipShape(Circle())
-                    Text(item).font(.system(size: 12.5, weight: .bold))
-                    Spacer()
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("\(index + 1). \(item)").font(.subheadline.weight(.semibold))
                     DatePicker("", selection: beatTimeBinding(index), displayedComponents: [.hourAndMinute])
-                        .labelsHidden()
+                        .labelsHidden().frame(minHeight: 44)
                         .accessibilityLabel("\(item) time")
                 }
             }
-            Toggle(isOn: $hostSetsEnd.animation(.easeInOut(duration: 0.15))) {
-                Text("SET PARTY END").studioLabel()
+            Toggle(isOn: $hostSetsEnd.animation(studioAnimation)) {
+                Text("Set party end").studioLabel()
             }
-            .tint(NativeTheme.cyan)
+            .tint(NativeTheme.cyan).frame(minHeight: 44)
             if hostSetsEnd {
-                DatePicker("Party ends", selection: $endsAt, in: startsAt.addingTimeInterval(15 * 60)..., displayedComponents: [.date, .hourAndMinute]).font(.system(size: 13, weight: .bold))
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Party ends").studioLabel()
+                    DatePicker("Party ends", selection: $endsAt, in: startsAt.addingTimeInterval(15 * 60)..., displayedComponents: [.date, .hourAndMinute])
+                        .labelsHidden().font(.body).frame(minHeight: 44)
+                        .accessibilityLabel("Party ends")
+                }
             } else {
-                Text("No end set: the party closes one hour after the last beat.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+                Text("No end set: the party closes one hour after the last beat.").font(.footnote).foregroundColor(NativeTheme.textSecondary)
             }
-        }.padding(14).studioSurface()
+        }
     }
 
     private func beatTimeBinding(_ index: Int) -> Binding<Date> {
@@ -483,9 +509,9 @@ struct NativeHostStudioView: View {
     /// list vertically below — reorder with arrows, star one as Primary ⭐.
     /// Socials take handles; Bytspot owns the routing. No URLs in public UI.
     private var officialDestinationsEditor: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("OFFICIAL HOST DESTINATIONS").studioLabel()
-            Text("Saved to your host profile. Tap to add, tap again to remove. Guests see your verified host name — never a link.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.50))
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Official host destinations").studioLabel()
+            Text("Saved to your host profile. Tap to add, tap again to remove. Guests see your verified host name — never a link.").font(.footnote).foregroundColor(NativeTheme.textSecondary)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(NativeHostDestinationKind.allCases) { kind in destinationPill(kind) }
@@ -494,19 +520,17 @@ struct NativeHostStudioView: View {
             ForEach(Array(hostIdentity.destinations.enumerated()), id: \.element.id) { index, destination in
                 destinationRow(index: index, destination: destination)
             }
-        }.padding(14).studioSurface()
-            .task { await prefillHostIdentity() }
+        }.padding(16).studioSurface()
     }
 
     private func destinationPill(_ kind: NativeHostDestinationKind) -> some View {
         let isOn = hostIdentity.destinations.contains { $0.kind == kind }
         return Button(action: { toggleDestination(kind) }) {
             Label(kind.title, systemImage: kind.icon)
-                .font(.system(size: 12, weight: .black))
-                .foregroundColor(isOn ? .black : .white.opacity(0.72))
-                .padding(.horizontal, 13).frame(height: 34)
-                .background(isOn ? NativeTheme.cyan : Color.white.opacity(0.08))
-                .clipShape(Capsule())
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(NativeTheme.textPrimary)
+                .padding(.horizontal, 16).padding(.vertical, 8).frame(minHeight: 44)
+                .studioSurface(selected: isOn)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(kind.title) destination")
@@ -515,24 +539,27 @@ struct NativeHostStudioView: View {
     }
 
     @ViewBuilder private func destinationRow(index: Int, destination: NativeHostIdentityDestination) -> some View {
-        HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             field(destination.kind.title, text: destinationValueBinding(destination.kind), icon: destination.kind.icon, prompt: destination.kind.fieldPrompt, keyboard: destination.kind.isSocial ? .default : .URL)
-            Button(action: { setPrimary(destination.kind) }) {
-                Image(systemName: destination.primary ? "star.fill" : "star")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(destination.primary ? NativeTheme.cyan : .white.opacity(0.35))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(destination.kind.title) primary")
-            .accessibilityValue(destination.primary ? "Primary" : "Not primary")
-            VStack(spacing: 3) {
-                Button(action: { moveDestination(destination.kind, by: -1) }) { Image(systemName: "chevron.up").font(.system(size: 11, weight: .black)).foregroundColor(index == 0 ? .white.opacity(0.18) : .white.opacity(0.6)) }
-                    .buttonStyle(.plain).disabled(index == 0)
-                    .accessibilityLabel("Move \(destination.kind.title) up")
-                Button(action: { moveDestination(destination.kind, by: 1) }) { Image(systemName: "chevron.down").font(.system(size: 11, weight: .black)).foregroundColor(index == hostIdentity.destinations.count - 1 ? .white.opacity(0.18) : .white.opacity(0.6)) }
-                    .buttonStyle(.plain).disabled(index == hostIdentity.destinations.count - 1)
-                    .accessibilityLabel("Move \(destination.kind.title) down")
-            }
+            HStack(spacing: 8) {
+                Button(action: { setPrimary(destination.kind) }) {
+                    Image(systemName: destination.primary ? "star.fill" : "star")
+                        .foregroundColor(destination.primary ? NativeTheme.cyan : NativeTheme.textSecondary)
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .accessibilityLabel("\(destination.kind.title) primary")
+                .accessibilityValue(destination.primary ? "Primary" : "Not primary")
+                Spacer()
+                Button(action: { moveDestination(destination.kind, by: -1) }) {
+                    Image(systemName: "chevron.up").frame(minWidth: 44, minHeight: 44)
+                }
+                .disabled(index == 0).accessibilityLabel("Move \(destination.kind.title) up")
+                Button(action: { moveDestination(destination.kind, by: 1) }) {
+                    Image(systemName: "chevron.down").frame(minWidth: 44, minHeight: 44)
+                }
+                .disabled(index == hostIdentity.destinations.count - 1)
+                .accessibilityLabel("Move \(destination.kind.title) down")
+            }.font(.body.weight(.semibold)).buttonStyle(.plain)
         }
     }
 
@@ -576,11 +603,11 @@ struct NativeHostStudioView: View {
     }
 
     private func templatePicker<T: CaseIterable & Identifiable & Hashable>(_ label: String, selection: Binding<T>, options: T.AllCases) -> some View where T.ID == String, T: RawRepresentable, T.RawValue == String {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(label).studioLabel()
             Picker(label, selection: selection) {
                 ForEach(Array(options), id: \.id) { option in Text(templateOptionTitle(option)).tag(option) }
-            }.pickerStyle(.segmented)
+            }.pickerStyle(.menu).font(.body).frame(minHeight: 44)
         }
     }
 
@@ -603,16 +630,9 @@ struct NativeHostStudioView: View {
     }
 
     private var partyMediaEditor: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("PARTY MEDIA").studioLabel()
-                    Text("Cover poster").font(.system(size: 14, weight: .black))
-                    Text(NativePartyPendingImage.coverSpecLabel).font(.system(size: 10, weight: .semibold)).foregroundColor(.white.opacity(0.52))
-                }
-                Spacer()
-                Text("HOST CONTROLLED").font(.system(size: 8.5, weight: .black)).foregroundColor(NativeTheme.emerald)
-            }
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Cover poster").studioLabel()
+            Text(NativePartyPendingImage.coverSpecLabel).font(.footnote).foregroundColor(NativeTheme.textSecondary)
             Button(action: { showCoverPicker = true }) {
                 ZStack {
                     if let coverMedia {
@@ -624,7 +644,7 @@ struct NativeHostStudioView: View {
                         }
                     } else {
                         LinearGradient(colors: [NativeTheme.purple.opacity(0.7), NativeTheme.cyan.opacity(0.35)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        Label("Choose cover poster", systemImage: "photo.badge.plus").font(.system(size: 13, weight: .black))
+                        Label("Choose cover poster", systemImage: "photo.badge.plus").font(.headline).padding(16)
                     }
                 }
                 // The tile is the declared poster shape, not a wide strip: a
@@ -633,23 +653,23 @@ struct NativeHostStudioView: View {
                 .frame(maxWidth: .infinity)
                 .aspectRatio(NativePartyPendingImage.coverAspectRatio, contentMode: .fit)
                 .clipped().clipShape(RoundedRectangle(cornerRadius: 16))
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.15)))
-            }.buttonStyle(.plain)
-            Text("Anything else is centre-cropped to 3:2 when you publish.").font(.system(size: 10, weight: .semibold)).foregroundColor(.white.opacity(0.48))
-            Text("Guests also see this poster behind the whole invite, dimmed. Recap photos go in Party Control after the room.").font(.system(size: 10, weight: .semibold)).foregroundColor(.white.opacity(0.48))
-        }.padding(14).studioSurface()
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(NativeTheme.surfaceStroke))
+            }.buttonStyle(.plain).accessibilityLabel(coverMedia == nil ? "Choose cover poster" : "Change cover poster")
+            Text("Anything else is centre-cropped to 3:2 when you publish.").font(.footnote).foregroundColor(NativeTheme.textSecondary)
+            Text("Guests also see this poster behind the whole invite, dimmed. Recap photos go in Party Control after the room.").font(.footnote).foregroundColor(NativeTheme.textSecondary)
+        }
     }
 
     private var doorContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeading("SET THE DOOR", "Who gets in?", availableDoors.count > 1 ? "Choose RSVP, a paid first drop, or host approval." : "\(taxonomy.type.name) has one door.")
+        VStack(alignment: .leading, spacing: 16) {
+            sectionHeading("Choose guest access", availableDoors.count > 1 ? "Choose RSVP, a paid first drop, or host approval." : "\(taxonomy.type.name) has one door.")
             // A single-option list looks like a broken picker unless the rule
             // that produced it is stated.
             if availableDoors.count == 1, let reason = taxonomy.type.door.singleDoorExplanation {
                 Label(reason, systemImage: "lock.fill")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(.white.opacity(0.62))
-                    .padding(12).studioSurface()
+                    .font(.footnote)
+                    .foregroundColor(NativeTheme.textSecondary)
+                    .padding(16).studioSurface()
                     .accessibilityIdentifier("native-host-studio-door-constrained")
             }
             ForEach(availableDoors) { mode in
@@ -658,69 +678,128 @@ struct NativeHostStudioView: View {
                     accessMode = next.accessMode
                     doorOwner = next.owner
                 }) {
-                    HStack(spacing: 12) { Image(systemName: mode == .paidTicket ? "ticket.fill" : mode == .privateApproval ? "lock.fill" : "person.badge.plus").foregroundColor(tierAccent); VStack(alignment: .leading) { Text(mode.title).font(.system(size: 14, weight: .black)); Text(accessDetail(mode)).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.5)) }; Spacer(); Image(systemName: accessMode == mode ? "checkmark.circle.fill" : "circle").foregroundColor(accessMode == mode ? NativeTheme.emerald : .white.opacity(0.25)) }.padding(14).studioSurface(selected: accessMode == mode, accent: tierAccent)
-                }.buttonStyle(.plain)
+                    HStack(spacing: 16) {
+                        Image(systemName: mode == .paidTicket ? "ticket.fill" : mode == .privateApproval ? "lock.fill" : "person.badge.plus").foregroundColor(NativeTheme.cyan)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(mode.title).font(.headline)
+                            Text(accessDetail(mode)).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                        }
+                        Spacer(minLength: 8)
+                        Image(systemName: accessMode == mode ? "checkmark.circle.fill" : "circle")
+                            .foregroundColor(accessMode == mode ? NativeTheme.cyan : NativeTheme.textTertiary)
+                    }
+                    .frame(minHeight: 44).padding(16).studioSurface(selected: accessMode == mode)
+                }
+                .buttonStyle(.plain)
+                .accessibilityValue(accessMode == mode ? "Selected" : "Not selected")
+                .accessibilityAddTraits(accessMode == mode ? .isSelected : [])
             }
             if locationDisclosure == .afterApproval && accessMode != .privateApproval {
-                Label("Location is set to \u{201C}After approval\u{201D} on the location step. Only Private Approval can reveal it.", systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11, weight: .bold))
+                Label("Location is set to \u{201C}After approval\u{201D} in Details. Only Private Approval can reveal it.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote.weight(.semibold))
                     .foregroundColor(NativeTheme.orange)
-                    .padding(12).studioSurface()
+                    .padding(16).studioSurface()
                     .accessibilityIdentifier("native-host-studio-disclosure-conflict")
             } else if NativeHostDoorAttribution.showsAttribution(.init(accessMode: accessMode, owner: doorOwner)) {
                 Label("Set to Private Approval because your location is revealed after approval. Change either one.", systemImage: "info.circle.fill")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.footnote.weight(.semibold))
                     .foregroundColor(NativeTheme.cyan)
-                    .padding(12).studioSurface()
+                    .padding(16).studioSurface()
                     .accessibilityIdentifier("native-host-studio-door-auto-set")
             }
             if accessMode == .paidTicket { field("First Drop price", text: $ticketPrice, icon: "dollarsign.circle.fill", prompt: "25", keyboard: .decimalPad) }
             field("Capacity", text: $capacity, icon: "person.3.fill", prompt: "\(NativeHostTaxonomySelection.recommendedCapacity)", keyboard: .numberPad)
-            VStack(alignment: .leading, spacing: 9) {
-                Text("MINIMUM MEMBERSHIP").studioLabel()
-                HStack(spacing: 7) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Minimum membership").studioLabel()
+                LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
                     ForEach([BytspotTier.green, .platinum, .black], id: \.rawValue) { tier in tierOptionCard(tier) }
                 }
-            }.padding(14).studioSurface()
+            }
+            .padding(16).studioSurface()
         }
     }
 
     private var inviteContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeading("INVITE YOUR PEOPLE", "Build the room.", "Choose Circles, add a teammate, then drop the Party Pass.")
-            VStack(alignment: .leading, spacing: 10) {
-                Label("Audience Circles", systemImage: "person.3.fill").font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.cyan)
-                if circles.isEmpty { Text("No synced Circles yet. Your share link still works anywhere.").font(.system(size: 11.5, weight: .semibold)).foregroundColor(.white.opacity(0.5)) }
-                else { ForEach(circles) { circle in circleButton(circle) } }
-            }.padding(14).studioSurface()
-            VStack(alignment: .leading, spacing: 10) {
-                Text("BACKSTAGE TEAMMATE · OPTIONAL").studioLabel()
+        VStack(alignment: .leading, spacing: 24) {
+            sectionHeading("Review your party", "Check the details, choose your audience, then publish.")
+            reviewSummary
+            VStack(alignment: .leading, spacing: 16) {
+                Label("Audience Circles", systemImage: "person.3.fill").font(.headline)
+                Text("Optional. Choose the Circles you want to invite.").font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                if circles.isEmpty {
+                    Text("No synced Circles yet. Your share link still works anywhere.").font(.subheadline).foregroundColor(NativeTheme.textSecondary)
+                } else { ForEach(circles) { circle in circleButton(circle) } }
+            }.padding(16).studioSurface()
+            optionalSection("Teammate · optional", icon: "person.badge.key.fill") {
                 field("Co-host email", text: $teammateEmail, icon: "person.badge.key.fill", prompt: "name@email.com", keyboard: .emailAddress)
-                Picker("Co-host role", selection: $teammateRole) { ForEach([NativePartyHostRole.cohost, .door, .finance]) { role in Text(role.title).tag(role) } }.pickerStyle(.segmented)
-                Text(roleSummary).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.48))
-            }.padding(14).studioSurface()
-            Label("Itinerary · RSVP · ticketing · payments · check-in · role-scoped controls", systemImage: "checkmark.shield.fill").font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.emerald).padding(14).studioSurface()
+                Picker("Co-host role", selection: $teammateRole) {
+                    ForEach([NativePartyHostRole.cohost, .door, .finance]) { role in Text(role.title).tag(role) }
+                }.pickerStyle(.menu).frame(minHeight: 44)
+                Text(roleSummary).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+            }
+            Text("Publishing creates your Party Pass and share link.")
+                .font(.footnote).foregroundColor(NativeTheme.textSecondary)
         }
     }
 
+    private var reviewSummary: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(displayTitle).font(.title3.weight(.bold))
+            if !tagline.isEmpty { Text(tagline).font(.subheadline).foregroundColor(NativeTheme.textSecondary) }
+            reviewRow("Edition", value: "\(taxonomy.category.title) · \(taxonomy.type.name)", icon: "square.grid.2x2")
+            if let format = taxonomy.format { reviewRow("Format", value: format.title, icon: "tag") }
+            if let age = taxonomy.age { reviewRow("Age", value: age.title, icon: "person") }
+            reviewRow("When", value: startsAt.formatted(date: .abbreviated, time: .shortened), icon: "calendar")
+            if hostSetsEnd { reviewRow("Ends", value: endsAt.formatted(date: .abbreviated, time: .shortened), icon: "clock") }
+            reviewRow("Where", value: venueName, icon: "mappin.and.ellipse")
+            Text(locationDisclosure.recipientExplanation).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+            reviewRow("Access", value: accessMode.title, icon: "ticket")
+            reviewRow("Capacity", value: capacity, icon: "person.3")
+            reviewRow("Membership", value: requiredTier.displayName, icon: "checkmark.shield")
+            if accessMode == .paidTicket { reviewRow("First Drop price", value: "$\(ticketPrice)", icon: "dollarsign.circle") }
+            if templateID == .releaseParty { reviewRow("Release", value: releaseTitle, icon: "music.note.list") }
+        }
+        .padding(16).studioSurface()
+        .accessibilityIdentifier("native-host-studio-review-summary")
+    }
+
+    private func reviewRow(_ label: String, value: String, icon: String) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: icon).foregroundColor(NativeTheme.cyan).frame(width: 24)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(label).font(.caption).foregroundColor(NativeTheme.textSecondary)
+                Text(value).font(.subheadline.weight(.semibold))
+            }
+        }.accessibilityElement(children: .combine)
+    }
+
     private func circleButton(_ circle: NativeSocialCircle) -> some View {
-        Button(action: { if selectedCircleIDs.contains(circle.id) { selectedCircleIDs.remove(circle.id) } else { selectedCircleIDs.insert(circle.id) } }) {
-            HStack { VStack(alignment: .leading) { Text(circle.name).font(.system(size: 13, weight: .black)); Text(circle.memberLabel).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.45)) }; Spacer(); Image(systemName: selectedCircleIDs.contains(circle.id) ? "checkmark.circle.fill" : "circle").foregroundColor(NativeTheme.cyan) }.padding(11).background(Color.white.opacity(selectedCircleIDs.contains(circle.id) ? 0.09 : 0.035)).clipShape(RoundedRectangle(cornerRadius: 14))
-        }.buttonStyle(.plain)
+        let selected = selectedCircleIDs.contains(circle.id)
+        return Button(action: { if selected { selectedCircleIDs.remove(circle.id) } else { selectedCircleIDs.insert(circle.id) } }) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(circle.name).font(.subheadline.weight(.semibold))
+                    Text(circle.memberLabel).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle").foregroundColor(NativeTheme.cyan)
+            }.frame(minHeight: 44).padding(16).studioSurface(selected: selected)
+        }
+        .buttonStyle(.plain).accessibilityValue(selected ? "Selected" : "Not selected")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private func taxonomyChipRow(titles: [String], selected: String?, onTap: @escaping (String) -> Void) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 7)], alignment: .leading, spacing: 7) {
+        LazyVGrid(columns: choiceColumns, alignment: .leading, spacing: 8) {
             ForEach(titles, id: \.self) { title in
                 Button(action: { nativeImpactLight(); onTap(title) }) {
-                    Text(title)
-                        .font(.system(size: 11, weight: .black))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 32)
-                        .foregroundColor(selected == title ? .black : .white)
-                        .background(selected == title ? Color.white : Color.white.opacity(0.06))
-                        .clipShape(Capsule())
-                }.buttonStyle(.plain).accessibilityLabel(title)
+                    Text(title).font(.subheadline.weight(.semibold)).padding(8)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .studioSurface(selected: selected == title)
+                }
+                .buttonStyle(.plain).accessibilityLabel(title)
+                .accessibilityValue(selected == title ? "Selected" : "Not selected")
+                .accessibilityAddTraits(selected == title ? .isSelected : [])
             }
         }
     }
@@ -753,22 +832,37 @@ struct NativeHostStudioView: View {
     }
 
     private var navigationButtons: some View {
-        HStack(spacing: 10) {
-            if step != .spark { Button("Back") { step = Step(rawValue: step.rawValue - 1) ?? .spark; publishPresentation.message = "" }.studioSecondaryButton() }
-            Button(action: advance) { HStack { if isPublishing { ProgressView().tint(.black) }; Text(primaryTitle); if !isPublishing { Image(systemName: "sparkles") } }.font(.system(size: 14, weight: .black)).frame(maxWidth: .infinity).frame(height: 52).foregroundColor(.black).background(Color.white).clipShape(RoundedRectangle(cornerRadius: 17)) }.buttonStyle(.plain).disabled(isPublishing)
+        HStack(spacing: 8) {
+            if step != .spark {
+                Button("Back") {
+                    withAnimation(studioAnimation) { step = step.previous }
+                    publishPresentation.message = ""
+                }
+                .studioSecondaryButton().disabled(isPublishing)
+            }
+            Button(action: advance) {
+                HStack(spacing: 8) {
+                    if isPublishing { ProgressView().tint(NativeTheme.inverseText) }
+                    Text(isPublishing ? "Publishing…" : step.primaryTitle)
+                    if !isPublishing { Image(systemName: step == .invite ? "checkmark" : "arrow.right") }
+                }
+                .font(.headline).padding(16).frame(maxWidth: .infinity, minHeight: 52)
+                .foregroundColor(NativeTheme.inverseText).background(NativeTheme.cyan)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+            }
+            .buttonStyle(.plain).disabled(isPublishing)
+            .accessibilityIdentifier("native-host-studio-continue")
         }
     }
 
-    private var primaryTitle: String { isPublishing ? "Dropping…" : step == .spark ? "Build this vibe" : step == .build ? "Set the door" : step == .door ? "Invite your people" : "Drop the Moment" }
-
     private func advance() {
-        publishPresentation.message = ""
-        if step == .build && (title.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 || venueName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { publishPresentation.message = "Add a title and venue before setting the door."; return }
-        if step == .door && draft.validationMessage != nil { publishPresentation.message = draft.validationMessage ?? "Review the door settings."; return }
-        guard step == .invite else { step = Step(rawValue: step.rawValue + 1) ?? .invite; return }
-        // Surface identity field errors before any draft or media work starts.
-        if let message = hostIdentity.validationMessage { publishPresentation.message = message; return }
         guard !isPublishing else { return }
+        publishPresentation.message = ""
+        if let message = step.validationMessage(title: title, venue: venueName, draftMessage: step == .door ? draft.validationMessage : nil, identityMessage: step == .invite ? hostIdentity.validationMessage : nil) {
+            publishPresentation.message = message
+            return
+        }
+        guard step == .invite else { withAnimation(studioAnimation) { step = step.next }; return }
         isPublishing = true
         publishTask = Task { await publish() }
     }
@@ -842,25 +936,25 @@ struct NativeHostStudioView: View {
     @ViewBuilder private var registeredVenueSuggestions: some View {
         let suggestions = NativePartyArrivalAPI.suggestedRegisteredVenues(registeredVenues, matching: venueName)
         if !suggestions.isEmpty {
-            VStack(alignment: .leading, spacing: 7) {
-                Text("REGISTERED BYTSPOT VENUES").studioLabel()
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Registered Bytspot venues").studioLabel()
                 Text("Pick one to turn on arrival guidance for your guests. Keep typing to use a venue Bytspot does not know, or a secret location.")
-                    .font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
+                    .font(.footnote).foregroundColor(NativeTheme.textSecondary)
                 ForEach(suggestions) { venue in
                     Button(action: { venueName = venue.name }) {
-                        HStack(spacing: 10) {
+                        HStack(spacing: 8) {
                             Image(systemName: "mappin.circle.fill").foregroundColor(NativeTheme.cyan)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(venue.name).font(.system(size: 13, weight: .black)).foregroundColor(.white)
-                                Text(venue.address).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(venue.name).font(.subheadline.weight(.semibold)).foregroundColor(NativeTheme.textPrimary)
+                                Text(venue.address).font(.footnote).foregroundColor(NativeTheme.textSecondary)
                             }
                             Spacer()
-                        }.padding(12).studioSurface()
+                        }.frame(minHeight: 44).padding(16).studioSurface()
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Use registered venue \(venue.name), \(venue.address)")
                 }
-            }.padding(14).studioSurface().task { await loadRegisteredVenues() }
+            }.task { await loadRegisteredVenues() }
         } else {
             Color.clear.frame(height: 0).task { await loadRegisteredVenues() }
         }
@@ -899,68 +993,91 @@ struct NativeHostStudioView: View {
 
     private func partyPass(_ party: NativePublishedParty) -> some View {
         ScrollView {
-            VStack(spacing: 18) {
-                Image(systemName: "checkmark").font(.system(size: 26, weight: .black)).foregroundColor(.black).frame(width: 56, height: 56).background(NativeTheme.emerald).clipShape(Circle())
-                VStack(spacing: 4) { Text("YOUR MOMENT IS LIVE").font(.system(size: 10, weight: .black)).tracking(1.8).foregroundColor(NativeTheme.emerald); Text("Party Pass ready.").font(.system(size: 28, weight: .black, design: .rounded)) }
-                VStack(alignment: .leading, spacing: 14) {
+            VStack(spacing: 24) {
+                Image(systemName: "checkmark").font(.title.weight(.bold)).foregroundColor(NativeTheme.inverseText)
+                    .frame(width: 56, height: 56).background(NativeTheme.cyan).clipShape(Circle())
+                Text("Party Pass ready.").font(.title2.weight(.bold))
+                VStack(alignment: .leading, spacing: 16) {
                     partyPassHeader(party)
-                    Text(party.draft.title).font(.system(size: 25, weight: .black, design: .rounded))
-                    Text("\(party.draft.startsAt.formatted(date: .abbreviated, time: .shortened)) · \(party.draft.venueName)").font(.system(size: 12, weight: .semibold)).foregroundColor(.white.opacity(0.52))
+                    Text(party.draft.title).font(.title2.weight(.bold))
+                    Text("\(party.draft.startsAt.formatted(date: .abbreviated, time: .shortened)) · \(party.draft.venueName)")
+                        .font(.subheadline).foregroundColor(NativeTheme.textSecondary)
                     partyPassCode(party.passCode)
-                    HStack(spacing: 12) {
-                        Button(action: { sharePartyQR(party) }) { NativePartyShareQR(value: party.shareURL.absoluteString).frame(width: 72, height: 72) }
+                    VStack(alignment: .leading, spacing: 16) {
+                        Button(action: { sharePartyQR(party) }) { NativePartyShareQR(value: party.shareURL.absoluteString).frame(width: 96, height: 96) }
                             .buttonStyle(.plain)
                             .accessibilityLabel("Share Party QR code")
                             .accessibilityHint("Opens the share sheet with the QR image and Party link.")
-                        VStack(alignment: .leading, spacing: 4) { Text("SHARE PARTY QR").font(.system(size: 9, weight: .black)).tracking(1.3).foregroundColor(NativeTheme.cyan); Text("Tap the code to share it. Anyone can scan it to open the Party and RSVP, request approval, or buy a ticket. The link stops working when the Party ends.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.55)) }
+                        Text("Tap the code to share it. Anyone can scan it to open the Party and RSVP, request approval, or buy a ticket. The link stops working when the Party ends.")
+                            .font(.footnote).foregroundColor(NativeTheme.textSecondary)
                     }
-                }.padding(20).background(Color.white.opacity(0.07)).overlay(RoundedRectangle(cornerRadius: 25).stroke(Color.white.opacity(0.12))).clipShape(RoundedRectangle(cornerRadius: 25)).accessibilityIdentifier("native-party-pass")
+                }.padding(16).studioSurface().accessibilityIdentifier("native-party-pass")
                 arrivalDestinationControls(for: party)
-                Button(action: { sharePartyLink(party.shareURL) }) { Label("Share Party Link", systemImage: "square.and.arrow.up.fill").font(.system(size: 14, weight: .black)).frame(maxWidth: .infinity).frame(height: 52).foregroundColor(.white).background(NativeTheme.purple).clipShape(RoundedRectangle(cornerRadius: 17)) }.buttonStyle(.plain)
-                Button(action: { showingPartyControl = true }) { Label("Open Party Control", systemImage: "person.3.sequence.fill").font(.system(size: 14, weight: .black)).frame(maxWidth: .infinity).frame(height: 52).foregroundColor(.black).background(NativeTheme.cyan).clipShape(RoundedRectangle(cornerRadius: 17)) }.buttonStyle(.plain)
-                if !publishPresentation.message.isEmpty { Text(publishPresentation.message).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.emerald) }
-            }.padding(20).padding(.top, 18)
+                Button(action: { sharePartyLink(party.shareURL) }) {
+                    Label("Share Party Link", systemImage: "square.and.arrow.up.fill").font(.headline)
+                        .padding(16).frame(maxWidth: .infinity, minHeight: 52)
+                        .foregroundColor(NativeTheme.inverseText).background(NativeTheme.cyan)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                }.buttonStyle(.plain)
+                Button(action: { showingPartyControl = true }) {
+                    Label("Open Party Control", systemImage: "person.3.sequence.fill").frame(maxWidth: .infinity)
+                }.studioSecondaryButton()
+                if !publishPresentation.message.isEmpty {
+                    Text(publishPresentation.message).font(.footnote.weight(.semibold)).foregroundColor(NativeTheme.textSecondary)
+                }
+            }.padding(16)
         }
     }
 
     private func partyPassCode(_ code: String) -> some View {
-        VStack(spacing: 5) {
-            Text("PASS CODE").font(.system(size: 9, weight: .black)).tracking(1.6).foregroundColor(.white.opacity(0.4))
-            Text(code).font(.system(size: 25, weight: .black, design: .monospaced)).tracking(4)
-        }.frame(maxWidth: .infinity).padding(17)
-            .overlay(RoundedRectangle(cornerRadius: 18).stroke(style: StrokeStyle(lineWidth: 1, dash: [5])).foregroundColor(.white.opacity(0.22)))
+        VStack(spacing: 8) {
+            Text("Pass code").studioLabel()
+            Text(code).font(.system(.title2, design: .monospaced).weight(.bold))
+        }.frame(maxWidth: .infinity).padding(16)
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(style: StrokeStyle(lineWidth: 1, dash: [5])).foregroundColor(NativeTheme.surfaceStroke))
     }
 
     private func partyPassHeader(_ party: NativePublishedParty) -> some View {
         let tier = party.draft.requiredMembershipTier
         return HStack {
-            Text("\(tier.displayName.uppercased()) PARTY PASS").font(.system(size: 10, weight: .black)).foregroundColor(BytspotTheme.accent(for: tier))
+            Text("\(tier.displayName) Party Pass").font(.subheadline.weight(.semibold)).foregroundColor(NativeTheme.textSecondary)
             Spacer()
-            Text(template.emoji).font(.system(size: 26))
+            Text(template.emoji).font(.title2)
         }
     }
 
     @ViewBuilder private func arrivalDestinationControls(for party: NativePublishedParty) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("AUTHORIZED ARRIVAL DESTINATION").studioLabel()
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Authorized arrival destination").studioLabel()
             if let venue = boundArrivalVenue {
-                Label("Arrival enabled for \(venue.name)", systemImage: "checkmark.seal.fill").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.emerald)
-                Text("Guests with Party access can plan a route. Black and Platinum guests can request a provider handoff; pickup coordinates are not collected by Bytspot.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
+                Label("Arrival enabled for \(venue.name)", systemImage: "checkmark.seal.fill").font(.headline).foregroundColor(NativeTheme.cyan)
+                Text("Guests with Party access can plan a route. Black and Platinum guests can request a provider handoff; pickup coordinates are not collected by Bytspot.").font(.footnote).foregroundColor(NativeTheme.textSecondary)
             } else if isLoadingArrivalVenues {
-                ProgressView("Checking registered venues…").tint(NativeTheme.cyan).font(.system(size: 12, weight: .bold))
+                ProgressView("Checking registered venues…").tint(NativeTheme.cyan).font(.subheadline)
             } else {
                 if !arrivalVenueCandidates.isEmpty {
-                    Text("Choose the matching registered venue before enabling guest arrival guidance.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
+                    Text("Choose the matching registered venue before enabling guest arrival guidance.").font(.footnote).foregroundColor(NativeTheme.textSecondary)
                     ForEach(arrivalVenueCandidates) { venue in
                         Button(action: { Task { await bindArrivalDestination(venue, to: party) } }) {
-                            HStack { VStack(alignment: .leading, spacing: 2) { Text(venue.name).font(.system(size: 13, weight: .black)); Text(venue.address).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52)) }; Spacer(); if isBindingArrivalDestination { ProgressView().tint(NativeTheme.cyan) } else { Image(systemName: "location.circle.fill").foregroundColor(NativeTheme.cyan) } }
-                                .padding(12).studioSurface()
+                            arrivalResultLabel(name: venue.name, address: venue.address)
                         }.buttonStyle(.plain).disabled(isBindingArrivalDestination)
                     }
                 }
                 arrivalPlaceSearch(for: party)
             }
-        }.padding(14).studioSurface()
+        }.padding(16).studioSurface()
+    }
+
+    private func arrivalResultLabel(name: String, address: String) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(name).font(.subheadline.weight(.semibold))
+                Text(address).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+            }
+            Spacer(minLength: 8)
+            if isBindingArrivalDestination { ProgressView().tint(NativeTheme.cyan) }
+            else { Image(systemName: "location.circle.fill").foregroundColor(NativeTheme.cyan) }
+        }.frame(minHeight: 44).padding(16).studioSurface()
     }
 
     /// Real hosts rarely sit in the seeded catalog, so this is the path that
@@ -972,24 +1089,23 @@ struct NativeHostStudioView: View {
             Text(arrivalVenueCandidates.isEmpty
                  ? "No registered Bytspot Venue matches this Party. Search for your venue to turn on guest arrival guidance."
                  : "Or search for another venue.")
-                .font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
+                .font(.footnote).foregroundColor(NativeTheme.textSecondary)
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundColor(.white.opacity(0.4))
+                Image(systemName: "magnifyingglass").foregroundColor(NativeTheme.textSecondary)
                 TextField("Search venues and places", text: $arrivalPlaceQuery)
-                    .font(.system(size: 13, weight: .bold)).foregroundColor(.white)
+                    .font(.body).foregroundColor(NativeTheme.textPrimary).frame(minHeight: 44)
                     .textInputAutocapitalization(.words).submitLabel(.search)
                     .onSubmit { Task { await searchArrivalPlaces() } }
                 if isSearchingArrivalPlaces { ProgressView().tint(NativeTheme.cyan) }
-            }.padding(12).studioSurface()
+            }.padding(16).studioSurface()
             ForEach(arrivalPlaceResults) { place in
                 Button(action: { Task { await bindArrivalPlace(place, to: party) } }) {
-                    HStack { VStack(alignment: .leading, spacing: 2) { Text(place.name).font(.system(size: 13, weight: .black)).foregroundColor(.white); Text(place.address).font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52)) }; Spacer(); if isBindingArrivalDestination { ProgressView().tint(NativeTheme.cyan) } else { Image(systemName: "location.circle.fill").foregroundColor(NativeTheme.cyan) } }
-                        .padding(12).studioSurface()
+                    arrivalResultLabel(name: place.name, address: place.address)
                 }.buttonStyle(.plain).disabled(isBindingArrivalDestination)
                     .accessibilityLabel("Enable arrival for \(place.name), \(place.address)")
             }
             if didSearchArrivalPlaces && arrivalPlaceResults.isEmpty && !isSearchingArrivalPlaces {
-                Text("No matching places found. Try a more specific name.").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white.opacity(0.52))
+                Text("No matching places found. Try a more specific name.").font(.footnote).foregroundColor(NativeTheme.textSecondary)
             }
         }
     }
@@ -1042,12 +1158,32 @@ struct NativeHostStudioView: View {
         }
     }
 
-    private func sectionHeading(_ eyebrow: String, _ title: String, _ subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) { Text(eyebrow).font(.system(size: 10, weight: .black)).tracking(1.5).foregroundColor(tierAccent); Text(title).font(.system(size: 25, weight: .black, design: .rounded)); Text(subtitle).font(.system(size: 12, weight: .semibold)).foregroundColor(.white.opacity(0.48)) }
+    private func sectionHeading(_ title: String, _ subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.title2.weight(.bold)).accessibilityAddTraits(.isHeader)
+            Text(subtitle).font(.subheadline).foregroundColor(NativeTheme.textSecondary)
+        }
+    }
+
+    private func optionalSection<Content: View>(_ title: String, icon: String, @ViewBuilder content: @escaping () -> Content) -> some View {
+        NativeHostOptionalSection(title: title, icon: icon, content: content, expanded: Binding(
+            get: { expandedSections.contains(title) },
+            set: { if $0 { expandedSections.insert(title) } else { expandedSections.remove(title) } }
+        ))
     }
 
     private func field(_ label: String, text: Binding<String>, icon: String, prompt: String, keyboard: UIKeyboardType = .default) -> some View {
-        HStack(spacing: 10) { Image(systemName: icon).foregroundColor(NativeTheme.cyan).frame(width: 20); TextField(prompt, text: text).keyboardType(keyboard).textInputAutocapitalization([.emailAddress, .URL].contains(keyboard) ? .never : .sentences).autocorrectionDisabled([.emailAddress, .URL].contains(keyboard)).accessibilityLabel(label) }.font(.system(size: 13.5, weight: .semibold)).padding(13).studioSurface()
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label).studioLabel()
+            HStack(spacing: 8) {
+                Image(systemName: icon).foregroundColor(NativeTheme.cyan).frame(width: 24)
+                TextField(prompt, text: text).keyboardType(keyboard)
+                    .textInputAutocapitalization([.emailAddress, .URL].contains(keyboard) ? .never : .sentences)
+                    .autocorrectionDisabled([.emailAddress, .URL].contains(keyboard))
+                    .accessibilityLabel(label).frame(minHeight: 44)
+            }
+            .font(.body).padding(.horizontal, 16).padding(.vertical, 8).studioSurface()
+        }
     }
 
     private func accessDetail(_ mode: NativePartyAccessMode) -> String { mode == .freeRSVP ? "Fastest way to fill the room." : mode == .paidTicket ? "Sell a limited first drop." : "You approve every guest." }
@@ -1179,92 +1315,98 @@ struct NativePartyPhotoPicker: UIViewControllerRepresentable {
     }
 }
 
-/// Spark menu tile. A category is presented as a numbered edition sleeve:
-/// perforated spine, colour band carrying the name, and a line illustration on
-/// the field. Host Studio is a dark-only surface today, so only the night field
-/// is expressed here; the chassis inverts for day when that migration lands.
-private struct NativeEditionSleeve: View {
+/// Brand identity belongs to the category, never to the host's membership.
+private struct NativeHostCategoryCard: View {
     let category: NativeHostCategory
+    let selected: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(category.illustrationAsset).renderingMode(.template).resizable().scaledToFit()
+                    .frame(width: 32, height: 32).foregroundColor(category.brandAccent)
+                Spacer(minLength: 8)
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(selected ? NativeTheme.cyan : NativeTheme.textTertiary)
+            }
+            Text(category.title).font(.subheadline.weight(.semibold))
+                .foregroundColor(NativeTheme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16).frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
+        .studioSurface(selected: selected, accent: category.brandAccent)
+        .accessibilityElement(children: .ignore)
+    }
+}
+
+/// Opaque navy only when transparency is reduced; otherwise the shared sky
+/// remains visible through a quiet adaptive surface, without black slabs.
+private struct NativeHostStudioSurfaceFill: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        if reduceTransparency {
+            Color.adaptive(lightHex: 0x252C52, darkHex: 0x151D35)
+        } else {
+            Color.adaptive(lightHex: 0x252C52, darkHex: 0x151D35, lightAlpha: 0.82, darkAlpha: 0.72)
+        }
+    }
+}
+
+private struct NativeHostStudioSurface: ViewModifier {
     let selected: Bool
     let accent: Color
 
-    private let spine: CGFloat = 13
-    private let field = Color(red: 0.075, green: 0.067, blue: 0.059)
-    private let ink = Color(red: 0.929, green: 0.894, blue: 0.824)
-
-    private var band: Color {
-        Color(red: Double((category.bandHex >> 16) & 0xFF) / 255,
-              green: Double((category.bandHex >> 8) & 0xFF) / 255,
-              blue: Double(category.bandHex & 0xFF) / 255)
-    }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            band.frame(width: spine).overlay(alignment: .center) { perforation }
-            VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(category.title)
-                        .font(.system(size: 16, weight: .bold, design: .serif))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Text(String(format: "EDITION %02d", category.edition))
-                        .font(.system(size: 8, weight: .black))
-                        .tracking(1.4)
-                        .foregroundColor(.white.opacity(0.72))
-                }
-                .padding(.horizontal, 11)
-                .padding(.vertical, 9)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(band)
-
-                Image(category.illustrationAsset)
-                    .renderingMode(.template)
-                    .resizable()
-                    .scaledToFit()
-                    .foregroundColor(ink)
-                    .padding(9)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                Text(category.hook)
-                    .font(.system(size: 8, weight: .black))
-                    .tracking(0.5)
-                    .foregroundColor(ink.opacity(0.5))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 10)
+    func body(content: Content) -> some View {
+        content.background {
+            ZStack {
+                NativeHostStudioSurfaceFill()
+                if selected { accent.opacity(0.10) }
             }
         }
-        .frame(height: 184)
-        .background(field)
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(selected ? accent : Color.white.opacity(0.10), lineWidth: selected ? 2 : 1))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-    }
-
-    /// The stub edge. Punched in the field colour so it reads as a tear line
-    /// rather than decoration.
-    private var perforation: some View {
-        GeometryReader { geo in
-            let step: CGFloat = 11
-            let count = max(4, Int(geo.size.height / step))
-            VStack(spacing: 0) {
-                ForEach(0..<count, id: \.self) { _ in
-                    Circle().fill(field).frame(width: 3, height: 3).frame(maxHeight: .infinity)
-                }
-            }
-            .frame(width: geo.size.width, height: geo.size.height, alignment: .trailing)
-            .offset(x: geo.size.width / 2 - 1.5)
-        }
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(selected ? accent : NativeTheme.surfaceStroke, lineWidth: selected ? 2 : 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 }
 
 private extension Text {
-    func studioLabel() -> some View { font(.system(size: 9.5, weight: .black)).tracking(1.2).foregroundColor(.white.opacity(0.45)) }
+    func studioLabel() -> some View { font(.subheadline.weight(.semibold)).foregroundColor(NativeTheme.textSecondary) }
 }
 
 private extension View {
-    func studioSurface(selected: Bool = false, accent: Color = NativeTheme.pink) -> some View { background(selected ? accent.opacity(0.13) : Color.white.opacity(0.055)).overlay(RoundedRectangle(cornerRadius: 17).stroke(selected ? accent.opacity(0.72) : Color.white.opacity(0.08))).clipShape(RoundedRectangle(cornerRadius: 17)) }
-    func studioSecondaryButton() -> some View { font(.system(size: 13, weight: .black)).foregroundColor(.white).padding(.horizontal, 19).frame(height: 52).background(Color.white.opacity(0.07)).clipShape(RoundedRectangle(cornerRadius: 17)) }
+    func studioSurface(selected: Bool = false, accent: Color = NativeTheme.cyan) -> some View {
+        modifier(NativeHostStudioSurface(selected: selected, accent: accent))
+    }
+    func studioSecondaryButton() -> some View {
+        buttonStyle(NativeHostStudioSecondaryButtonStyle())
+    }
+}
+
+private struct NativeHostStudioSecondaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.font(.headline).foregroundColor(NativeTheme.textPrimary)
+            .padding(16).frame(minWidth: 44, minHeight: 52)
+            .studioSurface(selected: configuration.isPressed)
+            .contentShape(Rectangle())
+    }
+}
+
+/// Values and disclosure expansion both remain in Studio when a step leaves
+/// the tree, so Back restores the editor exactly as the host left it.
+private struct NativeHostOptionalSection<Content: View>: View {
+    let title: String
+    let icon: String
+    @ViewBuilder let content: () -> Content
+    @Binding var expanded: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded.animation(NativeHostStudioPresentation.animation(reduceMotion: reduceMotion))) {
+            VStack(alignment: .leading, spacing: 16, content: content).padding(.top, 8)
+        } label: {
+            Label(title, systemImage: icon).font(.subheadline.weight(.semibold))
+                .foregroundColor(NativeTheme.textPrimary).frame(minHeight: 44)
+        }
+        .padding(16).studioSurface()
+    }
 }

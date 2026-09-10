@@ -2337,6 +2337,56 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativeProfilePanel.allCases.count, Set(NativeProfilePanel.allCases.map(\.rawValue)).count)
     }
 
+    func testHostStudioPresentationRenamesButDoesNotReorderTheFlow() {
+        let steps = NativeHostStudioStep.allCases
+        XCTAssertEqual(steps, [.spark, .build, .door, .invite])
+        XCTAssertEqual(steps.map(\.rawValue), [0, 1, 2, 3])
+        XCTAssertEqual(steps.map(\.title), ["Edition", "Details", "Access", "Review"])
+        XCTAssertEqual(steps.map(\.primaryTitle), ["Continue to Details", "Continue to Access", "Continue to Review", "Publish party"])
+        XCTAssertEqual(NativeHostStudioStep.spark.previous, .spark)
+        XCTAssertEqual(NativeHostStudioStep.invite.next, .invite)
+        for step in steps.dropLast() { XCTAssertEqual(step.next.previous, step) }
+        for step in steps.dropFirst() { XCTAssertEqual(step.previous.next, step) }
+    }
+
+    func testHostStudioDetailsStillRequiresTrimmedTitleAndVenue() {
+        func message(_ title: String, _ venue: String) -> String? {
+            NativeHostStudioStep.build.validationMessage(title: title, venue: venue, draftMessage: nil, identityMessage: nil)
+        }
+        XCTAssertNotNil(message("", "The Loft"))
+        XCTAssertNotNil(message(" ab \n", "The Loft"))
+        XCTAssertNotNil(message("A party", " \n\t"))
+        XCTAssertNil(message(" abc \n", " The Loft "))
+        // Edition remains selectable before the essentials have been entered.
+        XCTAssertNil(NativeHostStudioStep.spark.validationMessage(title: "", venue: "", draftMessage: "Incomplete", identityMessage: nil))
+    }
+
+    func testHostStudioAccessAndReviewKeepTheirValidationBoundaries() throws {
+        let unpaid = partyDraft(priceCents: 0)
+        let paidMessage = try XCTUnwrap(unpaid.validationMessage)
+        XCTAssertEqual(NativeHostStudioStep.door.validationMessage(title: unpaid.title, venue: unpaid.venueName, draftMessage: paidMessage, identityMessage: nil), paidMessage)
+        let valid = partyDraft()
+        XCTAssertNil(NativeHostStudioStep.door.validationMessage(title: valid.title, venue: valid.venueName, draftMessage: valid.validationMessage, identityMessage: nil))
+        let invalidIdentity = NativeHostIdentity(handle: "", destinations: [NativeHostIdentityDestination(kind: .music, value: "http://music.example.com", primary: false)])
+        let identityMessage = try XCTUnwrap(invalidIdentity.validationMessage)
+        XCTAssertEqual(NativeHostStudioStep.invite.validationMessage(title: valid.title, venue: valid.venueName, draftMessage: nil, identityMessage: identityMessage), identityMessage)
+        XCTAssertNil(NativeHostStudioStep.invite.validationMessage(title: valid.title, venue: valid.venueName, draftMessage: nil, identityMessage: NativeHostIdentity.empty.validationMessage))
+    }
+
+    func testHostStudioRequiredPrinterFieldsCannotBecomeOptional() {
+        for template in NativePartyTemplateID.allCases {
+            XCTAssertEqual(NativeHostStudioPresentation.requiresReleaseTitle(for: template), template == .releaseParty)
+        }
+        XCTAssertNil(NativeHostStudioPresentation.animation(reduceMotion: true))
+        XCTAssertNotNil(NativeHostStudioPresentation.animation(reduceMotion: false))
+    }
+
+    func testHostStudioVisibleReleaseTitleStillUsesPrinterValidation() {
+        let release = NativePartyDraftInput(templateID: .releaseParty, title: "The Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .releaseParty(.mix, ""))
+        XCTAssertTrue(NativeHostStudioPresentation.requiresReleaseTitle(for: release.templateID))
+        XCTAssertEqual(NativeHostStudioStep.door.validationMessage(title: release.title, venue: release.venueName, draftMessage: release.validationMessage, identityMessage: nil), "Add the release title.")
+    }
+
     func testNativeHostStudioContractCoversPartyOperatingSystem() {
         XCTAssertEqual(NativePartyTemplate.catalog.map(\.id), [.listeningParty, .comedyNight, .premiere, .privateParty, .fanMeetup, .releaseParty, .popUp])
         XCTAssertEqual(NativeHostCategory.allCases.map(\.rawValue), ["party", "nightlife", "music", "sports", "food-drink", "social", "culture", "cars", "outdoor", "community"])
@@ -2345,12 +2395,17 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertTrue(NativeHostCategory.allCases.allSatisfy { !NativeHostType.types(in: $0).isEmpty })
         XCTAssertTrue(NativeHostType.catalog.allSatisfy { item in NativeHostType.types(in: item.category).contains(where: { type in type.id == item.id }) })
 
-        // Spark menu is a numbered edition set: contiguous from one, one sleeve
-        // per category, and a distinct band and illustration for each.
+        // Editions keep distinct names/artwork within the shared brand palette.
         XCTAssertEqual(NativeHostCategory.allCases.map(\.edition), Array(1...NativeHostCategory.allCases.count))
         XCTAssertEqual(NativeHostCategory.party.edition, 1)
         XCTAssertEqual(NativeHostCategory.community.edition, 10)
-        XCTAssertEqual(Set(NativeHostCategory.allCases.map(\.bandHex)).count, NativeHostCategory.allCases.count)
+        XCTAssertEqual(Set(NativeHostCategory.allCases.map(\.bandHex)), Set([NativeTheme.cyanHex, NativeTheme.purpleHex, NativeTheme.pinkHex]))
+        XCTAssertFalse(BytspotNativeShellView.showsGlobalHeaderControls(for: .host))
+        XCTAssertFalse(BytspotNativeShellView.showsGlobalHeaderControls(for: .map))
+        XCTAssertFalse(BytspotNativeShellView.showsGlobalHeaderControls(for: .profile))
+        for tab in [BytspotNativeTab.home, .plan, .discover, .concierge] {
+            XCTAssertTrue(BytspotNativeShellView.showsGlobalHeaderControls(for: tab))
+        }
         XCTAssertTrue(NativeHostCategory.allCases.allSatisfy { $0.bandHex > 0 && $0.bandHex <= 0xFFFFFF })
         XCTAssertEqual(NativeHostCategory.allCases.map(\.illustrationAsset), NativeHostCategory.allCases.map { "HostEditions/\($0.rawValue)" })
         XCTAssertTrue(NativeHostCategory.allCases.allSatisfy { UIImage(named: $0.illustrationAsset) != nil })

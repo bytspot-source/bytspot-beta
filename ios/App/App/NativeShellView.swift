@@ -421,7 +421,7 @@ struct BytspotNativeShellView: View {
                         .padding(.leading, 16)
                         .accessibilityLabel("Back to \(mapReturnTab.title)")
                         .accessibilityIdentifier("native-map-back-button")
-                    } else if selectedTab != .profile {
+                    } else if Self.showsGlobalHeaderControls(for: selectedTab) {
                         Button(action: { plainTabSelectionBinding.wrappedValue = .map }) {
                             NativeRoundButton(symbol: BytspotNativeTab.map.icon, tint: NativeTheme.textPrimary, size: 44)
                         }
@@ -435,7 +435,7 @@ struct BytspotNativeShellView: View {
                     // Profile lives in the global top-right avatar. Map keeps its
                     // own profile control in the map action stack, and Profile is
                     // itself the destination, so both are excluded.
-                    if selectedTab != .map && selectedTab != .profile {
+                    if Self.showsGlobalHeaderControls(for: selectedTab) {
                         Button(action: { openNativeProfile(panel: nil) }) {
                             NativeRoundButton(symbol: "person.crop.circle.fill", tint: NativeTheme.textPrimary, size: 44)
                         }
@@ -801,6 +801,12 @@ struct BytspotNativeShellView: View {
 
     /// The bar is the way out of every tab, so Map — which has no bar — is the
     /// only surface that needs a back control.
+    /// Host owns focused wizard chrome in both tab and sheet presentations.
+    /// Other consumer tabs retain their existing Map and Profile shortcuts.
+    static func showsGlobalHeaderControls(for tab: BytspotNativeTab) -> Bool {
+        tab != .host && tab != .map && tab != .profile
+    }
+
     static func tabBarIsVisible(for tab: BytspotNativeTab) -> Bool {
         tab != .map
     }

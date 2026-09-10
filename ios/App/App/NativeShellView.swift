@@ -17707,10 +17707,15 @@ enum NativePolish {
     // branch is carried up to sit near its light counterpart.
     static let mapGridLine = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.055, darkAlpha: 0.055)
     static let mapRoadLine = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.20, darkAlpha: 0.22)
-    // Reordering the vignette under the labels was not enough on its own: all
-    // four still measured 1.88-3.29:1. Computed against the measured bases
-    // (30,33,69) and (9,7,13), these clear 4.5:1 with headroom for the scrim.
-    static let mapLabelText = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.55, darkAlpha: 0.52)
+    // Raising this to chase 4.5:1 was the wrong lever and is reverted. The two
+    // labels that fail are the two that are rotated: `.rotationEffect`
+    // rasterises 13pt Black text off-grid and antialiasing caps the stroke core
+    // regardless of the colour, so Nearby could not pass at any alpha. The two
+    // axis-aligned labels passed either way. At 0.55 the type also outshone the
+    // road network it annotates (labels peaked ~165 against roads ~90), which
+    // reads as type-over-geometry rather than as a map. These are decorative
+    // furniture and sit below the roads, not above them.
+    static let mapLabelText = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.34, darkAlpha: 0.38)
     static let softBorder = NativeTheme.surfaceStroke
     static let strongBorder = NativeTheme.strongSurfaceStroke
     static func brandGradient() -> LinearGradient { LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple, NativeTheme.pink], startPoint: .topLeading, endPoint: .bottomTrailing) }

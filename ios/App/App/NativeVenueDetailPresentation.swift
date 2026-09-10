@@ -180,9 +180,11 @@ enum NativeM5DetailPolicy {
         }
     }
 
-    static func compactActions(for venue: NativeVenueSummary, offering: NativePlanBookableOffering? = nil) -> [NativeVenueDetailAction] {
-        // A catalog source key is not a venues.checkin venue ID.
-        let canCheckIn = offering == nil && NativeVenueDetailPresentation.supportsManualCheckIn(venue)
+    static func compactActions(for venue: NativeVenueSummary, offering: NativePlanBookableOffering? = nil,
+                               isCatalogSource: Bool = false) -> [NativeVenueDetailAction] {
+        // A catalog source key is not a venues.checkin venue ID, even after
+        // an account change invalidates the exact offering's action authority.
+        let canCheckIn = !isCatalogSource && offering == nil && NativeVenueDetailPresentation.supportsManualCheckIn(venue)
         let ids = canCheckIn ? ["save", "share", "checkIn"] : ["save", "share"]
         return ids.compactMap { id in NativeVenueDetailContract.actions.first { $0.id == id } }
     }

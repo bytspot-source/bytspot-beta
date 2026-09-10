@@ -118,6 +118,29 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertEqual(NativeM5DetailPolicy.compactActions(for: venue(), offering: coffee).map(\.id), ["save", "share"])
     }
 
+    func testInvalidatedCatalogOfferingDoesNotBecomeACheckInVenue() {
+        XCTAssertEqual(NativeM5DetailPolicy.compactActions(for: venue(), offering: nil,
+            isCatalogSource: true).map(\.id), ["save", "share"])
+        XCTAssertTrue(NativeM5DetailPolicy.compactActions(for: venue()).contains { $0.id == "checkIn" })
+    }
+
+    func testAdaptiveActionRowsRemainCompatibleWithIOS15() throws {
+        let shell = try shellSource()
+        let card = try region(in: shell, from: "private struct NativeDiscoverFeatureCard: View {",
+                              to: "private struct NativeSpecialDiscoverCard: View {")
+        let detail = try region(in: shell, from: "    private var placeBottomActions: some View {",
+                                to: "    private func placeButton(")
+        for (surface, buttons) in [(card, "cardActionButtons"), (detail, "placeActionButtons")] {
+            for unsupportedAPI in ["AnyLayout(", "HStackLayout(", "VStackLayout("] {
+                XCTAssertFalse(surface.contains(unsupportedAPI))
+            }
+            XCTAssertTrue(surface.contains("dynamicTypeSize.isAccessibilitySize"))
+            XCTAssertTrue(surface.contains("VStack(spacing: 8) { \(buttons) }"))
+            XCTAssertTrue(surface.contains("HStack(spacing: 8) { \(buttons) }"))
+        }
+        XCTAssertTrue(shell.contains("compactActions(for: venue, offering: exactOffering, isCatalogSource: offering != nil)"))
+    }
+
     func testCoffeeContinuationRequiresSuccessfulExactAddAndRunsOnce() throws {
         let coffee = offering("request", kind: .coffeeSpot, category: "coffee")
         let selection = NativeDiscoverPlanSelection(title: coffee.title, needKind: coffee.category, offering: coffee)

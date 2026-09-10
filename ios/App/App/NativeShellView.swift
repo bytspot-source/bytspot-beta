@@ -11590,23 +11590,12 @@ private struct NativeDiscoverFeatureCard: View {
             .accessibilityHint(NativeDiscoverBrowsePolicy.availabilityLine(offering: card.offering))
             .accessibilityIdentifier("native-discover-details-\(card.id)")
 
-            AnyLayout(dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
-                if let title = card.executableActionTitle {
-                    Button(action: primaryAction) {
-                        actionLabel(title)
-                            .background(Color(hex: Int(card.presentation.actionHex ?? 0xE5E5E5)))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("native-discover-primary-cta-\(card.id)")
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(spacing: 8) { cardActionButtons }
+                } else {
+                    HStack(spacing: 8) { cardActionButtons }
                 }
-                Button(action: addToPlan) {
-                    actionLabel(NativeM5DetailPolicy.addToPlanTitle, foreground: card.executableActionTitle == nil ? .black : .white)
-                        .background(card.executableActionTitle == nil ? Color.white : Color.clear)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("native-discover-add-to-plan-\(card.id)")
             }
             .padding(.horizontal, 16).padding(.bottom, 16)
         }
@@ -11618,6 +11607,25 @@ private struct NativeDiscoverFeatureCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
         .accessibilityIdentifier("native-discover-feature-card-\(card.id)")
+    }
+
+    @ViewBuilder private var cardActionButtons: some View {
+        if let title = card.executableActionTitle {
+            Button(action: primaryAction) {
+                actionLabel(title)
+                    .background(Color(hex: Int(card.presentation.actionHex ?? 0xE5E5E5)))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-discover-primary-cta-\(card.id)")
+        }
+        Button(action: addToPlan) {
+            actionLabel(NativeM5DetailPolicy.addToPlanTitle, foreground: card.executableActionTitle == nil ? .black : .white)
+                .background(card.executableActionTitle == nil ? Color.white : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("native-discover-add-to-plan-\(card.id)")
     }
 
     private func actionLabel(_ title: String, foreground: Color = .black) -> some View {
@@ -11954,7 +11962,7 @@ private struct NativeVenueDetailView: View {
     private var compactPlaceActions: some View {
         // Adaptive columns let accessibility text wrap instead of shrinking.
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 10)], spacing: 10) {
-            ForEach(NativeM5DetailPolicy.compactActions(for: venue, offering: offering)) { action in
+            ForEach(NativeM5DetailPolicy.compactActions(for: venue, offering: exactOffering, isCatalogSource: offering != nil)) { action in
                 placeButton(action.id == "save" && isSaved ? "Saved" : detailActionTitle(for: action),
                     icon: action.systemImage) { handle(action) }
                     .accessibilityIdentifier("native-venue-action-\(action.id)")
@@ -11986,19 +11994,27 @@ private struct NativeVenueDetailView: View {
     }
 
     private var placeBottomActions: some View {
-        AnyLayout(dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
-            placeButton(NativeM5DetailPolicy.primaryTitle(for: placePresentation),
-                icon: placePresentation.capability == .request ? "paperplane" : "arrow.up.right",
-                supported: placePresentation.capability == .request) { performPlacePrimaryAction() }
-                .disabled(NativeM5DetailPolicy.primaryAction(for: placePresentation) == .unavailable)
-                .accessibilityIdentifier("native-m2-primary-action")
-            placeButton(NativeM5DetailPolicy.addToPlanTitle, icon: "plus") {
-                beginDetailPlanSelection(requestCoffee: false)
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(spacing: 8) { placeActionButtons }
+            } else {
+                HStack(spacing: 8) { placeActionButtons }
             }
-            .accessibilityIdentifier("native-m2-add-to-plan")
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
         .background(Color(hex: NativeDiscoverBookablePresentation.surfaceHex))
+    }
+
+    @ViewBuilder private var placeActionButtons: some View {
+        placeButton(NativeM5DetailPolicy.primaryTitle(for: placePresentation),
+            icon: placePresentation.capability == .request ? "paperplane" : "arrow.up.right",
+            supported: placePresentation.capability == .request) { performPlacePrimaryAction() }
+            .disabled(NativeM5DetailPolicy.primaryAction(for: placePresentation) == .unavailable)
+            .accessibilityIdentifier("native-m2-primary-action")
+        placeButton(NativeM5DetailPolicy.addToPlanTitle, icon: "plus") {
+            beginDetailPlanSelection(requestCoffee: false)
+        }
+        .accessibilityIdentifier("native-m2-add-to-plan")
     }
 
     private func placeButton(_ title: String, icon: String, supported: Bool = false,

@@ -17692,7 +17692,10 @@ enum NativePolish {
     // branch is carried up to sit near its light counterpart.
     static let mapGridLine = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.055, darkAlpha: 0.055)
     static let mapRoadLine = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.20, darkAlpha: 0.22)
-    static let mapLabelText = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.34, darkAlpha: 0.38)
+    // Reordering the vignette under the labels was not enough on its own: all
+    // four still measured 1.88-3.29:1. Computed against the measured bases
+    // (30,33,69) and (9,7,13), these clear 4.5:1 with headroom for the scrim.
+    static let mapLabelText = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.55, darkAlpha: 0.52)
     static let softBorder = NativeTheme.surfaceStroke
     static let strongBorder = NativeTheme.strongSurfaceStroke
     static func brandGradient() -> LinearGradient { LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple, NativeTheme.pink], startPoint: .topLeading, endPoint: .bottomTrailing) }

@@ -5788,7 +5788,7 @@ private struct NativeGuestSavePromptSheet: View {
                 .buttonStyle(.plain)
         }
         .padding(20)
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-guest-save-prompt")
     }
 }
@@ -7453,7 +7453,7 @@ private struct NativeHomeSearchSheet: View {
             }
         }
         .padding(20)
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier(contextTitle == "Home Search" ? "native-home-search-sheet" : "native-map-search-sheet")
     }
 
@@ -8405,7 +8405,7 @@ private struct NativeBoutiqueStayBookingSheet: View {
             .padding(.top, 14)
             .padding(.bottom, 32)
         }
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier(NativeBoutiqueStayBookingContract.accessibilityID)
         .onAppear { runPreviewAutoRequestIfNeeded() }
     }
@@ -9046,7 +9046,7 @@ private struct NativeParkingBookingSheet: View {
             .padding(18)
             .padding(.bottom, 28)
         }
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-smart-parking-booking-sheet")
         .onAppear { runPreviewAutoconfirmIfNeeded() }
     }
@@ -9653,7 +9653,7 @@ private struct NativeValetLocationPicker: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier(NativeValetLocationPickerContract.pickerIdentifier)
         .onAppear { selected = initialPlace }
         .onChange(of: query) { completer.update(query: $0) }
@@ -9857,7 +9857,7 @@ private struct NativeValetPremiumRideSheet: View {
             .onAppear { pinEntryToRouteSelector(using: scrollProxy) }
             .onChange(of: state) { _ in pinEntryToRouteSelector(using: scrollProxy) }
         }
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-valet-premium-ride-sheet")
         .onAppear { prepareCardDetailEntryIfNeeded() }
         .task { await runAutorunIfRequested() }
@@ -11011,7 +11011,7 @@ private struct NativeDiscoverView: View {
         .sheet(isPresented: Binding(get: { guestSavePromptTitle != nil }, set: { if !$0 { guestSavePromptTitle = nil } })) {
             NativeGuestSavePromptSheet(title: "Save \(guestSavePromptTitle ?? "this spot")?", subtitle: "Sign in to keep this favorite and sync it across devices.", onSignIn: openNativeAuth)
         }
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-discover-depth")
     }
 
@@ -12190,7 +12190,7 @@ private struct NativeVenueDetailView: View {
             .padding(.top, max(10, detailHorizontalPadding - 4))
             .padding(.bottom, 28)
         }
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-venue-detail")
         .sheet(isPresented: $showGuestSavePrompt) {
             NativeGuestSavePromptSheet(title: guestPromptTitle, subtitle: guestPromptSubtitle, ctaTitle: guestPromptCTA, onSignIn: continueGuestPromptSignIn)
@@ -12745,7 +12745,7 @@ private struct NativeEventRideBookingSheet: View {
             .padding(18)
             .padding(.bottom, 30)
         }
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .onAppear { locationStore.requestWhenInUseIfNeeded() }
         .task { await requestQuoteIfPossible() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in
@@ -13091,7 +13091,7 @@ private struct NativeMenuCheckoutSheet: View {
             .padding(18)
             .padding(.bottom, 28)
         }
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier(NativeMenuCheckoutContract.accessibilityID)
     }
 

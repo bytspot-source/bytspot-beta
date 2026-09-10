@@ -16980,14 +16980,12 @@ private struct NativeConciergeView: View {
     var openNativeAuth: (() -> Void)? = nil
     @State private var draft = ""
     @State private var isListening = false
-    @State private var showHistory = false
     @State private var isTyping = false
     @State private var didRunPreviewPrompt = false
     @State private var consumedNativeHandoffPrompt = ""
     @State private var nextMessageID = 2
     @State private var messages: [ConciergeMessage] = [ConciergeMessage(id: 1, text: NativeConciergeRegionPresentation.genericWelcomeMessage, isUser: false)]
     @State private var stayBookingVenue: NativeVenueSummary?
-    @State private var historyTitles: [String] = []
     @State private var connectionState = "ready"
     @AppStorage(NativeConciergeHandoffStore.promptKey) private var handoffPrompt = ""
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
@@ -17010,7 +17008,6 @@ private struct NativeConciergeView: View {
     var body: some View {
         VStack(spacing: 0) {
             conciergeHeader
-            if showHistory { historyPanel.transition(.opacity.combined(with: .move(edge: .top))) }
             chatTranscript
             suggestionRail
             composer
@@ -17063,13 +17060,10 @@ private struct NativeConciergeView: View {
                     }
                 }
                 Spacer()
-                // Profile is the global top-right avatar; the stack keeps only
-                // the Concierge-specific controls and clears the avatar.
-                HStack(spacing: 8) {
-                    headerIconButton(symbol: "line.3.horizontal") { withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) { showHistory.toggle() } }
-                    headerIconButton(symbol: "arrow.clockwise") { resetConversation() }
-                }
-                .padding(.trailing, 52)
+                // The header carries no Concierge controls now. The trailing
+                // inset still clears the global top-right avatar, which the
+                // shell draws over every tab.
+                Color.clear.frame(width: 52, height: 1)
             }
             .padding(.horizontal, 16)
             .padding(.top, 24)
@@ -17104,42 +17098,6 @@ private struct NativeConciergeView: View {
 
     private var suggestionChips: [String] {
         tabContentStore.bestValueOptions(for: locationStore.coordinate).isEmpty ? Self.suggestionPrompts : ["Best value nearby"] + Self.suggestionPrompts
-    }
-
-    private var historyPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Concierge Request History", systemImage: "clock.arrow.circlepath")
-                .font(.system(size: 12, weight: .heavy))
-                .foregroundColor(NativeTheme.textSecondary)
-            if historyTitles.isEmpty {
-                Text("No past conversations yet.")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundColor(NativeTheme.textTertiary)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(NativeTheme.selectedControlSurface)
-                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            } else {
-                ForEach(Array(historyTitles.prefix(3)), id: \.self) { title in
-                    Text(title)
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(NativeTheme.textPrimary)
-                        .lineLimit(1)
-                        .padding(.horizontal, 12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .frame(height: 38)
-                        .background(NativeTheme.selectedControlSurface)
-                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(NativePolish.glassSurface)
-        .overlay(Rectangle().fill(NativePolish.softBorder).frame(height: 1), alignment: .bottom)
-        .accessibilityIdentifier("native-concierge-history")
     }
 
     private var chatTranscript: some View {
@@ -17213,7 +17171,6 @@ private struct NativeConciergeView: View {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
             messages.append(ConciergeMessage(id: createMessageID(), text: text, isUser: true))
         }
-        historyTitles = Array(([text] + historyTitles).prefix(12))
         draft = ""
         isTyping = true
         connectionState = "thinking"
@@ -17292,17 +17249,6 @@ private struct NativeConciergeView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { send(prompt) }
     }
 
-    private func resetConversation() {
-        nativeImpactLight()
-        withAnimation(.spring(response: 0.26, dampingFraction: 0.86)) {
-            nextMessageID = 2
-            messages = [ConciergeMessage(id: 1, text: NativeConciergeRegionPresentation.welcomeMessage(for: locationStore.coordinate), isUser: false)]
-            connectionState = "ready"
-            showHistory = false
-            isTyping = false
-            draft = ""
-        }
-    }
 
     private func syncWelcomeMessage() {
         guard messages.count == 1, messages[0].id == 1, !messages[0].isUser else { return }
@@ -17430,18 +17376,6 @@ private struct NativeConciergeView: View {
         }
     }
 
-    private func headerIconButton(symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: { nativeImpactLight(); action() }) {
-            Image(systemName: symbol)
-                .font(.system(size: 14, weight: .black))
-                .foregroundColor(NativeTheme.textPrimary.opacity(colorScheme == .dark ? 0.70 : 0.58))
-                .frame(width: 32, height: 32)
-                .background(NativeTheme.selectedControlSurface)
-                .overlay(Circle().stroke(NativePolish.softBorder, lineWidth: 1))
-                .clipShape(Circle())
-        }
-        .buttonStyle(.plain)
-    }
 }
 
 private struct NativeConciergeMessageBubble: View {

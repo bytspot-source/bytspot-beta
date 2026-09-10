@@ -964,15 +964,16 @@ private struct BytspotNativeBottomTabBar: View {
             // No disc behind the mark: a filled puck on the glass bar reads as an
             // unfinished placeholder sitting on top of the surface rather than as
             // part of it. The globe carries itself on the bar's own material.
-            // Same construction as its four neighbours -- solid SF glyph, same
-            // weight -- so the centre reads as emphasis rather than as a
-            // different rendering system dropped into the row. Plain `globe` is
-            // a stroked wireframe: it measured the most ink in the row (318pt²)
-            // but spread as thin meridians, so it read as texture rather than
-            // mass. The filled variant carries the same footprint as solid.
-            Image(systemName: "globe.americas.fill")
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundColor(isActive ? NativeTheme.textPrimary : NativeTheme.textSecondary)
+            // The dot globe is the Plan control and the brand mark; a stock SF
+            // Earth stood here for three commits while the weight problem was
+            // solved, which fixed the mass and lost the identity. The lattice
+            // failed at 38pt for a real reason -- flat falloff, no terminator,
+            // so it read as a burst -- but that was fixed by the limb-darkening
+            // rewrite, not by substituting Apple's glyph. Denser and fatter here
+            // than on the standalone surfaces so it carries the same ink as the
+            // solid glyphs beside it.
+            BytspotDotGlobe(size: 26, dotCount: 150, dotScale: 0.145)
+                .opacity(isActive ? 1 : 0.62)
                 .frame(width: NativePolish.bottomBarHostRingSize, height: NativePolish.bottomBarHostRingSize)
             // The globe is its own light source, so the centre wears no ring:
             // a stroke plus a gradient plus a glow was three marks competing on

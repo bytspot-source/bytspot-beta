@@ -1043,11 +1043,11 @@ struct BytspotMark: View {
 struct BytspotDotGlobe: View {
     let size: CGFloat
     var dotCount: Int = 74
-    /// Retained for the standalone mark surfaces. The bottom bar no longer uses
-    /// it: measured at 38pt the lattice reads as a burst, not a sphere -- the
-    /// falloff is flat across the inner half (r=0.25 as bright as r=0.00) and
-    /// perfectly radially symmetric, so there is no terminator and no light
-    /// direction, and it was the only stippled item in a row of solid glyphs.
+    /// Dot radius as a fraction of the globe radius. The bar centre needs a
+    /// denser, fatter lattice than the standalone mark: at the default the
+    /// lattice carries roughly a third of the ink of the solid glyphs beside
+    /// it, which is what made it read as speckle rather than as a sphere.
+    var dotScale: CGFloat = 0.105
 
     var body: some View {
         Canvas { context, canvasSize in
@@ -1076,7 +1076,7 @@ struct BytspotDotGlobe: View {
                 // outer fifth of the radius, so the disc measured flat across the
                 // middle and read as a perforated puck.
                 let depth = 0.06 + 0.94 * curve * curve.squareRoot()
-                let dotRadius = radius * 0.105 * (0.42 + 0.58 * curve)
+                let dotRadius = radius * dotScale * (0.42 + 0.58 * curve)
                 let rect = CGRect(x: point.x - dotRadius, y: point.y - dotRadius, width: dotRadius * 2, height: dotRadius * 2)
                 // One achromatic mark. On a coloured ground white is the only
                 // ink that stays the logo instead of joining the palette.

@@ -69,20 +69,28 @@ enum NativeAppearanceMode: String, CaseIterable, Identifiable {
                 window.overrideUserInterfaceStyle = mode.uiUserInterfaceStyle
             }
         }
+        // UIKit auto-adopts the AppDelegate window into the implicitly created
+        // scene, so the loop above does reach it and this line is redundant. It
+        // stays as a guard for the case where it has not been adopted yet.
+        (UIApplication.shared.delegate as? AppDelegate)?.window?.overrideUserInterfaceStyle = mode.uiUserInterfaceStyle
     }
 
+    /// The system appearance, read from a source the app does not itself
+    /// overwrite.
+    ///
+    /// This previously consulted `AppleInterfaceStyle` in UserDefaults, which is
+    /// a macOS preference key and is always nil on iOS, then fell back to the
+    /// key window -- the app's own window, carrying the very
+    /// `overrideUserInterfaceStyle` it had just written. So it read its own
+    /// override back and could never observe the system again once any explicit
+    /// mode had been chosen. The scene's trait collection is not overridden and
+    /// tracks the live system setting.
     @MainActor static func currentWindowColorScheme() -> ColorScheme? {
-        if let rawSystemStyle = UserDefaults.standard.string(forKey: "AppleInterfaceStyle")?.lowercased() {
-            return rawSystemStyle.contains("dark") ? .dark : .light
-        }
-        #if targetEnvironment(simulator)
-        return .light
-        #endif
         let style = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first(where: { $0.isKeyWindow })?
-            .traitCollection.userInterfaceStyle ?? UIScreen.main.traitCollection.userInterfaceStyle
+            .first(where: { $0.activationState == .foregroundActive })?
+            .traitCollection.userInterfaceStyle
+            ?? UIScreen.main.traitCollection.userInterfaceStyle
         switch style {
         case .dark: return .dark
         default: return .light
@@ -101,7 +109,20 @@ final class NativeAppearanceRuntimeStore: ObservableObject {
     @MainActor func applyUserSelection(_ mode: NativeAppearanceMode) {
         selectedMode = mode
         NativeAppearanceMode.applyWindowStyle(mode)
-        systemColorScheme = mode == .system ? NativeAppearanceMode.currentWindowColorScheme() : nil
+        // Reading in the same turn as the override is cleared returns the stale
+        // value, which pinned Auto to whichever mode was last explicit.
+        guard mode == .system else { systemColorScheme = nil; return }
+        DispatchQueue.main.async { [weak self] in
+            self?.systemColorScheme = NativeAppearanceMode.currentWindowColorScheme()
+        }
+    }
+
+    /// Auto has to keep tracking after it is selected: nothing here observed
+    /// trait changes, so a system toggle while the app was running never
+    /// propagated and Auto sat on whatever it resolved once.
+    @MainActor func refreshSystemColorScheme() {
+        guard selectedMode == .system || selectedMode == nil else { return }
+        systemColorScheme = NativeAppearanceMode.currentWindowColorScheme()
     }
 }
 
@@ -172,7 +193,7 @@ struct BytspotNativeAppRoot: View {
             .environmentObject(appearanceRuntimeStore)
             .environmentObject(locationStore)
             .onAppear {
-                NativeAppearanceMode.applyWindowStyle(NativeJourneyAtmosphere(rawValue: launchAtmosphere) == .nightlight ? .dark : effectiveAppearance)
+                NativeAppearanceMode.applyWindowStyle(resolvedAppearance)
                 navigation.drainPendingURLs()
                 bridgeStore.injectPatchScanBridgeSmokeTestIfRequested()
                 locationStore.startIfAuthorized()
@@ -198,6 +219,7 @@ struct BytspotNativeAppRoot: View {
             }
             .onChange(of: scenePhase) { phase in
                 guard phase == .active else { return }
+                appearanceRuntimeStore.refreshSystemColorScheme()
                 Task {
                     await membershipStore.refresh(sessionStore: sessionStore)
                     await NativePushService.shared.refreshAuthorizationStatus()
@@ -209,7 +231,7 @@ struct BytspotNativeAppRoot: View {
                 Task { await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate) }
             }
             .onChange(of: launchAtmosphere) { _ in
-                NativeAppearanceMode.applyWindowStyle(NativeJourneyAtmosphere(rawValue: launchAtmosphere) == .nightlight ? .dark : effectiveAppearance)
+                NativeAppearanceMode.applyWindowStyle(resolvedAppearance)
             }
             .onOpenURL { navigation.notifyPatchScanned(url: $0, source: .deepLink); _ = navigation.handle(url: $0) }
             .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
@@ -232,11 +254,21 @@ struct BytspotNativeAppRoot: View {
                 let selected = NativeAppearanceMode.resolved(raw: notification.userInfo?[NativeAppearanceMode.userSelectionUserInfoKey] as? String)
                 appearanceRuntimeStore.applyUserSelection(selected)
             }
-            .onChange(of: appearanceRaw) { _ in NativeAppearanceMode.applyWindowStyle(effectiveAppearance) }
+            .onChange(of: appearanceRaw) { _ in NativeAppearanceMode.applyWindowStyle(resolvedAppearance) }
+    }
+
+    /// The launch journey's nightlight atmosphere may imply dark, but only while
+    /// the user has expressed no preference of their own. An explicit Appearance
+    /// choice always outranks it: previously picking nightlight once wrote a
+    /// defaults key that made Light permanently unreachable, with nothing in the
+    /// UI to explain why the setting had stopped responding.
+    private var resolvedAppearance: NativeAppearanceMode {
+        guard effectiveAppearance == .system else { return effectiveAppearance }
+        return NativeJourneyAtmosphere(rawValue: launchAtmosphere) == .nightlight ? .dark : .system
     }
 
     private var journeyPreferredColorScheme: ColorScheme? {
-        NativeJourneyAtmosphere(rawValue: launchAtmosphere) == .nightlight ? .dark : effectiveAppearance.preferredColorScheme
+        resolvedAppearance.preferredColorScheme
     }
 
     private var shouldShowLaunchFlow: Bool {
@@ -990,6 +1022,69 @@ private struct NativeLaunchLocationScreen: View {
         guard phase == .ready, !didScheduleAdvance else { return }
         didScheduleAdvance = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { onContinue() }
+    }
+}
+
+/// The bottom bar's centre needs the mark from another file. The canonical
+/// drawing below stays private and unduplicated so the brand-mark geometry
+/// gate keeps reading exactly one Swift surface; this only re-exports it.
+struct BytspotMark: View {
+    let size: CGFloat
+    var showGlow: Bool = false
+
+    var body: some View { NativeBytspotMark(size: size, showGlow: showGlow) }
+}
+
+/// The mark as a dot sphere: points distributed by the Fibonacci lattice and
+/// projected orthographically, so the lattice reads as a globe rather than as a
+/// grid of circles. Depth is carried by dot radius and opacity alone -- there is
+/// no lighting model and nothing animates, because this draws at 38pt inside the
+/// tab bar on every screen and a live sphere there costs frames for nothing.
+struct BytspotDotGlobe: View {
+    let size: CGFloat
+    var dotCount: Int = 74
+    /// Dot radius as a fraction of the globe radius. The bar centre needs a
+    /// denser, fatter lattice than the standalone mark: at the default the
+    /// lattice carries roughly a third of the ink of the solid glyphs beside
+    /// it, which is what made it read as speckle rather than as a sphere.
+    var dotScale: CGFloat = 0.105
+
+    var body: some View {
+        Canvas { context, canvasSize in
+            let radius = min(canvasSize.width, canvasSize.height) / 2
+            let centre = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+            let golden = Double.pi * (3.0 - 5.0.squareRoot())
+            for index in 0..<dotCount {
+                let y = 1.0 - (Double(index) / Double(dotCount - 1)) * 2.0
+                let ringRadius = max(0, 1.0 - y * y).squareRoot()
+                let theta = golden * Double(index)
+                let x = cos(theta) * ringRadius
+                let z = sin(theta) * ringRadius
+                // Back hemisphere is dropped: overlapping far-side dots muddy the
+                // silhouette at small sizes instead of suggesting volume.
+                guard z >= 0 else { continue }
+                let point = CGPoint(x: centre.x + CGFloat(x) * radius * 0.90,
+                                    y: centre.y - CGFloat(y) * radius * 0.90)
+                // Curvature has to come from screen-space distance to the limb,
+                // not from the lattice phase: shading keyed to the spiral reads
+                // as speckle that averages flat, which is what made this a
+                // grille rather than a planet. Squaring the falloff darkens the
+                // rim hard enough to be read as a silhouette at 38pt.
+                let limb = min(1, hypot(x, y))
+                let curve = max(0, 1 - limb * limb)
+                // Cubed, not squared: at 38pt a gentle falloff only bit in the
+                // outer fifth of the radius, so the disc measured flat across the
+                // middle and read as a perforated puck.
+                let depth = 0.06 + 0.94 * curve * curve.squareRoot()
+                let dotRadius = radius * dotScale * (0.42 + 0.58 * curve)
+                let rect = CGRect(x: point.x - dotRadius, y: point.y - dotRadius, width: dotRadius * 2, height: dotRadius * 2)
+                // One achromatic mark. On a coloured ground white is the only
+                // ink that stays the logo instead of joining the palette.
+                context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(0.28 + 0.72 * depth)))
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 

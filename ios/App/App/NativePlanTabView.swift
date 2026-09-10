@@ -16,14 +16,17 @@ struct NativePlanTabView: View {
                 NativePlansPanel(sessionStore: sessionStore, onOpenNeed: routeToNeed, showsSuggestions: true)
             }
             .padding(.horizontal, 16)
-            .padding(.top, 8)
+            // The shell floats the map icon and the avatar over the top of the
+            // content, so the tab has to start below them or the title sits
+            // underneath the chrome.
+            .padding(.top, 52)
             .padding(.bottom, 28)
         }
         // The shell's brand gradient is always dark; sit on the adaptive page
         // surface instead so the tab reads correctly in Light and Dark, and so
         // NativePlansPanel renders in the same adaptive context it uses inside
         // the Profile panel.
-        .background(NativePolish.screenBackground.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
     }
 
     private var header: some View {
@@ -31,8 +34,6 @@ struct NativePlanTabView: View {
             Text("PLAN").font(.system(size: 11, weight: .black)).tracking(1.6).foregroundColor(NativeTheme.textTertiary)
             Text("Everything in one place").font(.system(size: 24, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary)
         }
-        // Leave room for the global profile avatar in the top-right overlay.
-        .padding(.trailing, 56)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

@@ -274,7 +274,7 @@ ocr discover
 expect_ocr discover "Places, stays, rides, services, and parking|Discover"
 capture concierge SIMCTL_CHILD_BYT_NATIVE_PREVIEW_TAB=concierge
 ocr concierge
-expect_ocr concierge "Concierge|Ask|Show on Map"
+expect_ocr concierge "Concierge|Ask|Open Discover"
 capture map SIMCTL_CHILD_BYT_NATIVE_PREVIEW_TAB=map
 ocr map
 expect_ocr map "Reserve Parking|Map|Parking"

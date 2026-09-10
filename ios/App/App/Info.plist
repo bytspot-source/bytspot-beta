@@ -74,8 +74,13 @@
       <string>UIInterfaceOrientationLandscapeLeft</string>
       <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
+    <!-- Both appearances sit on a dark ground, so the status bar cannot derive
+         its style from the colour scheme: in Light, iOS picks dark content and
+         the clock, cellular, Wi-Fi and battery glyphs go black on navy. -->
     <key>UIViewControllerBasedStatusBarAppearance</key>
-    <true />
+    <false />
+    <key>UIStatusBarStyle</key>
+    <string>UIStatusBarStyleLightContent</string>
     <!-- â”€â”€ Export Compliance (no custom encryption) â”€â”€ -->
     <key>ITSAppUsesNonExemptEncryption</key>
     <false />

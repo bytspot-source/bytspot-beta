@@ -7,17 +7,32 @@ import CoreImage.CIFilterBuiltins
 import CryptoKit
 
 enum BytspotNativeTab: String, CaseIterable, Identifiable {
-    case home, plan, discover, map, concierge, profile
+    case home, plan, host, discover, map, concierge, profile
 
-    /// Profile is reached from the global top-right avatar, not the bottom bar,
-    /// so it is excluded here. The enum keeps the case for content routing.
-    static let barTabs: [BytspotNativeTab] = [.home, .plan, .discover, .map, .concierge]
+    /// Profile is reached from the global top-right avatar and Map from the
+    /// global top-left icon, so neither appears here. The enum keeps both
+    /// cases for content routing.
+    static let barTabs: [BytspotNativeTab] = [.home, .host, .plan, .discover, .concierge]
+
+    /// Every bar slot is a destination and can hold the selection. Plan sits
+    /// in the centre and keeps the ring because starting one is the reason to
+    /// go there, but it is a place like the rest.
+    var isBarCenter: Bool { self == .plan }
+
+    /// Host Studio is a workbench for a signed-in caller; sending an anonymous
+    /// one there would open a surface they cannot use.
+    var requiresAuthentication: Bool { self == .host }
+
+    /// The bar labels the centre with its verb. Everywhere else — back
+    /// controls, accessibility, diagnostics — Plan stays a noun.
+    var barTitle: String { self == .plan ? "Start Plan" : title }
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .home: return "Home"
         case .plan: return "Plan"
+        case .host: return "Host"
         case .discover: return "Discover"
         case .map: return "Map"
         case .concierge: return "Concierge"
@@ -27,10 +42,19 @@ enum BytspotNativeTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .home: return "house.fill"
-        case .plan: return "calendar"
+        // The centre ring carries the create verb; Plan owns the plus now.
+        case .plan: return "plus"
+        case .host:
+            // The door is Host Studio's own metaphor, but SF Symbols only
+            // gained it in 16; fall back to admission on 15.
+            if #available(iOS 16.0, *) { return "door.left.hand.closed" }
+            return "ticket.fill"
         case .discover: return "safari.fill"
         case .map: return "map.fill"
-        case .concierge: return "sparkles"
+        // sparkles measured 123.7pt2 of ink at 0.08 fill against a ~300pt2 row
+        // norm -- the only glyph in the bar that was not a filled mass, and it
+        // visibly under-weighed the right end of the capsule.
+        case .concierge: return "bubble.left.and.bubble.right.fill"
         case .profile: return "person.crop.circle.fill"
         }
     }
@@ -280,6 +304,9 @@ struct BytspotNativeShellView: View {
     @State private var pendingProfilePanel: NativeProfilePanel?
     @State private var pendingDiscoverFilter: String?
     @State private var plainMapOpenGeneration = Self.previewInitialTab == .map ? 1 : 0
+    @State private var showHostStudio = false
+    @State private var hostStudioCircles: [NativeSocialCircle] = []
+    @State private var mapReturnTab: BytspotNativeTab = .home
     @State private var suppressInitialTabRequestAfterLaunch = false
     @State private var postAuthHomeHoldGeneration = 0
     @State private var showValetPreviewSheet = false
@@ -349,11 +376,19 @@ struct BytspotNativeShellView: View {
     var body: some View {
         ZStack {
             BytspotNativeBackground(tier: activeTier, intent: launchIntent).ignoresSafeArea()
+            // The ground belongs to the window, not to the scrolling content:
+            // applied per screen it stopped at the safe area and left the
+            // bottom eighth -- the margins beside the floating bar and
+            // everything below it -- as a black slab.
+            NativeDeepSpaceGround()
             VStack(spacing: 0) {
                 Group {
                     switch selectedTab {
                     case .home:
                         NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth)
+                    case .host:
+                        NativeHostStudioView(circles: hostStudioCircles, membershipTier: membershipStore.tier, presentation: .tab)
+                            .task { await loadHostStudioCircles() }
                     case .plan:
                         NativePlanTabView(sessionStore: sessionStore, openDiscoverFilter: openDiscoverFilter, openMap: { selectNativeTab(.map) })
                     case .discover:
@@ -374,6 +409,28 @@ struct BytspotNativeShellView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .topLeading) {
+                    // Map left the bottom bar: it is a destination reached from
+                    // the global top-left icon, and once inside, the same corner
+                    // carries the only way back. Profile owns its own top chrome.
+                    if selectedTab == .map {
+                        Button(action: { commitSelectedTab(mapReturnTab) }) {
+                            NativeRoundButton(symbol: "chevron.left", tint: NativeTheme.textPrimary, size: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.leading, 16)
+                        .accessibilityLabel("Back to \(mapReturnTab.title)")
+                        .accessibilityIdentifier("native-map-back-button")
+                    } else if selectedTab != .profile {
+                        Button(action: { plainTabSelectionBinding.wrappedValue = .map }) {
+                            NativeRoundButton(symbol: BytspotNativeTab.map.icon, tint: NativeTheme.textPrimary, size: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.leading, 16)
+                        .accessibilityLabel("Map")
+                        .accessibilityIdentifier("native-global-map-button")
+                    }
+                }
                 .overlay(alignment: .topTrailing) {
                     // Profile lives in the global top-right avatar. Map keeps its
                     // own profile control in the map action stack, and Profile is
@@ -388,9 +445,12 @@ struct BytspotNativeShellView: View {
                         .accessibilityIdentifier("native-global-profile-avatar")
                     }
                 }
+                .environment(\.nativeDeepSpaceGroundDrawn, true)
                 .animation(.interpolatingSpring(mass: 0.8, stiffness: 380, damping: 34, initialVelocity: 0), value: selectedTab)
-                BytspotNativeBottomTabBar(selectedTab: plainTabSelectionBinding, tier: activeTier)
-                    .fixedSize(horizontal: false, vertical: true)
+                if Self.tabBarIsVisible(for: selectedTab) {
+                    BytspotNativeBottomTabBar(selectedTab: plainTabSelectionBinding, tier: activeTier)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             if let welcomeBannerText {
                 VStack {
@@ -550,11 +610,29 @@ struct BytspotNativeShellView: View {
         Binding(
             get: { selectedTab },
             set: { tab in
+                // Host Studio is a destination now, but still a signed-in one:
+                // send an anonymous caller to auth rather than to a workbench
+                // that cannot load anything.
+                guard !(tab.requiresAuthentication && !sessionStore.isAuthenticated) else {
+                    openNativeAuth(mode: .login)
+                    return
+                }
                 requestLocationForNearbyContentIfNeeded(tab)
                 if tab == .map { preparePlainMapOpen() }
-                selectedTab = tab
+                commitSelectedTab(tab)
             }
         )
+    }
+
+    /// Host Studio's invite step offers the caller's circles. The shell owns
+    /// the load now that Host is a bar entry rather than a Network sheet row.
+    private func loadHostStudioCircles() async {
+        guard sessionStore.isAuthenticated else {
+            hostStudioCircles = []
+            return
+        }
+        let api = NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil }))
+        hostStudioCircles = await api.listSocialCirclesViaRpc().groups
     }
 
     private func preparePlainMapOpen() {
@@ -645,7 +723,7 @@ struct BytspotNativeShellView: View {
         case .mapPicks:
             requestLocationForNearbyContentIfNeeded(.map)
             NativeHomeDashboardView.storeLaunchMapHandoff(snapshot: tabContentStore.snapshot(for: locationStore.coordinate), location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
-            selectedTab = .map
+            commitSelectedTab(.map)
         case .savePicks:
             forceHomeAfterSavePicksAuth()
         case .network:
@@ -709,7 +787,28 @@ struct BytspotNativeShellView: View {
         // Immediate state change: the tab bar highlight must respond on the
         // same frame as the tap. The content crossfade is animated separately
         // via the .animation modifier on the tab content container.
+        commitSelectedTab(tab)
+    }
+
+    /// Map is a full-screen destination rather than a bar tab, so entering it
+    /// has to record where the traveller came from to offer a way back.
+    private func commitSelectedTab(_ tab: BytspotNativeTab) {
+        if tab == .map, selectedTab != .map {
+            mapReturnTab = Self.mapReturnTarget(from: selectedTab)
+        }
         selectedTab = tab
+    }
+
+    /// The bar is the way out of every tab, so Map — which has no bar — is the
+    /// only surface that needs a back control.
+    static func tabBarIsVisible(for tab: BytspotNativeTab) -> Bool {
+        tab != .map
+    }
+
+    /// Never return into Map itself, and never into Host, which is an action
+    /// with no content of its own. Both fail closed to Home.
+    static func mapReturnTarget(from tab: BytspotNativeTab) -> BytspotNativeTab {
+        tab == .map ? .home : tab
     }
 
     static func requiresLocationForNearbyContent(_ tab: BytspotNativeTab) -> Bool {
@@ -751,18 +850,48 @@ struct BytspotNativeShellView: View {
 private struct BytspotNativeBottomTabBar: View {
     @Binding var selectedTab: BytspotNativeTab
     let tier: BytspotTier
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var barMarks
+    @State private var pressedTab: BytspotNativeTab?
+    @State private var bloomDimmed = false
+
+    /// Settles, no bounce. One curve for every state change in the bar so the
+    /// dot, the bloom and both tints arrive together.
+    private static let travel = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.32)
+    private static let dip = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.16)
+    private static let pressCurve = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.09)
+
+    private var motion: Animation? { reduceMotion ? nil : Self.travel }
 
     var body: some View {
         HStack(spacing: 0) {
             ForEach(BytspotNativeTab.barTabs) { tab in
                 Button(action: { select(tab) }) {
-                    tabItem(tab, isActive: selectedTab == tab)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .contentShape(Rectangle())
+                    Group {
+                        if tab.isBarCenter {
+                            centerItem(tab, isActive: selectedTab == tab)
+                        } else {
+                            tabItem(tab, isActive: selectedTab == tab)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .scaleEffect(pressedTab == tab && !reduceMotion ? 0.94 : 1)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(tab.title) tab")
+                .accessibilityLabel("\(tab.barTitle) tab")
+                .accessibilityIdentifier("native-bottom-bar-\(tab.rawValue)")
                 .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { _ in
+                            guard pressedTab != tab else { return }
+                            withAnimation(reduceMotion ? nil : Self.pressCurve) { pressedTab = tab }
+                        }
+                        .onEnded { _ in
+                            withAnimation(reduceMotion ? nil : Self.pressCurve) { pressedTab = nil }
+                        }
+                )
             }
         }
         .padding(.horizontal, NativePolish.bottomBarInnerHorizontalPadding)
@@ -778,25 +907,116 @@ private struct BytspotNativeBottomTabBar: View {
         .padding(.bottom, NativePolish.bottomBarBottomPadding)
     }
 
+    /// A glyph is solid in every state. Selection is carried by tint, by the
+    /// single travelling bloom behind the glyph, and by the dot under the
+    /// label -- never by swapping an outline for a fill, and never by changing
+    /// weight, both of which reflow the row.
     private func tabItem(_ tab: BytspotNativeTab, isActive: Bool) -> some View {
         VStack(spacing: 3) {
-            Image(systemName: tab.icon)
-                .font(.system(size: 20, weight: isActive ? .semibold : .regular))
+            ZStack {
+                if isActive { bloom }
+                Image(systemName: tab.icon)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(isActive ? NativeTheme.textPrimary : NativeTheme.textSecondary)
+            }
+            .frame(height: 24)
             Text(tab.title)
-                .font(.system(size: BytspotTheme.caption2Size, weight: isActive ? .semibold : .regular))
+                .font(.system(size: BytspotTheme.caption2Size, weight: .semibold))
                 .lineLimit(1)
+                .foregroundColor(isActive ? NativeTheme.textPrimary : NativeTheme.textSecondary)
+            dotRail(isActive: isActive)
         }
-        .foregroundColor(isActive ? NativeTheme.textPrimary : NativeTheme.textSecondary)
         .frame(maxWidth: .infinity, minHeight: NativePolish.bottomTabItemHeight)
-        .background(RoundedRectangle(cornerRadius: NativePolish.bottomTabActiveRadius, style: .continuous).fill(isActive ? NativeTheme.selectedControlSurface : Color.clear))
+    }
+
+    /// One node for the whole bar: it travels to the selected slot rather than
+    /// fading out here and in over there. It dips as it crosses behind the
+    /// centre ring so the ring stays the brightest thing in the bar.
+    private var bloom: some View {
+        Circle()
+            .fill(RadialGradient(colors: [NativeTheme.cyan.opacity(0.55), NativeTheme.cyan.opacity(0.0)], center: .center, startRadius: 0, endRadius: 21))
+            .frame(width: 42, height: 42)
+            .opacity(bloomDimmed ? 0.2 : 1)
+            .matchedGeometryEffect(id: "native-bar-bloom", in: barMarks)
+            .allowsHitTesting(false)
+    }
+
+    /// The dot answers "where am I" with exactly one mark, and every slot --
+    /// including the centre -- can own it.
+    private func dotRail(isActive: Bool) -> some View {
+        ZStack {
+            if isActive {
+                Circle()
+                    .fill(NativeTheme.cyan)
+                    .frame(width: 3.5, height: 3.5)
+                    .matchedGeometryEffect(id: "native-bar-dot", in: barMarks)
+            }
+        }
+        .frame(height: 4)
+    }
+
+    /// The centre carries the brand mark inside a ring: it takes the dot like
+    /// any other slot, so the bar still marks exactly one place, but the ring
+    /// also reads as the one slot where you make something. It never takes the
+    /// travelling bloom -- the ring is already its own light source.
+    private func centerItem(_ tab: BytspotNativeTab, isActive: Bool) -> some View {
+        VStack(spacing: 3) {
+            // No disc behind the mark: a filled puck on the glass bar reads as an
+            // unfinished placeholder sitting on top of the surface rather than as
+            // part of it. The globe carries itself on the bar's own material.
+            // The dot globe is the Plan control and the brand mark; a stock SF
+            // Earth stood here for three commits while the weight problem was
+            // solved, which fixed the mass and lost the identity. The lattice
+            // failed at 38pt for a real reason -- flat falloff, no terminator,
+            // so it read as a burst -- but that was fixed by the limb-darkening
+            // rewrite, not by substituting Apple's glyph. Denser and fatter here
+            // than on the standalone surfaces so it carries the same ink as the
+            // solid glyphs beside it.
+            BytspotDotGlobe(size: 26, dotCount: 150, dotScale: 0.145)
+                .opacity(isActive ? 1 : 0.62)
+                .frame(width: NativePolish.bottomBarHostRingSize, height: NativePolish.bottomBarHostRingSize)
+            // The globe is its own light source, so the centre wears no ring:
+            // a stroke plus a gradient plus a glow was three marks competing on
+            // one 38pt target. Selection is carried by the glow alone.
+            .shadow(color: NativeTheme.purple.opacity(isActive ? 0.90 : 0.40), radius: isActive ? 22 : 12, x: 0, y: 2)
+            .scaleEffect(isActive && !reduceMotion ? 1.08 : 1)
+            .frame(height: 24)
+            // The centre keeps its caption: it is the only slot that is a verb
+            // rather than a place, and an unlabelled control asks people to tap
+            // it to find out what it does. The mark carries the brand; the word
+            // carries the promise.
+            Text(tab.barTitle)
+                .font(.system(size: BytspotTheme.caption2Size, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .foregroundColor(isActive ? NativeTheme.textPrimary : NativeTheme.textSecondary)
+            dotRail(isActive: isActive)
+        }
+        .frame(maxWidth: .infinity, minHeight: NativePolish.bottomTabItemHeight)
     }
 
     private func select(_ tab: BytspotNativeTab) {
         nativeImpactLight()
         guard selectedTab != tab else { return }
-        // Assign without an animation gate so the active pill moves on the
-        // tap frame; content transitions are owned by the shell container.
-        selectedTab = tab
+        let crossesCentre = crossesBarCentre(from: selectedTab, to: tab)
+        withAnimation(motion) { selectedTab = tab }
+        // The bloom only dims when it actually passes behind the ring, so a
+        // move between two neighbouring slots stays at full strength.
+        guard !reduceMotion, crossesCentre else { return }
+        withAnimation(Self.dip) { bloomDimmed = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            withAnimation(Self.dip) { bloomDimmed = false }
+        }
+    }
+
+    /// True when the travelling bloom has to pass the centre ring to get from
+    /// one slot to the other. The centre itself never holds the bloom.
+    private func crossesBarCentre(from: BytspotNativeTab, to: BytspotNativeTab) -> Bool {
+        let tabs = BytspotNativeTab.barTabs
+        guard let centre = tabs.firstIndex(where: \.isBarCenter),
+              let a = tabs.firstIndex(of: from), let b = tabs.firstIndex(of: to),
+              a != centre, b != centre else { return false }
+        return (a < centre && b > centre) || (a > centre && b < centre)
     }
 }
 
@@ -813,7 +1033,7 @@ private struct NativeProfileTabView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 112)
         }
-        .background(NativePolish.screenBackground.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-profile-tab")
     }
 }
@@ -859,7 +1079,7 @@ private struct NativeContextualDestinationView: View {
                                 .padding(.top, 16)
                                 .padding(.bottom, 112)
                         }
-                        .background(NativePolish.screenBackground.ignoresSafeArea())
+                        .background(NativeDeepSpaceGround())
                         .navigationBarHidden(true)
                     }
                 } else if case .party(let route) = destination {
@@ -1275,21 +1495,21 @@ private enum NativeProfileStyle {
     static let title = NativeTheme.textPrimary
     static let body = NativeTheme.textSecondary
     static let muted = NativeTheme.textTertiary
-    static let cardBorder = Color.adaptive(lightHex: 0x000000, darkHex: 0xFFFFFF, lightAlpha: 0.09, darkAlpha: 0.045)
-    static let strongBorder = Color.adaptive(lightHex: 0x000000, darkHex: 0xFFFFFF, lightAlpha: 0.12, darkAlpha: 0.065)
+    static let cardBorder = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.10, darkAlpha: 0.045)
+    static let strongBorder = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.16, darkAlpha: 0.065)
     static let hairline = NativePolish.softBorder
-    static let insetSurface = Color.adaptive(lightHex: 0x111827, darkHex: 0xFFFFFF, lightAlpha: 0.055, darkAlpha: 0.070)
-    static let nestedSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.46, darkAlpha: 0.038)
+    static let insetSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.085, darkAlpha: 0.070)
+    static let nestedSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.055, darkAlpha: 0.038)
     static let onVibrant = Color(hex: 0x050507)
-    static let menuIconSurface = Color.adaptive(lightHex: 0xE8F8FF, darkHex: 0x071F2A, lightAlpha: 1.0, darkAlpha: 0.92)
-    static let chipSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.58, darkAlpha: 0.08)
+    static let menuIconSurface = Color.adaptive(lightHex: 0x0E3444, darkHex: 0x071F2A, lightAlpha: 0.96, darkAlpha: 0.92)
+    static let chipSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.11, darkAlpha: 0.08)
     static let danger = Color.adaptive(lightHex: 0xDC2626, darkHex: 0xDC2626)
     static let dangerBorder = Color.adaptive(lightHex: 0xB91C1C, darkHex: 0xFCA5A5, lightAlpha: 0.34, darkAlpha: 0.78)
-    static let referralPillSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0x000000, lightAlpha: 0.56, darkAlpha: 0.34)
+    static let referralPillSurface = Color.adaptive(lightHex: 0x000000, darkHex: 0x000000, lightAlpha: 0.30, darkAlpha: 0.34)
 
     static func cardSurface(accent: Color? = nil) -> LinearGradient {
         LinearGradient(
-            colors: [Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0x111820, lightAlpha: 0.82, darkAlpha: 0.42), (accent ?? NativeTheme.cyan).opacity(0.038), Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0x0A0D12, lightAlpha: 0.62, darkAlpha: 0.24)],
+            colors: [Color.adaptive(lightHex: 0x232A50, darkHex: 0x111820, lightAlpha: 0.60, darkAlpha: 0.42), (accent ?? NativeTheme.cyan).opacity(0.038), Color.adaptive(lightHex: 0x1A2044, darkHex: 0x0A0D12, lightAlpha: 0.40, darkAlpha: 0.24)],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -1661,7 +1881,7 @@ private struct NativeProfilePanelSheet: View {
                 .padding(.bottom, 16)
                 .background(NativePolish.screenBackground)
         }
-        .background(NativePolish.screenBackground.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-profile-panel-\(panel.rawValue)")
     }
 
@@ -3850,7 +4070,7 @@ private struct NativeNetworkHubView: View {
                 .animation(.spring(response: 0.32, dampingFraction: 0.82), value: segment)
             }
         }
-        .background(NativePolish.screenBackground.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-network-hub")
         .task(id: sessionStore.isAuthenticated) { await refreshNetwork() }
         .fullScreenCover(isPresented: $showHostStudio) {
@@ -5575,8 +5795,27 @@ private struct NativeGuestSavePromptSheet: View {
                 .buttonStyle(.plain)
         }
         .padding(20)
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-guest-save-prompt")
+        .modifier(NativeGuestSavePromptPresentation())
+    }
+}
+
+/// Short content in a `.large` sheet left the container visible above and below
+/// the ground -- `systemBackground`, so a white band in Light. The detent sizes
+/// the sheet to the content; the clear background stops the container painting
+/// behind it either way. Deployment target is iOS 15, and
+/// `presentationBackground` is 16.4 rather than 16.0, so the two need separate
+/// guards.
+private struct NativeGuestSavePromptPresentation: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content.presentationDetents([.height(320)]).presentationBackground(.clear)
+        } else if #available(iOS 16.0, *) {
+            content.presentationDetents([.height(320)])
+        } else {
+            content
+        }
     }
 }
 
@@ -6543,8 +6782,20 @@ private struct NativeHomeDashboardView: View {
             Text("Local picks are updating").nativeTitle(20)
             Text("We won't show far-away places. Search or open Discover to check trusted options around your current location.").nativeBody(size: 12.5, color: NativeTheme.textSecondary)
             HStack(spacing: 8) {
-                Button("Open Discover") { openNativeTab(.discover) }.buttonStyle(.borderedProminent)
-                Button("Map near me") { openNativeTab(.map) }.buttonStyle(.bordered)
+                // System button styles brought their own tint in here: white on
+                // the system blue measured 3.23:1, and the bordered pill put a
+                // blue label on grey at 1.58:1 in Light. Brand cyan carries the
+                // ink instead -- 9.21:1 filled, 6.82:1 as a label on the panel.
+                Button("Open Discover") { openNativeTab(.discover) }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color(red: 10/255, green: 10/255, blue: 30/255))
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(Capsule().fill(NativeTheme.cyan))
+                Button("Map near me") { openNativeTab(.map) }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(NativeTheme.cyan)
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(Capsule().stroke(NativeTheme.cyan.opacity(0.45), lineWidth: 1))
             }
         }
         .padding(14)
@@ -7240,7 +7491,7 @@ private struct NativeHomeSearchSheet: View {
             }
         }
         .padding(20)
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier(contextTitle == "Home Search" ? "native-home-search-sheet" : "native-map-search-sheet")
     }
 
@@ -8192,7 +8443,7 @@ private struct NativeBoutiqueStayBookingSheet: View {
             .padding(.top, 14)
             .padding(.bottom, 32)
         }
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier(NativeBoutiqueStayBookingContract.accessibilityID)
         .onAppear { runPreviewAutoRequestIfNeeded() }
     }
@@ -8833,7 +9084,7 @@ private struct NativeParkingBookingSheet: View {
             .padding(18)
             .padding(.bottom, 28)
         }
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-smart-parking-booking-sheet")
         .onAppear { runPreviewAutoconfirmIfNeeded() }
     }
@@ -9440,7 +9691,7 @@ private struct NativeValetLocationPicker: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier(NativeValetLocationPickerContract.pickerIdentifier)
         .onAppear { selected = initialPlace }
         .onChange(of: query) { completer.update(query: $0) }
@@ -9644,7 +9895,7 @@ private struct NativeValetPremiumRideSheet: View {
             .onAppear { pinEntryToRouteSelector(using: scrollProxy) }
             .onChange(of: state) { _ in pinEntryToRouteSelector(using: scrollProxy) }
         }
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-valet-premium-ride-sheet")
         .onAppear { prepareCardDetailEntryIfNeeded() }
         .task { await runAutorunIfRequested() }
@@ -10798,7 +11049,7 @@ private struct NativeDiscoverView: View {
         .sheet(isPresented: Binding(get: { guestSavePromptTitle != nil }, set: { if !$0 { guestSavePromptTitle = nil } })) {
             NativeGuestSavePromptSheet(title: "Save \(guestSavePromptTitle ?? "this spot")?", subtitle: "Sign in to keep this favorite and sync it across devices.", onSignIn: openNativeAuth)
         }
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-discover-depth")
     }
 
@@ -11392,7 +11643,11 @@ private struct NativeDiscoverFeatureCard: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(displayCategory)
                                 .font(.system(size: 12, weight: .black))
-                                .foregroundColor(cardFulfillment == .details ? NativeTheme.textPrimary.opacity(0.86) : NativeProfileStyle.onVibrant)
+                                // A details card fills this pill with `neutral`, a mid
+                                // grey, so white ink measured 2.27:1 in both appearances.
+                                // Mid fills take dark ink; only the saturated fulfilment
+                                // accents are dark enough to carry white.
+                                .foregroundColor(cardFulfillment == .details ? NativeTheme.inverseText.opacity(0.92) : NativeProfileStyle.onVibrant)
                                 .padding(.horizontal, 13)
                                 .frame(minHeight: 36)
                                 .background(categoryGradient)
@@ -11973,7 +12228,7 @@ private struct NativeVenueDetailView: View {
             .padding(.top, max(10, detailHorizontalPadding - 4))
             .padding(.bottom, 28)
         }
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-venue-detail")
         .sheet(isPresented: $showGuestSavePrompt) {
             NativeGuestSavePromptSheet(title: guestPromptTitle, subtitle: guestPromptSubtitle, ctaTitle: guestPromptCTA, onSignIn: continueGuestPromptSignIn)
@@ -12528,7 +12783,7 @@ private struct NativeEventRideBookingSheet: View {
             .padding(18)
             .padding(.bottom, 30)
         }
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .onAppear { locationStore.requestWhenInUseIfNeeded() }
         .task { await requestQuoteIfPossible() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in
@@ -12874,7 +13129,7 @@ private struct NativeMenuCheckoutSheet: View {
             .padding(18)
             .padding(.bottom, 28)
         }
-        .background(NativeTheme.background.ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .accessibilityIdentifier(NativeMenuCheckoutContract.accessibilityID)
     }
 
@@ -14433,23 +14688,27 @@ private struct NativeMapExploreView: View {
             HStack(spacing: 12) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 19, weight: .black))
-                    .foregroundColor(NativeTheme.cyan.opacity(0.88))
+                    .foregroundColor(NativeTheme.cyan)
                 Text("Search destination or service type")
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(NativeTheme.textTertiary)
+                    .foregroundColor(NativeTheme.textSecondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.76)
                 Spacer(minLength: 0)
             }
+            // The capsule is gone: no fill, no material, no border, no shadow.
+            // The map is the surface and only the mark and the words float on
+            // it. Tertiary ink was tuned to sit on a dark panel that no longer
+            // exists, so it moves up to secondary, and the glyphs carry their
+            // own soft shadow -- the map underneath is user-controlled and can
+            // pan a white building under the text, which no token can defend
+            // against.
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity)
             .frame(height: NativePolish.mapSearchHeight)
-            .background(NativePolish.mapControlSurface)
-            .background(.ultraThinMaterial)
-            .overlay(RoundedRectangle(cornerRadius: Self.searchOverlayCornerRadius, style: .continuous).stroke(NativePolish.strongBorder, lineWidth: 1))
-            .overlay(RoundedRectangle(cornerRadius: Self.searchOverlayCornerRadius, style: .continuous).fill(LinearGradient(colors: [NativeTheme.surfaceHighlight, Color.clear], startPoint: .topLeading, endPoint: .bottomTrailing)).allowsHitTesting(false))
-            .clipShape(RoundedRectangle(cornerRadius: Self.searchOverlayCornerRadius, style: .continuous))
-            .shadow(color: NativeTheme.panelShadow, radius: 20, x: 0, y: 12)
+            .contentShape(RoundedRectangle(cornerRadius: Self.searchOverlayCornerRadius, style: .continuous))
+            .shadow(color: Color.black.opacity(0.55), radius: 5, x: 0, y: 1)
+            .shadow(color: Color.black.opacity(0.35), radius: 12, x: 0, y: 3)
         }
         .buttonStyle(.plain)
     }
@@ -16341,7 +16600,7 @@ private struct NativeDarkMapBackdrop: View {
         GeometryReader { proxy in
             ZStack {
                 NativePolish.mapBaseSurface
-                LinearGradient(colors: [NativePolish.mapPanelSurface.opacity(0.82), NativePolish.mapBaseSurface, Color.adaptive(lightHex: 0xD7E2EA, darkHex: 0x000000, lightAlpha: 0.50, darkAlpha: 0.96)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                LinearGradient(colors: [NativePolish.mapPanelSurface.opacity(0.82), NativePolish.mapBaseSurface, Color.adaptive(lightHex: 0x0B0F26, darkHex: 0x000000, lightAlpha: 0.50, darkAlpha: 0.96)], startPoint: .topLeading, endPoint: .bottomTrailing)
                 Canvas { context, size in
                     for i in stride(from: 0, through: Int(size.width), by: 38) {
                         var path = Path(); path.move(to: CGPoint(x: CGFloat(i), y: 0)); path.addLine(to: CGPoint(x: CGFloat(i) + 80, y: size.height))
@@ -16359,11 +16618,13 @@ private struct NativeDarkMapBackdrop: View {
                         context.stroke(path, with: .color(NativePolish.mapRoadLine), lineWidth: 1.4)
                     }
                 }
+                // Vignette under the labels, not over them: drawn last it took
+                // the lower labels down to 1.78:1 against the base.
+                LinearGradient(colors: [NativePolish.mapBaseSurface.opacity(0.36), .clear, Color.adaptive(lightHex: 0x080C20, darkHex: 0x000000, lightAlpha: 0.36, darkAlpha: 0.72)], startPoint: .top, endPoint: .bottom)
                 mapLabel(labels[0], x: 0.47, y: 0.22, angle: -38, in: proxy.size)
                 mapLabel(labels[1], x: 0.30, y: 0.52, angle: -90, in: proxy.size)
                 mapLabel(labels[2], x: 0.78, y: 0.48, angle: 0, in: proxy.size)
                 mapLabel(labels[3], x: 0.72, y: 0.72, angle: -21, in: proxy.size)
-                LinearGradient(colors: [NativePolish.mapBaseSurface.opacity(0.36), .clear, Color.adaptive(lightHex: 0xCBD7E1, darkHex: 0x000000, lightAlpha: 0.36, darkAlpha: 0.72)], startPoint: .top, endPoint: .bottom)
             }
         }
     }
@@ -16648,17 +16909,17 @@ enum NativeConciergeRegionPresentation {
     static func fallbackResponse(for topic: Topic, location: NativeLocationCoordinate) -> String {
         if isVerifiedAtlanta(location) {
             switch topic {
-            case .parking: return "Parking nearby:\n\n• Midtown Smart Parking — 22 spots\n• Colony Square — quick walk\n• Arts Center Access — event-side parking\n\nTap Show on Map to compare pins and reserve from the parking detail."
+            case .parking: return "Parking nearby:\n\n• Midtown Smart Parking — 22 spots\n• Colony Square — quick walk\n• Arts Center Access — event-side parking\n\nTap Open Discover to compare options and reserve from the parking detail."
             case .stay: return "Stay booking:\n\n• Midtown Boutique Suite\n• Check-in, check-out, payment method, and total due are shown before request.\n• Host confirmation is required before the reservation is confirmed.\n\nTap Check Dates to open the native stay booking sheet."
             case .open: return "Open around Midtown:\n\n• Colony Square — open now\n• Broni Home Taste — available now\n• GH Akwaaba Pass — digital pass ready\n\nTap Open Discover to filter the cards."
             case .general: return "Good nearby options:\n\n• Colony Square — open\n• Midtown Smart Parking — 22 spots\n• Broni Home Taste — available now\n\nUse the handoff chips below to continue."
             }
         }
         switch topic {
-        case .parking: return "Parking nearby:\n\nI don't have a verified local parking match yet.\n\nTap Show on Map to check current local results."
+        case .parking: return "Parking nearby:\n\nI don't have a verified local parking match yet.\n\nTap Open Discover to check current local results."
         case .stay: return "Stay booking:\n\nI don't have a verified local stay match yet.\n\nTap Open Discover to check current local results."
         case .open: return "Open around your area:\n\nI don't have a verified local venue match yet.\n\nTap Open Discover to check current local results."
-        case .general: return "Good nearby options are still updating.\n\nUse Open Discover or Show on Map to check current local results."
+        case .general: return "Good nearby options are still updating.\n\nUse Open Discover to check current local results."
         }
     }
 
@@ -16686,7 +16947,7 @@ enum NativeConciergeRegionPresentation {
 }
 
 private struct NativeConciergeView: View {
-    enum HandoffAction: String, CaseIterable, Equatable { case discover, map, booking }
+    enum HandoffAction: String, CaseIterable, Equatable { case discover, booking }
     struct ActionCard: Identifiable, Equatable {
         let id: String
         let type: String
@@ -16719,14 +16980,12 @@ private struct NativeConciergeView: View {
     var openNativeAuth: (() -> Void)? = nil
     @State private var draft = ""
     @State private var isListening = false
-    @State private var showHistory = false
     @State private var isTyping = false
     @State private var didRunPreviewPrompt = false
     @State private var consumedNativeHandoffPrompt = ""
     @State private var nextMessageID = 2
     @State private var messages: [ConciergeMessage] = [ConciergeMessage(id: 1, text: NativeConciergeRegionPresentation.genericWelcomeMessage, isUser: false)]
     @State private var stayBookingVenue: NativeVenueSummary?
-    @State private var historyTitles: [String] = []
     @State private var connectionState = "ready"
     @AppStorage(NativeConciergeHandoffStore.promptKey) private var handoffPrompt = ""
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
@@ -16742,14 +17001,13 @@ private struct NativeConciergeView: View {
     static let headerTitle = "Bytspot Concierge"
     static let statusLabel = "Assist"
     static let suggestionPrompts = ["Find parking nearby", "Check stay dates", "Access my booking", "What’s open now?"]
-    static let handoffActionTitles = ["Open Discover", "Show on Map", "Check Dates"]
+    static let handoffActionTitles = ["Open Discover", "Check Dates"]
     static let composerPlaceholder = "Message Concierge…"
     static let nativeHandoffPromptKey = NativeConciergeHandoffStore.promptKey
 
     var body: some View {
         VStack(spacing: 0) {
             conciergeHeader
-            if showHistory { historyPanel.transition(.opacity.combined(with: .move(edge: .top))) }
             chatTranscript
             suggestionRail
             composer
@@ -16802,13 +17060,10 @@ private struct NativeConciergeView: View {
                     }
                 }
                 Spacer()
-                // Profile is the global top-right avatar; the stack keeps only
-                // the Concierge-specific controls and clears the avatar.
-                HStack(spacing: 8) {
-                    headerIconButton(symbol: "line.3.horizontal") { withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) { showHistory.toggle() } }
-                    headerIconButton(symbol: "arrow.clockwise") { resetConversation() }
-                }
-                .padding(.trailing, 52)
+                // The header carries no Concierge controls now. The trailing
+                // inset still clears the global top-right avatar, which the
+                // shell draws over every tab.
+                Color.clear.frame(width: 52, height: 1)
             }
             .padding(.horizontal, 16)
             .padding(.top, 24)
@@ -16845,42 +17100,6 @@ private struct NativeConciergeView: View {
         tabContentStore.bestValueOptions(for: locationStore.coordinate).isEmpty ? Self.suggestionPrompts : ["Best value nearby"] + Self.suggestionPrompts
     }
 
-    private var historyPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Concierge Request History", systemImage: "clock.arrow.circlepath")
-                .font(.system(size: 12, weight: .heavy))
-                .foregroundColor(NativeTheme.textSecondary)
-            if historyTitles.isEmpty {
-                Text("No past conversations yet.")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundColor(NativeTheme.textTertiary)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(NativeTheme.selectedControlSurface)
-                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            } else {
-                ForEach(Array(historyTitles.prefix(3)), id: \.self) { title in
-                    Text(title)
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(NativeTheme.textPrimary)
-                        .lineLimit(1)
-                        .padding(.horizontal, 12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .frame(height: 38)
-                        .background(NativeTheme.selectedControlSurface)
-                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(NativePolish.glassSurface)
-        .overlay(Rectangle().fill(NativePolish.softBorder).frame(height: 1), alignment: .bottom)
-        .accessibilityIdentifier("native-concierge-history")
-    }
-
     private var chatTranscript: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
@@ -16895,7 +17114,7 @@ private struct NativeConciergeView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 16)
             }
-            .onChange(of: messages.count) { _ in withAnimation(.easeOut(duration: 0.22)) { proxy.scrollTo(messages.last?.id, anchor: .bottom) } }
+            .onChange(of: messages.count) { _ in withAnimation(NativePolish.conciergeMessageSpring) { proxy.scrollTo(messages.last?.id, anchor: .bottom) } }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
@@ -16952,7 +17171,6 @@ private struct NativeConciergeView: View {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
             messages.append(ConciergeMessage(id: createMessageID(), text: text, isUser: true))
         }
-        historyTitles = Array(([text] + historyTitles).prefix(12))
         draft = ""
         isTyping = true
         connectionState = "thinking"
@@ -17031,17 +17249,6 @@ private struct NativeConciergeView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { send(prompt) }
     }
 
-    private func resetConversation() {
-        nativeImpactLight()
-        withAnimation(.spring(response: 0.26, dampingFraction: 0.86)) {
-            nextMessageID = 2
-            messages = [ConciergeMessage(id: 1, text: NativeConciergeRegionPresentation.welcomeMessage(for: locationStore.coordinate), isUser: false)]
-            connectionState = "ready"
-            showHistory = false
-            isTyping = false
-            draft = ""
-        }
-    }
 
     private func syncWelcomeMessage() {
         guard messages.count == 1, messages[0].id == 1, !messages[0].isUser else { return }
@@ -17065,16 +17272,16 @@ private struct NativeConciergeView: View {
     private func inferHandoffs(_ query: String) -> [HandoffAction] {
         let q = query.lowercased()
         var actions: [HandoffAction] = []
-        if isStayQuery(q) { return [.booking, .map] }
-        if q.contains("parking") || q.contains("nearby") || q.contains("map") { actions.append(.map) }
+        if isStayQuery(q) { return [.booking] }
+        if q.contains("parking") || q.contains("nearby") { actions.append(.discover) }
         if q.contains("open") || q.contains("discover") || q.contains("chef") || q.contains("food") || q.contains("service") || q.contains("stay") || q.contains("ride") { actions.append(.discover) }
         if q.contains("book") || q.contains("reservation") || q.contains("availability") || q.contains("stay") || q.contains("chef") || q.contains("access") { actions.append(.booking) }
-        return actions.isEmpty ? [.discover, .map] : actions
+        return actions.isEmpty ? [.discover] : Array(Set(actions)).sorted { $0.rawValue < $1.rawValue }
     }
 
     private func localFallbackResponse(for query: String) -> String {
         let q = query.lowercased()
-        if q.contains("best value"), let option = tabContentStore.bestValueOptions(for: locationStore.coordinate).first { return "Best value nearby:\n\n• \(option.title) — \(option.nativeValueSummary)\n• Price parity \(option.priceParityScore)/100 from \(option.source.replacingOccurrences(of: "_", with: " "))\n\nTap Open Discover or Show on Map to continue with the ranked option." }
+        if q.contains("best value"), let option = tabContentStore.bestValueOptions(for: locationStore.coordinate).first { return "Best value nearby:\n\n• \(option.title) — \(option.nativeValueSummary)\n• Price parity \(option.priceParityScore)/100 from \(option.source.replacingOccurrences(of: "_", with: " "))\n\nTap Open Discover to continue with the ranked option." }
         if q.contains("parking") { return NativeConciergeRegionPresentation.fallbackResponse(for: .parking, location: locationStore.coordinate) }
         if isStayQuery(q) { return NativeConciergeRegionPresentation.fallbackResponse(for: .stay, location: locationStore.coordinate) }
         if q.contains("open") { return NativeConciergeRegionPresentation.fallbackResponse(for: .open, location: locationStore.coordinate) }
@@ -17086,7 +17293,6 @@ private struct NativeConciergeView: View {
         nativeImpactLight()
         switch action {
         case .discover: openNativeTab(.discover)
-        case .map: openNativeTab(.map)
         case .booking:
             if isStayQuery(query ?? "") {
                 if let venue = resolvedStayVenue(for: query ?? "") { stayBookingVenue = venue }
@@ -17099,7 +17305,9 @@ private struct NativeConciergeView: View {
     private func handleServerAction(_ action: ActionCard, _ query: String?) {
         nativeImpactLight()
         switch action.handoff.lowercased() {
-        case "map": openNativeTab(.map)
+        // The server can still emit a map handoff. Concierge no longer sends
+        // anyone to the map, so it lands on Discover rather than dead-ending.
+        case "map": openNativeTab(.discover)
         case "access": openNativeAccess()
         case "stay":
             if let venue = resolvedStayVenue(for: query ?? action.subtitle) { stayBookingVenue = venue }
@@ -17148,7 +17356,7 @@ private struct NativeConciergeView: View {
 
     private var conciergeRadialBackground: some View {
         ZStack {
-            NativePolish.screenBackground
+            NativeDeepSpaceGround()
             RadialGradient(colors: [NativeTheme.purple.opacity(colorScheme == .dark ? 0.12 : 0.075), .clear], center: .topTrailing, startRadius: 8, endRadius: 280)
             RadialGradient(colors: [NativeTheme.cyan.opacity(colorScheme == .dark ? 0.09 : 0.055), .clear], center: .bottomLeading, startRadius: 8, endRadius: 260)
         }
@@ -17168,18 +17376,6 @@ private struct NativeConciergeView: View {
         }
     }
 
-    private func headerIconButton(symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: { nativeImpactLight(); action() }) {
-            Image(systemName: symbol)
-                .font(.system(size: 14, weight: .black))
-                .foregroundColor(NativeTheme.textPrimary.opacity(colorScheme == .dark ? 0.70 : 0.58))
-                .frame(width: 32, height: 32)
-                .background(NativeTheme.selectedControlSurface)
-                .overlay(Circle().stroke(NativePolish.softBorder, lineWidth: 1))
-                .clipShape(Circle())
-        }
-        .buttonStyle(.plain)
-    }
 }
 
 private struct NativeConciergeMessageBubble: View {
@@ -17233,12 +17429,12 @@ private struct NativeConciergeMessageBubble: View {
     private var escalationBadge: some View {
         Text("Concierge review required")
             .font(.system(size: 12, weight: .black))
-            .foregroundColor(Color.adaptive(lightHex: 0x075985, darkHex: 0xCFFAFE))
+            .foregroundColor(Color.adaptive(lightHex: 0xCFFAFE, darkHex: 0xCFFAFE))
             .lineLimit(1)
             .minimumScaleFactor(0.82)
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
-            .background(Color.adaptive(lightHex: 0xE8F8FF, darkHex: 0x072633, lightAlpha: 1.0, darkAlpha: 0.86))
+            .background(Color.adaptive(lightHex: 0x0B3040, darkHex: 0x072633, lightAlpha: 0.92, darkAlpha: 0.86))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativeTheme.cyan.opacity(colorScheme == .dark ? 0.24 : 0.34), lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
@@ -17303,7 +17499,6 @@ private struct NativeConciergeMessageBubble: View {
     private func label(for action: NativeConciergeView.HandoffAction, query: String? = nil) -> String {
         switch action {
         case .discover: return "Open Discover"
-        case .map: return "Show on Map"
         case .booking:
             let q = (query ?? "").lowercased()
             return (q.contains("stay") || q.contains("suite") || q.contains("availability") || q.contains("check dates") || q.contains("boutique")) ? "Check Dates" : "Open My Access"
@@ -17386,13 +17581,16 @@ private struct NativeScreenScroll<Content: View>: View {
     let content: Content
     init(@ViewBuilder content: () -> Content) { self.content = content() }
     // The floating tab bar is attached via safeAreaInset, so the scroll content is inset automatically.
-    var body: some View { ScrollView { VStack(alignment: .leading, spacing: NativePolish.sectionSpacing) { content }.padding(.horizontal, NativePolish.screenPadding).padding(.top, 20).padding(.bottom, 20) }.background(NativePolish.screenBackground.ignoresSafeArea()) }
+    var body: some View { ScrollView { VStack(alignment: .leading, spacing: NativePolish.sectionSpacing) { content }.padding(.horizontal, NativePolish.screenPadding).padding(.top, 20).padding(.bottom, 20) }.background(NativeDeepSpaceGround()) }
 }
 
 enum NativePolish {
-    static let baseHex = 0x050507
-    static let panelHex = 0x080A10
-    static let elevatedHex = 0x101116
+    // The canvas is deep indigo, not black. True black gives a card nothing to
+    // sit in: it reads as a grey rectangle on nothing. A dark hue lets the same
+    // card feel lit, and lets one accent carry the whole screen.
+    static let baseHex = 0x0A0A1E
+    static let panelHex = 0x11142B
+    static let elevatedHex = 0x191D36
     static let screenPadding: CGFloat = 20
     static let sectionSpacing: CGFloat = 24
     static let cardRadius: CGFloat = 24
@@ -17401,11 +17599,14 @@ enum NativePolish {
     static let chipHeight: CGFloat = 36
     static let bottomBarHeight: CGFloat = 72
     static let bottomBarRadius: CGFloat = 24
+    /// Message entry and transcript follow: stiffness 320, damping 30, mass 0.8.
+    static let conciergeMessageSpring = Animation.interpolatingSpring(mass: 0.8, stiffness: 320, damping: 30)
     static let bottomBarHorizontalPadding: CGFloat = 16
     static let bottomBarBottomPadding: CGFloat = 8
     static let bottomBarInnerHorizontalPadding: CGFloat = 4
     static let bottomBarInnerVerticalPadding: CGFloat = 8
     static let bottomTabItemHeight: CGFloat = 56
+    static let bottomBarHostRingSize: CGFloat = 38
     static let bottomTabActiveRadius: CGFloat = 14
     static let bottomBarShadowOpacity: Double = 0.40
     static let bottomBarShadowRadius: CGFloat = 24
@@ -17444,17 +17645,40 @@ enum NativePolish {
     static let mapParkingPinSize: CGFloat = 32
     static let mapVenuePinSize: CGFloat = 34
     static let mapTapZonePinSize: CGFloat = 40
-    static let screenBackground = Color.adaptive(lightHex: 0xF5F7FA, darkHex: baseHex)
-    static let glassSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: panelHex, lightAlpha: 0.78, darkAlpha: 0.88)
-    static let elevatedSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: elevatedHex, lightAlpha: 0.92, darkAlpha: 0.90)
-    static let bottomBarSurface = NativeTheme.tabBarBackground
-    static let mapBaseSurface = Color.adaptive(lightHex: 0xEFF4F8, darkHex: mapBaseHex)
-    static let mapPanelSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: mapPanelHex, lightAlpha: 0.88, darkAlpha: 0.94)
-    static let mapControlSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: mapPanelHex, lightAlpha: 0.92, darkAlpha: 0.94)
-    static let mapRoadSurface = Color.adaptive(lightHex: 0xDCE6EE, darkHex: mapPanelHex, lightAlpha: 0.86, darkAlpha: 0.96)
-    static let mapGridLine = Color.adaptive(lightHex: 0x475569, darkHex: 0xFFFFFF, lightAlpha: 0.085, darkAlpha: 0.030)
-    static let mapRoadLine = Color.adaptive(lightHex: 0x334155, darkHex: 0xFFFFFF, lightAlpha: 0.22, darkAlpha: 0.13)
-    static let mapLabelText = Color.adaptive(lightHex: 0x1F2937, darkHex: 0xFFFFFF, lightAlpha: 0.32, darkAlpha: 0.18)
+    // Light is the shallower deep space: the same ground, floor raised.
+    static let lightBaseHex = 0x161B3A
+    static let lightPanelHex = 0x1E2447
+    static let lightElevatedHex = 0x252C52
+    static let screenBackground = Color.adaptive(lightHex: lightBaseHex, darkHex: baseHex)
+    static let glassSurface = Color.adaptive(lightHex: lightPanelHex, darkHex: panelHex, lightAlpha: 0.86, darkAlpha: 0.88)
+    static let elevatedSurface = Color.adaptive(lightHex: lightElevatedHex, darkHex: elevatedHex, lightAlpha: 0.90, darkAlpha: 0.90)
+    // The bar is glass: the tint sits in front of the material and stays thin
+    // enough that the material actually samples the content scrolling under it.
+    // An opaque fill here would blur nothing and simply read as a grey slab.
+    static let bottomBarSurface = Color.adaptive(lightHex: 0x141A38, darkHex: 0x0B0F16, lightAlpha: 0.40, darkAlpha: 0.34)
+    // Named for the map, but 28 of their 59 uses are ordinary panels and round
+    // controls across Profile, sheets and the global chrome. Their light branch
+    // was white, which put white glyphs on white discs once Light stopped being
+    // a white theme, so they follow the deep-space ground like every other
+    // surface. The map is dark in both appearances for the same reason.
+    static let mapBaseSurface = Color.adaptive(lightHex: lightBaseHex, darkHex: mapBaseHex)
+    static let mapPanelSurface = Color.adaptive(lightHex: lightPanelHex, darkHex: mapPanelHex, lightAlpha: 0.90, darkAlpha: 0.94)
+    static let mapControlSurface = Color.adaptive(lightHex: lightElevatedHex, darkHex: mapPanelHex, lightAlpha: 0.94, darkAlpha: 0.94)
+    static let mapRoadSurface = Color.adaptive(lightHex: 0x232A50, darkHex: mapPanelHex, lightAlpha: 0.90, darkAlpha: 0.96)
+    // Dark measured flatter than Light once Light was converted -- roads 1.39:1
+    // and grid 1.26:1 against the base, which is a map you cannot read. The dark
+    // branch is carried up to sit near its light counterpart.
+    static let mapGridLine = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.055, darkAlpha: 0.055)
+    static let mapRoadLine = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.20, darkAlpha: 0.22)
+    // Raising this to chase 4.5:1 was the wrong lever and is reverted. The two
+    // labels that fail are the two that are rotated: `.rotationEffect`
+    // rasterises 13pt Black text off-grid and antialiasing caps the stroke core
+    // regardless of the colour, so Nearby could not pass at any alpha. The two
+    // axis-aligned labels passed either way. At 0.55 the type also outshone the
+    // road network it annotates (labels peaked ~165 against roads ~90), which
+    // reads as type-over-geometry rather than as a map. These are decorative
+    // furniture and sit below the roads, not above them.
+    static let mapLabelText = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.34, darkAlpha: 0.38)
     static let softBorder = NativeTheme.surfaceStroke
     static let strongBorder = NativeTheme.strongSurfaceStroke
     static func brandGradient() -> LinearGradient { LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple, NativeTheme.pink], startPoint: .topLeading, endPoint: .bottomTrailing) }
@@ -18259,12 +18483,31 @@ enum NativeShellThemeSelfTests {
 
     private static func assertTabContract() {
         let tabs = BytspotNativeTab.allCases
-        precondition(tabs.map(\.title) == ["Home", "Plan", "Discover", "Map", "Concierge", "Profile"], "NativeShellThemeSelfTests: tab titles drifted from entry navigation.")
-        precondition(tabs.map(\.icon) == ["house.fill", "calendar", "safari.fill", "map.fill", "sparkles", "person.crop.circle.fill"], "NativeShellThemeSelfTests: tab SF Symbols drifted from migration mapping.")
-        // Profile is reached from the global top-right avatar, so the bottom
-        // bar shows five tabs and never Profile.
-        precondition(BytspotNativeTab.barTabs.map(\.title) == ["Home", "Plan", "Discover", "Map", "Concierge"], "NativeShellThemeSelfTests: bottom bar tab set drifted.")
+        precondition(tabs.map(\.title) == ["Home", "Plan", "Host", "Discover", "Map", "Concierge", "Profile"], "NativeShellThemeSelfTests: tab titles drifted from entry navigation.")
+        precondition(BytspotNativeTab.plan.barTitle == "Start Plan", "NativeShellThemeSelfTests: the centre must name itself with its verb.")
+        precondition(BytspotNativeTab.home.barTitle == BytspotNativeTab.home.title, "NativeShellThemeSelfTests: only the centre renames in the bar.")
+        // The centre draws the brand mark rather than an SF Symbol, so no glyph
+        // name is asserted here, and it carries no visible caption: the mark is
+        // the label. The verb survives as the accessibility name, so the bar
+        // still calls it by its verb while every other surface keeps Plan a noun.
+        precondition(BytspotNativeTab.plan.barTitle == "Start Plan" && BytspotNativeTab.plan.title == "Plan", "NativeShellThemeSelfTests: the centre must read as a verb to VoiceOver and a noun everywhere else.")
+        // Profile is reached from the global top-right avatar and Map from the
+        // global top-left icon, so the bottom bar shows five entries and never
+        // either of those two.
+        precondition(BytspotNativeTab.barTabs.map(\.title) == ["Home", "Host", "Plan", "Discover", "Concierge"], "NativeShellThemeSelfTests: bottom bar tab set drifted.")
         precondition(!BytspotNativeTab.barTabs.contains(.profile), "NativeShellThemeSelfTests: Profile must not appear in the bottom bar.")
+        precondition(!BytspotNativeTab.barTabs.contains(.map), "NativeShellThemeSelfTests: Map is a top-left destination and must not appear in the bottom bar.")
+        // Every bar slot is a destination now, so exactly one of them can hold
+        // the selection and the centre is the middle of the five.
+        precondition(BytspotNativeTab.barTabs.filter(\.isBarCenter) == [.plan], "NativeShellThemeSelfTests: Plan must be the only bar centre.")
+        precondition(BytspotNativeTab.barTabs.firstIndex(of: .plan) == 2, "NativeShellThemeSelfTests: the centre must sit in the middle of the bar.")
+        precondition(BytspotNativeTab.barTabs.filter(\.requiresAuthentication) == [.host], "NativeShellThemeSelfTests: Host Studio must be the only bar entry that demands a signed-in caller.")
+        // Map is a destination: it hides the bar and offers a back control that
+        // never re-enters Map.
+        precondition(!BytspotNativeShellView.tabBarIsVisible(for: .map), "NativeShellThemeSelfTests: Map must hide the bottom bar.")
+        precondition(BytspotNativeTab.barTabs.allSatisfy { BytspotNativeShellView.tabBarIsVisible(for: $0) }, "NativeShellThemeSelfTests: bar tabs must keep the bottom bar.")
+        precondition(BytspotNativeShellView.mapReturnTarget(from: .map) == .home, "NativeShellThemeSelfTests: Map back must fail closed to Home.")
+        precondition(BytspotNativeShellView.mapReturnTarget(from: .host) == .host, "NativeShellThemeSelfTests: Host is a destination and must be returned to.")
     }
 
     private static func assertDefaultTierFallback() {
@@ -18818,7 +19061,7 @@ enum NativeConciergeParitySelfTests {
         precondition(NativeConciergeView.transcriptBaseHex == 0x050507, "NativeConciergeParitySelfTests: Concierge transcript base color drifted.")
         precondition(NativeConciergeView.messageBubbleMaxWidthRatio == 0.84 && NativeConciergeView.messageBubbleCornerRadius == 22 && NativeConciergeView.messageBubbleFontSize == 14, "NativeConciergeParitySelfTests: Concierge bubble metrics drifted.")
         precondition(NativeConciergeView.suggestionPrompts == ["Find parking nearby", "Check stay dates", "Access my booking", "What’s open now?"], "NativeConciergeParitySelfTests: Concierge suggestion prompts drifted.")
-        precondition(NativeConciergeView.handoffActionTitles == ["Open Discover", "Show on Map", "Check Dates"], "NativeConciergeParitySelfTests: Concierge stay booking handoff must open native booking, not generic Discover.")
+        precondition(NativeConciergeView.handoffActionTitles == ["Open Discover", "Check Dates"], "NativeConciergeParitySelfTests: Concierge stay booking handoff must open native booking, not generic Discover.")
         precondition(NativeConciergeView.composerPlaceholder == "Message Concierge…", "NativeConciergeParitySelfTests: Concierge composer placeholder drifted.")
     }
 }

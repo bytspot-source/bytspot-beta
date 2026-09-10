@@ -16543,7 +16543,7 @@ private struct NativeDarkMapBackdrop: View {
         GeometryReader { proxy in
             ZStack {
                 NativePolish.mapBaseSurface
-                LinearGradient(colors: [NativePolish.mapPanelSurface.opacity(0.82), NativePolish.mapBaseSurface, Color.adaptive(lightHex: 0xD7E2EA, darkHex: 0x000000, lightAlpha: 0.50, darkAlpha: 0.96)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                LinearGradient(colors: [NativePolish.mapPanelSurface.opacity(0.82), NativePolish.mapBaseSurface, Color.adaptive(lightHex: 0x0B0F26, darkHex: 0x000000, lightAlpha: 0.50, darkAlpha: 0.96)], startPoint: .topLeading, endPoint: .bottomTrailing)
                 Canvas { context, size in
                     for i in stride(from: 0, through: Int(size.width), by: 38) {
                         var path = Path(); path.move(to: CGPoint(x: CGFloat(i), y: 0)); path.addLine(to: CGPoint(x: CGFloat(i) + 80, y: size.height))
@@ -16565,7 +16565,7 @@ private struct NativeDarkMapBackdrop: View {
                 mapLabel(labels[1], x: 0.30, y: 0.52, angle: -90, in: proxy.size)
                 mapLabel(labels[2], x: 0.78, y: 0.48, angle: 0, in: proxy.size)
                 mapLabel(labels[3], x: 0.72, y: 0.72, angle: -21, in: proxy.size)
-                LinearGradient(colors: [NativePolish.mapBaseSurface.opacity(0.36), .clear, Color.adaptive(lightHex: 0xCBD7E1, darkHex: 0x000000, lightAlpha: 0.36, darkAlpha: 0.72)], startPoint: .top, endPoint: .bottom)
+                LinearGradient(colors: [NativePolish.mapBaseSurface.opacity(0.36), .clear, Color.adaptive(lightHex: 0x080C20, darkHex: 0x000000, lightAlpha: 0.36, darkAlpha: 0.72)], startPoint: .top, endPoint: .bottom)
             }
         }
     }
@@ -17661,13 +17661,18 @@ enum NativePolish {
     // enough that the material actually samples the content scrolling under it.
     // An opaque fill here would blur nothing and simply read as a grey slab.
     static let bottomBarSurface = Color.adaptive(lightHex: 0x141A38, darkHex: 0x0B0F16, lightAlpha: 0.40, darkAlpha: 0.34)
-    static let mapBaseSurface = Color.adaptive(lightHex: 0xEFF4F8, darkHex: mapBaseHex)
-    static let mapPanelSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: mapPanelHex, lightAlpha: 0.88, darkAlpha: 0.94)
-    static let mapControlSurface = Color.adaptive(lightHex: 0xFFFFFF, darkHex: mapPanelHex, lightAlpha: 0.92, darkAlpha: 0.94)
-    static let mapRoadSurface = Color.adaptive(lightHex: 0xDCE6EE, darkHex: mapPanelHex, lightAlpha: 0.86, darkAlpha: 0.96)
-    static let mapGridLine = Color.adaptive(lightHex: 0x475569, darkHex: 0xFFFFFF, lightAlpha: 0.085, darkAlpha: 0.030)
-    static let mapRoadLine = Color.adaptive(lightHex: 0x334155, darkHex: 0xFFFFFF, lightAlpha: 0.22, darkAlpha: 0.13)
-    static let mapLabelText = Color.adaptive(lightHex: 0x1F2937, darkHex: 0xFFFFFF, lightAlpha: 0.32, darkAlpha: 0.18)
+    // Named for the map, but 28 of their 59 uses are ordinary panels and round
+    // controls across Profile, sheets and the global chrome. Their light branch
+    // was white, which put white glyphs on white discs once Light stopped being
+    // a white theme, so they follow the deep-space ground like every other
+    // surface. The map is dark in both appearances for the same reason.
+    static let mapBaseSurface = Color.adaptive(lightHex: lightBaseHex, darkHex: mapBaseHex)
+    static let mapPanelSurface = Color.adaptive(lightHex: lightPanelHex, darkHex: mapPanelHex, lightAlpha: 0.90, darkAlpha: 0.94)
+    static let mapControlSurface = Color.adaptive(lightHex: lightElevatedHex, darkHex: mapPanelHex, lightAlpha: 0.94, darkAlpha: 0.94)
+    static let mapRoadSurface = Color.adaptive(lightHex: 0x232A50, darkHex: mapPanelHex, lightAlpha: 0.90, darkAlpha: 0.96)
+    static let mapGridLine = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.055, darkAlpha: 0.030)
+    static let mapRoadLine = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.20, darkAlpha: 0.13)
+    static let mapLabelText = Color.adaptive(lightHex: 0xFFFFFF, darkHex: 0xFFFFFF, lightAlpha: 0.34, darkAlpha: 0.18)
     static let softBorder = NativeTheme.surfaceStroke
     static let strongBorder = NativeTheme.strongSurfaceStroke
     static func brandGradient() -> LinearGradient { LinearGradient(colors: [NativeTheme.cyan, NativeTheme.purple, NativeTheme.pink], startPoint: .topLeading, endPoint: .bottomTrailing) }

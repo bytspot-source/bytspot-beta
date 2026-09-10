@@ -16905,17 +16905,17 @@ enum NativeConciergeRegionPresentation {
     static func fallbackResponse(for topic: Topic, location: NativeLocationCoordinate) -> String {
         if isVerifiedAtlanta(location) {
             switch topic {
-            case .parking: return "Parking nearby:\n\n• Midtown Smart Parking — 22 spots\n• Colony Square — quick walk\n• Arts Center Access — event-side parking\n\nTap Show on Map to compare pins and reserve from the parking detail."
+            case .parking: return "Parking nearby:\n\n• Midtown Smart Parking — 22 spots\n• Colony Square — quick walk\n• Arts Center Access — event-side parking\n\nTap Open Discover to compare options and reserve from the parking detail."
             case .stay: return "Stay booking:\n\n• Midtown Boutique Suite\n• Check-in, check-out, payment method, and total due are shown before request.\n• Host confirmation is required before the reservation is confirmed.\n\nTap Check Dates to open the native stay booking sheet."
             case .open: return "Open around Midtown:\n\n• Colony Square — open now\n• Broni Home Taste — available now\n• GH Akwaaba Pass — digital pass ready\n\nTap Open Discover to filter the cards."
             case .general: return "Good nearby options:\n\n• Colony Square — open\n• Midtown Smart Parking — 22 spots\n• Broni Home Taste — available now\n\nUse the handoff chips below to continue."
             }
         }
         switch topic {
-        case .parking: return "Parking nearby:\n\nI don't have a verified local parking match yet.\n\nTap Show on Map to check current local results."
+        case .parking: return "Parking nearby:\n\nI don't have a verified local parking match yet.\n\nTap Open Discover to check current local results."
         case .stay: return "Stay booking:\n\nI don't have a verified local stay match yet.\n\nTap Open Discover to check current local results."
         case .open: return "Open around your area:\n\nI don't have a verified local venue match yet.\n\nTap Open Discover to check current local results."
-        case .general: return "Good nearby options are still updating.\n\nUse Open Discover or Show on Map to check current local results."
+        case .general: return "Good nearby options are still updating.\n\nUse Open Discover to check current local results."
         }
     }
 
@@ -16943,7 +16943,7 @@ enum NativeConciergeRegionPresentation {
 }
 
 private struct NativeConciergeView: View {
-    enum HandoffAction: String, CaseIterable, Equatable { case discover, map, booking }
+    enum HandoffAction: String, CaseIterable, Equatable { case discover, booking }
     struct ActionCard: Identifiable, Equatable {
         let id: String
         let type: String
@@ -16999,7 +16999,7 @@ private struct NativeConciergeView: View {
     static let headerTitle = "Bytspot Concierge"
     static let statusLabel = "Assist"
     static let suggestionPrompts = ["Find parking nearby", "Check stay dates", "Access my booking", "What’s open now?"]
-    static let handoffActionTitles = ["Open Discover", "Show on Map", "Check Dates"]
+    static let handoffActionTitles = ["Open Discover", "Check Dates"]
     static let composerPlaceholder = "Message Concierge…"
     static let nativeHandoffPromptKey = NativeConciergeHandoffStore.promptKey
 
@@ -17322,16 +17322,16 @@ private struct NativeConciergeView: View {
     private func inferHandoffs(_ query: String) -> [HandoffAction] {
         let q = query.lowercased()
         var actions: [HandoffAction] = []
-        if isStayQuery(q) { return [.booking, .map] }
-        if q.contains("parking") || q.contains("nearby") || q.contains("map") { actions.append(.map) }
+        if isStayQuery(q) { return [.booking] }
+        if q.contains("parking") || q.contains("nearby") { actions.append(.discover) }
         if q.contains("open") || q.contains("discover") || q.contains("chef") || q.contains("food") || q.contains("service") || q.contains("stay") || q.contains("ride") { actions.append(.discover) }
         if q.contains("book") || q.contains("reservation") || q.contains("availability") || q.contains("stay") || q.contains("chef") || q.contains("access") { actions.append(.booking) }
-        return actions.isEmpty ? [.discover, .map] : actions
+        return actions.isEmpty ? [.discover] : Array(Set(actions)).sorted { $0.rawValue < $1.rawValue }
     }
 
     private func localFallbackResponse(for query: String) -> String {
         let q = query.lowercased()
-        if q.contains("best value"), let option = tabContentStore.bestValueOptions(for: locationStore.coordinate).first { return "Best value nearby:\n\n• \(option.title) — \(option.nativeValueSummary)\n• Price parity \(option.priceParityScore)/100 from \(option.source.replacingOccurrences(of: "_", with: " "))\n\nTap Open Discover or Show on Map to continue with the ranked option." }
+        if q.contains("best value"), let option = tabContentStore.bestValueOptions(for: locationStore.coordinate).first { return "Best value nearby:\n\n• \(option.title) — \(option.nativeValueSummary)\n• Price parity \(option.priceParityScore)/100 from \(option.source.replacingOccurrences(of: "_", with: " "))\n\nTap Open Discover to continue with the ranked option." }
         if q.contains("parking") { return NativeConciergeRegionPresentation.fallbackResponse(for: .parking, location: locationStore.coordinate) }
         if isStayQuery(q) { return NativeConciergeRegionPresentation.fallbackResponse(for: .stay, location: locationStore.coordinate) }
         if q.contains("open") { return NativeConciergeRegionPresentation.fallbackResponse(for: .open, location: locationStore.coordinate) }
@@ -17343,7 +17343,6 @@ private struct NativeConciergeView: View {
         nativeImpactLight()
         switch action {
         case .discover: openNativeTab(.discover)
-        case .map: openNativeTab(.map)
         case .booking:
             if isStayQuery(query ?? "") {
                 if let venue = resolvedStayVenue(for: query ?? "") { stayBookingVenue = venue }
@@ -17356,7 +17355,9 @@ private struct NativeConciergeView: View {
     private func handleServerAction(_ action: ActionCard, _ query: String?) {
         nativeImpactLight()
         switch action.handoff.lowercased() {
-        case "map": openNativeTab(.map)
+        // The server can still emit a map handoff. Concierge no longer sends
+        // anyone to the map, so it lands on Discover rather than dead-ending.
+        case "map": openNativeTab(.discover)
         case "access": openNativeAccess()
         case "stay":
             if let venue = resolvedStayVenue(for: query ?? action.subtitle) { stayBookingVenue = venue }
@@ -17560,7 +17561,6 @@ private struct NativeConciergeMessageBubble: View {
     private func label(for action: NativeConciergeView.HandoffAction, query: String? = nil) -> String {
         switch action {
         case .discover: return "Open Discover"
-        case .map: return "Show on Map"
         case .booking:
             let q = (query ?? "").lowercased()
             return (q.contains("stay") || q.contains("suite") || q.contains("availability") || q.contains("check dates") || q.contains("boutique")) ? "Check Dates" : "Open My Access"
@@ -19123,7 +19123,7 @@ enum NativeConciergeParitySelfTests {
         precondition(NativeConciergeView.transcriptBaseHex == 0x050507, "NativeConciergeParitySelfTests: Concierge transcript base color drifted.")
         precondition(NativeConciergeView.messageBubbleMaxWidthRatio == 0.84 && NativeConciergeView.messageBubbleCornerRadius == 22 && NativeConciergeView.messageBubbleFontSize == 14, "NativeConciergeParitySelfTests: Concierge bubble metrics drifted.")
         precondition(NativeConciergeView.suggestionPrompts == ["Find parking nearby", "Check stay dates", "Access my booking", "What’s open now?"], "NativeConciergeParitySelfTests: Concierge suggestion prompts drifted.")
-        precondition(NativeConciergeView.handoffActionTitles == ["Open Discover", "Show on Map", "Check Dates"], "NativeConciergeParitySelfTests: Concierge stay booking handoff must open native booking, not generic Discover.")
+        precondition(NativeConciergeView.handoffActionTitles == ["Open Discover", "Check Dates"], "NativeConciergeParitySelfTests: Concierge stay booking handoff must open native booking, not generic Discover.")
         precondition(NativeConciergeView.composerPlaceholder == "Message Concierge…", "NativeConciergeParitySelfTests: Concierge composer placeholder drifted.")
     }
 }

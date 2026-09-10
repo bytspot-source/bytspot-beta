@@ -974,16 +974,14 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeVenueDetailPresentation.headerBadgeTitle(for: venue(name: "Colony Square", category: "dining", address: "1197 Peachtree St NE", patchId: "BYT424-0301-P")), "VERIFIED PATCH")
     }
 
-    func testVenueDetailCategorySectionsArePurposeBuilt() {
-        let broni = NativeVenueDetailPresentation.detailSection(for: venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking · Pickup or delivery"))
-        XCTAssertEqual(broni?.title, "Included")
-        XCTAssertEqual(broni?.systemImage, "fork.knife")
-        XCTAssertTrue(broni?.highlights.contains("Jollof + chicken") == true)
-
-        let gh = NativeVenueDetailPresentation.detailSection(for: venue(name: "GH Akwaaba Pass", category: "service", address: "FIFA Matchday Pass · Premium Event Access"))
-        XCTAssertEqual(gh?.title, "Included")
-        XCTAssertEqual(gh?.systemImage, "ticket.fill")
-        XCTAssertTrue(gh?.highlights.contains("Digital pass delivery") == true)
+    func testVenueDetailCategoryDoesNotInventIncludedProducts() {
+        for place in [venue(name: "Broni Home Taste", category: "service", address: "Authentic Ghanaian Home Cooking · Pickup or delivery"),
+                      venue(name: "GH Akwaaba Pass", category: "service", address: "FIFA Matchday Pass · Premium Event Access")] {
+            let section = NativeVenueDetailPresentation.detailSection(for: place)
+            XCTAssertEqual(section?.title, "Place details")
+            XCTAssertEqual(section?.systemImage, "mappin")
+            XCTAssertEqual(section?.highlights, ["Route", "Add to Plan"])
+        }
     }
 
     func testVenueHoursCoffeeParity() {

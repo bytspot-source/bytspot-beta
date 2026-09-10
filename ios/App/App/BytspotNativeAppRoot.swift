@@ -69,22 +69,28 @@ enum NativeAppearanceMode: String, CaseIterable, Identifiable {
                 window.overrideUserInterfaceStyle = mode.uiUserInterfaceStyle
             }
         }
-        // This app is not scene-based: AppDelegate builds its own UIWindow, so it
-        // belongs to no UIWindowScene and the loop above never reaches it. Without
-        // this the Appearance setting is inert -- every adaptive token resolves
-        // against an untouched trait collection and falls to its dark branch.
+        // UIKit auto-adopts the AppDelegate window into the implicitly created
+        // scene, so the loop above does reach it and this line is redundant. It
+        // stays as a guard for the case where it has not been adopted yet.
         (UIApplication.shared.delegate as? AppDelegate)?.window?.overrideUserInterfaceStyle = mode.uiUserInterfaceStyle
     }
 
+    /// The system appearance, read from a source the app does not itself
+    /// overwrite.
+    ///
+    /// This previously consulted `AppleInterfaceStyle` in UserDefaults, which is
+    /// a macOS preference key and is always nil on iOS, then fell back to the
+    /// key window -- the app's own window, carrying the very
+    /// `overrideUserInterfaceStyle` it had just written. So it read its own
+    /// override back and could never observe the system again once any explicit
+    /// mode had been chosen. The scene's trait collection is not overridden and
+    /// tracks the live system setting.
     @MainActor static func currentWindowColorScheme() -> ColorScheme? {
-        if let rawSystemStyle = UserDefaults.standard.string(forKey: "AppleInterfaceStyle")?.lowercased() {
-            return rawSystemStyle.contains("dark") ? .dark : .light
-        }
         let style = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first(where: { $0.isKeyWindow })?
-            .traitCollection.userInterfaceStyle ?? UIScreen.main.traitCollection.userInterfaceStyle
+            .first(where: { $0.activationState == .foregroundActive })?
+            .traitCollection.userInterfaceStyle
+            ?? UIScreen.main.traitCollection.userInterfaceStyle
         switch style {
         case .dark: return .dark
         default: return .light
@@ -103,7 +109,20 @@ final class NativeAppearanceRuntimeStore: ObservableObject {
     @MainActor func applyUserSelection(_ mode: NativeAppearanceMode) {
         selectedMode = mode
         NativeAppearanceMode.applyWindowStyle(mode)
-        systemColorScheme = mode == .system ? NativeAppearanceMode.currentWindowColorScheme() : nil
+        // Reading in the same turn as the override is cleared returns the stale
+        // value, which pinned Auto to whichever mode was last explicit.
+        guard mode == .system else { systemColorScheme = nil; return }
+        DispatchQueue.main.async { [weak self] in
+            self?.systemColorScheme = NativeAppearanceMode.currentWindowColorScheme()
+        }
+    }
+
+    /// Auto has to keep tracking after it is selected: nothing here observed
+    /// trait changes, so a system toggle while the app was running never
+    /// propagated and Auto sat on whatever it resolved once.
+    @MainActor func refreshSystemColorScheme() {
+        guard selectedMode == .system || selectedMode == nil else { return }
+        systemColorScheme = NativeAppearanceMode.currentWindowColorScheme()
     }
 }
 
@@ -200,6 +219,7 @@ struct BytspotNativeAppRoot: View {
             }
             .onChange(of: scenePhase) { phase in
                 guard phase == .active else { return }
+                appearanceRuntimeStore.refreshSystemColorScheme()
                 Task {
                     await membershipStore.refresh(sessionStore: sessionStore)
                     await NativePushService.shared.refreshAuthorizationStatus()

@@ -926,18 +926,24 @@ final class BytspotTrustEngineTests: XCTestCase {
     func testLocalDiningVenueNeverEarnsMenuChrome() {
         let primaryAction = NativeVenueDetailContract.actions.first { $0.id == "getTickets" }!
         let localDiner = venue(name: "Local Diner", category: "dining", address: "Open now")
-        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: localDiner), "Plan Dining")
+        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: localDiner), "Details")
         XCTAssertEqual(NativeVenueDetailPresentation.actionSystemImage(for: primaryAction, venue: localDiner), "fork.knife")
         let section = NativeVenueDetailPresentation.detailSection(for: localDiner)
-        XCTAssertEqual(section?.title, "Good for")
+        XCTAssertEqual(section?.title, "Place details")
+        XCTAssertEqual(section?.highlights, ["Route", "Add to Plan"])
         XCTAssertFalse(section?.highlights.contains("Menu preview") ?? true, "Local dining must not advertise menu items.")
     }
 
-    func testControlledDiningVenueKeepsMenuChrome() {
+    func testLegacyPatchBadgeDoesNotGrantMenuInventoryInPlaceDetails() {
         let primaryAction = NativeVenueDetailContract.actions.first { $0.id == "getTickets" }!
         let patchDiner = venue(name: "Colony Square", category: "dining", address: "1197 Peachtree St NE", patchId: "BYT424-0301-P")
-        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: patchDiner), "View Menu")
-        XCTAssertEqual(NativeVenueDetailPresentation.detailSection(for: patchDiner)?.title, "Included")
+        // A legacy control badge is not a source-backed menu or booking offering.
+        XCTAssertTrue(NativeDiscoverCardControl.isControlled(venue: patchDiner))
+        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: primaryAction, venue: patchDiner), "Details")
+        let section = NativeVenueDetailPresentation.detailSection(for: patchDiner)
+        XCTAssertEqual(section?.title, "Place details")
+        XCTAssertEqual(section?.highlights, ["Route", "Add to Plan"])
+        XCTAssertFalse(section?.highlights.contains("Menu preview") ?? true)
     }
 
     func testCanonicalDiscoverCardsCarryVendorControlAndClonesStayLocal() {

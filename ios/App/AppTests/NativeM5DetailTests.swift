@@ -119,9 +119,23 @@ final class NativeM5DetailTests: XCTestCase {
     }
 
     func testInvalidatedCatalogOfferingDoesNotBecomeACheckInVenue() {
-        XCTAssertEqual(NativeM5DetailPolicy.compactActions(for: venue(), offering: nil,
+        // Use an otherwise eligible venue so the catalog exclusion is the
+        // reason Check In is suppressed, not the suggestion-ID guard.
+        let eligibleVenue = NativeVenueSummary(id: "venue-1", name: "Local Cafe",
+            category: "coffee", address: "1 Example Street", distance: "—", rating: nil,
+            latitude: 33.78, longitude: -84.38, crowd: nil,
+            parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—", isKnown: false),
+            verifiedPatchId: nil, imageUrl: nil)
+        XCTAssertTrue(NativeVenueDetailPresentation.supportsManualCheckIn(eligibleVenue))
+        XCTAssertEqual(NativeM5DetailPolicy.compactActions(for: eligibleVenue, offering: nil,
             isCatalogSource: true).map(\.id), ["save", "share"])
-        XCTAssertTrue(NativeM5DetailPolicy.compactActions(for: venue()).contains { $0.id == "checkIn" })
+        XCTAssertTrue(NativeM5DetailPolicy.compactActions(for: eligibleVenue).contains { $0.id == "checkIn" })
+        let coffee = offering("request", kind: .coffeeSpot, category: "coffee")
+        XCTAssertEqual(NativeM5DetailPolicy.compactActions(for: eligibleVenue, offering: coffee)
+            .map(\.id), ["save", "share"])
+        let suggestion = venue()
+        XCTAssertTrue(suggestion.id.hasPrefix("suggestion-"))
+        XCTAssertFalse(NativeM5DetailPolicy.compactActions(for: suggestion).contains { $0.id == "checkIn" })
     }
 
     func testAdaptiveActionRowsRemainCompatibleWithIOS15() throws {

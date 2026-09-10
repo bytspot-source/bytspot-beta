@@ -80,9 +80,6 @@ enum NativeAppearanceMode: String, CaseIterable, Identifiable {
         if let rawSystemStyle = UserDefaults.standard.string(forKey: "AppleInterfaceStyle")?.lowercased() {
             return rawSystemStyle.contains("dark") ? .dark : .light
         }
-        #if targetEnvironment(simulator)
-        return .light
-        #endif
         let style = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .flatMap(\.windows)
@@ -1026,6 +1023,11 @@ struct BytspotMark: View {
 struct BytspotDotGlobe: View {
     let size: CGFloat
     var dotCount: Int = 74
+    /// Retained for the standalone mark surfaces. The bottom bar no longer uses
+    /// it: measured at 38pt the lattice reads as a burst, not a sphere -- the
+    /// falloff is flat across the inner half (r=0.25 as bright as r=0.00) and
+    /// perfectly radially symmetric, so there is no terminator and no light
+    /// direction, and it was the only stippled item in a row of solid glyphs.
 
     var body: some View {
         Canvas { context, canvasSize in

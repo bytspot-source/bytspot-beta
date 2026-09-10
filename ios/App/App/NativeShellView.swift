@@ -373,6 +373,11 @@ struct BytspotNativeShellView: View {
     var body: some View {
         ZStack {
             BytspotNativeBackground(tier: activeTier, intent: launchIntent).ignoresSafeArea()
+            // The ground belongs to the window, not to the scrolling content:
+            // applied per screen it stopped at the safe area and left the
+            // bottom eighth -- the margins beside the floating bar and
+            // everything below it -- as a black slab.
+            NativeDeepSpaceGround()
             VStack(spacing: 0) {
                 Group {
                     switch selectedTab {
@@ -437,6 +442,7 @@ struct BytspotNativeShellView: View {
                         .accessibilityIdentifier("native-global-profile-avatar")
                     }
                 }
+                .environment(\.nativeDeepSpaceGroundDrawn, true)
                 .animation(.interpolatingSpring(mass: 0.8, stiffness: 380, damping: 34, initialVelocity: 0), value: selectedTab)
                 if Self.tabBarIsVisible(for: selectedTab) {
                     BytspotNativeBottomTabBar(selectedTab: plainTabSelectionBinding, tier: activeTier)
@@ -955,7 +961,12 @@ private struct BytspotNativeBottomTabBar: View {
             // No disc behind the mark: a filled puck on the glass bar reads as an
             // unfinished placeholder sitting on top of the surface rather than as
             // part of it. The globe carries itself on the bar's own material.
-            BytspotDotGlobe(size: NativePolish.bottomBarHostRingSize)
+            // Same construction as its four neighbours -- solid SF glyph, same
+            // weight -- so the centre reads as emphasis rather than as a
+            // different rendering system dropped into the row.
+            Image(systemName: "globe")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundColor(isActive ? NativeTheme.textPrimary : NativeTheme.textSecondary)
                 .frame(width: NativePolish.bottomBarHostRingSize, height: NativePolish.bottomBarHostRingSize)
             // The globe is its own light source, so the centre wears no ring:
             // a stroke plus a gradient plus a glow was three marks competing on
@@ -16565,11 +16576,13 @@ private struct NativeDarkMapBackdrop: View {
                         context.stroke(path, with: .color(NativePolish.mapRoadLine), lineWidth: 1.4)
                     }
                 }
+                // Vignette under the labels, not over them: drawn last it took
+                // the lower labels down to 1.78:1 against the base.
+                LinearGradient(colors: [NativePolish.mapBaseSurface.opacity(0.36), .clear, Color.adaptive(lightHex: 0x080C20, darkHex: 0x000000, lightAlpha: 0.36, darkAlpha: 0.72)], startPoint: .top, endPoint: .bottom)
                 mapLabel(labels[0], x: 0.47, y: 0.22, angle: -38, in: proxy.size)
                 mapLabel(labels[1], x: 0.30, y: 0.52, angle: -90, in: proxy.size)
                 mapLabel(labels[2], x: 0.78, y: 0.48, angle: 0, in: proxy.size)
                 mapLabel(labels[3], x: 0.72, y: 0.72, angle: -21, in: proxy.size)
-                LinearGradient(colors: [NativePolish.mapBaseSurface.opacity(0.36), .clear, Color.adaptive(lightHex: 0x080C20, darkHex: 0x000000, lightAlpha: 0.36, darkAlpha: 0.72)], startPoint: .top, endPoint: .bottom)
             }
         }
     }

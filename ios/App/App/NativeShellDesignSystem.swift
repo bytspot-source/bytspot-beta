@@ -6,8 +6,22 @@ import UIKit
 /// as dead space -- the card had nothing to sit in. The glows are wide and very
 /// low contrast on purpose: they should be felt as depth, never seen as shapes,
 /// and they must never compete with content for the eye.
+private struct NativeDeepSpaceGroundDrawnKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    /// Set by the shell once it draws the ground behind the whole window,
+    /// including under the floating tab bar. Screens keep their own ground for
+    /// when they are presented in a sheet, but must not double it inside the
+    /// shell: two grounds means 140 stars and twice the nebula.
+    var nativeDeepSpaceGroundDrawn: Bool {
+        get { self[NativeDeepSpaceGroundDrawnKey.self] }
+        set { self[NativeDeepSpaceGroundDrawnKey.self] = newValue }
+    }
+}
+
 struct NativeDeepSpaceGround: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.nativeDeepSpaceGroundDrawn) private var alreadyDrawn
 
     /// Fixed field, generated once from a constant seed. Stars must not
     /// reshuffle on every redraw or the sky crawls while you scroll.
@@ -23,6 +37,10 @@ struct NativeDeepSpaceGround: View {
     }()
 
     var body: some View {
+        if alreadyDrawn { Color.clear } else { ground }
+    }
+
+    private var ground: some View {
         ZStack {
             NativePolish.screenBackground
             GeometryReader { geo in

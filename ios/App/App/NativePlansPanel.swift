@@ -881,7 +881,7 @@ struct NativePlansPanel: View {
             }
             Button("Keep Plan", role: .cancel) { planToDelete = nil }
         } message: {
-            Text("This removes the Plan for everyone and disables its invite link. Plans with bookings or active holds cannot be deleted.")
+            Text("This removes the Plan for everyone and disables its invite link. Plans with bookings, pending reservations or payments in progress cannot be deleted.")
         }
         .alert("Couldn't delete Plan", isPresented: Binding(
             get: { deletionError != nil }, set: { if !$0 { deletionError = nil } }
@@ -977,7 +977,7 @@ struct NativePlansPanel: View {
     // but starting and shaping a Plan happens in the tab. This one honest line
     // says where, so the read view is not read as a dead end.
     private var savedPlansNote: some View {
-        Text("Plans you've created or joined. Swipe left to delete your Plans without bookings or holds. Use Start Plan to make a new one.")
+        Text("Plans you've created or joined. Swipe left to delete your Plans without bookings, pending reservations or payments. Use Start Plan to make a new one.")
             .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
     }
 
@@ -1044,7 +1044,7 @@ struct NativePlansPanel: View {
             await reload()
         } catch {
             // The server rechecks bookings: a stale swipe must never delete one.
-            deletionError = "The Plan may now have a booking or active hold, or the connection failed. Your list has been refreshed; try again if Delete is still available."
+            deletionError = "The Plan may now have a booking, pending reservation or payment, or the connection failed. Your list has been refreshed; try again if Delete is still available."
             await reload()
         }
     }

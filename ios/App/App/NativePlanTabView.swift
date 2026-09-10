@@ -1,40 +1,39 @@
 import SwiftUI
 
-/// The Plan tab: a first-class home for the caller's plans, sitting beside
-/// Home in the bottom bar. It reuses `NativePlansPanel` for the list, create,
-/// and detail surfaces, and adds the tab chrome the panel does not carry when
-/// it is presented as a Profile sheet.
+/// Start Plan is a creation destination, not a second My Plans list.
+/// The wizard opens at Idea immediately; existing plans stay in Profile.
 struct NativePlanTabView: View {
     @ObservedObject var sessionStore: BytspotSessionStore
     var openDiscoverFilter: (String) -> Void = { _ in }
     var openMap: () -> Void = {}
+    var onCancel: () -> Void = {}
+    @State private var createdPlan: CreatedPlan?
+    @State private var draftID = UUID()
+
+    private struct CreatedPlan: Identifiable { let id: String }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 16) {
-                header
-                NativePlansPanel(sessionStore: sessionStore, onOpenNeed: routeToNeed, showsSuggestions: true)
-            }
-            .padding(.horizontal, 16)
-            // The shell floats the map icon and the avatar over the top of the
-            // content, so the tab has to start below them or the title sits
-            // underneath the chrome.
-            .padding(.top, 52)
-            .padding(.bottom, 28)
-        }
-        // The shell's brand gradient is always dark; sit on the adaptive page
-        // surface instead so the tab reads correctly in Light and Dark, and so
-        // NativePlansPanel renders in the same adaptive context it uses inside
-        // the Profile panel.
+        NativePlanCreateSheet(
+            sessionStore: sessionStore,
+            isEmbedded: true,
+            onCancel: onCancel,
+            onCreated: { createdPlan = CreatedPlan(id: $0) }
+        )
+        .id(draftID)
         .background(NativeDeepSpaceGround())
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("PLAN").font(.system(size: 11, weight: .black)).tracking(1.6).foregroundColor(NativeTheme.textTertiary)
-            Text("Everything in one place").font(.system(size: 24, weight: .black, design: .rounded)).foregroundColor(NativeTheme.textPrimary)
+        .accessibilityIdentifier("native-start-plan-tab")
+        .sheet(item: $createdPlan, onDismiss: {
+            // A completed draft must never be submitted again. Dismissing its
+            // detail returns to a fresh Idea, not the saved-plan list.
+            draftID = UUID()
+        }) { plan in
+            NativePlanDetailSheet(
+                planID: plan.id,
+                sessionStore: sessionStore,
+                onChanged: {},
+                onOpenNeed: routeToNeed
+            )
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // A still-open need routes to the surface that can actually fill it:

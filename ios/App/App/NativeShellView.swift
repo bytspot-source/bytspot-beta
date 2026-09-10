@@ -5795,13 +5795,26 @@ private struct NativeGuestSavePromptSheet: View {
         }
         .padding(20)
         .background(NativeDeepSpaceGround())
-        // Short content in a .large sheet left the container visible above and
-        // below the ground -- systemBackground, so a white band in Light. The
-        // detent sizes the sheet to the content; the clear background stops the
-        // container painting behind it either way.
-        .presentationDetents([.height(320)])
-        .presentationBackground(.clear)
         .accessibilityIdentifier("native-guest-save-prompt")
+        .modifier(NativeGuestSavePromptPresentation())
+    }
+}
+
+/// Short content in a `.large` sheet left the container visible above and below
+/// the ground -- `systemBackground`, so a white band in Light. The detent sizes
+/// the sheet to the content; the clear background stops the container painting
+/// behind it either way. Deployment target is iOS 15, and
+/// `presentationBackground` is 16.4 rather than 16.0, so the two need separate
+/// guards.
+private struct NativeGuestSavePromptPresentation: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content.presentationDetents([.height(320)]).presentationBackground(.clear)
+        } else if #available(iOS 16.0, *) {
+            content.presentationDetents([.height(320)])
+        } else {
+            content
+        }
     }
 }
 

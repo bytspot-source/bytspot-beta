@@ -856,6 +856,7 @@ struct NativePlansPanel: View {
     @State private var plans: [NativePlan] = []
     @State private var errorMessage: String?
     @State private var isLoading = false
+    @State private var reloadGeneration = UUID()
     @State private var selectedPlanID: String?
     @State private var showCreate = false
     @State private var planToDelete: NativePlan?
@@ -921,19 +922,22 @@ struct NativePlansPanel: View {
                     NativePlansEmptyState(showsCreate: showsCreate)
                 }
                 ForEach(plans) { plan in
-                    Button(action: { selectedPlanID = plan.id }) { NativePlanListRow(plan: plan) }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("native-plan-row-\(plan.id)")
-                        .disabled(deletingPlanID != nil)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            if NativePlanDisplay.canDelete(plan, userID: sessionStore.authenticatedUserID) {
-                                Button(role: .destructive) { planToDelete = plan } label: {
+                    if NativePlanDisplay.canDelete(plan, userID: sessionStore.authenticatedUserID) {
+                        planRow(plan)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) { requestDelete(plan) } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
+                                // List swipe buttons must not inherit the row's
+                                // plain style (or a presenting surface's style).
+                                .buttonStyle(.automatic)
                                 .disabled(deletingPlanID != nil)
                                 .accessibilityIdentifier("native-plan-delete-\(plan.id)")
                             }
-                        }
+                            .accessibilityAction(named: Text("Delete Plan")) { requestDelete(plan) }
+                    } else {
+                        planRow(plan)
+                    }
                 }
             }
             }
@@ -942,8 +946,9 @@ struct NativePlansPanel: View {
         }
         .listStyle(.plain)
         .background(Color.clear)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .task { await reload() }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .task(id: sessionStore.authenticatedUserID) { await reload() }
+        .refreshable { await reload() }
         // The join sheet seats a link holder while this list is already loaded;
         // reload so the newly joined Plan is present when the sheet dismisses.
         .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidJoin)) { _ in
@@ -1031,6 +1036,23 @@ struct NativePlansPanel: View {
         }
     }
 
+    private func planRow(_ plan: NativePlan) -> some View {
+        Button(action: { selectedPlanID = plan.id }) {
+            NativePlanListRow(plan: plan)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("native-plan-row-\(plan.id)")
+        .disabled(deletingPlanID != nil)
+    }
+
+    private func requestDelete(_ plan: NativePlan) {
+        guard deletingPlanID == nil, sessionStore.canAttachBearerToken,
+              NativePlanDisplay.canDelete(plan, userID: sessionStore.authenticatedUserID) else { return }
+        planToDelete = plan
+    }
+
     private func deletePlan(_ plan: NativePlan) async {
         guard deletingPlanID == nil, sessionStore.canAttachBearerToken,
               NativePlanDisplay.canDelete(plan, userID: sessionStore.authenticatedUserID) else { return }
@@ -1044,20 +1066,31 @@ struct NativePlansPanel: View {
             await reload()
         } catch {
             // The server rechecks bookings: a stale swipe must never delete one.
-            deletionError = "The Plan may now have a booking, pending reservation or payment, or the connection failed. Your list has been refreshed; try again if Delete is still available."
+            deletionError = "The Plan may now have a booking, pending reservation or payment, or the connection failed. Pull to refresh and try again if Delete is still available."
             await reload()
         }
     }
 
     private func reload() async {
-        guard sessionStore.canAttachBearerToken else { plans = []; return }
-        isLoading = true; defer { isLoading = false }
+        let generation = UUID()
+        reloadGeneration = generation
+        guard sessionStore.canAttachBearerToken else { plans = []; isLoading = false; return }
+        let userID = sessionStore.authenticatedUserID
+        isLoading = true
+        defer { if reloadGeneration == generation { isLoading = false } }
         do {
             let client = BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token })
-            plans = try await NativePlanAPI(client: client).list()
+            let loaded = try await NativePlanAPI(client: client).list()
+            // A pre-delete refresh or prior account must not restore stale rows
+            // or stale canDelete permissions over a more recent response.
+            guard !Task.isCancelled, reloadGeneration == generation,
+                  sessionStore.authenticatedUserID == userID else { return }
+            plans = loaded
             errorMessage = nil
         } catch {
-            errorMessage = "Couldn't load your plans."
+            guard !Task.isCancelled, reloadGeneration == generation,
+                  sessionStore.authenticatedUserID == userID else { return }
+            errorMessage = "Couldn't load your plans. Pull to refresh."
         }
     }
 }

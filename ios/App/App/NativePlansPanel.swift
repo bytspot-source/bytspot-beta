@@ -25,6 +25,9 @@ struct NativePlan: Codable, Identifiable, Equatable {
         let title: String
         let partyId: String?
         let coffeeReservationId: String?
+        var coffeeSpotId: String? = nil
+        var selectionKey: String? = nil
+        var booked: Bool? = nil
         let capability: String
         let status: String
         let reservation: Reservation?
@@ -52,12 +55,102 @@ struct NativePlan: Codable, Identifiable, Equatable {
     let openNeeds: [String]
     let participants: [Participant]
     let items: [Item]
+    /// Missing on older APIs: fail closed until the server checks live supply.
+    var canDelete: Bool? = nil
     /// The bearer join link secret. The server returns it to the creator alone,
     /// so it is absent - nil - on a guest's copy of the same Plan.
     let joinToken: String?
 }
 
 struct NativePlansList: Codable { let plans: [NativePlan] }
+
+/// Catalog identity is a source reference, never a persisted BYT Bookable ID.
+struct NativePlanBookableSelection: Codable, Equatable, Hashable, Identifiable {
+    enum SourceKind: String, Codable { case coffeeSpot, party }
+    let sourceKind: SourceKind
+    let sourceId: String
+    var id: String { "\(sourceKind.rawValue):\(sourceId)" }
+}
+
+struct NativePlanBookableOffering: Codable, Equatable, Identifiable {
+    let id: String
+    let sourceKind: NativePlanBookableSelection.SourceKind
+    let sourceId: String
+    let category: String
+    let title: String
+    let subtitle: String?
+    let capability: String
+    var selection: NativePlanBookableSelection { .init(sourceKind: sourceKind, sourceId: sourceId) }
+}
+
+struct NativePlanBookables: Codable { let offerings: [NativePlanBookableOffering] }
+
+/// In-memory only. Opening or cancelling a picker never issues a write.
+struct NativePlanBookableDraft: Equatable {
+    static let limit = 12
+    private(set) var offerings: [NativePlanBookableOffering] = []
+    var selections: [NativePlanBookableSelection] { offerings.map(\.selection) }
+    func contains(_ offering: NativePlanBookableOffering) -> Bool {
+        selections.contains(offering.selection)
+    }
+    mutating func toggle(_ offering: NativePlanBookableOffering) {
+        if contains(offering) { remove(offering.selection.id) }
+        else if offerings.count < Self.limit { offerings.append(offering) }
+    }
+    mutating func remove(_ id: String) { offerings.removeAll { $0.selection.id == id } }
+}
+
+struct NativePlanWriteRequest {
+    let path: String
+    let input: [String: Any]
+}
+
+/// The first attempt freezes BOTH route and payload. A timeout never enables
+/// editing or generates a new key; Retry sends exactly the original request.
+struct NativePlanWriteDraft {
+    private(set) var request: NativePlanWriteRequest?
+    private(set) var isSaving = false
+    var allowsEdits: Bool { request == nil }
+    mutating func begin(_ proposed: NativePlanWriteRequest) -> NativePlanWriteRequest? {
+        guard !isSaving else { return nil }
+        if request == nil { request = proposed }
+        isSaving = true
+        return request
+    }
+    mutating func finish() { isSaving = false }
+}
+
+/// Category metadata only. Templates are never projected into offerings.
+/// Domain IDs travel over the wire; Discover supplies their familiar labels.
+enum NativePlanBookableCategories {
+    struct Category: Identifiable { let id: String; let title: String }
+    static var bookables: [Category] {
+        let domains = [BookableDomainID.coffee] + BookableDomainID.allCases.filter { $0 != .coffee }
+        return domains.map { domain in
+            Category(id: domain.rawValue, title: domain == .coffee ? "Coffee" :
+                BookableTemplateCatalog.shared?.discoverCategories(forDomain: domain).first?.label ?? domain.rawValue.capitalized)
+        }
+    }
+}
+
+/// Generation, not just category equality: Coffee → Party → Coffee must not
+/// accept the first Coffee response after the last request starts.
+struct NativePlanBookableLoadState {
+    private(set) var generation = UUID()
+    private(set) var offerings: [NativePlanBookableOffering] = []
+    private(set) var isLoading = false
+    private(set) var failed = false
+    mutating func begin() -> UUID {
+        generation = UUID(); offerings = []; failed = false; isLoading = true
+        return generation
+    }
+    mutating func finish(_ rows: [NativePlanBookableOffering]?, generation: UUID) {
+        guard generation == self.generation else { return }
+        isLoading = false; failed = rows == nil
+        var seen = Set<String>()
+        offerings = (rows ?? []).filter { seen.insert($0.selection.id).inserted }
+    }
+}
 
 extension NativeFindResult {
     /// Synthesise a venue summary from a Find result so it can stage on the
@@ -144,6 +237,10 @@ struct NativePlanAPI {
         _ = try await client.trpcPayload(path: "/trpc/plans.cancel", method: "POST", input: ["planId": planID])
     }
 
+    func delete(_ planID: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/plans.delete", method: "POST", input: ["planId": planID])
+    }
+
     func invite(_ planID: String, userId: String) async throws {
         _ = try await client.trpcPayload(path: "/trpc/plans.invite", method: "POST", input: ["planId": planID, "userId": userId])
     }
@@ -158,24 +255,37 @@ struct NativePlanAPI {
         intent: String,
         startsAt: Date?,
         partySize: Int?,
-        needs: Set<String>
+        needs: Set<String>,
+        bookableSelections: [NativePlanBookableSelection] = []
     ) async throws -> String {
-        let payload = try await client.trpcPayload(
-            path: "/trpc/plans.create",
-            method: "POST",
-            input: NativePlanContract.createInput(
-                idempotencyKey: idempotencyKey,
-                title: title,
-                intent: intent,
-                startsAt: startsAt,
-                partySize: partySize,
-                needs: needs
-            )
-        )
+        try await create(NativePlanContract.createRequest(
+            idempotencyKey: idempotencyKey, title: title, intent: intent,
+            startsAt: startsAt, partySize: partySize, needs: needs,
+            bookableSelections: bookableSelections
+        ))
+    }
+
+    func create(_ request: NativePlanWriteRequest) async throws -> String {
+        let payload = try await client.trpcPayload(path: request.path, method: "POST", input: request.input)
         guard let object = payload as? [String: Any], let id = object["id"] as? String else {
             throw BytspotAPIClient.APIError.invalidResponse
         }
         return id
+    }
+
+    func bookables(category: String) async throws -> [NativePlanBookableOffering] {
+        let payload = try await client.trpcQueryPayload(path: "/trpc/plans.bookables", input: ["category": category])
+        return try JSONDecoder().decode(NativePlanBookables.self, from: JSONSerialization.data(withJSONObject: payload)).offerings
+    }
+
+    /// The server must deduplicate by (planId, sourceKind, sourceId), including
+    /// repeated requests after an ambiguous failure: add has no idempotency key.
+    func addBookables(_ request: NativePlanWriteRequest) async throws -> [String] {
+        let payload = try await client.trpcPayload(path: request.path, method: "POST", input: request.input)
+        guard let object = payload as? [String: Any], let ids = object["ids"] as? [String] else {
+            throw BytspotAPIClient.APIError.invalidResponse
+        }
+        return ids
     }
 
     /// The caller never states the capability - the server derives it from the
@@ -197,6 +307,30 @@ struct NativePlanAPI {
 /// The wire shape of a Plan write, kept in its own namespace so a test can pin
 /// it without a client, matching `NativeCoffeeContract` next door.
 enum NativePlanContract {
+    static func selectionInput(_ selections: [NativePlanBookableSelection]) -> [[String: String]] {
+        var seen = Set<String>()
+        return selections.filter { seen.insert($0.id).inserted }.prefix(NativePlanBookableDraft.limit)
+            .map { ["sourceKind": $0.sourceKind.rawValue, "sourceId": $0.sourceId] }
+    }
+
+    static func createRequest(
+        idempotencyKey: String, title: String, intent: String, startsAt: Date?,
+        partySize: Int?, needs: Set<String>, bookableSelections: [NativePlanBookableSelection]
+    ) -> NativePlanWriteRequest {
+        var input = createInput(idempotencyKey: idempotencyKey, title: title, intent: intent,
+                                startsAt: startsAt, partySize: partySize, needs: needs)
+        let selections = selectionInput(bookableSelections)
+        // Preserve the existing no-selection create contract. Selected creation
+        // is ONE atomic write, never create followed by a series of attaches.
+        if !selections.isEmpty { input["bookableSelections"] = selections }
+        return NativePlanWriteRequest(path: selections.isEmpty ? "/trpc/plans.create" : "/trpc/plans.createWithBookables", input: input)
+    }
+
+    static func addRequest(planID: String, selections: [NativePlanBookableSelection]) -> NativePlanWriteRequest {
+        NativePlanWriteRequest(path: "/trpc/plans.addBookables",
+                              input: ["planId": planID, "bookableSelections": selectionInput(selections)])
+    }
+
     /// Everything optional is omitted rather than sent null. A Plan with no
     /// start is a real state the surface prints as "When TBD", and the router
     /// derives a proposed Plan's expiry from `startsAt`, so a fabricated date
@@ -230,6 +364,44 @@ enum NativePlanContract {
 struct NativePlanConnection: Identifiable, Equatable { let id: String; let name: String }
 
 enum NativePlanDisplay {
+    static let unbookedLabel = "Not booked"
+    static let bookablesFootnote = "Optional selections only. Nothing is requested, reserved or paid for."
+
+    static func itemStatusLabel(_ status: String) -> String {
+        status == "available" ? unbookedLabel : status.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    static func canAddBookables(_ plan: NativePlan, userID: String?) -> Bool {
+        guard let userID, plan.creatorUserId == userID else { return false }
+        let terminal = ["cancelled", "expired", "completed"]
+        return !terminal.contains(plan.lifecycle) && !terminal.contains(plan.state)
+    }
+
+    static func canDelete(_ plan: NativePlan, userID: String?) -> Bool {
+        guard let userID, plan.creatorUserId == userID else { return false }
+        return plan.canDelete == true
+    }
+
+    static func itemStatusLabel(_ item: NativePlan.Item) -> String {
+        item.booked == true ? "Booked" : itemStatusLabel(item.status)
+    }
+
+    static func selectedSourceIDs(in items: [NativePlan.Item]) -> Set<String> {
+        Set(items.flatMap { item -> [String] in
+            var ids: [String] = []
+            if let key = item.selectionKey { ids.append(key) }
+            if let id = item.partyId { ids.append(NativePlanBookableSelection(sourceKind: .party, sourceId: id).id) }
+            if let id = item.coffeeSpotId { ids.append(NativePlanBookableSelection(sourceKind: .coffeeSpot, sourceId: id).id) }
+            return ids
+        })
+    }
+
+    static func coffeeRequestSpotID(_ item: NativePlan.Item) -> String? {
+        guard item.status == "available", item.capability == "request", item.coffeeReservationId == nil,
+              let id = item.coffeeSpotId, !id.isEmpty else { return nil }
+        return id
+    }
+
     /// A state chip never renders alone; it is always paired with readiness,
     /// because the creator's confirmation is not what makes anyone show up.
     /// Do not call `stateLabel` directly from a view - always go through
@@ -467,6 +639,201 @@ enum NativePlanDisplay {
 
 private let planRowBackground = Color.white.opacity(0.06)
 
+private struct NativePlanBookableSelectionRows: View {
+    @Binding var draft: NativePlanBookableDraft
+    var allowsRemoval = true
+
+    var body: some View {
+        ForEach(draft.offerings, id: \.selection.id) { offering in
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(offering.title).font(.headline).foregroundColor(NativeTheme.textPrimary)
+                    Text("\(NativePlanDisplay.unbookedLabel) · \(NativePlanDisplay.capabilityLabel(offering.capability))")
+                        .font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                }
+                Spacer(minLength: 0)
+                if allowsRemoval {
+                    Button(action: { draft.remove(offering.selection.id) }) {
+                        Image(systemName: "minus.circle").frame(width: 44, height: 44)
+                    }
+                    .foregroundColor(NativeTheme.textSecondary)
+                    .accessibilityLabel("Remove \(offering.title)")
+                    .accessibilityIdentifier("native-plan-bookable-remove-\(offering.selection.id)")
+                }
+            }
+            .padding(12).background(planRowBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+    }
+}
+
+/// The SAME category/offering picker stages create-draft selections and adds
+/// to existing plans. Only its explicit Add to Plan action can perform a write.
+private struct NativePlanBookablesPickerSheet: View {
+    @ObservedObject var sessionStore: BytspotSessionStore
+    let planID: String?
+    let existingSourceIDs: Set<String>
+    let onSelected: (NativePlanBookableDraft) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: NativePlanBookableDraft
+    @State private var category = BookableDomainID.coffee.rawValue
+    @State private var retryGeneration = UUID()
+    @State private var catalog = NativePlanBookableLoadState()
+    @State private var submission = NativePlanWriteDraft()
+    @State private var errorMessage: String?
+
+    init(sessionStore: BytspotSessionStore, initialDraft: NativePlanBookableDraft = .init(),
+         planID: String? = nil, existingSourceIDs: Set<String> = [], onSelected: @escaping (NativePlanBookableDraft) -> Void) {
+        self.sessionStore = sessionStore
+        self.planID = planID
+        self.existingSourceIDs = existingSourceIDs
+        self.onSelected = onSelected
+        _draft = State(initialValue: initialDraft)
+    }
+
+    private var loadID: String { "\(category):\(retryGeneration)" }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Add Bookables").font(.title2.bold()).foregroundColor(NativeTheme.textPrimary)
+                    Spacer()
+                    Button(submission.allowsEdits ? "Cancel" : "Close") { dismiss() }
+                        .frame(minWidth: 44, minHeight: 44).disabled(submission.isSaving)
+                }
+                Text(NativePlanDisplay.bookablesFootnote).font(.subheadline).foregroundColor(NativeTheme.textSecondary)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Selected · \(draft.offerings.count)/\(NativePlanBookableDraft.limit)")
+                        .font(.headline).foregroundColor(NativeTheme.textPrimary)
+                    NativePlanBookableSelectionRows(draft: $draft, allowsRemoval: submission.allowsEdits)
+                    Picker("Category", selection: $category) {
+                        Section("Bookables") {
+                            ForEach(NativePlanBookableCategories.bookables) { category in
+                                Text(category.title).tag(category.id)
+                            }
+                        }
+                    }
+                    .pickerStyle(.menu).tint(NativeTheme.purple)
+                    .accessibilityIdentifier("native-plan-bookables-category")
+                    catalogContent
+                }
+                .disabled(!submission.allowsEdits)
+                if let errorMessage {
+                    Text(errorMessage).font(.subheadline).foregroundColor(NativeTheme.orange)
+                }
+            }
+            .padding(20)
+        }
+        .background(NativeDeepSpaceGround())
+        .safeAreaInset(edge: .bottom) {
+            Button(action: save) {
+                Text(submission.isSaving ? "Saving…" : !submission.allowsEdits ? "Retry same selections" : planID == nil ? "Done" : "Add to Plan")
+                    .font(.headline).foregroundColor(.white)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(NativeTheme.purple)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(submission.isSaving || (planID != nil && draft.offerings.isEmpty))
+            .padding(16).background(.ultraThinMaterial)
+            .accessibilityIdentifier("native-plan-bookables-done")
+        }
+        .interactiveDismissDisabled(submission.isSaving)
+        .task(id: loadID) { await loadCategory() }
+        .accessibilityIdentifier("native-plan-bookables-picker")
+    }
+
+    @ViewBuilder private var catalogContent: some View {
+        if catalog.isLoading {
+            ProgressView("Loading Bookables…").tint(NativeTheme.textSecondary)
+        } else if catalog.failed {
+            Text("Couldn't load Bookables. Please try again.")
+                .font(.subheadline).foregroundColor(NativeTheme.orange)
+            Button("Retry loading") { retryGeneration = UUID() }.frame(minHeight: 44)
+        } else if catalog.offerings.isEmpty {
+            Text("No offerings in this category yet. You can choose another category or create your Plan without Bookables.")
+                .font(.subheadline).foregroundColor(NativeTheme.textSecondary)
+        } else {
+            ForEach(catalog.offerings, id: \.selection.id) { offering in
+                Button(action: { draft.toggle(offering) }) {
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(offering.title).font(.headline).foregroundColor(NativeTheme.textPrimary)
+                            if let subtitle = offering.subtitle {
+                                Text(subtitle).font(.subheadline).foregroundColor(NativeTheme.textSecondary)
+                            }
+                            Text("\(NativePlanDisplay.unbookedLabel) · \(NativePlanDisplay.capabilityLabel(offering.capability))")
+                                .font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                        }
+                        Spacer(minLength: 0)
+                        if existingSourceIDs.contains(offering.selection.id) {
+                            Text("In Plan").font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                        } else {
+                            Image(systemName: draft.contains(offering) ? "checkmark.circle.fill" : "plus.circle")
+                                .foregroundColor(NativeTheme.purple)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .padding(12).background(planRowBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(existingSourceIDs.contains(offering.selection.id) || (!draft.contains(offering) && draft.offerings.count >= NativePlanBookableDraft.limit))
+                .accessibilityAddTraits(draft.contains(offering) ? .isSelected : [])
+                .accessibilityIdentifier("native-plan-bookable-\(offering.selection.id)")
+            }
+        }
+    }
+
+    private func api() -> NativePlanAPI {
+        NativePlanAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token }))
+    }
+
+    private func loadCategory() async {
+        let requestedCategory = category
+        let generation = catalog.begin()
+        do {
+            guard sessionStore.canAttachBearerToken else { throw BytspotAPIClient.APIError.invalidResponse }
+            let rows = try await api().bookables(category: requestedCategory)
+            guard !Task.isCancelled, category == requestedCategory else { return }
+            catalog.finish(rows, generation: generation)
+        } catch {
+            guard !Task.isCancelled, category == requestedCategory else { return }
+            catalog.finish(nil, generation: generation)
+        }
+    }
+
+    private func save() {
+        guard let planID else { onSelected(draft); dismiss(); return }
+        guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to update this Plan."; return }
+        guard !draft.offerings.isEmpty,
+              let request = submission.begin(NativePlanContract.addRequest(planID: planID, selections: draft.selections)) else { return }
+        Task {
+            defer { submission.finish() }
+            do {
+                // Revalidate a plan that may have become terminal while browsing.
+                // The mutation must also enforce ownership/lifecycle atomically.
+                let current = try await api().get(planID)
+                guard NativePlanDisplay.canAddBookables(current, userID: sessionStore.authenticatedUserID) else {
+                    errorMessage = "Only the creator can add to a mutable Plan. Close to refresh this Plan."
+                    return
+                }
+                // A lost success response can be reconciled without another
+                // mutation when all source references are already on the Plan.
+                let attached = NativePlanDisplay.selectedSourceIDs(in: current.items)
+                if !draft.selections.allSatisfy({ attached.contains($0.id) }) {
+                    _ = try await api().addBookables(request)
+                }
+                onSelected(draft)
+                dismiss()
+            } catch {
+                errorMessage = "Couldn't verify the save. Retry sends the same selections, without booking anything. If you close, refresh the Plan before adding again."
+            }
+        }
+    }
+}
+
 /// The Plans surface. The caller can see their plans, confirm or cancel the
 /// ones they own, and respond to the ones they're invited to. Phase 2 adds the
 /// surface that produces a Plan in the first place, plus one attach path -
@@ -491,6 +858,9 @@ struct NativePlansPanel: View {
     @State private var isLoading = false
     @State private var selectedPlanID: String?
     @State private var showCreate = false
+    @State private var planToDelete: NativePlan?
+    @State private var deletingPlanID: String?
+    @State private var deletionError: String?
     /// Held until the create sheet has finished dismissing. Assigning
     /// `selectedPlanID` while that sheet is still on screen asks one host to
     /// present a second sheet mid-teardown, which UIKit drops rather than
@@ -502,7 +872,35 @@ struct NativePlansPanel: View {
     @State private var pendingTemplate: NativePlanDisplay.PlanTemplate?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        planList
+        .alert("Delete Plan?", isPresented: Binding(
+            get: { planToDelete != nil }, set: { if !$0 { planToDelete = nil } }
+        )) {
+            Button("Delete", role: .destructive) {
+                if let plan = planToDelete { Task { await deletePlan(plan) } }
+            }
+            Button("Keep Plan", role: .cancel) { planToDelete = nil }
+        } message: {
+            Text("This removes the Plan for everyone and disables its invite link. Plans with bookings, pending reservations or payments in progress cannot be deleted.")
+        }
+        .alert("Couldn't delete Plan", isPresented: Binding(
+            get: { deletionError != nil }, set: { if !$0 { deletionError = nil } }
+        )) {
+            Button("OK", role: .cancel) { deletionError = nil }
+        } message: { Text(deletionError ?? "Try again.") }
+    }
+
+    @ViewBuilder private var planList: some View {
+        if #available(iOS 16.0, *) {
+            listContent.scrollContentBackground(.hidden)
+        } else {
+            listContent
+        }
+    }
+
+    private var listContent: some View {
+        List {
+            Group {
             if !sessionStore.canAttachBearerToken {
                 Text("Sign in to see your plans.").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
             } else if isLoading && plans.isEmpty {
@@ -526,9 +924,24 @@ struct NativePlansPanel: View {
                     Button(action: { selectedPlanID = plan.id }) { NativePlanListRow(plan: plan) }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("native-plan-row-\(plan.id)")
+                        .disabled(deletingPlanID != nil)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if NativePlanDisplay.canDelete(plan, userID: sessionStore.authenticatedUserID) {
+                                Button(role: .destructive) { planToDelete = plan } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                                .disabled(deletingPlanID != nil)
+                                .accessibilityIdentifier("native-plan-delete-\(plan.id)")
+                            }
+                        }
                 }
             }
+            }
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
         }
+        .listStyle(.plain)
+        .background(Color.clear)
         .frame(maxWidth: .infinity, alignment: .leading)
         .task { await reload() }
         // The join sheet seats a link holder while this list is already loaded;
@@ -564,7 +977,7 @@ struct NativePlansPanel: View {
     // but starting and shaping a Plan happens in the tab. This one honest line
     // says where, so the read view is not read as a dead end.
     private var savedPlansNote: some View {
-        Text("Plans you've created or joined. Use Start Plan in the tab bar to make a new one.")
+        Text("Plans you've created or joined. Swipe left to delete your Plans without bookings, pending reservations or payments. Use Start Plan to make a new one.")
             .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
     }
 
@@ -615,6 +1028,24 @@ struct NativePlansPanel: View {
             }
             Text("A starting point - you edit everything before it's a Plan.")
                 .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+        }
+    }
+
+    private func deletePlan(_ plan: NativePlan) async {
+        guard deletingPlanID == nil, sessionStore.canAttachBearerToken,
+              NativePlanDisplay.canDelete(plan, userID: sessionStore.authenticatedUserID) else { return }
+        deletingPlanID = plan.id
+        planToDelete = nil
+        defer { deletingPlanID = nil }
+        do {
+            let client = BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token })
+            try await NativePlanAPI(client: client).delete(plan.id)
+            plans.removeAll { $0.id == plan.id }
+            await reload()
+        } catch {
+            // The server rechecks bookings: a stale swipe must never delete one.
+            deletionError = "The Plan may now have a booking, pending reservation or payment, or the connection failed. Your list has been refreshed; try again if Delete is still available."
+            await reload()
         }
     }
 
@@ -682,6 +1113,8 @@ struct NativePlanDetailSheet: View {
     @State private var errorMessage: String?
     @State private var busy = false
     @State private var showCoffeeAttach = false
+    @State private var suggestedCoffeeSpotID: String?
+    @State private var showBookables = false
     @State private var showInvite = false
     /// The caller's accepted connections, loaded once alongside the Plan.
     /// Doubles as the invite source and the name book for the People list.
@@ -704,6 +1137,9 @@ struct NativePlanDetailSheet: View {
             }
             .padding(20)
         }
+        .background(NativeDeepSpaceGround())
+        .interactiveDismissDisabled(busy)
+        .disabled(busy)
         .accessibilityIdentifier("native-plan-detail-\(planID)")
         .task { await reload(); await loadConnections() }
         .sheet(isPresented: $showCoffeeAttach) {
@@ -712,8 +1148,15 @@ struct NativePlanDetailSheet: View {
                 suggestedPartySize: plan?.partySize,
                 suggestedTime: plan?.startsAt.flatMap { ISO8601DateFormatter.partyControlDate(from: $0) },
                 sessionStore: sessionStore,
-                onAttached: { onChanged(); Task { await reload() } }
+                onAttached: { onChanged(); Task { await reload() } },
+                suggestedSpotID: suggestedCoffeeSpotID
             )
+        }
+        .sheet(isPresented: $showBookables, onDismiss: { Task { await reload() } }) {
+            NativePlanBookablesPickerSheet(sessionStore: sessionStore, planID: planID,
+                                          existingSourceIDs: NativePlanDisplay.selectedSourceIDs(in: plan?.items ?? [])) { _ in
+                onChanged()
+            }
         }
         .sheet(isPresented: $showInvite) {
             NativePlanInviteSheet(
@@ -740,6 +1183,20 @@ struct NativePlanDetailSheet: View {
             if let area = plan.areaLabel { Text(area).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary) }
         }
 
+        if isCreator && NativePlanDisplay.canAddBookables(plan, userID: sessionStore.authenticatedUserID) {
+            Button(action: { inviteByText(for: plan) }) {
+                Label("Share invite with partners & friends", systemImage: "square.and.arrow.up")
+                    .font(.headline).frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.plain).foregroundColor(NativeTheme.purple)
+            .disabled(busy || plan.joinToken?.isEmpty != false)
+            .accessibilityIdentifier("native-plan-share-invite")
+            Button(action: { showInvite = true }) {
+                ctaLabel("Invite Bytspot connections", background: planRowBackground, foreground: NativeTheme.textPrimary)
+            }
+            .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-invite")
+        }
+
         if !plan.openNeeds.isEmpty {
             sectionHeader("Still open")
             VStack(alignment: .leading, spacing: 6) {
@@ -756,7 +1213,7 @@ struct NativePlanDetailSheet: View {
         }
 
         if !plan.items.isEmpty {
-            sectionHeader("Attached")
+            sectionHeader("Bookables & reservations")
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(plan.items) { item in
                     HStack {
@@ -766,6 +1223,17 @@ struct NativePlanDetailSheet: View {
                             // open" list above; `capitalized` would print the
                             // raw token and rename the caller's choice.
                             Text(NativePlanDisplay.needLabel(item.needKind)).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                            Text(NativePlanDisplay.itemStatusLabel(item))
+                                .font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                            if NativePlanDisplay.canAddBookables(plan, userID: sessionStore.authenticatedUserID),
+                               let spotID = NativePlanDisplay.coffeeRequestSpotID(item) {
+                                Button("Request a table") {
+                                    suggestedCoffeeSpotID = spotID
+                                    showCoffeeAttach = true
+                                }
+                                .frame(minHeight: 44).disabled(busy)
+                                .accessibilityIdentifier("native-plan-request-coffee-\(item.id)")
+                            }
                             // Only an item with a hold behind it carries this
                             // line; a room or reference item has no countdown
                             // to state and renders nothing.
@@ -814,6 +1282,9 @@ struct NativePlanDetailSheet: View {
             primePathSection
         }
 
+        if let errorMessage {
+            Text(errorMessage).font(.subheadline).foregroundColor(NativeTheme.orange)
+        }
         if plan.lifecycle != "cancelled" && plan.state != "expired" && plan.state != "completed" {
             actions(for: plan)
         }
@@ -921,19 +1392,17 @@ struct NativePlanDetailSheet: View {
 
     @ViewBuilder private func actions(for plan: NativePlan) -> some View {
         if isCreator {
-            // A Plan is a group object, and inviting is the one multi-person
-            // action the creator drives. It is a secondary CTA, not the purple
-            // primary: inviting adds a seat, it does not confirm anyone - each
-            // invitee still answers for themselves.
-            Button(action: { showInvite = true }) {
-                ctaLabel("Invite people", background: planRowBackground, foreground: NativeTheme.textPrimary)
+            if NativePlanDisplay.canAddBookables(plan, userID: sessionStore.authenticatedUserID) {
+                Button(action: { showBookables = true }) {
+                    ctaLabel("Add Bookables", background: planRowBackground, foreground: NativeTheme.textPrimary)
+                }
+                .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-add-bookables")
             }
-            .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-invite")
             // Coffee is the one supply Bytspot can hold today, so it is the
             // one attach the Plan offers. The verb is Add, not Book: what
             // follows is a hold ask the spot still has to answer.
-            Button(action: { showCoffeeAttach = true }) {
-                ctaLabel("Add coffee", background: planRowBackground, foreground: NativeTheme.textPrimary)
+            Button(action: { suggestedCoffeeSpotID = nil; showCoffeeAttach = true }) {
+                ctaLabel("Request a coffee table", background: planRowBackground, foreground: NativeTheme.textPrimary)
             }
             .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-add-coffee")
             if plan.lifecycle == "proposed" {
@@ -1140,12 +1609,14 @@ struct NativePlanCreateSheet: View {
     @ObservedObject var sessionStore: BytspotSessionStore
     let isEmbedded: Bool
     let onCancel: (() -> Void)?
+    let onSavingChanged: (Bool) -> Void
     let onCreated: (String) -> Void
 
-    init(sessionStore: BytspotSessionStore, template: NativePlanDisplay.PlanTemplate? = nil, isEmbedded: Bool = false, onCancel: (() -> Void)? = nil, onCreated: @escaping (String) -> Void) {
+    init(sessionStore: BytspotSessionStore, template: NativePlanDisplay.PlanTemplate? = nil, isEmbedded: Bool = false, onCancel: (() -> Void)? = nil, onSavingChanged: @escaping (Bool) -> Void = { _ in }, onCreated: @escaping (String) -> Void) {
         self.sessionStore = sessionStore
         self.isEmbedded = isEmbedded
         self.onCancel = onCancel
+        self.onSavingChanged = onSavingChanged
         self.onCreated = onCreated
         _title = State(initialValue: template?.title ?? "")
         _intent = State(initialValue: template?.intent ?? "")
@@ -1155,7 +1626,11 @@ struct NativePlanCreateSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var step = NativePlanCreationStep.idea
-    @State private var hasSubmitted = false
+    @State private var submission = NativePlanWriteDraft()
+    @State private var bookableDraft = NativePlanBookableDraft()
+    @State private var showBookables = false
+    private var hasSubmitted: Bool { !submission.allowsEdits }
+    private var busy: Bool { submission.isSaving }
     @State private var title: String
     @State private var intent: String
     @State private var setsTime = false
@@ -1163,7 +1638,6 @@ struct NativePlanCreateSheet: View {
     @State private var setsPartySize = false
     @State private var partySize = 2
     @State private var needs: Set<String>
-    @State private var busy = false
     @State private var errorMessage: String?
     /// One key for the whole form session, not one per tap. The client times
     /// out at 8s, so a create that commits slowly surfaces as a connection
@@ -1189,6 +1663,7 @@ struct NativePlanCreateSheet: View {
                             field("What to call it", text: $title, limit: 80, identifier: "native-plan-create-title")
                             field("What the plan is", text: $intent, limit: 280, identifier: "native-plan-create-intent")
                         case .details:
+                            bookablesRow
                             needsRow
                             timeRow
                             partySizeRow
@@ -1212,6 +1687,26 @@ struct NativePlanCreateSheet: View {
         // Keep a presented form in place while the write is in flight.
         .interactiveDismissDisabled(busy)
         .accessibilityIdentifier("native-plan-create")
+        .sheet(isPresented: $showBookables) {
+            NativePlanBookablesPickerSheet(sessionStore: sessionStore, initialDraft: bookableDraft) {
+                bookableDraft = $0
+            }
+        }
+    }
+
+    private var bookablesRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("Bookables · Optional")
+            Button(action: { showBookables = true }) {
+                Label("Add Bookables", systemImage: "plus.circle")
+                    .font(.headline).foregroundColor(NativeTheme.textPrimary)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-plan-create-add-bookables")
+            NativePlanBookableSelectionRows(draft: $bookableDraft, allowsRemoval: !hasSubmitted)
+            Text(NativePlanDisplay.bookablesFootnote).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+        }
     }
 
     private var header: some View {
@@ -1225,7 +1720,7 @@ struct NativePlanCreateSheet: View {
                         .frame(width: 44, height: 44)
                 }
                 .disabled(busy)
-                .accessibilityLabel("Cancel plan creation")
+                .accessibilityLabel(hasSubmitted ? "Close plan creation" : "Cancel plan creation")
             }
             Text("A Plan is yours to shape. Nothing is booked and nobody is invited until you say so.")
                 .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
@@ -1259,6 +1754,12 @@ struct NativePlanCreateSheet: View {
             Text(setsTime ? startsAt.formatted(date: .abbreviated, time: .shortened) : "When TBD")
             sectionHeader("Group size")
             Text(setsPartySize ? "\(partySize) \(partySize == 1 ? "person" : "people")" : "To be decided")
+            sectionHeader("Bookables")
+            if bookableDraft.offerings.isEmpty {
+                Text("No Bookables selected — you can add them later.").font(.subheadline)
+            } else {
+                NativePlanBookableSelectionRows(draft: $bookableDraft, allowsRemoval: !hasSubmitted)
+            }
             sectionHeader("Still to arrange")
             Text(needs.isEmpty ? "No needs selected" : NativePlanDisplay.normalizedNeeds(needs).map { NativePlanDisplay.needLabel($0) }.joined(separator: ", "))
             Text("Creating a Plan does not book anything or confirm anyone's attendance.")
@@ -1415,25 +1916,22 @@ struct NativePlanCreateSheet: View {
     private func submit() async {
         guard step == .review, canSubmit, !busy else { return }
         guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to start a Plan."; return }
-        // Freeze the submitted details along with the existing idempotency key
-        // so a timeout retry cannot silently change the attempted Plan.
-        hasSubmitted = true
-        busy = true; defer { busy = false }
+        guard let request = submission.begin(NativePlanContract.createRequest(
+            idempotencyKey: idempotencyKey, title: title, intent: intent,
+            startsAt: setsTime ? startsAt : nil, partySize: setsPartySize ? partySize : nil,
+            needs: needs, bookableSelections: bookableDraft.selections
+        )) else { return }
+        onSavingChanged(true)
+        defer { submission.finish(); onSavingChanged(false) }
         let api = NativePlanAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token }))
         do {
-            let planID = try await api.create(
-                idempotencyKey: idempotencyKey,
-                title: title,
-                intent: intent,
-                startsAt: setsTime ? startsAt : nil,
-                partySize: setsPartySize ? partySize : nil,
-                needs: needs
-            )
+            let planID = try await api.create(request)
             errorMessage = nil
             onCreated(planID)
             if !isEmbedded { dismiss() }
         } catch {
             errorMessage = NativePlanDisplay.createFailureMessage(for: error)
+                + " Retry sends the same Plan and selections. If you close, check My Plans before starting another."
         }
     }
 }

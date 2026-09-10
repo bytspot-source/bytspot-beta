@@ -320,6 +320,7 @@ struct BytspotNativeShellView: View {
     @AppStorage("bytspot_native_pending_post_auth_intent") private var pendingPostAuthIntentRaw = ""
     @StateObject private var pairingStore = NativePatchPairingStore()
     @StateObject private var directMapRouteStore = NativeDirectMapRouteStore()
+    @State private var isPlanSaving = false
     /// Canonical Green/Platinum/Black membership resolved by the backend-backed store.
     @EnvironmentObject private var membershipStore: NativeMembershipTierStore
     @EnvironmentObject private var sessionStore: BytspotSessionStore
@@ -390,7 +391,7 @@ struct BytspotNativeShellView: View {
                         NativeHostStudioView(circles: hostStudioCircles, membershipTier: membershipStore.tier, presentation: .tab)
                             .task { await loadHostStudioCircles() }
                     case .plan:
-                        NativePlanTabView(sessionStore: sessionStore, openDiscoverFilter: openDiscoverFilter, openMap: { selectNativeTab(.map) }, onCancel: { selectNativeTab(.home) })
+                        NativePlanTabView(sessionStore: sessionStore, openDiscoverFilter: openDiscoverFilter, openMap: { selectNativeTab(.map) }, onCancel: { selectNativeTab(.home) }, onSavingChanged: { isPlanSaving = $0 })
                     case .discover:
                         NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
@@ -452,6 +453,9 @@ struct BytspotNativeShellView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            // The embedded wizard must not disappear under an in-flight write.
+            // Unlike a modal sheet, its dismissal controls live in this shell.
+            .disabled(isPlanSaving)
             if let welcomeBannerText {
                 VStack {
                     Text(welcomeBannerText)
@@ -583,6 +587,7 @@ struct BytspotNativeShellView: View {
     }
 
     private func openNativeEquivalent(for route: BytspotHybridRoute) {
+        guard !isPlanSaving else { return }
         switch route {
         case .profile:
             openNativeProfile()
@@ -610,6 +615,7 @@ struct BytspotNativeShellView: View {
         Binding(
             get: { selectedTab },
             set: { tab in
+                guard !isPlanSaving else { return }
                 // Host Studio is a destination now, but still a signed-in one:
                 // send an anonymous caller to auth rather than to a workbench
                 // that cannot load anything.
@@ -764,6 +770,7 @@ struct BytspotNativeShellView: View {
     }
 
     private func openNativeProfile(panel: NativeProfilePanel?) {
+        guard !isPlanSaving else { return }
         nativeImpactLight()
         guard let panel else {
             pendingProfilePanel = nil
@@ -778,6 +785,7 @@ struct BytspotNativeShellView: View {
     }
 
     private func selectNativeTab(_ tab: BytspotNativeTab) {
+        guard !isPlanSaving else { return }
         nativeImpactLight()
         cancelPostAuthHomeHold()
         requestLocationForNearbyContentIfNeeded(tab)
@@ -793,6 +801,7 @@ struct BytspotNativeShellView: View {
     /// Map is a full-screen destination rather than a bar tab, so entering it
     /// has to record where the traveller came from to offer a way back.
     private func commitSelectedTab(_ tab: BytspotNativeTab) {
+        guard !isPlanSaving else { return }
         if tab == .map, selectedTab != .map {
             mapReturnTab = Self.mapReturnTarget(from: selectedTab)
         }
@@ -1862,22 +1871,20 @@ private struct NativeProfilePanelSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack(spacing: 12) {
-                        NativeIcon(symbol: panel.icon, color: panelDisplayAccent)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(panel.eyebrow).font(.system(size: 11, weight: .black)).foregroundColor(panelDisplayAccent).tracking(1.2)
-                            Text(panel.title).nativeTitle(22)
-                        }
-                        Spacer()
-                        Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 24, weight: .bold)).foregroundColor(NativeProfileStyle.body) }
+            if panel == .plans {
+                // My Plans owns a native List so swipe actions work. Do not
+                // nest it in the general profile ScrollView.
+                panelHeading.padding(20)
+                panelContent
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        panelHeading
+                        panelContent
                     }
-                    Text(summary).nativeBody(size: 13.5)
-                    panelContent
+                    .padding(20)
+                    .padding(.bottom, 8)
                 }
-                .padding(20)
-                .padding(.bottom, 8)
             }
             Button(action: { nativeImpactLight(); dismiss() }) { NativeCTA(title: doneTitle, color: doneColor, foreground: doneForeground) }
                 .buttonStyle(.plain)
@@ -1889,6 +1896,23 @@ private struct NativeProfilePanelSheet: View {
         }
         .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-profile-panel-\(panel.rawValue)")
+    }
+
+    private var panelHeading: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                NativeIcon(symbol: panel.icon, color: panelDisplayAccent)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(panel.eyebrow).font(.system(size: 11, weight: .black)).foregroundColor(panelDisplayAccent).tracking(1.2)
+                    Text(panel.title).nativeTitle(22)
+                }
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 24, weight: .bold)).foregroundColor(NativeProfileStyle.body)
+                }
+            }
+            Text(summary).nativeBody(size: 13.5)
+        }
     }
 
     @ViewBuilder private var panelContent: some View {

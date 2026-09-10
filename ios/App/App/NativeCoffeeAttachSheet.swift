@@ -14,6 +14,9 @@ struct NativeCoffeeAttachSheet: View {
     let suggestedTime: Date?
     @ObservedObject var sessionStore: BytspotSessionStore
     let onAttached: () -> Void
+    /// A selected Plan item opens this existing request flow at its exact spot.
+    /// Prefilling is read-only; only Request a table asks for a hold.
+    var suggestedSpotID: String? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var spots: [NativeCoffeeSpot] = []
@@ -21,6 +24,7 @@ struct NativeCoffeeAttachSheet: View {
     @State private var partySize: Int = 2
     @State private var requestedFor: Date = Date().addingTimeInterval(60 * 60)
     @State private var isLoading = false
+    @State private var loadFailed = false
     @State private var busy = false
     @State private var errorMessage: String?
     @State private var didPrefill = false
@@ -31,12 +35,18 @@ struct NativeCoffeeAttachSheet: View {
                 header
                 if isLoading && spots.isEmpty {
                     ProgressView().tint(NativeTheme.textSecondary)
+                } else if loadFailed {
+                    Button("Retry loading coffee spots") { Task { await load() } }
+                        .frame(minHeight: 44)
                 } else if spots.isEmpty {
                     emptyState
                 } else {
-                    spotList
-                    partySizeRow
-                    timeRow
+                    Group {
+                        spotList
+                        partySizeRow
+                        timeRow
+                    }
+                    .disabled(busy)
                     submitButton
                 }
                 if let errorMessage {
@@ -45,6 +55,8 @@ struct NativeCoffeeAttachSheet: View {
             }
             .padding(20)
         }
+        .background(NativeDeepSpaceGround())
+        .interactiveDismissDisabled(busy)
         .accessibilityIdentifier("native-coffee-attach-\(planID)")
         .task { await load() }
     }
@@ -52,9 +64,10 @@ struct NativeCoffeeAttachSheet: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Add coffee").font(.system(size: 22, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                Text("Request a coffee table").font(.system(size: 22, weight: .black)).foregroundColor(NativeTheme.textPrimary)
                 Spacer()
                 Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 24, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
+                    .disabled(busy)
             }
             // Says exactly what the tap does. Bytspot asks the spot to keep a
             // table; the spot still has to answer, and no money moves.
@@ -65,7 +78,8 @@ struct NativeCoffeeAttachSheet: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("No coffee spots yet.").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+            Text(suggestedSpotID == nil ? "No coffee spots yet." : "This spot isn't in the current table-request catalog.")
+                .font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
             Text("Only spots Bytspot can actually hold a table at show up here, so this list stays short until more are live.")
                 .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
         }
@@ -156,17 +170,26 @@ struct NativeCoffeeAttachSheet: View {
             // only a Plan without one falls back to "an hour from now".
             if let suggestedTime, suggestedTime > Date() { requestedFor = suggestedTime }
         }
-        isLoading = true; defer { isLoading = false }
+        isLoading = true; loadFailed = false; defer { isLoading = false }
         do {
-            spots = try await api().list()
+            let available = try await api().list()
+            if let suggestedSpotID {
+                // Never silently request a different spot when the selection
+                // is no longer available on the actual coffee request rail.
+                spots = available.filter { $0.id == suggestedSpotID }
+                selectedSpotID = spots.first?.id
+            } else {
+                spots = available
+            }
             errorMessage = nil
         } catch {
+            loadFailed = true
             errorMessage = "Couldn’t load coffee spots."
         }
     }
 
     private func submit() async {
-        guard let spotID = selectedSpotID else { return }
+        guard !busy, let spotID = selectedSpotID else { return }
         guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to request a table."; return }
         busy = true; defer { busy = false }
 

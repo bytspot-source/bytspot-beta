@@ -64,18 +64,13 @@ enum NativeVenueDetailPresentation {
     }
 
     static func actionTitle(for action: NativeVenueDetailAction, venue: NativeVenueSummary) -> String {
-        if isCoffeeVenue(venue) || isDiningVenue(venue) || isBoutiqueApartmentVenue(venue) {
-            if action.id == "call" { return "Contact" }
-            if action.id == "navigate" { return "Directions" }
+        // Place metadata never grants fulfillment, even for a legacy controlled badge.
+        switch action.id {
+        case "getTickets": return "Details"
+        case "navigate", "bookRide": return "Route"
+        case "call": return "Contact"
+        default: return action.title
         }
-        guard action.id == "getTickets" else { return action.title }
-        if isCoffeeVenue(venue) { return "Plan Stop" }
-        if isBoutiqueApartmentVenue(venue) { return "Check Dates" }
-        if isDiningVenue(venue) { return NativeDiscoverCardControl.isControlled(venue: venue) ? "View Menu" : "Plan Dining" }
-        if isEventOrPassVenue(venue) { return venue.name.localizedCaseInsensitiveContains("pass") ? "View Pass" : "Get Tickets" }
-        if isServiceVenue(venue) { return "Request Service" }
-        if venue.discoverType == "parking" { return "Reserve" }
-        return action.title
     }
 
     static func actionSystemImage(for action: NativeVenueDetailAction, venue: NativeVenueSummary) -> String {
@@ -103,32 +98,10 @@ enum NativeVenueDetailPresentation {
     }
 
     static func detailSection(for venue: NativeVenueSummary) -> NativeVenueDetailSection? {
-        if isBoutiqueApartmentVenue(venue) {
-            return NativeVenueDetailSection(title: "Stay details", subtitle: "Check dates, price, rules, and entry before any booking.", systemImage: "house.fill", highlights: ["Dates required", "Sleeps 2", "Price review", "Entry details"])
-        }
-        if isCoffeeVenue(venue) {
-            return NativeVenueDetailSection(title: "Good for", subtitle: "A low-key coffee stop matched for a quick walk, brunch, or a calm reset nearby.", systemImage: "cup.and.saucer.fill", highlights: ["Coffee", "Brunch", "Quick walk", "Low-key morning"])
-        }
-        if isDiningVenue(venue) {
-            if NativeDiscoverCardControl.isControlled(venue: venue) {
-                return NativeVenueDetailSection(title: "Included", subtitle: venue.name.localizedCaseInsensitiveContains("broni") ? "Ghanaian comfort food, ready for pickup or delivery." : "Menu, pickup, and table options for this dining spot.", systemImage: "fork.knife", highlights: venue.name.localizedCaseInsensitiveContains("broni") ? ["Jollof + chicken", "Banku + tilapia", "Family-style portions", "Pickup or delivery"] : ["Menu preview", "Pickup options", "Group plans", "Ask Concierge"])
-            }
-            // Local dining: no menu-item highlights — hours, plans, and route only.
-            return NativeVenueDetailSection(title: "Good for", subtitle: "A dining stop matched to your plans. Check hours and route before you head out.", systemImage: "fork.knife", highlights: ["Dining", "Date night", "Group plans", "Ask Concierge"])
-        }
-        if isEventOrPassVenue(venue) {
-            return NativeVenueDetailSection(title: "Included", subtitle: venue.name.localizedCaseInsensitiveContains("akwaaba") ? "Ghana matchday access, ready on your phone." : "Ticketing, arrival, and access details for this event.", systemImage: "ticket.fill", highlights: venue.name.localizedCaseInsensitiveContains("akwaaba") ? ["Fast-track entry", "VIP lounge access", "Digital pass delivery", "On-site host support"] : ["Tickets", "Entry details", "Arrival help", "Share pass"])
-        }
-        if isMobilityVenue(venue) {
-            return NativeVenueDetailSection(title: venue.name.localizedCaseInsensitiveContains("group") ? "Group ride details" : "Ride details", subtitle: venue.name.localizedCaseInsensitiveContains("group") ? "Coordinate vans, shuttles, or private buses for airport runs, events, and crew movement." : "Compare ride apps and private transfers before you leave. Uber or Lyft must be installed to complete the ride.", systemImage: venue.name.localizedCaseInsensitiveContains("group") ? "bus.fill" : "car.side.fill", highlights: venue.name.localizedCaseInsensitiveContains("group") ? ["Event shuttle", "Airport transfer", "Private bus", "Crew planning"] : ["Uber & Lyft", "Airport transfer", "Private ride", "Install required"])
-        }
-        if isServiceVenue(venue) {
-            return NativeVenueDetailSection(title: "Service details", subtitle: "Review what is included, save it for later, or ask Concierge for help with next steps.", systemImage: "checkmark.seal.fill", highlights: ["Trusted provider", "Member pricing", "Saved request", "Concierge help"])
-        }
-        if venue.discoverType == "parking" {
-            return NativeVenueDetailSection(title: "Parking details", subtitle: "Availability, pricing, and arrival support before you route.", systemImage: "parkingsign.circle.fill", highlights: ["Reserve ahead", "Price shown", "Walk time", "Covered options"])
-        }
-        return nil
+        // An address/category is a discovery reference, not inventory or amenities.
+        NativeVenueDetailSection(title: "Place details",
+            subtitle: NativeDiscoverBookablePresentation().availabilityLine,
+            systemImage: "mappin", highlights: ["Route", "Add to Plan"])
     }
 
     static func isDiningVenue(_ venue: NativeVenueSummary) -> Bool {
@@ -172,6 +145,58 @@ struct NativeVenueDetailSection: Equatable {
     let subtitle: String
     let systemImage: String
     let highlights: [String]
+}
+
+/// Shared card/detail routing contract. There is deliberately no checkout route:
+/// no controlled-inventory booking backend is registered. Do not substitute payments.
+enum NativeM5PrimaryAction: Equatable {
+    case route
+    case requestCoffee
+    case external(URL)
+    case unavailable
+}
+
+enum NativeM5DetailPolicy {
+    static let hoursUnknown = "Hours unknown · not provided by this place"
+    static let activityUnknown = "Activity unknown · no live update provided"
+    static let addToPlanTitle = "Add to Plan"
+    static let planDisclaimer = "Adding to a Plan does not book or request anything."
+
+    static func primaryAction(for presentation: NativeDiscoverBookablePresentation) -> NativeM5PrimaryAction {
+        switch presentation.capability {
+        case .details: return .route
+        case .request: return .requestCoffee
+        case .redirect: return presentation.externalURL.map(NativeM5PrimaryAction.external) ?? .route
+        case .book: return .unavailable
+        }
+    }
+
+    static func primaryTitle(for presentation: NativeDiscoverBookablePresentation) -> String {
+        switch primaryAction(for: presentation) {
+        case .route: return "Route"
+        case .requestCoffee: return "Request"
+        case .external: return presentation.primaryActionTitle ?? "Route"
+        case .unavailable: return "Booking unavailable"
+        }
+    }
+
+    static func compactActions(for venue: NativeVenueSummary, offering: NativePlanBookableOffering? = nil) -> [NativeVenueDetailAction] {
+        // A catalog source key is not a venues.checkin venue ID.
+        let canCheckIn = offering == nil && NativeVenueDetailPresentation.supportsManualCheckIn(venue)
+        let ids = canCheckIn ? ["save", "share", "checkIn"] : ["save", "share"]
+        return ids.compactMap { id in NativeVenueDetailContract.actions.first { $0.id == id } }
+    }
+
+    static func address(for venue: NativeVenueSummary) -> String {
+        let value = venue.address.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty || value == "—" ? "Address not provided" : value
+    }
+
+    static func activity(for venue: NativeVenueSummary) -> String {
+        guard let crowd = venue.crowd, crowd.isLiveOccupancy else { return activityUnknown }
+        let wait = crowd.waitMins.map { " · \($0)m wait" } ?? ""
+        return "\(crowd.label)\(wait)"
+    }
 }
 
 struct NativeVenueOpenStatus: Equatable {

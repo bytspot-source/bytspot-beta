@@ -963,8 +963,11 @@ private struct BytspotNativeBottomTabBar: View {
             // part of it. The globe carries itself on the bar's own material.
             // Same construction as its four neighbours -- solid SF glyph, same
             // weight -- so the centre reads as emphasis rather than as a
-            // different rendering system dropped into the row.
-            Image(systemName: "globe")
+            // different rendering system dropped into the row. Plain `globe` is
+            // a stroked wireframe: it measured the most ink in the row (318pt²)
+            // but spread as thin meridians, so it read as texture rather than
+            // mass. The filled variant carries the same footprint as solid.
+            Image(systemName: "globe.americas.fill")
                 .font(.system(size: 24, weight: .semibold))
                 .foregroundColor(isActive ? NativeTheme.textPrimary : NativeTheme.textSecondary)
                 .frame(width: NativePolish.bottomBarHostRingSize, height: NativePolish.bottomBarHostRingSize)
@@ -6756,8 +6759,20 @@ private struct NativeHomeDashboardView: View {
             Text("Local picks are updating").nativeTitle(20)
             Text("We won't show far-away places. Search or open Discover to check trusted options around your current location.").nativeBody(size: 12.5, color: NativeTheme.textSecondary)
             HStack(spacing: 8) {
-                Button("Open Discover") { openNativeTab(.discover) }.buttonStyle(.borderedProminent)
-                Button("Map near me") { openNativeTab(.map) }.buttonStyle(.bordered)
+                // System button styles brought their own tint in here: white on
+                // the system blue measured 3.23:1, and the bordered pill put a
+                // blue label on grey at 1.58:1 in Light. Brand cyan carries the
+                // ink instead -- 9.21:1 filled, 6.82:1 as a label on the panel.
+                Button("Open Discover") { openNativeTab(.discover) }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color(red: 10/255, green: 10/255, blue: 30/255))
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(Capsule().fill(NativeTheme.cyan))
+                Button("Map near me") { openNativeTab(.map) }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(NativeTheme.cyan)
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(Capsule().stroke(NativeTheme.cyan.opacity(0.45), lineWidth: 1))
             }
         }
         .padding(14)

@@ -952,11 +952,11 @@ private struct BytspotNativeBottomTabBar: View {
     /// travelling bloom -- the ring is already its own light source.
     private func centerItem(_ tab: BytspotNativeTab, isActive: Bool) -> some View {
         VStack(spacing: 3) {
-            ZStack {
-                Circle().fill(Color.black)
-                BytspotDotGlobe(size: NativePolish.bottomBarHostRingSize * 0.88)
-            }
-            .frame(width: NativePolish.bottomBarHostRingSize, height: NativePolish.bottomBarHostRingSize)
+            // No disc behind the mark: a filled puck on the glass bar reads as an
+            // unfinished placeholder sitting on top of the surface rather than as
+            // part of it. The globe carries itself on the bar's own material.
+            BytspotDotGlobe(size: NativePolish.bottomBarHostRingSize)
+                .frame(width: NativePolish.bottomBarHostRingSize, height: NativePolish.bottomBarHostRingSize)
             // The globe is its own light source, so the centre wears no ring:
             // a stroke plus a gradient plus a glow was three marks competing on
             // one 38pt target. Selection is carried by the glow alone.

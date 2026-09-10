@@ -7,21 +7,62 @@ import UIKit
 /// low contrast on purpose: they should be felt as depth, never seen as shapes,
 /// and they must never compete with content for the eye.
 struct NativeDeepSpaceGround: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Fixed field, generated once from a constant seed. Stars must not
+    /// reshuffle on every redraw or the sky crawls while you scroll.
+    private static let stars: [(x: Double, y: Double, radius: Double, phase: Double, peak: Double)] = {
+        var seed: UInt64 = 0x9E3779B97F4A7C15
+        func unit() -> Double {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Double((seed >> 11) & 0xFFFFF) / Double(0xFFFFF)
+        }
+        return (0..<70).map { _ in
+            (x: unit(), y: unit(), radius: 0.5 + unit() * 1.3, phase: unit() * 2 * .pi, peak: 0.35 + unit() * 0.5)
+        }
+    }()
+
     var body: some View {
         ZStack {
             NativePolish.screenBackground
             GeometryReader { geo in
                 let span = max(geo.size.width, geo.size.height)
-                RadialGradient(colors: [NativeTheme.cyan.opacity(0.16), .clear],
-                               center: UnitPoint(x: 0.86, y: 0.08), startRadius: 0, endRadius: span * 0.78)
-                RadialGradient(colors: [Color(hue: 0.49, saturation: 0.85, brightness: 0.62).opacity(0.14), .clear],
-                               center: UnitPoint(x: 0.10, y: 0.82), startRadius: 0, endRadius: span * 0.72)
-                RadialGradient(colors: [NativeTheme.purple.opacity(0.10), .clear],
-                               center: UnitPoint(x: 0.50, y: 0.46), startRadius: 0, endRadius: span * 0.62)
+                RadialGradient(colors: [NativeTheme.cyan.opacity(0.30), NativeTheme.cyan.opacity(0.07), .clear],
+                               center: UnitPoint(x: 0.88, y: 0.06), startRadius: 0, endRadius: span * 0.82)
+                RadialGradient(colors: [Color(hue: 0.47, saturation: 0.90, brightness: 0.70).opacity(0.26), .clear],
+                               center: UnitPoint(x: 0.06, y: 0.84), startRadius: 0, endRadius: span * 0.76)
+                RadialGradient(colors: [NativeTheme.purple.opacity(0.20), .clear],
+                               center: UnitPoint(x: 0.52, y: 0.44), startRadius: 0, endRadius: span * 0.66)
+                starfield(span: geo.size)
             }
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
+    }
+
+    /// Twinkle is a slow opacity breath, never a position change, and it stops
+    /// dead under Reduce Motion -- this sits behind every screen in the app, so
+    /// it redraws for the whole session and has to stay cheap and ignorable.
+    @ViewBuilder private func starfield(span: CGSize) -> some View {
+        if reduceMotion {
+            Canvas { context, _ in Self.draw(in: context, size: span, time: 0, twinkling: false) }
+        } else {
+            TimelineView(.animation(minimumInterval: 1.0 / 12.0)) { timeline in
+                let time = timeline.date.timeIntervalSinceReferenceDate
+                Canvas { context, _ in Self.draw(in: context, size: span, time: time, twinkling: true) }
+            }
+        }
+    }
+
+    private static func draw(in context: GraphicsContext, size: CGSize, time: TimeInterval, twinkling: Bool) {
+        for star in stars {
+            let breath = twinkling ? (sin(time * 0.7 + star.phase) + 1) / 2 : 0.6
+            let alpha = star.peak * (0.45 + 0.55 * breath)
+            let point = CGPoint(x: star.x * size.width, y: star.y * size.height)
+            let rect = CGRect(x: point.x - star.radius, y: point.y - star.radius,
+                              width: star.radius * 2, height: star.radius * 2)
+            context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(alpha)))
+        }
     }
 }
 

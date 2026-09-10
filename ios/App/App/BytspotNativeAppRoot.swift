@@ -1025,7 +1025,7 @@ struct BytspotMark: View {
 /// tab bar on every screen and a live sphere there costs frames for nothing.
 struct BytspotDotGlobe: View {
     let size: CGFloat
-    var dotCount: Int = 150
+    var dotCount: Int = 74
 
     var body: some View {
         Canvas { context, canvasSize in
@@ -1050,8 +1050,11 @@ struct BytspotDotGlobe: View {
                 // rim hard enough to be read as a silhouette at 38pt.
                 let limb = min(1, hypot(x, y))
                 let curve = max(0, 1 - limb * limb)
-                let depth = 0.20 + 0.80 * curve
-                let dotRadius = radius * 0.075 * (0.55 + 0.45 * curve)
+                // Cubed, not squared: at 38pt a gentle falloff only bit in the
+                // outer fifth of the radius, so the disc measured flat across the
+                // middle and read as a perforated puck.
+                let depth = 0.06 + 0.94 * curve * curve.squareRoot()
+                let dotRadius = radius * 0.105 * (0.42 + 0.58 * curve)
                 let rect = CGRect(x: point.x - dotRadius, y: point.y - dotRadius, width: dotRadius * 2, height: dotRadius * 2)
                 // One achromatic mark. On a coloured ground white is the only
                 // ink that stays the logo instead of joining the palette.

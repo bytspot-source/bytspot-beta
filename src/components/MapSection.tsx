@@ -59,6 +59,7 @@ interface MapSectionProps {
   viewMode?: MapViewMode;
   destination?: string;
   isRideBookingOpen?: boolean;
+  onBackToHome?: () => void;
   onBookRide?: (venue?: { name: string; lat?: number; lng?: number }) => void;
   onOpenAccessWallet?: () => void;
   /** Live user coordinates — map centers here instead of hardcoded Atlanta */
@@ -865,8 +866,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   }, [partnerVenueCount]);
 
   return (
-    <div className="relative w-full h-full" style={{ zIndex: 0 }} data-testid="map-content">
-      {/* App owns navigation and safe area; this canvas starts below that row. */}
+    <div className="relative w-full h-full" style={{ zIndex: 0 }}>
       {/* Real Leaflet Map */}
       <MapContainer
         center={mapCenter}

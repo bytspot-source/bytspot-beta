@@ -15,11 +15,10 @@ export function MapSearchBar({ isVisible, isFocusedMapMode, value, onChange, onS
     <AnimatePresence>
       {isVisible && (
         <motion.div
-          className="map-search-row z-[1000]"
-          data-testid="map-search-row"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: isFocusedMapMode ? 0.92 : 1 }}
-          exit={{ opacity: 0 }}
+          className="absolute left-3 right-20 top-4 z-[1000]"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: isFocusedMapMode ? 0.92 : 1, y: 0, scale: isFocusedMapMode ? 0.98 : 1 }}
+          exit={{ opacity: 0, y: -10 }}
           transition={transition}
         >
           <div className={`rounded-[24px] border border-white/35 bg-[#080A10] px-3 shadow-2xl ${isFocusedMapMode ? 'py-2.5' : 'py-3'}`}>
@@ -32,7 +31,6 @@ export function MapSearchBar({ isVisible, isFocusedMapMode, value, onChange, onS
                   const query = event.currentTarget.value.trim();
                   if (event.key === 'Enter' && query) onSubmit(query);
                 }}
-                aria-label="Search destination or service type"
                 placeholder="Search destination or service type"
                 className="min-w-0 flex-1 bg-transparent text-[15px] text-white outline-none placeholder:text-white/45"
                 style={{ fontWeight: 700 }}

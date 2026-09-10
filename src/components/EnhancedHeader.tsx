@@ -1,5 +1,5 @@
 import { motion, useScroll, useTransform } from 'motion/react';
-import { Sun, Cloud, CloudRain, MapPin, Zap, TrendingUp, Clock } from 'lucide-react';
+import { Sun, Cloud, CloudRain, MapPin, Menu, Zap, TrendingUp, Clock } from 'lucide-react';
 import { ZoneUserCount } from './ZoneUserCount';
 import { useRef, useEffect, useState } from 'react';
 import { trpc } from '../utils/trpc';
@@ -21,6 +21,7 @@ import {
 } from '../utils/personalization';
 
 interface EnhancedHeaderProps {
+  onProfileClick: () => void;
   scrollContainerRef?: React.RefObject<HTMLDivElement>;
   weather?: WeatherSnapshot | null;
   weatherLoading?: boolean;
@@ -53,7 +54,7 @@ function getGuestGreetingTitle(hour: number, city: string) {
   return 'Still out?';
 }
 
-export function EnhancedHeader({ scrollContainerRef, weather, weatherLoading = false, city = null }: EnhancedHeaderProps) {
+export function EnhancedHeader({ onProfileClick, scrollContainerRef, weather, weatherLoading = false, city = null }: EnhancedHeaderProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [spotsNearby, setSpotsNearby] = useState(12);
   const [aiRecs, setAiRecs] = useState(8);
@@ -221,7 +222,7 @@ export function EnhancedHeader({ scrollContainerRef, weather, weatherLoading = f
                 </div>
               </div>
 
-              {/* Right: Location — navigation is owned by the app shell. */}
+              {/* Right: Location & Profile */}
               <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5">
                 {/* Zone Activity */}
                 <div className="min-w-0 shrink">
@@ -235,7 +236,30 @@ export function EnhancedHeader({ scrollContainerRef, weather, weatherLoading = f
                     {cityBadge}
                   </span>
                 </div>
-
+                
+                {/* Profile Menu Button */}
+                <motion.button
+                  onClick={onProfileClick}
+                  aria-label="Open profile"
+                  data-testid="open-profile-button"
+                  className="tap-target relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/25 bg-gradient-to-br from-[#A855F7]/[0.60] to-[#00BFFF]/[0.45] shadow-[0_10px_28px_rgba(168,85,247,0.36)]"
+                  whileTap={{ scale: 0.9 }}
+                  transition={springConfig}
+                >
+                  {/* Animated gradient overlay */}
+                  <motion.div
+                    className="absolute inset-0 bg-gradient-to-br from-[#00BFFF]/[0.30] to-[#FF00FF]/[0.30]"
+                    animate={{
+                      rotate: [0, 360],
+                    }}
+                    transition={{
+                      duration: 8,
+                      repeat: Infinity,
+                      ease: "linear",
+                    }}
+                  />
+                  <Menu className="relative z-10 h-[18px] w-[18px] text-white" strokeWidth={2.5} />
+                </motion.button>
               </div>
             </div>
           </div>

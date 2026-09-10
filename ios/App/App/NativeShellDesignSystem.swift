@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Shell-owned navigation row, mirrored by --navigation-* in globals.css.
+/// Shared native-only navigation geometry for the shell and Map controls.
 /// UIKit/SwiftUI owns the device safe area; these values are inside it.
 /// Reserve this row outside scroll content, never as a scrolling spacer.
 enum NativeNavigationLayout {

@@ -3844,8 +3844,8 @@ final class NativeProfileDataAPITests: XCTestCase {
         // The Plans tile lives in the top-level enum and reads consistently
         // wherever the panel opens; the accompanying NativeAccountParitySelfTests
         // preconditions pin the tile grid at boot.
-        XCTAssertEqual(NativeProfilePanel.plans.title, "Plans")
-        XCTAssertEqual(NativeProfilePanel.plans.eyebrow, "PLANS")
+        XCTAssertEqual(NativeProfilePanel.plans.title, "My Plans")
+        XCTAssertEqual(NativeProfilePanel.plans.eyebrow, "MY PLANS")
         XCTAssertEqual(NativeProfilePanel.plans.icon, "calendar")
         // Places I've Been stays reachable even though the section that used
         // to expose it on the landing is gone.
@@ -4837,6 +4837,28 @@ final class NativeRecapStubProtocol: URLProtocol {
 /// caller reads while filling the form in. Kept apart from the profile-data
 /// suite so a Plan rule fails under a Plan name.
 final class NativePlanCreateTests: XCTestCase {
+    func testStartPlanAndMyPlansNameDifferentDestinations() {
+        XCTAssertEqual(BytspotNativeTab.plan.barTitle, "Start Plan")
+        XCTAssertEqual(NativeProfilePanel.plans.title, "My Plans")
+        XCTAssertNotEqual(BytspotNativeTab.plan.barTitle, NativeProfilePanel.plans.title)
+    }
+
+    func testPlanCreationMovesFromIdeaThroughDetailsToReview() {
+        XCTAssertEqual(NativePlanCreationStep.allCases.map(\.title), ["Idea", "Details", "Review"])
+        XCTAssertNil(NativePlanCreationStep.idea.previous)
+        XCTAssertEqual(NativePlanCreationStep.idea.next, .details)
+        XCTAssertEqual(NativePlanCreationStep.details.next, .review)
+        XCTAssertNil(NativePlanCreationStep.review.next)
+    }
+
+    func testPlanCreationBackNavigationNeverOpensAList() {
+        XCTAssertEqual(NativePlanCreationStep.review.previous, .details)
+        XCTAssertEqual(NativePlanCreationStep.details.previous, .idea)
+        for step in NativePlanCreationStep.allCases {
+            if let next = step.next { XCTAssertEqual(next.previous, step) }
+        }
+    }
+
     func testPlanCreateOmitsEveryOptionalTheCallerLeftAlone() {
         let input = NativePlanContract.createInput(
             idempotencyKey: "1D9F0C1E-0000-4000-8000-00000000000B",

@@ -390,7 +390,7 @@ struct BytspotNativeShellView: View {
                         NativeHostStudioView(circles: hostStudioCircles, membershipTier: membershipStore.tier, presentation: .tab)
                             .task { await loadHostStudioCircles() }
                     case .plan:
-                        NativePlanTabView(sessionStore: sessionStore, openDiscoverFilter: openDiscoverFilter, openMap: { selectNativeTab(.map) })
+                        NativePlanTabView(sessionStore: sessionStore, openDiscoverFilter: openDiscoverFilter, openMap: { selectNativeTab(.map) }, onCancel: { selectNativeTab(.home) })
                     case .discover:
                         NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
@@ -1783,7 +1783,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .reservations: return "Arrivals"
         case .access: return "My Access"
         case .points: return "Bytspot Points"
-        case .plans: return "Plans"
+        case .plans: return "My Plans"
         case .personalInformation: return "Personal Information"
         case .vehicles: return "My Vehicles"
         case .paymentMethods: return "Payment Methods"
@@ -1806,7 +1806,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .reservations: return "ARRIVALS"
         case .access: return "WALLET"
         case .points: return "CHECK-IN ACTIVITY"
-        case .plans: return "PLANS"
+        case .plans: return "MY PLANS"
         case .personalInformation, .vehicles, .paymentMethods, .savedSpots, .placesVisited: return "ACCOUNT"
         case .vibePreferences, .parkingPreferences, .notifications: return "PREFERENCES"
         case .locationPrivacy, .generalSettings, .appearance: return "SETTINGS"
@@ -4910,7 +4910,7 @@ private struct NativeProfileCommandGrid: View {
         // Points was a tile of its own; folding it into Wallet makes room for Plans,
         // the coordination object every booking will eventually hang off. Points
         // stays a first-class panel, reached through the Wallet row below.
-        ("PLANS", "Plans", "Coordinate the night", "calendar", .plans, NativeTheme.purple),
+        ("MY PLANS", "My Plans", "Created or joined", "calendar", .plans, NativeTheme.purple),
         ("SAVED", "Saved", "Favorites & places you’ve been", "heart.fill", .savedSpots, NativeTheme.emerald)
     ]
 
@@ -18928,7 +18928,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfileMenuSectionKind.safetyLegal.items.map(\.panel) == [.deleteAccount, .privacyPolicy, .termsOfService, .disclaimer], "NativeAccountParitySelfTests: safety/legal rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileCommandGrid.tileTitles == ["Wallet", "Bookings", "Plans", "Saved"], "NativeAccountParitySelfTests: Profile quick-action tiles drifted.")
         precondition(NativeProfileCommandGrid.tilePanels == [.access, .reservations, .plans, .savedSpots], "NativeAccountParitySelfTests: Profile command-center panels drifted.")
-        precondition(NativeProfilePanel.access.title == "My Access" && NativeProfilePanel.reservations.title == "Arrivals" && NativeProfilePanel.plans.title == "Plans", "NativeAccountParitySelfTests: Wallet, Bookings, and Plans tiles must open their native surfaces.")
+        precondition(NativeProfilePanel.access.title == "My Access" && NativeProfilePanel.reservations.title == "Arrivals" && NativeProfilePanel.plans.title == "My Plans", "NativeAccountParitySelfTests: Wallet, Bookings, and My Plans tiles must open their native surfaces.")
         precondition(NativeProfileBoardDesignContract.footerTitle == "Close" && NativeProfileBoardDesignContract.neutralActionSurface == "NativeTheme.selectedControlSurface", "NativeAccountParitySelfTests: Profile panels should use neutral board close actions, not colored generic Done footers.")
         precondition(NativeProfileBoardDesignContract.productBoardIDs == ["native-arrival-ledger-panel", "native-saved-places-board", "native-places-visited-board"], "NativeAccountParitySelfTests: Product boards must remain on the neutral ledger design system.")
         precondition(NativeArrivalLedgerContract.emptyTitle == "No upcoming arrivals" && NativeArrivalLedgerContract.accessibilityID == "native-arrival-ledger-panel", "NativeAccountParitySelfTests: Arrivals must use the native ledger panel, not generic placeholder rows.")

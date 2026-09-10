@@ -564,7 +564,7 @@ struct NativePlansPanel: View {
     // but starting and shaping a Plan happens in the tab. This one honest line
     // says where, so the read view is not read as a dead end.
     private var savedPlansNote: some View {
-        Text("Plans you're part of. Start and shape them in the Plan tab.")
+        Text("Plans you've created or joined. Use Start Plan in the tab bar to make a new one.")
             .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
     }
 
@@ -642,7 +642,7 @@ private struct NativePlansEmptyState: View {
             Text("No plans yet.").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
             Text(showsCreate
                  ? "A Plan holds who's coming and what you still need, in one place. Start one and it lands here."
-                 : "A Plan holds who's coming and what you still need, in one place. Start one in the Plan tab and it lands here.")
+                 : "A Plan holds who's coming and what you still need, in one place. Use Start Plan in the tab bar and it lands here.")
                 .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
         }
     }
@@ -672,7 +672,7 @@ private struct NativePlanListRow: View {
     }
 }
 
-private struct NativePlanDetailSheet: View {
+struct NativePlanDetailSheet: View {
     let planID: String
     @ObservedObject var sessionStore: BytspotSessionStore
     let onChanged: () -> Void
@@ -1121,12 +1121,31 @@ private struct NativePlanInviteSheet: View {
 /// and needs are offered because "what a plan still needs" is the whole
 /// point of the object. Everything optional is genuinely optional - a Plan
 /// with no time is a real state the surface prints as "When TBD".
-private struct NativePlanCreateSheet: View {
+enum NativePlanCreationStep: Int, CaseIterable {
+    case idea, details, review
+
+    var title: String {
+        switch self {
+        case .idea: return "Idea"
+        case .details: return "Details"
+        case .review: return "Review"
+        }
+    }
+
+    var next: Self? { Self(rawValue: rawValue + 1) }
+    var previous: Self? { Self(rawValue: rawValue - 1) }
+}
+
+struct NativePlanCreateSheet: View {
     @ObservedObject var sessionStore: BytspotSessionStore
+    let isEmbedded: Bool
+    let onCancel: (() -> Void)?
     let onCreated: (String) -> Void
 
-    init(sessionStore: BytspotSessionStore, template: NativePlanDisplay.PlanTemplate? = nil, onCreated: @escaping (String) -> Void) {
+    init(sessionStore: BytspotSessionStore, template: NativePlanDisplay.PlanTemplate? = nil, isEmbedded: Bool = false, onCancel: (() -> Void)? = nil, onCreated: @escaping (String) -> Void) {
         self.sessionStore = sessionStore
+        self.isEmbedded = isEmbedded
+        self.onCancel = onCancel
         self.onCreated = onCreated
         _title = State(initialValue: template?.title ?? "")
         _intent = State(initialValue: template?.intent ?? "")
@@ -1134,6 +1153,9 @@ private struct NativePlanCreateSheet: View {
     }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var step = NativePlanCreationStep.idea
+    @State private var hasSubmitted = false
     @State private var title: String
     @State private var intent: String
     @State private var setsTime = false
@@ -1156,23 +1178,38 @@ private struct NativePlanCreateSheet: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                header
-                field("What to call it", text: $title, limit: 80, identifier: "native-plan-create-title")
-                field("What the plan is", text: $intent, limit: 280, identifier: "native-plan-create-intent")
-                timeRow
-                partySizeRow
-                needsRow
-                submitButton
-                if let errorMessage {
-                    Text(errorMessage).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.orange)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    header.id("plan-create-top")
+                    progress
+                    Group {
+                        switch step {
+                        case .idea:
+                            field("What to call it", text: $title, limit: 80, identifier: "native-plan-create-title")
+                            field("What the plan is", text: $intent, limit: 280, identifier: "native-plan-create-intent")
+                        case .details:
+                            needsRow
+                            timeRow
+                            partySizeRow
+                        case .review:
+                            review
+                        }
+                    }
+                    .disabled(busy || hasSubmitted)
+                    if let errorMessage {
+                        Text(errorMessage).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.orange)
+                    }
                 }
+                .padding(16)
+                // The shell owns the floating map/avatar chrome.
+                .padding(.top, isEmbedded ? 52 : 0)
             }
-            .padding(20)
+            .onChange(of: step) { _ in proxy.scrollTo("plan-create-top", anchor: .top) }
         }
-        // A swipe-away mid-flight would leave the create running with nowhere
-        // to report back to, so the sheet stays put until the call settles.
+        .safeAreaInset(edge: .bottom, spacing: 0) { navigationControls }
+        .background(NativeDeepSpaceGround())
+        // Keep a presented form in place while the write is in flight.
         .interactiveDismissDisabled(busy)
         .accessibilityIdentifier("native-plan-create")
     }
@@ -1180,13 +1217,86 @@ private struct NativePlanCreateSheet: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Start a Plan").font(.system(size: 22, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                Text("Start Plan").font(.system(size: 22, weight: .black)).foregroundColor(NativeTheme.textPrimary)
                 Spacer()
-                Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 24, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
-                    .disabled(busy)
+                Button(action: { if isEmbedded { onCancel?() } else { dismiss() } }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 24, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
+                        .frame(width: 44, height: 44)
+                }
+                .disabled(busy)
+                .accessibilityLabel("Cancel plan creation")
             }
             Text("A Plan is yours to shape. Nothing is booked and nobody is invited until you say so.")
                 .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+        }
+    }
+
+    private var progress: some View {
+        HStack(spacing: 8) {
+            ForEach(NativePlanCreationStep.allCases, id: \.rawValue) { item in
+                VStack(alignment: .leading, spacing: 8) {
+                    Capsule().fill(item == step ? NativeTheme.purple : NativeTheme.textTertiary.opacity(0.3)).frame(height: 4)
+                    Text(item.title).font(.system(size: 13, weight: item == step ? .bold : .medium))
+                        .foregroundColor(item == step ? NativeTheme.textPrimary : NativeTheme.textSecondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(item.title), step \(item.rawValue + 1) of 3")
+                .accessibilityAddTraits(item == step ? .isSelected : [])
+                .accessibilityIdentifier("native-plan-step-\(item.rawValue)")
+            }
+        }
+    }
+
+    private var review: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(title.trimmingCharacters(in: .whitespacesAndNewlines))
+                .font(.system(size: 22, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
+            Text(intent.trimmingCharacters(in: .whitespacesAndNewlines))
+                .foregroundColor(NativeTheme.textSecondary)
+            sectionHeader("When")
+            Text(setsTime ? startsAt.formatted(date: .abbreviated, time: .shortened) : "When TBD")
+            sectionHeader("Group size")
+            Text(setsPartySize ? "\(partySize) \(partySize == 1 ? "person" : "people")" : "To be decided")
+            sectionHeader("Still to arrange")
+            Text(needs.isEmpty ? "No needs selected" : NativePlanDisplay.normalizedNeeds(needs).map { NativePlanDisplay.needLabel($0) }.joined(separator: ", "))
+            Text("Creating a Plan does not book anything or confirm anyone's attendance.")
+                .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+        }
+        .foregroundColor(NativeTheme.textPrimary)
+        .accessibilityIdentifier("native-plan-create-review")
+    }
+
+    private var navigationControls: some View {
+        HStack(spacing: 16) {
+            if let previous = step.previous {
+                Button("Back") { changeStep(previous) }
+                    .frame(minWidth: 44, minHeight: 44)
+                    .disabled(busy || hasSubmitted)
+                    .accessibilityIdentifier("native-plan-create-back")
+            }
+            if let next = step.next {
+                Button(action: { changeStep(next) }) {
+                    Text("Continue").font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.white).frame(maxWidth: .infinity, minHeight: 44)
+                        .background(NativeTheme.purple)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSubmit || busy)
+                .accessibilityIdentifier("native-plan-create-continue")
+            } else {
+                submitButton
+            }
+        }
+        .padding(16)
+        .background(.ultraThinMaterial)
+    }
+
+    private func changeStep(_ next: NativePlanCreationStep) {
+        withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 1)) {
+            step = next
         }
     }
 
@@ -1287,7 +1397,7 @@ private struct NativePlanCreateSheet: View {
 
     private var submitButton: some View {
         Button(action: { Task { await submit() } }) {
-            Text(busy ? "Working..." : "Start a Plan")
+            Text(busy ? "Working..." : hasSubmitted ? "Retry" : "Create Plan")
                 .font(.system(size: 14, weight: .black)).foregroundColor(.white)
                 .frame(maxWidth: .infinity).padding(.vertical, 12)
                 .background(canSubmit ? NativeTheme.purple : NativeTheme.purple.opacity(0.35))
@@ -1303,8 +1413,11 @@ private struct NativePlanCreateSheet: View {
     }
 
     private func submit() async {
-        guard canSubmit else { return }
+        guard step == .review, canSubmit, !busy else { return }
         guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to start a Plan."; return }
+        // Freeze the submitted details along with the existing idempotency key
+        // so a timeout retry cannot silently change the attempted Plan.
+        hasSubmitted = true
         busy = true; defer { busy = false }
         let api = NativePlanAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token }))
         do {
@@ -1318,7 +1431,7 @@ private struct NativePlanCreateSheet: View {
             )
             errorMessage = nil
             onCreated(planID)
-            dismiss()
+            if !isEmbedded { dismiss() }
         } catch {
             errorMessage = NativePlanDisplay.createFailureMessage(for: error)
         }

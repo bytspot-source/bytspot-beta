@@ -52,7 +52,13 @@ enum NativeHostCategory: String, CaseIterable, Codable, Identifiable {
         }
     }
 
-    var brandAccent: Color { Color(hex: bandHex) }
+    var brandAccent: Color {
+        switch self {
+        case .party, .food, .social: return NativeTheme.pink
+        case .nightlife, .culture, .community: return NativeTheme.purple
+        case .music, .sports, .cars, .outdoor: return NativeTheme.cyan
+        }
+    }
 
     var hook: String {
         switch self {

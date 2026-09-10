@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// Host Studio Spark menu. Ten categories are costumes for the same
 /// room printer — they are not products, not a guest Home grid, and not
@@ -41,22 +42,17 @@ enum NativeHostCategory: String, CaseIterable, Codable, Identifiable {
     /// it inherits the field ink instead of carrying its own colour.
     var illustrationAsset: String { "HostEditions/\(rawValue)" }
 
-    /// Band colour. Identity only: these are creation templates, so a hue here
-    /// asserts nothing about supply and does not spend the earned-hue budget.
+    /// Brand identity, not availability or membership. Category names and
+    /// illustrations distinguish editions; ten unrelated colours do not.
     var bandHex: Int {
         switch self {
-        case .party: return 0xB4552F
-        case .nightlife: return 0x8E2F63
-        case .music: return 0x2C5F7A
-        case .sports: return 0x2F6B45
-        case .food: return 0x9C3230
-        case .social: return 0x7A5230
-        case .culture: return 0x5B3B7A
-        case .cars: return 0x4A4F5C
-        case .outdoor: return 0x3F6B4F
-        case .community: return 0xA8632A
+        case .party, .food, .social: return NativeTheme.pinkHex
+        case .nightlife, .culture, .community: return NativeTheme.purpleHex
+        case .music, .sports, .cars, .outdoor: return NativeTheme.cyanHex
         }
     }
+
+    var brandAccent: Color { Color(hex: bandHex) }
 
     var hook: String {
         switch self {

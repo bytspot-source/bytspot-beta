@@ -223,3 +223,154 @@ enum NativeDiscoverListing {
         return proposed
     }
 }
+
+// MARK: - Discover M6 canonical offering policy
+
+/// Browse capability, deliberately separate from the legacy fulfillment policy.
+/// A capability is not a booking, a hold, or a confirmation.
+enum NativeDiscoverBookableCapability: String, Equatable {
+    case book, request, redirect, details
+}
+
+enum NativeDiscoverBookableRingStyle: String, Equatable {
+    case solid, dashed, dot
+}
+
+/// Pass an offering only from plans.bookables, never one synthesized from a
+/// category, catalog template, verification badge, or premium label. External
+/// handoff data is a separate explicit input; today's feed supplies none.
+struct NativeDiscoverBookablePresentation: Equatable {
+    /// M6 raised achromatic surface; photography supplies real-world color.
+    static let surfaceHex = 0x101010
+    let capability: NativeDiscoverBookableCapability
+    let externalURL: URL?
+    let externalProvider: String?
+
+    init(
+        offering: NativePlanBookableOffering? = nil,
+        externalURL: URL? = nil,
+        externalProvider: String? = nil
+    ) {
+        let resolved: NativeDiscoverBookableCapability
+        if let offering = offering {
+            if !Self.isValidIdentity(offering.id) || !Self.isValidIdentity(offering.sourceId) {
+                resolved = .details
+            } else {
+                switch (offering.sourceKind, offering.capability) {
+                case (.party, "book"): resolved = .book
+                case (.party, "request"), (.coffeeSpot, "request"): resolved = .request
+                case (_, "redirect"): resolved = .redirect
+                default: resolved = .details
+                }
+            }
+        } else {
+            // Only independently supplied handoff data can promote a reference.
+            resolved = .redirect
+        }
+
+        if resolved == .redirect,
+           let url = externalURL, Self.isValidExternalURL(url),
+           let provider = externalProvider?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !provider.isEmpty,
+           provider.rangeOfCharacter(from: .controlCharacters) == nil {
+            capability = .redirect
+            self.externalURL = url
+            self.externalProvider = provider
+        } else {
+            capability = resolved == .redirect ? .details : resolved
+            self.externalURL = nil
+            self.externalProvider = nil
+        }
+    }
+
+    var primaryActionTitle: String? {
+        switch capability {
+        case .book: return "Book"
+        case .request: return "Request"
+        case .redirect: return externalProvider.map { "Book on \($0) ↗" }
+        case .details: return nil
+        }
+    }
+
+    var statusLabel: String {
+        switch capability {
+        case .book: return "Bookable"
+        case .request: return "Request"
+        case .redirect: return "External"
+        case .details: return "Reference"
+        }
+    }
+
+    /// Blue belongs only to a supported Bytspot action, never an external link.
+    var actionHex: UInt? {
+        switch capability {
+        case .book, .request: return 0x00BFFF
+        case .redirect, .details: return nil
+        }
+    }
+
+    var ringStyle: NativeDiscoverBookableRingStyle {
+        switch capability {
+        case .book: return .solid
+        case .request: return .dashed
+        case .redirect, .details: return .dot
+        }
+    }
+
+    var availabilityLine: String {
+        switch capability {
+        case .book: return "Review availability before booking"
+        case .request: return "Subject to host acceptance"
+        case .redirect: return "Availability and confirmation are handled by the provider, not Bytspot"
+        case .details: return "Availability unconfirmed"
+        }
+    }
+
+    /// Opaque source IDs may be UUIDs or server keys. Do not repair malformed
+    /// identity strings, or mistake a display title/URL for a canonical key.
+    private static func isValidIdentity(_ value: String) -> Bool {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-:")
+        return !value.isEmpty && value.unicodeScalars.allSatisfy { allowed.contains($0) }
+    }
+
+    /// This validates a supplied handoff, not provider availability or trust.
+    /// No host/provider is guessed from a card title or an ordinary website.
+    private static func isValidExternalURL(_ url: URL) -> Bool {
+        guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              parts.scheme?.lowercased() == "https",
+              parts.user == nil, parts.password == nil,
+              let host = parts.host, !host.isEmpty,
+              parts.port == nil || parts.port == 443 else { return false }
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-")
+        return host.count <= 253 && labels.count >= 2 && labels.allSatisfy { label in
+            !label.isEmpty && label.count <= 63 && label.first != "-" && label.last != "-"
+                && label.unicodeScalars.allSatisfy { allowed.contains($0) }
+        }
+    }
+
+    /// M5's All + ten rails, in the same order, with emoji-free labels.
+    static let railLabels = [
+        "All", "Boutique Stay", "Mobility", "Nightlife", "Dining", "Coffee",
+        "Shopping", "Events", "Services", "Fitness", "Parking"
+    ]
+    static let railTokens = [
+        "all", "boutique_apartment", "mobility", "nightlife", "dining", "coffee",
+        "shopping", "entertainment", "service", "fitness", "parking"
+    ]
+
+    /// Domain-to-rail metadata only; this never participates in capability.
+    /// automotive/stall/wellness/green are the actual bookable catalog domains.
+    /// transport is the explicit transport category; unknown aliases stay nil.
+    static func rail(category: String) -> String? {
+        let normalized = category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "events": return "entertainment"
+        case "stay": return "boutique_apartment"
+        case "automotive", "transport": return "mobility"
+        case "stall": return "parking"
+        case "wellness", "green": return "service"
+        default: return railTokens.contains(normalized) ? normalized : nil
+        }
+    }
+}

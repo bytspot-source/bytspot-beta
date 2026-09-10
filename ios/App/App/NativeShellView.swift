@@ -10966,6 +10966,151 @@ enum NativeDiscoverRanking {
     }
 }
 
+/// Preserve server capability separately from executable native routes.
+/// The current Party Pass preview is read-only: it is a Bookable, but opening
+/// its details is not booking. Only a real action route earns blue chrome.
+enum NativeDiscoverBrowsePolicy {
+    /// Test the actual reference projection without promoting the whole view.
+    @MainActor static func referencePresentation(for card: NativeDiscoverSummary) -> NativeDiscoverBookablePresentation {
+        NativeDiscoverView.spec(from: card).presentation
+    }
+
+    static func presentation(offering: NativePlanBookableOffering?) -> NativeDiscoverBookablePresentation {
+        NativeDiscoverBookablePresentation(offering: offering)
+    }
+
+    static func executableActionTitle(offering: NativePlanBookableOffering?) -> String? {
+        guard let offering, offering.sourceKind == .coffeeSpot,
+              presentation(offering: offering).capability == .request else { return nil }
+        return "Request"
+    }
+
+    static func categoryLabel(_ category: String) -> String {
+        guard let rail = NativeDiscoverBookablePresentation.rail(category: category),
+              let index = NativeDiscoverBookablePresentation.railTokens.firstIndex(of: rail) else { return "Other" }
+        return NativeDiscoverBookablePresentation.railLabels[index]
+    }
+
+    static func matchesCategory(_ offering: NativePlanBookableOffering, filter: String?) -> Bool {
+        guard let filter, filter != "all" else { return true }
+        return NativeDiscoverBookablePresentation.rail(category: offering.category) == filter
+    }
+
+    static func sourceLine(offering: NativePlanBookableOffering?) -> String {
+        guard let offering else { return "Reference · add it to a Plan to explore later" }
+        return offering.sourceKind == .coffeeSpot ? "Coffee catalog selection" : "Public party catalog selection"
+    }
+
+    static func availabilityLine(offering: NativePlanBookableOffering?) -> String {
+        if offering?.sourceKind == .party {
+            return "Availability unconfirmed · booking isn't supported on this screen"
+        }
+        return presentation(offering: offering).availabilityLine
+    }
+
+    static func referenceSubtitle(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        // Display copy never establishes presence, availability or tier. Legacy
+        // references sometimes contain generated status in the subtitle itself.
+        let words = Set(trimmed.lowercased().split { !$0.isLetter }.map(String.init))
+        let claims: Set<String> = ["live", "here", "confirmed", "limited", "premium", "available", "verified"]
+        guard words.isDisjoint(with: claims) else { return nil }
+        return trimmed
+    }
+
+    static func precedes(supported: Bool, relevance: Int, id: String,
+                         otherSupported: Bool, otherRelevance: Int, otherID: String) -> Bool {
+        if supported != otherSupported { return supported }
+        if relevance != otherRelevance { return relevance > otherRelevance }
+        return id < otherID
+    }
+
+    static func partyRoute(offering: NativePlanBookableOffering) -> NativePartyPassRoute? {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-:")
+        guard offering.sourceKind == .party, !offering.sourceId.isEmpty,
+              offering.sourceId.unicodeScalars.allSatisfy({ allowed.contains($0) }),
+              let url = URL(string: "https://bytspot.app/party/\(offering.sourceId)"),
+              let route = NativePartyPassRoute(url: url), route.partyID == offering.sourceId else { return nil }
+        return route
+    }
+}
+
+/// Account-scoped read state. A failure clears the entire canonical catalog,
+/// and old responses cannot restore supply after refresh/sign-out/account swap.
+struct NativeDiscoverCatalogState {
+    private(set) var userID: String?
+    private(set) var generation = UUID()
+    private(set) var offerings: [NativePlanBookableOffering] = []
+    private(set) var isLoading = false
+    private(set) var failed = false
+
+    mutating func begin(userID: String?) -> UUID {
+        self.userID = userID
+        generation = UUID()
+        offerings = []; failed = false; isLoading = userID?.isEmpty == false
+        return generation
+    }
+
+    mutating func finish(_ rows: [NativePlanBookableOffering]?, generation: UUID, userID: String) {
+        guard generation == self.generation, userID == self.userID else { return }
+        isLoading = false; failed = rows == nil
+        let grouped = Dictionary(grouping: rows ?? [], by: { $0.selection.id })
+        // Conflicting duplicate identities fail closed rather than selecting
+        // capability by response order. Different sources with equal titles stay.
+        offerings = grouped.keys.sorted().compactMap { key in
+            guard let values = grouped[key], let first = values.first,
+                  values.allSatisfy({ $0 == first }) else { return nil }
+            return first
+        }
+    }
+
+    func rows(for userID: String?) -> [NativePlanBookableOffering] {
+        guard let userID, !userID.isEmpty, userID == self.userID else { return [] }
+        return offerings
+    }
+}
+
+struct NativeDiscoverCoffeeRequest: Identifiable, Equatable {
+    let id = UUID()
+    let planID: String
+    let spotID: String
+    let userID: String
+}
+
+/// A normal Plan add has no continuation. A coffee Request carries only an
+/// exact spot and can continue once, after a successful add AND sheet dismissal.
+struct NativeDiscoverPlanIntent {
+    private var selectionID: UUID?
+    private var userID: String?
+    private var coffeeSpotID: String?
+    private var addedPlanID: String?
+
+    mutating func begin(selection: NativeDiscoverPlanSelection, userID: String?, requestCoffee: Bool) {
+        self = Self()
+        selectionID = selection.id
+        self.userID = userID
+        if requestCoffee, let offering = selection.offering,
+           offering.sourceKind == .coffeeSpot,
+           NativeDiscoverBrowsePolicy.presentation(offering: offering).capability == .request {
+            coffeeSpotID = offering.sourceId
+        }
+    }
+
+    mutating func acceptAdded(planID: String, selectionID: UUID, userID: String?) -> Bool {
+        guard let userID, userID == self.userID, selectionID == self.selectionID,
+              !planID.isEmpty, addedPlanID == nil else { return false }
+        addedPlanID = planID
+        return true
+    }
+
+    mutating func takeCoffeeRequest(userID: String?) -> NativeDiscoverCoffeeRequest? {
+        defer { self = Self() }
+        guard let userID, userID == self.userID, let planID = addedPlanID, let spotID = coffeeSpotID else { return nil }
+        return NativeDiscoverCoffeeRequest(planID: planID, spotID: spotID, userID: userID)
+    }
+}
+
 private struct NativeDiscoverView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
     let openNativeTab: (BytspotNativeTab) -> Void
@@ -10976,17 +11121,15 @@ private struct NativeDiscoverView: View {
     var handoffFilter: String? = nil
     var consumeHandoffFilter: () -> Void = {}
     @State private var selectedFilter: String? = Self.previewFilter
-    @State private var entryFilter = Self.previewEntryFilter
-    @State private var sortBy = "crowd"
-    @State private var savedOnly = false
-    @State private var showIntroCard = true
-    @State private var savedCardIDs: Set<String> = []
-    @State private var skippedCardIDs: Set<String> = []
+    @State private var catalog = NativeDiscoverCatalogState()
+    @State private var catalogReloadID = UUID()
+    @State private var planSelection: NativeDiscoverPlanSelection?
+    @State private var planIntent = NativeDiscoverPlanIntent()
+    @State private var coffeeRequest: NativeDiscoverCoffeeRequest?
+    @State private var offeringDetail: NativePlanBookableOffering?
+    @State private var signInAfterPlanDismissal = false
     @State private var detailVenue: NativeVenueSummary?
-    @State private var parkingBookingVenue: NativeVenueSummary?
-    @State private var partnerMenuVenue: NativeVenueSummary?
     @State private var discoverStatusMessage: String?
-    @State private var guestSavePromptTitle: String?
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
@@ -11019,21 +11162,22 @@ private struct NativeDiscoverView: View {
         let latitude: Double?
         let longitude: Double?
 
-        var isControlledVendor: Bool { control == NativeDiscoverCardControl.vendor }
+        var offering: NativePlanBookableOffering? = nil
+        var presentation: NativeDiscoverBookablePresentation { NativeDiscoverBrowsePolicy.presentation(offering: offering) }
+        var executableActionTitle: String? { NativeDiscoverBrowsePolicy.executableActionTitle(offering: offering) }
+        var browseID: String { offering.map { "offering:\($0.selection.id)" } ?? "reference:\(id)" }
     }
 
-    static let categoryLabels = ["All", "🏡 Boutique Stay", "🚘 Mobility", "🍸 Nightlife", "🍽️ Dining", "☕ Coffee", "🛍️ Shopping", "🎭 Events", "🛎 Services", "💪 Fitness", "🅿️ Parking"]
+    static let categoryLabels = NativeDiscoverBookablePresentation.railLabels
 #if DEBUG
-    static let categoryRailRegressionOrderDescription = "All → 🏡 Boutique Stay → 🚘 Mobility → 🍸 Nightlife → 🍽️ Dining → ☕ Coffee → 🛍️ Shopping → 🎭 Events → 🛎 Services → 💪 Fitness → 🅿️ Parking"
+    static let categoryRailRegressionOrderDescription = "All → Boutique Stay → Mobility → Nightlife → Dining → Coffee → Shopping → Events → Services → Fitness → Parking"
     static let categoryRailRegressionFilterOrder = ["all", "boutique_apartment", "mobility", "nightlife", "dining", "coffee", "shopping", "entertainment", "service", "fitness", "parking"]
     static func debugCategoryRailFilterOrder() -> [String] { categoryLabels.map { Self.filterValue(for: $0) ?? "all" } }
 #endif
     static let visibleSectionOrder = ["filters", "feed"]
-    static let filterRowCount = 3
-    static let introCardDeckIndex = 0
+    static let filterRowCount = 1
     static let filterEnvironmentKey = "BYT_NATIVE_DISCOVER_FILTER"
     static let filterDefaultsKey = "bytspot_native_discover_filter"
-    static let entryFilterEnvironmentKey = "BYT_NATIVE_DISCOVER_ENTRY_FILTER"
 
 #if DEBUG
     static let curatedCards: [DiscoverCardSpec] = NativeTabContentSnapshot.fallback.discoverCards.map(Self.spec(from:))
@@ -11048,22 +11192,26 @@ private struct NativeDiscoverView: View {
             .padding(20)
             .padding(.bottom, 12)
         }
-        .refreshable { await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate) }
-        .onAppear { locationStore.startIfAuthorized(); applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested(); applyParkingBookingPreviewIfRequested() }
+        .refreshable {
+            catalogReloadID = UUID()
+            await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate)
+        }
+        .onAppear { locationStore.startIfAuthorized(); applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested() }
         .task { await refreshDiscoverFeedOnOpen() }
+        .task(id: catalogTaskID) { await loadBookables() }
+        .onChange(of: catalogUserID) { _ in clearAccountState() }
+        .onChange(of: sessionStore.token) { _ in
+            clearAccountState()
+            _ = catalog.begin(userID: catalogUserID)
+            catalogReloadID = UUID()
+        }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in
             guard !locationStore.isUsingFallback else { return }
             Task { await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate) }
         }
         .onChange(of: handoffFilter ?? "") { _ in applyShellFilterHandoffIfRequested() }
         .sheet(item: $detailVenue) { venue in
-            let detail = Group {
-                if Self.isValetPremiumRide(venue) {
-                    NativeValetPremiumRideSheet(initialVenue: venue, openNativeTab: openNativeTab, openNativeAccess: openNativeAccess, openNativeAuth: openNativeAuth)
-                } else {
-                    NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess, onRideBookingCompleted: onRideBookingCompleted)
-                }
-            }
+            let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess, onRideBookingCompleted: onRideBookingCompleted)
             if #available(iOS 16.0, *) {
                 detail
                     .presentationDetents([.large])
@@ -11072,14 +11220,42 @@ private struct NativeDiscoverView: View {
                 detail
             }
         }
-        .sheet(item: $parkingBookingVenue) { venue in
-            NativeParkingBookingSheet(venue: venue, onOpenAccess: openNativeAccess, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth)
+        .sheet(item: $planSelection, onDismiss: finishPlanDismissal) { selection in
+            NativeDiscoverAddToPlanSheet(selection: selection, sessionStore: sessionStore,
+                onSignIn: { signInAfterPlanDismissal = true },
+                onAdded: { planID in
+                    guard planIntent.acceptAdded(planID: planID, selectionID: selection.id, userID: catalogUserID) else { return }
+                    discoverStatusMessage = "Added to Plan. Nothing is booked or requested."
+                })
         }
-        .sheet(item: $partnerMenuVenue) { venue in
-            NativePartnerMenuView(menu: PartnerMenu.sample(for: venue), tier: partnerMenuTier(for: venue), isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: openNativeAccess, onOpenAuth: openNativeAuth)
+        .sheet(item: $coffeeRequest) { request in
+            if request.userID == catalogUserID {
+                NativeCoffeeAttachSheet(planID: request.planID, suggestedPartySize: nil, suggestedTime: nil,
+                    sessionStore: sessionStore, onAttached: {
+                        guard request.userID == catalogUserID else { return }
+                        NotificationCenter.default.post(name: .nativePlanDidChange, object: nil)
+                    }, suggestedSpotID: request.spotID)
+            }
         }
-        .sheet(isPresented: Binding(get: { guestSavePromptTitle != nil }, set: { if !$0 { guestSavePromptTitle = nil } })) {
-            NativeGuestSavePromptSheet(title: "Save \(guestSavePromptTitle ?? "this spot")?", subtitle: "Sign in to keep this favorite and sync it across devices.", onSignIn: openNativeAuth)
+        .sheet(item: $offeringDetail) { offering in
+            NavigationView {
+                Group {
+                    if let route = NativeDiscoverBrowsePolicy.partyRoute(offering: offering) {
+                        NativePartyPassPreview(route: route).environmentObject(sessionStore)
+                    } else {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text(offering.title).font(.title2.bold())
+                                if let subtitle = offering.subtitle { Text(subtitle).font(.body) }
+                                Text(NativeDiscoverBrowsePolicy.availabilityLine(offering: offering)).font(.subheadline)
+                            }.padding(20)
+                        }
+                    }
+                }
+                .toolbar { ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { offeringDetail = nil }.frame(minWidth: 44, minHeight: 44)
+                } }
+            }
         }
         .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-discover-depth")
@@ -11088,50 +11264,32 @@ private struct NativeDiscoverView: View {
     private var filterSystem: some View {
         VStack(alignment: .leading, spacing: 8) {
             discoverHeader
-            liveSourceStrip
             if let discoverStatusMessage { discoverStatusBanner(discoverStatusMessage) }
+            if catalog.userID == catalogUserID && catalog.failed {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Bookable options couldn't be loaded. References are still available.").font(.subheadline)
+                    Button("Retry Bookable options") { catalogReloadID = UUID() }
+                        .font(.headline).frame(minHeight: 44)
+                }
+                .foregroundColor(.white).padding(12)
+                .background(Color.white.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .accessibilityIdentifier("native-discover-catalog-retry")
+            } else if catalog.isLoading {
+                ProgressView("Loading Bookable options…").tint(.white).foregroundColor(.white)
+            }
             categoryRail
-            accessTierRail
-            sortSavedRail
         }
         .padding(.top, 4)
         .accessibilityIdentifier("native-discover-filter-system")
     }
 
-    private var liveSourceStrip: some View {
-        let snapshot = regionalSnapshot
-        let label = tabContentStore.isRefreshing ? "REFRESHING" : snapshot.statusLabel
-        let color: Color = snapshot.source == .fallback ? NativeTheme.textSecondary : NativeTheme.emerald
-        return HStack(spacing: 8) {
-            Image(systemName: snapshot.source == .fallback ? "sparkles" : "antenna.radiowaves.left.and.right")
-                .font(.system(size: 11, weight: .black))
-            Text(label)
-                .font(.system(size: 10, weight: .black))
-                .tracking(0.8)
-            Text("\(snapshot.discoverCards.count) cards · \(snapshot.venues.count) venues")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundColor(NativeTheme.textSecondary)
-            Spacer(minLength: 0)
-        }
-        .foregroundColor(color)
-        .padding(.horizontal, 10)
-        .frame(height: 30)
-        .background(color.opacity(0.10))
-        .overlay(Capsule().stroke(color.opacity(0.22), lineWidth: 1))
-        .clipShape(Capsule())
-        .accessibilityIdentifier("native-discover-live-source")
-    }
-
     private var discoverHeader: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Discover")
-                    .font(.system(size: 24, weight: .black))
-                    .foregroundColor(NativeTheme.textPrimary)
-                Text("Places, rides, services, parking · \(locationStore.coordinate.shortLabel)")
-                    .font(.system(size: 12.5, weight: .bold))
-                    .foregroundColor(NativeTheme.textSecondary)
-                    .lineLimit(1)
+                Text("Discover").font(.title2.bold()).foregroundColor(.white)
+                Text("Places, rides, services and parking")
+                    .font(.subheadline).foregroundColor(.white.opacity(0.75))
             }
             Spacer(minLength: 8)
         }
@@ -11145,9 +11303,7 @@ private struct NativeDiscoverView: View {
                 ForEach(Self.categoryLabels, id: \.self) { label in
                     NativeDiscoverFilterChip(
                         title: label,
-                        active: active(label),
-                        activeColor: NativeTheme.cyan,
-                        activeForeground: .black
+                        active: active(label)
                     ) {
                         selectedFilter = Self.filterValue(for: label)
                     }
@@ -11157,73 +11313,25 @@ private struct NativeDiscoverView: View {
         .accessibilityIdentifier("native-discover-category-rail")
     }
 
-    private var accessTierRail: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach([("all", "Free + Paid"), ("free", "Free"), ("paid", "Paid")], id: \.0) { value, title in
-                    NativeDiscoverFilterChip(
-                        title: title,
-                        active: entryFilter == value,
-                        activeColor: NativeTheme.cyan,
-                        activeForeground: .black,
-                        outlinedActive: true,
-                        filledActive: true
-                    ) { selectEntryFilter(value) }
-                    .accessibilityIdentifier("native-discover-entry-filter-\(value)")
-                }
-            }
-        }
-        .accessibilityIdentifier("native-discover-access-rail")
-    }
-
-    private var sortSavedRail: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach([("crowd", "🔥 Buzzing"), ("rating", "⭐ Rating"), ("distance", "📍 Distance")], id: \.0) { value, title in
-                    NativeDiscoverFilterChip(
-                        title: title,
-                        active: sortBy == value,
-                        activeColor: NativeTheme.purple,
-                        activeForeground: sortBy == value ? NativeTheme.purple : NativeTheme.textPrimary,
-                        outlinedActive: true
-                    ) { sortBy = value }
-                }
-                NativeDiscoverFilterChip(
-                    title: savedOnly ? "♥ Saved" : "♡ Saved",
-                    active: savedOnly,
-                    activeColor: NativeTheme.pink,
-                    activeForeground: savedOnly ? NativeTheme.pink : NativeTheme.textPrimary,
-                    outlinedActive: true
-                ) { savedOnly.toggle() }
-            }
-        }
-        .accessibilityIdentifier("native-discover-sort-rail")
-    }
-
     private var discoverDeck: some View {
-        VStack(spacing: 24) {
-            if showIntroCard && regionalSnapshot.source == .fallback {
-                NativeDiscoverIntroCard(
-                    onDismiss: { withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) { showIntroCard = false } },
-                    openDiscover: { openNativeTab(.discover) }
-                )
-                .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity.combined(with: .scale(scale: 0.96))))
-            }
+        LazyVStack(spacing: 24) {
             if rankedCards.isEmpty {
-                NativeRow(title: "No spots match this filter", subtitle: "Try All or Services to see dining, passes, and local help.", icon: "arrow.clockwise") { selectedFilter = nil; entryFilter = "all"; savedOnly = false }
+                Button("No options in this category. Show All") { selectedFilter = nil }
+                    .font(.headline).foregroundColor(.white).frame(minHeight: 44)
             } else {
-                ForEach(rankedCards) { card in
-                    let routeVenue = locationStore.coordinate.isFallback ? nil : Self.routeVenue(for: card, venues: NativeLocationAwareUIContent.venues(in: regionalSnapshot))
-                    NativeDiscoverFeatureCard(
-                        card: card,
-                        isSaved: savedCardIDs.contains(card.id),
-                        primaryCTATitle: primaryTitle(for: card),
-                        openDetails: { detailVenue = venueForDetail(card) },
-                        primaryAction: { handlePrimaryCTA(card) },
-                        routeAction: routeVenue.map { venue in { openRoute(to: venue) } },
-                        toggleFavorite: { toggleSaved(card.id) },
-                        skipCard: { skip(card.id) }
-                    )
+                ForEach(rankedCards, id: \.browseID) { card in
+                    NativeDiscoverFeatureCard(card: card,
+                        openDetails: {
+                            if let offering = card.offering {
+                                guard catalog.rows(for: catalogUserID).contains(offering) else {
+                                    discoverStatusMessage = "This option changed. Refresh Discover and try again."
+                                    return
+                                }
+                                offeringDetail = offering
+                            } else { detailVenue = venueForDetail(card) }
+                        },
+                        primaryAction: { beginPlanSelection(card, requestCoffee: true) },
+                        addToPlan: { beginPlanSelection(card, requestCoffee: false) })
                 }
             }
         }
@@ -11233,70 +11341,39 @@ private struct NativeDiscoverView: View {
     private func refreshDiscoverFeedOnOpen() async {
         applyFilterHandoffIfRequested()
         applyShellFilterHandoffIfRequested()
-        applyParkingBookingPreviewIfRequested()
         await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate)
         applyFilterHandoffIfRequested()
         applyShellFilterHandoffIfRequested()
-        applyParkingBookingPreviewIfRequested()
-        if regionalSnapshot.source != .fallback { showIntroCard = false }
-    }
-
-    private var filteredCards: [DiscoverCardSpec] {
-        let sourceCards = NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot, matching: selectedFilter).map(Self.spec(from:))
-        let matchesCurrentFilters: (DiscoverCardSpec) -> Bool = { card in
-            Self.matchesEntryFilter(card, entryFilter: entryFilter)
-                && (!savedOnly || savedCardIDs.contains(card.id))
-                && !skippedCardIDs.contains(card.id)
-        }
-        return sourceCards.filter(matchesCurrentFilters)
     }
 
     private var rankedCards: [DiscoverCardSpec] {
-        filteredCards.sorted { first, second in
-            let firstSourcePriority = NativeDiscoverRanking.nearbySourcePriority(first.badgeText)
-            let secondSourcePriority = NativeDiscoverRanking.nearbySourcePriority(second.badgeText)
-            if firstSourcePriority != secondSourcePriority { return firstSourcePriority > secondSourcePriority }
-            if selectedFilter != nil {
-                let firstScore = searchScore(for: first, query: selectedFilter ?? "")
-                let secondScore = searchScore(for: second, query: selectedFilter ?? "")
-                if firstScore != secondScore { return firstScore > secondScore }
-            }
-            if sortBy == "rating" { return first.rating > second.rating }
-            if sortBy == "distance" { return first.distance < second.distance }
-            let firstDefaultScore = searchScore(for: first, query: selectedFilter ?? "")
-            let secondDefaultScore = searchScore(for: second, query: selectedFilter ?? "")
-            if firstDefaultScore != secondDefaultScore { return firstDefaultScore > secondDefaultScore }
-            return first.vibeScore == second.vibeScore ? first.verified && !second.verified : first.vibeScore > second.vibeScore
+        // Preserve the existing location/safety visibility filter. A reference
+        // never acquires supply identity by sharing a title with an offering.
+        let references = NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot, matching: selectedFilter).map(Self.spec(from:))
+        let offerings = catalog.rows(for: catalogUserID).filter {
+            NativeDiscoverBrowsePolicy.matchesCategory($0, filter: selectedFilter)
+        }.map(Self.spec(offering:))
+        return (references + offerings).sorted { first, second in
+            NativeDiscoverBrowsePolicy.precedes(
+                supported: first.presentation.primaryActionTitle != nil, relevance: searchScore(for: first), id: first.browseID,
+                otherSupported: second.presentation.primaryActionTitle != nil, otherRelevance: searchScore(for: second), otherID: second.browseID)
         }
     }
 
-    private func searchScore(for card: DiscoverCardSpec, query: String) -> Int {
-        NativeSearchRouter.discoverScore(query: query, categoryHint: selectedFilter, title: card.title, subtitle: card.subtitle, type: card.type, categoryLabel: card.categoryLabel, metadataLine: card.metadataLine, features: card.features, verified: card.verified, premium: Self.isPremiumSearchVendor(card), vibeScore: card.vibeScore)
+    private func searchScore(for card: DiscoverCardSpec) -> Int {
+        NativeSearchRouter.discoverScore(query: selectedFilter ?? "", categoryHint: selectedFilter,
+            title: card.title, subtitle: card.subtitle, type: card.type, categoryLabel: card.categoryLabel,
+            metadataLine: "", features: [], verified: false, premium: false, vibeScore: 0)
     }
 
-    private func selectEntryFilter(_ value: String) {
-        withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
-            entryFilter = value
-        }
-    }
-
-    static func matchesEntryFilter(_ card: DiscoverCardSpec, entryFilter: String) -> Bool {
-        entryFilter == "all" || card.entryType == entryFilter
-    }
-
-    private func applyParkingBookingPreviewIfRequested() {
-        guard parkingBookingVenue == nil, let token = Self.previewParkingBookingToken else { return }
-        let lower = token.lowercased()
-        let lookup = rankedCards
-        let card = lookup.first { card in
-            card.type == "parking" && (card.id.lowercased() == lower || card.title.lowercased().contains(lower) || lower.contains(card.title.lowercased()) || lower == "parking")
-        } ?? lookup.first(where: { $0.type == "parking" })
-        guard let card else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { parkingBookingVenue = venueForDetail(card) }
-    }
-
-    private static var previewParkingBookingToken: String? {
-        ProcessInfo.processInfo.environment["BYT_NATIVE_PARKING_BOOKING_PREVIEW"].flatMap { $0.isEmpty ? nil : $0 }
+    private static func spec(offering: NativePlanBookableOffering) -> DiscoverCardSpec {
+        let rail = NativeDiscoverBookablePresentation.rail(category: offering.category) ?? offering.category
+        return DiscoverCardSpec(id: offering.selection.id, type: rail, title: offering.title,
+            subtitle: offering.subtitle ?? "", distance: "", rating: "", icon: "square.grid.2x2",
+            verified: false, entryType: "", cta: "Add to Plan", imageUrl: nil,
+            categoryLabel: NativeDiscoverBrowsePolicy.categoryLabel(rail), badgeText: "", metadataLine: "",
+            features: [], vibeScore: 0, availability: "", membershipRequired: false,
+            latitude: nil, longitude: nil, offering: offering)
     }
 
     private static var previewFilter: String? {
@@ -11306,7 +11383,6 @@ private struct NativeDiscoverView: View {
     private func applyFilterHandoffIfRequested() {
         guard let filter = Self.normalizedFilter(UserDefaults.standard.string(forKey: Self.filterDefaultsKey)) else { return }
         selectedFilter = filter
-        entryFilter = "all"
         UserDefaults.standard.removeObject(forKey: Self.filterDefaultsKey)
         UserDefaults.standard.synchronize()
     }
@@ -11317,32 +11393,18 @@ private struct NativeDiscoverView: View {
         UserDefaults.standard.synchronize()
         detailVenue = nil
         selectedFilter = filter
-        entryFilter = "all"
         consumeHandoffFilter()
     }
 
     private static func normalizedFilter(_ raw: String?) -> String? {
-        guard let lower = raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !lower.isEmpty, lower != "all" else { return nil }
-        return lower
+        guard let raw, let rail = NativeDiscoverBookablePresentation.rail(category: raw), rail != "all" else { return nil }
+        return rail
     }
 
-    private static var previewEntryFilter: String {
-        let raw = ProcessInfo.processInfo.environment[entryFilterEnvironmentKey] ?? nativeLaunchArgument("byt-native-discover-entry-filter")
-        switch raw?.lowercased() {
-        case "free": return "free"
-        case "paid": return "paid"
-        default: return "all"
-        }
-    }
-
-    private static func spec(from card: NativeDiscoverSummary) -> DiscoverCardSpec {
+    fileprivate static func spec(from card: NativeDiscoverSummary) -> DiscoverCardSpec {
+        // Summary control/verified/CTA fields are legacy display inputs, never
+        // canonical supply. In particular, do not match a catalog row by title.
         DiscoverCardSpec(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: card.distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, control: card.control, latitude: card.latitude, longitude: card.longitude)
-    }
-
-    /// The listing plug refuses any settlement verb the card's rail cannot
-    /// settle, so a local brochure never wears Book / Reserve chrome.
-    static func listingCTATitle(for card: DiscoverCardSpec) -> String {
-        NativeDiscoverListing.primaryCTATitle(proposed: card.cta, control: card.control, rail: card.type)
     }
 
     private func venueForDetail(_ card: DiscoverCardSpec) -> NativeVenueSummary {
@@ -11350,113 +11412,72 @@ private struct NativeDiscoverView: View {
         return Self.venueForDetail(card, venues: candidates)
     }
 
-    static func isAppAuthoredEventCard(_ card: DiscoverCardSpec) -> Bool {
-        NativeDiscoverListing.isAppAuthoredEventCTA(cta: card.cta, id: card.id, badgeText: card.badgeText)
+    private var catalogUserID: String? {
+        guard sessionStore.canAttachBearerToken, let userID = sessionStore.authenticatedUserID, !userID.isEmpty else { return nil }
+        return userID
     }
 
-    private func handlePrimaryCTA(_ card: DiscoverCardSpec) {
-        let venue = venueForDetail(card)
-        if Self.isAppAuthoredEventCard(card) {
-            guard venue.hasKnownCoordinates else {
-                discoverStatusMessage = "Directions are unavailable because this event has no registered map destination."
-                detailVenue = venue
+    private var catalogTaskID: String { "\(catalogUserID ?? "guest"):\(catalogReloadID)" }
+
+    @MainActor private func loadBookables() async {
+        guard !Task.isCancelled else { return }
+        let userID = catalogUserID
+        let generation = catalog.begin(userID: userID)
+        guard let userID, let credential = sessionStore.token else { return }
+        let api = NativePlanAPI(client: BytspotAPIClient(tokenProvider: { credential }))
+        do {
+            async let coffee = api.bookables(category: "coffee")
+            // events is the API umbrella for public parties in ALL domains.
+            async let parties = api.bookables(category: "events")
+            let (coffeeRows, partyRows) = try await (coffee, parties)
+            guard !Task.isCancelled, catalogUserID == userID, sessionStore.token == credential else { return }
+            catalog.finish(coffeeRows + partyRows, generation: generation, userID: userID)
+        } catch {
+            guard !Task.isCancelled, catalogUserID == userID, sessionStore.token == credential else { return }
+            catalog.finish(nil, generation: generation, userID: userID)
+        }
+    }
+
+    private func clearAccountState() {
+        if catalog.userID != catalogUserID { _ = catalog.begin(userID: catalogUserID) }
+        planIntent = NativeDiscoverPlanIntent()
+        planSelection = nil
+        coffeeRequest = nil
+        offeringDetail = nil
+        discoverStatusMessage = nil
+        signInAfterPlanDismissal = false
+    }
+
+    private func beginPlanSelection(_ card: DiscoverCardSpec, requestCoffee: Bool) {
+        // No title matching: recheck this account's exact current offering.
+        if let offering = card.offering {
+            guard catalog.rows(for: catalogUserID).contains(offering) else {
+                discoverStatusMessage = "This option changed. Refresh Discover and try again."
                 return
             }
-            discoverStatusMessage = "Opening directions for \(venue.name). Provider booking happens only in the provider app."
-            openRoute(to: venue)
-            return
         }
-        if Self.supportsManualCheckIn(card, venue: venue) {
-            performManualCheckIn(from: venue)
-            return
-        }
-        if Self.isDiningCard(card) {
-            partnerMenuVenue = venue
-        } else {
-            detailVenue = venue
-        }
+        let selection = NativeDiscoverPlanSelection(title: card.title,
+            needKind: card.offering?.category ?? card.type, offering: card.offering)
+        planIntent.begin(selection: selection, userID: catalogUserID, requestCoffee: requestCoffee)
+        planSelection = selection
     }
 
-    private func openRoute(to venue: NativeVenueSummary) {
-        nativeImpactLight()
-        openDirectRoute(venue)
-    }
-
-    private func primaryTitle(for card: DiscoverCardSpec) -> String {
-        let venue = venueForDetail(card)
-        if Self.isAppAuthoredEventCard(card) { return "Plan Arrival" }
-        guard Self.supportsManualCheckIn(card, venue: venue) else { return Self.listingCTATitle(for: card) }
-        return NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id, scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)) ? "Checked In" : "Check In"
-    }
-
-    private static func supportsManualCheckIn(_ card: DiscoverCardSpec, venue: NativeVenueSummary) -> Bool {
-        card.entryType == "free" && NativeVenueDetailPresentation.supportsManualCheckIn(venue)
-    }
-
-    private func performManualCheckIn(from venue: NativeVenueSummary) {
-        nativeImpactLight()
-        guard sessionStore.isAuthenticated else {
-            discoverStatusMessage = "Sign in to keep manual check-ins, pending points, and Places I've Been."
+    private func finishPlanDismissal() {
+        let next = planIntent.takeCoffeeRequest(userID: catalogUserID)
+        if signInAfterPlanDismissal {
+            signInAfterPlanDismissal = false
             openNativeAuth()
-            return
+        } else {
+            coffeeRequest = next
         }
-        let idempotencyKey = UUID().uuidString
-        let syncContext = NativeManualCheckInSyncContext.authenticated(token: sessionStore.token)
-        let fix = NativeLocationStore.coordinateForCheckIn(location: locationStore.lastLocation)
-        let atVenue = NativeVenueDetailPresentation.isAtVenue(fix, venue: venue)
-        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey, scope: syncContext.scope, atVenue: atVenue)
-        discoverStatusMessage = created ? "Checked in at \(venue.name) · \(record.pointsLine)." : "Already checked in recently at \(venue.name)."
-        guard created, syncContext.canSync else { return }
-        Task { await syncManualCheckIn(record, context: syncContext) }
     }
 
-    private func syncManualCheckIn(_ record: NativeManualCheckInRecord, context: NativeManualCheckInSyncContext) async {
-        let body = try? JSONSerialization.data(withJSONObject: ["json": NativeVenueDetailContract.checkinInput(venueID: record.venueID, idempotencyKey: record.idempotencyKey, coordinate: NativeLocationStore.coordinateForCheckIn(location: locationStore.lastLocation))])
-        let client = context.apiClient()
-        guard let body, (try? await client.data(path: "/trpc/\(NativeVenueDetailContract.checkinEndpoint)", method: "POST", body: body)) != nil else { return }
-        NativeManualCheckInStore.markSynced(id: record.id, scope: context.scope)
-        await MainActor.run {
-            if NativeManualCheckInScope.authenticated(token: sessionStore.token) == context.scope {
-                discoverStatusMessage = "Synced check-in at \(record.venueName) · points saved."
-            }
-        }
-    }
 
     private func discoverStatusBanner(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 12.5, weight: .black))
-            .foregroundColor(.black)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(minHeight: 38)
-            .background(NativeTheme.cyan)
+        Text(text).font(.subheadline).foregroundColor(.white)
+            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
-    /// Menu access is Mode B chrome: only a Bytspot-controlled dining vendor
-    /// may open the partner menu. Local dining (Google, coverage clones,
-    /// Typical catalog) gets the detail sheet — Details + Route only.
-    private static func isDiningCard(_ card: DiscoverCardSpec) -> Bool {
-        guard card.isControlledVendor || NativeDiscoverCardControl.isControlled(cardID: card.id) else { return false }
-        // Provenance, not vendor-authored words: a service card that calls
-        // itself a menu does not earn the menu, or the checkout behind it.
-        return card.type == "dining" || card.categoryLabel.localizedCaseInsensitiveContains("Dining")
-    }
-
-    fileprivate static func isPremiumSearchVendor(_ card: DiscoverCardSpec) -> Bool {
-        NativeSearchRouter.isPremium(title: card.title, type: card.type, entryType: card.entryType, membershipRequired: card.membershipRequired)
-    }
-
-    private func partnerMenuTier(for venue: NativeVenueSummary) -> BytspotTier {
-        if let patchId = venue.verifiedPatchId?.uppercased(), !patchId.isEmpty {
-            if patchId.contains("GREEN") { return .green }
-            if patchId.hasSuffix("-B") || patchId.contains("BLACK") { return .black }
-        }
-        return BytspotTheme.defaultTier
-    }
-
-    private static func isValetPremiumRide(_ venue: NativeVenueSummary) -> Bool {
-        venue.id == NativeHomeDashboardView.valetRideServiceID || venue.name.localizedCaseInsensitiveContains("Private Airport Transfer") || venue.name.localizedCaseInsensitiveContains("Valet Premium Ride")
     }
 
     fileprivate static func venueForDetail(_ card: DiscoverCardSpec, venues candidates: [NativeVenueSummary]) -> NativeVenueSummary {
@@ -11469,635 +11490,148 @@ private struct NativeDiscoverView: View {
     }
 
     private static func filterValue(for label: String) -> String? {
-        if label == "All" { return nil }
-        if label.contains("Nightlife") { return "nightlife" }
-        if label.contains("Dining") { return "dining" }
-        if label.contains("Coffee") { return "coffee" }
-        if label.contains("Boutique") { return "boutique_apartment" }
-        if label.contains("Mobility") { return "mobility" }
-        if label.contains("Shopping") { return "shopping" }
-        if label.contains("Events") { return "entertainment" }
-        if label.contains("Services") { return "service" }
-        if label.contains("Fitness") { return "fitness" }
-        if label.contains("Parking") { return "parking" }
-        return nil
+        guard let index = Self.categoryLabels.firstIndex(of: label), index > 0 else { return nil }
+        return NativeDiscoverBookablePresentation.railTokens[index]
     }
 
     private func active(_ label: String) -> Bool {
         Self.filterValue(for: label) == selectedFilter
     }
 
-    private func toggleSaved(_ id: String) {
-        guard sessionStore.isAuthenticated else {
-            guestSavePromptTitle = rankedCards.first(where: { $0.id == id })?.title ?? "this spot"
-            nativeImpactLight()
-            return
-        }
-        withAnimation(.spring(response: 0.24, dampingFraction: 0.78)) {
-            if savedCardIDs.contains(id) { savedCardIDs.remove(id) } else { savedCardIDs.insert(id) }
-        }
-        nativeImpactLight()
-    }
-
-    private func skip(_ id: String) {
-        _ = withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { skippedCardIDs.insert(id) }
-        nativeImpactLight()
-    }
 }
 
 private struct NativeDiscoverFilterChip: View {
     let title: String
     let active: Bool
-    let activeColor: Color
-    let activeForeground: Color
-    var outlinedActive = false
-    var filledActive = false
     let action: () -> Void
 
     var body: some View {
         Button(action: { nativeImpactLight(); action() }) {
-            Text(title)
-                .font(.system(size: 14, weight: .black))
-                .foregroundColor(foreground)
-                .padding(.horizontal, 16)
-                .frame(minHeight: 44)
-                .background(background)
-                .overlay(Capsule().stroke(borderColor, lineWidth: active ? 1.5 : 1))
+            Text(title).font(.subheadline.weight(.semibold))
+                .foregroundColor(active ? .black : .white)
+                .padding(.horizontal, 16).padding(.vertical, 8).frame(minHeight: 44)
+                .background(active ? Color.white : Color.white.opacity(0.08))
+                .overlay(Capsule().stroke(Color.white.opacity(0.25), lineWidth: 1))
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
-    }
-
-    private var foreground: Color {
-        if active { return filledActive ? activeForeground : outlinedActive ? activeForeground : .black }
-        return NativeTheme.textSecondary
-    }
-
-    private var background: some View {
-        Group {
-            if active && (!outlinedActive || filledActive) {
-                activeColor
-            } else if active {
-                NativeTheme.selectedControlSurface
-            } else {
-                NativePolish.glassSurface
-            }
-        }
-    }
-
-    private var borderColor: Color {
-        active ? activeColor.opacity(0.95) : NativePolish.softBorder
-    }
-}
-
-private struct NativeDiscoverIntroCard: View {
-    let onDismiss: () -> Void
-    let openDiscover: () -> Void
-    @State private var dragOffset: CGFloat = 0
-    static let compactHeight: CGFloat = 112
-
-    var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            LinearGradient(colors: [Color(hex: 0x0F172A).opacity(0.96), NativeTheme.cyan.opacity(0.42), NativeTheme.purple.opacity(0.18)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            RadialGradient(colors: [Color.white.opacity(0.14), .clear], center: .topTrailing, startRadius: 10, endRadius: 180)
-            HStack(alignment: .center, spacing: 14) {
-                ZStack {
-                    Circle().fill(Color.black.opacity(0.24)).frame(width: 52, height: 52)
-                    Image(systemName: "hand.draw.fill").font(.system(size: 23, weight: .black)).foregroundColor(.white)
-                    Image(systemName: "arrow.right").font(.system(size: 13, weight: .black)).foregroundColor(.white.opacity(0.82)).offset(x: 30)
-                }
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Swipe right to open")
-                        .font(.system(size: 18, weight: .black))
-                        .foregroundColor(.white)
-                    Text("Left to skip · pull to refresh")
-                        .font(.system(size: 12, weight: .black))
-                        .foregroundColor(.white.opacity(0.82))
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(14)
-        }
-        .overlay(alignment: .topTrailing) {
-            Button(action: { nativeImpactLight(); onDismiss() }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .black))
-                    .foregroundColor(.white)
-                    .frame(width: 34, height: 34)
-                    .background(Color.black.opacity(0.32))
-                    .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close Discover guide")
-            .padding(10)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: Self.compactHeight)
-        .background(NativeTheme.panel)
-        .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(Color.white.opacity(0.24), lineWidth: 2))
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .offset(x: dragOffset)
-        .rotationEffect(.degrees(Double(dragOffset / 52)))
-        .gesture(DragGesture(minimumDistance: 12).onChanged { value in dragOffset = max(min(value.translation.width, 96), -96) }.onEnded { value in
-            if value.translation.width > 80 { nativeImpactLight(); openDiscover() }
-            if value.translation.width < -80 { nativeImpactLight(); onDismiss() }
-            withAnimation(.spring(response: 0.30, dampingFraction: 0.82)) { dragOffset = 0 }
-        })
-        .accessibilityIdentifier("native-discover-intro-card")
-    }
-}
-
-private struct NativeDiscoverIntroPill: View {
-    let title: String
-    let color: Color
-    let foreground: Color
-
-    var body: some View {
-        Text(title).font(.system(size: 11, weight: .black)).foregroundColor(foreground).tracking(1.1).padding(.horizontal, 12).frame(minHeight: 32).background(color).clipShape(Capsule())
-    }
-}
-
-private struct NativeDiscoverIntroStep: View {
-    let icon: String
-    let title: String
-
-    var body: some View {
-        Label(title, systemImage: icon)
-            .font(.system(size: 12, weight: .black))
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 44)
-            .background(Color.white.opacity(0.10))
-            .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1))
-            .clipShape(Capsule())
+        .accessibilityAddTraits(active ? [.isSelected] : [])
     }
 }
 
 private struct NativeDiscoverFeatureCard: View {
     let card: NativeDiscoverView.DiscoverCardSpec
-    let isSaved: Bool
-    var primaryCTATitle: String? = nil
     let openDetails: () -> Void
     let primaryAction: () -> Void
-    var routeAction: (() -> Void)? = nil
-    let toggleFavorite: () -> Void
-    let skipCard: () -> Void
-    @State private var dragOffset: CGFloat = 0
-    @State private var isPressing = false
-    @Environment(\.colorScheme) private var colorScheme
-    static let cardHeight: CGFloat = 398
-    static let heroHeight: CGFloat = 216
-    static let bodyHeight: CGFloat = 182
+    let addToPlan: () -> Void
+    static let heroHeight: CGFloat = 200
+    static let minimumTapHeight: CGFloat = 44
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ZStack(alignment: .bottomLeading) {
-                NativeRemoteImage(
-                    url: card.imageUrl,
-                    fallbackColors: colorScheme == .dark
-                        ? [cardAccent.opacity(0.46), NativeTheme.purple.opacity(0.28), Color.black.opacity(0.78)]
-                        : [cardAccent.opacity(0.28), Color(hex: 0xF4F8FB), NativeTheme.cyan.opacity(0.16)],
-                    fallbackEmoji: fallbackEmoji,
-                    emojiSize: 120,
-                    emojiOpacity: 0.16,
-                    emojiOffset: CGSize(width: 68, height: 6)
-                )
-                .frame(maxWidth: .infinity)
-                .frame(height: Self.heroHeight)
-                .clipped()
-                heroContrastWash
-                VStack(spacing: 0) {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(displayCategory)
-                                .font(.system(size: 12, weight: .black))
-                                // A details card fills this pill with `neutral`, a mid
-                                // grey, so white ink measured 2.27:1 in both appearances.
-                                // Mid fills take dark ink; only the saturated fulfilment
-                                // accents are dark enough to carry white.
-                                .foregroundColor(cardFulfillment == .details ? NativeTheme.inverseText.opacity(0.92) : NativeProfileStyle.onVibrant)
-                                .padding(.horizontal, 13)
-                                .frame(minHeight: 36)
-                                .background(categoryGradient)
-                                .clipShape(Capsule())
-                                .shadow(color: fulfillmentAccent.opacity(0.14), radius: 6, x: 0, y: 3)
-                            fulfillmentBadge
-                            if let trustBadgeTitle {
-                                trustBadge(trustBadgeTitle)
-                            }
+            // The details target and action targets are siblings. No parent
+            // gesture or nested button can consume a child's tap.
+            Button(action: openDetails) {
+                VStack(alignment: .leading, spacing: 0) {
+                    photo
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text(NativeDiscoverBrowsePolicy.categoryLabel(card.type))
+                                .font(.caption.weight(.semibold)).foregroundColor(.white.opacity(0.72))
+                            Spacer(minLength: 0)
+                            status
                         }
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 8) {
-                            Button(action: toggleFavorite) {
-                                Image(systemName: isSaved ? "heart.fill" : "heart")
-                                    .font(.system(size: 18, weight: .black))
-                                    .foregroundColor(isSaved ? NativeTheme.pink : NativeTheme.textPrimary.opacity(0.86))
-                                    .frame(width: 44, height: 44)
-                                    .background(NativePolish.elevatedSurface)
-                                    .overlay(Circle().stroke(NativePolish.softBorder, lineWidth: 1))
-                                    .clipShape(Circle())
-                                    .shadow(color: isSaved ? NativeTheme.pink.opacity(0.24) : NativeTheme.softShadow, radius: 10, x: 0, y: 6)
-                                    .scaleEffect(isSaved ? 1.08 : 1.0)
-                            }
-                            .buttonStyle(.plain)
+                        Text(card.title).font(.title2.weight(.semibold)).foregroundColor(.white)
+                        if let subtitle = NativeDiscoverBrowsePolicy.referenceSubtitle(card.subtitle) {
+                            Text(subtitle).font(.subheadline).foregroundColor(.white.opacity(0.80))
                         }
+                        Text(NativeDiscoverBrowsePolicy.sourceLine(offering: card.offering))
+                            .font(.footnote).foregroundColor(.white.opacity(0.72))
+                        Text(NativeDiscoverBrowsePolicy.availabilityLine(offering: card.offering))
+                            .font(.footnote).foregroundColor(.white.opacity(0.72))
                     }
-                    Spacer()
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(card.title)
-                            .font(.system(size: 24, weight: .black))
-                            .foregroundColor(colorScheme == .dark ? .white : NativeTheme.textPrimary)
-                            .lineLimit(2)
-                            .shadow(color: colorScheme == .dark ? Color.black.opacity(0.65) : Color.white.opacity(0.55), radius: 2, x: 0, y: 1)
-                        Text(card.subtitle)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.86) : NativeTheme.textSecondary)
-                            .lineLimit(1)
-                            .shadow(color: colorScheme == .dark ? Color.black.opacity(0.55) : Color.white.opacity(0.42), radius: 1.5, x: 0, y: 1)
-                        Text(displayMeta)
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.92) : NativeTheme.textPrimary.opacity(0.86))
-                            .lineLimit(1)
-                            .shadow(color: colorScheme == .dark ? Color.black.opacity(0.50) : Color.white.opacity(0.38), radius: 1.5, x: 0, y: 1)
-                    }
-                    .padding(12)
+                    .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(20)
+                .contentShape(Rectangle())
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: Self.heroHeight)
-            .clipped()
+            .buttonStyle(.plain)
+            .accessibilityLabel("Details for \(card.title)")
+            .accessibilityHint(NativeDiscoverBrowsePolicy.availabilityLine(offering: card.offering))
+            .accessibilityIdentifier("native-discover-details-\(card.id)")
 
-            VStack(alignment: .leading, spacing: 13) {
-                Text(decisionLine)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(NativeTheme.textPrimary.opacity(0.86))
-                    .lineLimit(2)
-
-                HStack(spacing: 10) {
-                    availabilityBadge
-                    contextMarker(bodyContextLine, icon: "location.fill", accent: NativeTheme.textTertiary)
-                    Spacer(minLength: 0)
-                }
-
-                HStack(spacing: 10) {
-                    Button(action: triggerPrimaryAction) {
-                        HStack(spacing: 8) {
-                            Spacer(minLength: 0)
-                            Text(primaryCTATitle ?? NativeDiscoverListing.primaryCTATitle(proposed: card.cta, control: card.control, rail: card.type))
-                                .font(.system(size: 14, weight: .black))
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 12, weight: .black))
-                            Spacer(minLength: 0)
-                        }
+            VStack(spacing: 8) {
+                if let title = card.executableActionTitle {
+                    Button(action: primaryAction) {
+                        actionLabel(title)
+                            .background(Color(hex: Int(card.presentation.actionHex ?? 0xE5E5E5)))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                     .buttonStyle(.plain)
-                    .foregroundColor(cardFulfillment == .details ? fulfillmentAccent : .black)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(ctaBackground)
-                    .overlay(cardFulfillment == .details ? Capsule().stroke(fulfillmentAccent.opacity(0.38), lineWidth: 1.2) : nil)
-                    .clipShape(Capsule())
-                    .shadow(color: fulfillmentAccent.opacity(0.24), radius: 12, x: 0, y: 7)
                     .accessibilityIdentifier("native-discover-primary-cta-\(card.id)")
-                    if let routeAction {
-                        Button(action: { nativeImpactLight(); routeAction() }) {
-                            Label("Route", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
-                                .font(.system(size: 13, weight: .black))
-                                .padding(.horizontal, 14)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundColor(fulfillmentAccent)
-                        .frame(minHeight: 44)
-                        .background(NativeTheme.selectedControlSurface)
-                        .overlay(Capsule().stroke(fulfillmentAccent.opacity(0.56), lineWidth: 1.2))
-                        .clipShape(Capsule())
-                        .accessibilityIdentifier("native-discover-route-cta-\(card.id)")
-                    }
                 }
+                Button(action: addToPlan) {
+                    actionLabel("+ Add to Plan", foreground: card.executableActionTitle == nil ? .black : .white)
+                        .background(card.executableActionTitle == nil ? Color.white : Color.clear)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-discover-add-to-plan-\(card.id)")
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .frame(height: Self.bodyHeight, alignment: .topLeading)
+            .padding(.horizontal, 16).padding(.bottom, 16)
         }
+        // No fixed body/card height and no motion effects: Dynamic Type and
+        // Reduce Motion both work without truncation or swipe instruction.
+        .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity)
-        .frame(height: Self.cardHeight)
-        .background(LinearGradient(colors: [NativePolish.elevatedSurface, NativePolish.glassSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
-        .overlay(RoundedRectangle(cornerRadius: NativePolish.heroRadius, style: .continuous)
-            .stroke(cardFulfillment == .details ? NativePolish.softBorder : fulfillmentAccent.opacity(0.38), lineWidth: cardFulfillment == .details ? 1 : 1.4))
-        .clipShape(RoundedRectangle(cornerRadius: NativePolish.heroRadius, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: NativePolish.heroRadius, style: .continuous))
-        .shadow(color: cardFulfillment == .details ? NativeTheme.softShadow : fulfillmentAccent.opacity(0.18), radius: 24, x: 0, y: 14)
-        .offset(x: dragOffset)
-        .rotationEffect(.degrees(Double(dragOffset / 58)))
-        .scaleEffect(isPressing ? 0.985 : 1.0)
-        .animation(.spring(response: 0.24, dampingFraction: 0.82), value: isSaved)
-        .animation(.spring(response: 0.26, dampingFraction: 0.86), value: isPressing)
-        .onTapGesture { triggerOpenDetails() }
-        .gesture(DragGesture(minimumDistance: 14).onChanged { value in
-            dragOffset = max(min(value.translation.width, 112), -72)
-            isPressing = true
-        }.onEnded { value in
-            isPressing = false
-            if value.translation.width > 88 {
-                nativeImpactLight()
-                openDetails()
-            } else if value.translation.width < -64 {
-                skipCard()
-            }
-            withAnimation(.spring(response: 0.30, dampingFraction: 0.84)) { dragOffset = 0 }
-        })
+        .background(Color(hex: NativeDiscoverBookablePresentation.surfaceHex))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
         .accessibilityIdentifier("native-discover-feature-card-\(card.id)")
     }
 
-    private func triggerOpenDetails() {
-        nativeImpactLight()
-        openDetails()
+    private func actionLabel(_ title: String, foreground: Color = .black) -> some View {
+        Text(title).font(.headline).foregroundColor(foreground)
+            .multilineTextAlignment(.center).padding(.horizontal, 12).padding(.vertical, 10)
+            .frame(maxWidth: .infinity, minHeight: Self.minimumTapHeight)
+            .contentShape(Rectangle())
     }
 
-    private func triggerPrimaryAction() {
-        nativeImpactLight()
-        primaryAction()
-    }
-
-    private var displayCategory: String {
-        if card.title.localizedCaseInsensitiveContains("GH Akwaaba") { return "Event Pass" }
-        if card.title.localizedCaseInsensitiveContains("Broni") { return "Dining" }
-        if card.type == "boutique_apartment" { return "Boutique Stay" }
-        return card.categoryLabel == "Services" ? "Services" : card.categoryLabel
-    }
-
-    private var displayMeta: String {
-        card.metadataLine
-            .replacingOccurrences(of: " • ", with: " · ")
-            .replacingOccurrences(of: "Paid checkout", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var decisionLine: String {
-        let highlights = card.features.prefix(2).joined(separator: " · ")
-        return highlights.isEmpty ? "Tap for what’s included and next steps." : highlights
-    }
-
-    private var availabilityBadge: some View {
-        HStack(spacing: 7) {
-            Circle()
-                .fill(availabilityAccent)
-                .frame(width: 7, height: 7)
-            Text(availabilityCopy)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(NativeTheme.textPrimary.opacity(0.82))
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-        }
-        .padding(.horizontal, 10)
-        .frame(minHeight: 28)
-        .background(NativeTheme.selectedControlSurface.opacity(0.72))
-        .overlay(Capsule().stroke(NativePolish.softBorder, lineWidth: 1))
-        .clipShape(Capsule())
-    }
-
-    private var availabilityCopy: String {
-        if displayCategory == "Event Pass" { return "Pass ready · digital" }
-        if isValetPremiumRideCard { return "Estimate + review" }
-        if card.type == "mobility" { return card.availability.isEmpty ? "Plan ride" : card.availability }
-        if card.type == "boutique_apartment" { return card.availability.isEmpty ? "Check dates" : card.availability }
-        guard NativeVenueHours.hasVerifiedHours(for: discoverHoursCategory) else { return "Hours pending · Contact to confirm" }
-        let status = NativeVenueHours.openStatus(category: discoverHoursCategory)
-        let hours = NativeVenueHours.hours(for: discoverHoursCategory)
-        if status.isOpen {
-            return status.label.lowercased().contains("closes")
-                ? "Closing soon · closes \(shortTimeLabel(hours.close))"
-                : "Open now · until \(shortTimeLabel(hours.close))"
-        }
-        return opensSoon(hours) ? "Opens soon · \(shortTimeLabel(hours.open))" : "Closed · opens \(shortTimeLabel(hours.open))"
-    }
-
-    private var availabilityAccent: Color {
-        if isValetPremiumRideCard { return NativeTheme.cyan }
-        let copy = availabilityCopy.lowercased()
-        if copy.contains("pass ready") { return NativeTheme.cyan }
-        if copy.contains("available") { return NativeTheme.emerald }
-        if copy.contains("request") { return NativeTheme.cyan }
-        if copy.contains("open now") { return NativeTheme.emerald }
-        if copy.contains("closing") { return NativeTheme.orange }
-        if copy.contains("opens soon") { return NativeTheme.cyan }
-        if copy.contains("hours pending") { return NativeTheme.neutral }
-        return Color(hex: 0xEF4444)
-    }
-
-    private var bodyContextLine: String {
-        if card.type == "coffee" { return "\(cleanDistance) · Quick walk" }
-        if card.type == "boutique_apartment" { return cleanDistance == "Nearby" ? "Location shown after booking" : cleanDistance }
-        if isValetPremiumRideCard { return "Bytspot + Elife · Airport" }
-        if card.type == "mobility" { return displayMeta.isEmpty ? "Ride planning" : displayMeta }
-        if card.title.localizedCaseInsensitiveContains("Broni") { return "Atlanta area" }
-        if card.title.localizedCaseInsensitiveContains("GH Akwaaba") { return "Matchday pass" }
-        let availability = card.availability.trimmingCharacters(in: .whitespacesAndNewlines)
-        var parts = [cleanDistance]
-        if !availability.isEmpty && availability != "Unknown" { parts.append(availability) }
-        else if displayCategory == "Dining" { parts.append("Pickup") }
-        return parts.joined(separator: " · ")
-    }
-
-    private var discoverHoursCategory: String {
-        if card.title.localizedCaseInsensitiveContains("Broni") { return "dining" }
-        if displayCategory == "Event Pass" { return "entertainment" }
-        return card.type
-    }
-
-    private var cleanDistance: String {
-        let distance = card.distance.trimmingCharacters(in: .whitespacesAndNewlines)
-        return distance.isEmpty || distance == "—" ? "Nearby" : distance
-    }
-
-    private func opensSoon(_ hours: NativeVenueHours.Hours, date: Date = Date()) -> Bool {
-        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
-        let now = (components.hour ?? 0) * 60 + (components.minute ?? 0)
-        return max((hours.open * 60) - now, 0) <= 120
-    }
-
-    private func shortTimeLabel(_ value: Int) -> String {
-        let hour = value >= 24 ? value - 24 : value
-        if hour == 0 { return "12am" }
-        if hour == 12 { return "12pm" }
-        return hour > 12 ? "\(hour - 12)pm" : "\(hour)am"
-    }
-
-    private func contextMarker(_ title: String, icon: String, accent: Color) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .black))
-                .foregroundColor(accent)
-            Text(title)
-                .font(.system(size: 12, weight: .black))
-                .foregroundColor(NativeTheme.textPrimary.opacity(0.78))
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-        }
-    }
-
-    private var heroContrastWash: some View {
-        ZStack {
-            Color.black.opacity(colorScheme == .dark ? 0.14 : 0.04)
-                .blendMode(.multiply)
-            LinearGradient(
-                gradient: Gradient(stops: colorScheme == .dark ? [
-                    .init(color: Color.black.opacity(0.00), location: 0.00),
-                    .init(color: Color.black.opacity(0.10), location: 0.42),
-                    .init(color: Color.black.opacity(0.52), location: 1.00)
-                ] : [
-                    .init(color: Color.white.opacity(0.00), location: 0.00),
-                    .init(color: Color.white.opacity(0.04), location: 0.42),
-                    .init(color: Color.white.opacity(0.28), location: 1.00)
-                ]),
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
-        .allowsHitTesting(false)
-    }
-
-    @ViewBuilder
-    private var fulfillmentBadge: some View {
-        switch cardFulfillment {
-        case .book:
-            HStack(spacing: 5) {
-                Circle().fill(NativeTheme.emerald).frame(width: 7, height: 7)
-                Text("Book on Bytspot").font(.system(size: 10, weight: .black))
+    private var status: some View {
+        HStack(spacing: 6) {
+            if card.presentation.ringStyle == .dot {
+                Circle().fill(Color.white.opacity(0.72)).frame(width: 6, height: 6)
+            } else {
+                Circle().stroke(Color.white.opacity(0.72), style: StrokeStyle(lineWidth: 1.5,
+                    dash: card.presentation.ringStyle == .dashed ? [2, 2] : []))
+                    .frame(width: 10, height: 10)
             }
-            .foregroundColor(NativeTheme.emerald)
-            .padding(.horizontal, 9)
-            .frame(minHeight: 24)
-            .background(NativePolish.elevatedSurface.opacity(0.92))
-            .overlay(Capsule().stroke(NativeTheme.emerald.opacity(0.30), lineWidth: 1))
-            .clipShape(Capsule())
-        case .request:
-            HStack(spacing: 5) {
-                Circle().fill(NativeTheme.amber).frame(width: 7, height: 7)
-                Text("Request").font(.system(size: 10, weight: .black))
+            Text(card.presentation.statusLabel)
+                .font(.caption.weight(.semibold)).foregroundColor(.white.opacity(0.72))
+        }
+    }
+
+    @ViewBuilder private var photo: some View {
+        // No invented image or empty billboard for catalog rows without media.
+        if let url = card.imageUrl {
+            GeometryReader { proxy in
+                AsyncImage(url: url, transaction: Transaction(animation: nil)) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFill()
+                            .frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                    } else {
+                        ZStack {
+                            Color.white.opacity(0.06)
+                            Image(systemName: "photo").font(.title2).foregroundColor(.white.opacity(0.60))
+                        }
+                    }
+                }
             }
-            .foregroundColor(NativeTheme.amber)
-            .padding(.horizontal, 9)
-            .frame(minHeight: 24)
-            .background(NativePolish.elevatedSurface.opacity(0.92))
-            .overlay(Capsule().stroke(NativeTheme.amber.opacity(0.30), lineWidth: 1))
-            .clipShape(Capsule())
-        case .details:
-            HStack(spacing: 5) {
-                Circle().fill(NativeTheme.neutral).frame(width: 7, height: 7)
-                Text("Details").font(.system(size: 10, weight: .black))
-            }
-            .foregroundColor(NativeTheme.neutral)
-            .padding(.horizontal, 9)
-            .frame(minHeight: 24)
-            .background(NativePolish.elevatedSurface.opacity(0.92))
-            .overlay(Capsule().stroke(NativeTheme.neutral.opacity(0.30), lineWidth: 1))
-            .clipShape(Capsule())
+            .frame(height: Self.heroHeight)
+            .accessibilityHidden(true)
         }
     }
 
-    private var patchVerifiedBadge: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "checkmark.shield.fill").font(.system(size: 10, weight: .black))
-            Text("Patch verified").font(.system(size: 10, weight: .black))
-        }
-        .foregroundColor(NativeTheme.cyan)
-        .padding(.horizontal, 9)
-        .frame(minHeight: 28)
-        .background(NativeTheme.selectedControlSurface)
-        .overlay(Capsule().stroke(NativeTheme.cyan.opacity(0.22), lineWidth: 1))
-        .clipShape(Capsule())
-    }
-
-    private var trustBadgeTitle: String? {
-        NativeSearchRouter.searchBadge(verified: card.verified, premium: NativeDiscoverView.isPremiumSearchVendor(card))
-    }
-
-    private func trustBadge(_ title: String) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: title == "Featured" ? "crown.fill" : "checkmark.seal.fill")
-                .font(.system(size: 9, weight: .black))
-            Text(title.uppercased())
-                .font(.system(size: 9.5, weight: .black))
-        }
-        .foregroundColor(title == "Featured" ? NativeTheme.purple : NativeTheme.cyan)
-        .padding(.horizontal, 8)
-        .frame(minHeight: 24)
-        .background(NativePolish.elevatedSurface.opacity(0.92))
-        .overlay(Capsule().stroke((title == "Featured" ? NativeTheme.purple : NativeTheme.cyan).opacity(0.30), lineWidth: 1))
-        .clipShape(Capsule())
-    }
-
-    // ─── Fulfillment-driven accent (C1 card atom) ───────────────────────
-    // The card's primary accent is driven by what Bytspot can do with this
-    // place (capability → fulfillment), not what category it belongs to.
-    //   🟢 book    → emerald  (we settle it — own inventory)
-    //   🟡 request → amber    (we broker the ask — hold)
-    //   ⚪ details → neutral  (information only)
-    private var cardFulfillment: NativeDiscoverFulfillment {
-        NativeDiscoverListing.fulfillment(control: card.control, rail: card.type)
-    }
-
-    private var fulfillmentAccent: Color {
-        switch cardFulfillment {
-        case .book: return NativeTheme.emerald
-        case .request: return NativeTheme.amber
-        case .details: return NativeTheme.neutral   // neutral grey
-        }
-    }
-
-    // Category tint — retained only for the hero fallback gradient where the
-    // place's category (dining emoji, nightlife emoji) drives the tint.
-    private var cardAccent: Color {
-        if isValetPremiumRideCard { return NativeTheme.cyan }
-        switch card.type {
-        case "service": return NativeTheme.cyan
-        case "mobility": return NativeTheme.orange
-        case "parking": return NativeTheme.emerald
-        case "boutique_apartment": return NativeTheme.purple
-        case "shopping", "entertainment", "nightlife": return NativeTheme.pink
-        default: return NativeTheme.cyan
-        }
-    }
-
-    private var badgeColor: Color { card.entryType == "free" ? NativeTheme.cyan : NativeTheme.purple }
-
-    private var categoryGradient: LinearGradient {
-        LinearGradient(colors: [fulfillmentAccent, fulfillmentAccent.opacity(0.82)], startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    /// CTA button fill: solid gradient for book/request, transparent for details.
-    @ViewBuilder
-    private var ctaBackground: some View {
-        if cardFulfillment == .details {
-            NativeTheme.selectedControlSurface
-        } else {
-            LinearGradient(colors: [fulfillmentAccent, fulfillmentAccent.opacity(0.82)], startPoint: .leading, endPoint: .trailing)
-        }
-    }
-
-    private var fallbackEmoji: String {
-        if card.title.contains("GH Akwaaba") { return "🇬🇭" }
-        if card.title.contains("Broni") { return "🍽️" }
-        switch card.type {
-        case "dining": return "🍽️"
-        case "nightlife": return "🍸"
-        case "coffee": return "☕"
-        case "shopping": return "🛍️"
-        case "boutique_apartment": return "🏡"
-        case "entertainment": return "🎭"
-        case "fitness": return "💪"
-        case "parking": return "🅿️"
-        case "mobility": return card.id == "group-transport" ? "🚌" : "🚘"
-        case "service": return "🛎️"
-        default: return "📍"
-        }
-    }
-
-    private var isValetPremiumRideCard: Bool { card.id == NativeHomeDashboardView.valetRideServiceID }
 }
 
 private struct NativeSpecialDiscoverCard: View {
@@ -19003,13 +18537,10 @@ enum NativeDiscoverParitySelfTests {
 
     private static func run() {
         precondition(NativeDiscoverView.visibleSectionOrder == ["filters", "feed"], "NativeDiscoverParitySelfTests: Discover header/search/scaffold sections must stay removed.")
-        precondition(NativeDiscoverView.filterRowCount == 3, "NativeDiscoverParitySelfTests: Discover filter system must remain three rows.")
-        precondition(NativeDiscoverView.introCardDeckIndex == 0, "NativeDiscoverParitySelfTests: swipe onboarding card must stay first in the deck.")
+        precondition(NativeDiscoverView.filterRowCount == 1, "NativeDiscoverParitySelfTests: Discover has category filtering only.")
         precondition(NativeDiscoverView.filterEnvironmentKey == "BYT_NATIVE_DISCOVER_FILTER", "NativeDiscoverParitySelfTests: Discover filter screenshot env key drifted.")
-        precondition(NativeDiscoverView.entryFilterEnvironmentKey == "BYT_NATIVE_DISCOVER_ENTRY_FILTER", "NativeDiscoverParitySelfTests: Discover entry-filter screenshot env key drifted.")
-        precondition(NativeDiscoverIntroCard.compactHeight == 112, "NativeDiscoverParitySelfTests: Discover swipe guide should stay compact.")
-        precondition(NativeDiscoverFeatureCard.cardHeight == 398 && NativeDiscoverFeatureCard.heroHeight == 216 && NativeDiscoverFeatureCard.bodyHeight == 182, "NativeDiscoverParitySelfTests: Discover card compact dimensions drifted.")
-        precondition(NativeDiscoverView.categoryLabels == ["All", "🏡 Boutique Stay", "🚘 Mobility", "🍸 Nightlife", "🍽️ Dining", "☕ Coffee", "🛍️ Shopping", "🎭 Events", "🛎 Services", "💪 Fitness", "🅿️ Parking"], "NativeDiscoverParitySelfTests: native category labels drifted.")
+        precondition(NativeDiscoverFeatureCard.minimumTapHeight >= 44, "NativeDiscoverParitySelfTests: Discover needs accessible, independent tap targets.")
+        precondition(NativeDiscoverView.categoryLabels == ["All", "Boutique Stay", "Mobility", "Nightlife", "Dining", "Coffee", "Shopping", "Events", "Services", "Fitness", "Parking"], "NativeDiscoverParitySelfTests: native category labels must remain emoji-free.")
         precondition(NativeDiscoverView.categoryLabels.joined(separator: " → ") == NativeDiscoverView.categoryRailRegressionOrderDescription, "NativeDiscoverParitySelfTests: native category rail order drifted.")
         precondition(NativeDiscoverView.debugCategoryRailFilterOrder() == NativeDiscoverView.categoryRailRegressionFilterOrder, "NativeDiscoverParitySelfTests: native category rail filter mapping drifted.")
         precondition(NativeDiscoverView.curatedCards.map(\.title) == ["Morning Coffee Walk", "Midtown Boutique Suite", "Dinner Spots That Match Your Vibe", "Nightlife Near You", "Smart Parking Before You Arrive", "Events Worth Leaving For", "Wellness Reset Nearby", "Private Airport Transfer", "Group Transport", "Broni Home Taste", "GH Akwaaba Pass"], "NativeDiscoverParitySelfTests: curated fallback cards drifted from the approved native deck.")
@@ -19022,12 +18553,9 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeTabContentSnapshot.canonicalMobilityCards.map(\.categoryLabel) == ["Mobility", "Mobility"], "NativeDiscoverParitySelfTests: Mobility cards must use the top-level Mobility category.")
         precondition(NativeTabContentSnapshot.specialDiscoverCards.map(\.title).prefix(2) == ["Private Airport Transfer", "Group Transport"], "NativeDiscoverParitySelfTests: Mobility cards must stay first in the native special Discover merge.")
         let coffeeCard = NativeDiscoverView.curatedCards.first(where: { $0.type == "coffee" })!
-        let paidServiceCard = NativeDiscoverView.curatedCards.first(where: { $0.entryType == "paid" })!
-        precondition(coffeeCard.cta == "Open details", "NativeDiscoverParitySelfTests: Coffee Discover card CTA must open the detail sheet.")
         precondition(NativeDiscoverView.venueForDetail(coffeeCard, venues: []).discoverType == "coffee", "NativeDiscoverParitySelfTests: Coffee card must resolve to a coffee detail venue.")
-        precondition(NativeDiscoverView.matchesEntryFilter(coffeeCard, entryFilter: "all") && NativeDiscoverView.matchesEntryFilter(paidServiceCard, entryFilter: "all"), "NativeDiscoverParitySelfTests: All access must include both free and paid recommendations.")
-        precondition(NativeDiscoverView.matchesEntryFilter(coffeeCard, entryFilter: "free") && !NativeDiscoverView.matchesEntryFilter(paidServiceCard, entryFilter: "free"), "NativeDiscoverParitySelfTests: Free filter must exclude paid recommendations.")
-        precondition(!NativeDiscoverView.matchesEntryFilter(coffeeCard, entryFilter: "paid") && NativeDiscoverView.matchesEntryFilter(paidServiceCard, entryFilter: "paid"), "NativeDiscoverParitySelfTests: Paid filter must exclude free recommendations.")
+        precondition(NativeDiscoverView.curatedCards.allSatisfy { $0.offering == nil && $0.presentation.primaryActionTitle == nil && $0.presentation.actionHex == nil }, "NativeDiscoverParitySelfTests: reference text and control never grant booking capability.")
+        precondition(coffeeCard.presentation.statusLabel == "Reference" && coffeeCard.presentation.availabilityLine == "Availability unconfirmed", "NativeDiscoverParitySelfTests: references cannot claim verified availability.")
         let foodSearch = NativeSearchRouter.suggestions(query: "food", snapshot: .fallback, limit: 3)
         precondition(foodSearch.first?.title == "Broni Home Taste", "NativeDiscoverParitySelfTests: premium relevant dining vendor should lead food search.")
         let parkingSearch = NativeSearchRouter.suggestions(query: "parking", snapshot: .fallback, limit: 3)

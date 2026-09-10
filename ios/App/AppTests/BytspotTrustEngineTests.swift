@@ -3,6 +3,219 @@ import CoreLocation
 import UIKit
 @testable import App
 
+final class NativeDiscoverM6BrowseTests: XCTestCase {
+    private func offering(_ sourceID: String = "spot-a", kind: NativePlanBookableSelection.SourceKind = .coffeeSpot,
+                          category: String = "coffee", capability: String = "request", title: String = "Same title") -> NativePlanBookableOffering {
+        NativePlanBookableOffering(id: "catalog-\(sourceID)", sourceKind: kind, sourceId: sourceID,
+                                  category: category, title: title, subtitle: nil, capability: capability)
+    }
+
+    func testDiscoverKeepsAllAndTenEmojiFreeCategoryRails() {
+        XCTAssertEqual(NativeDiscoverBookablePresentation.railLabels,
+                       ["All", "Boutique Stay", "Mobility", "Nightlife", "Dining", "Coffee", "Shopping", "Events", "Services", "Fitness", "Parking"])
+        XCTAssertEqual(NativeDiscoverBookablePresentation.railTokens.count, 11)
+        for (rail, label) in zip(NativeDiscoverBookablePresentation.railTokens, NativeDiscoverBookablePresentation.railLabels) {
+            XCTAssertEqual(NativeDiscoverBrowsePolicy.categoryLabel(rail), label)
+        }
+    }
+
+    func testCatalogDomainMappingDoesNotCollapseEveryPublicPartyIntoEvents() {
+        for (domain, rail) in [("events", "entertainment"), ("stay", "boutique_apartment"),
+                               ("automotive", "mobility"), ("transport", "mobility"), ("stall", "parking"),
+                               ("wellness", "service"), ("green", "service"), ("dining", "dining")] {
+            let row = offering(kind: .party, category: domain, capability: "book")
+            XCTAssertTrue(NativeDiscoverBrowsePolicy.matchesCategory(row, filter: rail))
+            XCTAssertTrue(NativeDiscoverBrowsePolicy.matchesCategory(row, filter: nil))
+            XCTAssertTrue(NativeDiscoverBrowsePolicy.matchesCategory(row, filter: "all"))
+            if rail != "entertainment" { XCTAssertFalse(NativeDiscoverBrowsePolicy.matchesCategory(row, filter: "entertainment")) }
+        }
+        XCTAssertFalse(NativeDiscoverBrowsePolicy.matchesCategory(offering(category: "unknown-domain"), filter: "coffee"))
+    }
+
+    func testReferencesNeverClaimSupportedActionOrAvailability() {
+        let reference = NativeDiscoverBrowsePolicy.presentation(offering: nil)
+        XCTAssertEqual(reference.capability, .details)
+        XCTAssertEqual(reference.statusLabel, "Reference")
+        XCTAssertNil(reference.primaryActionTitle)
+        XCTAssertNil(reference.actionHex)
+        XCTAssertEqual(reference.ringStyle, .dot)
+        XCTAssertEqual(NativeDiscoverBrowsePolicy.availabilityLine(offering: nil), "Availability unconfirmed")
+        for subtitle in ["Live venue from bytspot-api", "Here", "Confirmed", "Limited seats", "Premium", "Available now", "Verified place"] {
+            XCTAssertNil(NativeDiscoverBrowsePolicy.referenceSubtitle(subtitle))
+        }
+        XCTAssertEqual(NativeDiscoverBrowsePolicy.referenceSubtitle("  10 Main Street  "), "10 Main Street")
+        XCTAssertNil(NativeDiscoverBrowsePolicy.referenceSubtitle("  "))
+    }
+
+    @MainActor
+    func testLegacySummaryControlAndVerificationNeverPromoteReferenceCTA() {
+        let references = NativeTabContentSnapshot.fallback.discoverCards + NativeTabContentSnapshot.canonicalServiceCards + NativeTabContentSnapshot.canonicalMobilityCards
+        XCTAssertFalse(references.isEmpty)
+        for card in references {
+            let presentation = NativeDiscoverBrowsePolicy.referencePresentation(for: card)
+            XCTAssertEqual(presentation.capability, .details)
+            XCTAssertEqual(presentation.statusLabel, "Reference")
+            XCTAssertNil(presentation.primaryActionTitle)
+            XCTAssertNil(presentation.actionHex)
+        }
+    }
+
+    func testDiscoverSourceKeepsActionsSeparateAndRemovesObsoleteBrowseControls() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("App/NativeShellView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "private struct NativeDiscoverView: View {"))
+        let end = try XCTUnwrap(source.range(of: "private struct NativeSpecialDiscoverCard: View {"))
+        let browse = String(source[start.lowerBound..<end.lowerBound])
+        for forbidden in ["entryFilter", "sortBy", "savedOnly", "savedCardIDs", "skippedCardIDs", "NativeDiscoverIntroCard", "liveSourceStrip", "Prime Path", "toggleFavorite", "skipCard", "heroContrastWash", "cardFulfillment", ".onTapGesture", ".gesture(DragGesture", "LinearGradient", "RadialGradient", "NativeTheme.purple", "NativeTheme.cyan", "NativeRemoteImage"] {
+            XCTAssertFalse(browse.contains(forbidden), "Discover reintroduced obsolete browse behavior: \(forbidden)")
+        }
+        XCTAssertTrue(browse.contains("Button(action: openDetails)"))
+        XCTAssertTrue(browse.contains("Button(action: primaryAction)"))
+        XCTAssertTrue(browse.contains("Button(action: addToPlan)"))
+        XCTAssertTrue(browse.contains(".sheet(item: $planSelection, onDismiss: finishPlanDismissal)"))
+        XCTAssertTrue(browse.contains("suggestedSpotID: request.spotID"))
+        XCTAssertTrue(browse.contains("api.bookables(category: \"coffee\")"))
+        XCTAssertTrue(browse.contains("api.bookables(category: \"events\")"))
+        XCTAssertTrue(browse.contains(".background(NativeDeepSpaceGround())"))
+        XCTAssertTrue(browse.contains("static let filterRowCount = 1"))
+        XCTAssertFalse(browse.contains(".frame(height: Self.cardHeight)"))
+        XCTAssertFalse(browse.contains(".frame(height: Self.bodyHeight"))
+    }
+
+    func testOnlyExecutableCoffeeRequestGetsBlueAction() {
+        let request = NativeDiscoverBrowsePolicy.presentation(offering: offering())
+        XCTAssertEqual(request.primaryActionTitle, "Request")
+        XCTAssertEqual(request.actionHex, 0x00BFFF)
+        XCTAssertEqual(request.ringStyle, .dashed)
+        XCTAssertEqual(request.availabilityLine, "Subject to host acceptance")
+        for capability in ["book", "redirect", "details", "unknown"] {
+            let card = NativeDiscoverBrowsePolicy.presentation(offering: offering(capability: capability))
+            XCTAssertNil(card.primaryActionTitle)
+            XCTAssertNil(card.actionHex)
+        }
+        XCTAssertNil(NativeDiscoverBrowsePolicy.presentation(offering: offering("invalid/id")).primaryActionTitle)
+    }
+
+    func testReadOnlyPartyPreviewCannotAdvertiseBookOrRequest() {
+        for capability in ["book", "request", "redirect", "details"] {
+            let party = offering("party-a", kind: .party, category: "dining", capability: capability)
+            XCTAssertNil(NativeDiscoverBrowsePolicy.executableActionTitle(offering: party))
+            if capability == "book" || capability == "request" {
+                XCTAssertEqual(NativeDiscoverBrowsePolicy.presentation(offering: party).capability.rawValue, capability,
+                               "Read-only native routing must not erase the server's Bookable capability.")
+            }
+            XCTAssertEqual(NativeDiscoverBrowsePolicy.partyRoute(offering: party)?.partyID, "party-a")
+            XCTAssertTrue(NativeDiscoverBrowsePolicy.availabilityLine(offering: party).contains("booking isn't supported"))
+            let selection = NativeDiscoverPlanSelection(title: party.title, needKind: party.category, offering: party)
+            XCTAssertEqual(selection.offering?.selection, party.selection)
+            XCTAssertEqual(selection.addRequest(planID: "plan-a").path, "/trpc/plans.addBookables")
+        }
+        XCTAssertNil(NativeDiscoverBrowsePolicy.partyRoute(offering: offering()))
+        XCTAssertNil(NativeDiscoverBrowsePolicy.partyRoute(offering: offering("party-a?other=id", kind: .party)))
+    }
+
+    func testCatalogDeduplicatesExactSourceNotTitleOrOfferingID() {
+        let coffee = offering()
+        let party = offering("spot-a", kind: .party, category: "events", capability: "book")
+        let another = offering("spot-b")
+        var state = NativeDiscoverCatalogState()
+        let generation = state.begin(userID: "user-a")
+        state.finish([party, coffee, coffee, another], generation: generation, userID: "user-a")
+        XCTAssertEqual(state.rows(for: "user-a").map(\.selection.id), ["coffeeSpot:spot-a", "coffeeSpot:spot-b", "party:spot-a"])
+        XCTAssertTrue(state.rows(for: "user-a").allSatisfy { $0.title == "Same title" })
+        XCTAssertTrue(state.rows(for: "user-b").isEmpty)
+        XCTAssertTrue(state.rows(for: nil).isEmpty)
+    }
+
+    func testConflictingDuplicateCapabilitiesFailClosed() {
+        var state = NativeDiscoverCatalogState()
+        let generation = state.begin(userID: "user-a")
+        state.finish([offering(), offering(capability: "details")], generation: generation, userID: "user-a")
+        XCTAssertTrue(state.offerings.isEmpty)
+    }
+
+    func testCatalogRefreshFailureClearsStaleOfferingsAndRetryRecovers() {
+        var state = NativeDiscoverCatalogState()
+        let first = state.begin(userID: "user-a")
+        state.finish([offering()], generation: first, userID: "user-a")
+        XCTAssertEqual(state.offerings.count, 1)
+        let retry = state.begin(userID: "user-a")
+        XCTAssertTrue(state.offerings.isEmpty)
+        XCTAssertTrue(state.isLoading)
+        state.finish(nil, generation: retry, userID: "user-a")
+        XCTAssertTrue(state.failed)
+        XCTAssertFalse(state.isLoading)
+        state.finish([offering()], generation: first, userID: "user-a")
+        XCTAssertTrue(state.offerings.isEmpty)
+        let recovered = state.begin(userID: "user-a")
+        state.finish([offering()], generation: recovered, userID: "user-a")
+        XCTAssertFalse(state.failed)
+        XCTAssertEqual(state.offerings.count, 1)
+    }
+
+    func testCatalogRejectsSignOutAndAccountABAResponses() {
+        var state = NativeDiscoverCatalogState()
+        let firstA = state.begin(userID: "user-a")
+        let b = state.begin(userID: "user-b")
+        let nextA = state.begin(userID: "user-a")
+        state.finish([offering()], generation: firstA, userID: "user-a")
+        state.finish([offering()], generation: b, userID: "user-b")
+        XCTAssertTrue(state.offerings.isEmpty)
+        state.finish([offering()], generation: nextA, userID: "user-a")
+        XCTAssertEqual(state.offerings.count, 1)
+        _ = state.begin(userID: nil)
+        state.finish([offering()], generation: nextA, userID: "user-a")
+        XCTAssertTrue(state.offerings.isEmpty)
+        XCTAssertFalse(state.isLoading)
+        XCTAssertFalse(state.failed)
+    }
+
+    func testSupportedThenRelevanceThenStableIdentityOrdering() {
+        XCTAssertTrue(NativeDiscoverBrowsePolicy.precedes(supported: true, relevance: 0, id: "z", otherSupported: false, otherRelevance: 999, otherID: "a"))
+        XCTAssertTrue(NativeDiscoverBrowsePolicy.precedes(supported: false, relevance: 20, id: "z", otherSupported: false, otherRelevance: 10, otherID: "a"))
+        XCTAssertTrue(NativeDiscoverBrowsePolicy.precedes(supported: false, relevance: 10, id: "a", otherSupported: false, otherRelevance: 10, otherID: "z"))
+        XCTAssertFalse(NativeDiscoverBrowsePolicy.precedes(supported: false, relevance: 10, id: "a", otherSupported: false, otherRelevance: 10, otherID: "a"))
+    }
+
+    func testAddToPlanNeverContinuesToCoffeeHold() {
+        let selection = NativeDiscoverPlanSelection(title: "Coffee", needKind: "coffee", offering: offering())
+        var intent = NativeDiscoverPlanIntent()
+        intent.begin(selection: selection, userID: "user-a", requestCoffee: false)
+        XCTAssertTrue(intent.acceptAdded(planID: "plan-a", selectionID: selection.id, userID: "user-a"))
+        XCTAssertNil(intent.takeCoffeeRequest(userID: "user-a"))
+        let reference = NativeDiscoverPlanSelection(title: "Coffee", needKind: "coffee")
+        XCTAssertNil(reference.offering)
+        XCTAssertEqual(reference.addRequest(planID: "plan-a").path, "/trpc/plans.attach")
+    }
+
+    func testCoffeeRequestWaitsForPlanSuccessThenContinuesOnceWithExactSpot() throws {
+        let selection = NativeDiscoverPlanSelection(title: "Coffee", needKind: "coffee", offering: offering("exact-spot"))
+        var intent = NativeDiscoverPlanIntent()
+        intent.begin(selection: selection, userID: "user-a", requestCoffee: true)
+        XCTAssertNil(intent.takeCoffeeRequest(userID: "user-a"), "Cancelling or failing the Plan add cannot request coffee")
+        intent.begin(selection: selection, userID: "user-a", requestCoffee: true)
+        XCTAssertTrue(intent.acceptAdded(planID: "exact-plan", selectionID: selection.id, userID: "user-a"))
+        let request = try XCTUnwrap(intent.takeCoffeeRequest(userID: "user-a"))
+        XCTAssertEqual(request.planID, "exact-plan")
+        XCTAssertEqual(request.spotID, "exact-spot")
+        XCTAssertEqual(request.userID, "user-a")
+        XCTAssertNil(intent.takeCoffeeRequest(userID: "user-a"))
+    }
+
+    func testCoffeeContinuationRejectsStaleSelectionAndAccountChanges() {
+        let selection = NativeDiscoverPlanSelection(title: "Coffee", needKind: "coffee", offering: offering())
+        var intent = NativeDiscoverPlanIntent()
+        intent.begin(selection: selection, userID: "user-a", requestCoffee: true)
+        XCTAssertFalse(intent.acceptAdded(planID: "plan-a", selectionID: UUID(), userID: "user-a"))
+        XCTAssertFalse(intent.acceptAdded(planID: "plan-a", selectionID: selection.id, userID: "user-b"))
+        XCTAssertFalse(intent.acceptAdded(planID: "plan-a", selectionID: selection.id, userID: nil))
+        XCTAssertTrue(intent.acceptAdded(planID: "plan-a", selectionID: selection.id, userID: "user-a"))
+        XCTAssertNil(intent.takeCoffeeRequest(userID: "user-b"))
+        XCTAssertNil(intent.takeCoffeeRequest(userID: "user-a"))
+    }
+}
+
 private final class NativePartyURLProtocolStub: URLProtocol {
     static var handler: ((URLRequest) throws -> (Int, Data))?
     static func bodyData(for request: URLRequest) -> Data? {

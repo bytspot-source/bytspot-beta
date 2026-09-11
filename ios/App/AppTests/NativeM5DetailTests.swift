@@ -450,6 +450,7 @@ final class NativeDiscoverTransactionTests: XCTestCase {
 
     func testStoreScopesRowsResetsAccountAndDoesNotLoadWhenSignedOut() async {
         let store = NativeDiscoverTransactionStore()
+        store.synchronize(userID: "user-1")
         await store.refresh(userID: "user-1", load: { [self.plan([self.item()], creator: "other-user")] })
         XCTAssertNil(store.transaction(for: offering(), userID: "user-1"))
         await store.refresh(userID: "user-1", load: { [self.plan([self.item()])] })
@@ -460,6 +461,7 @@ final class NativeDiscoverTransactionTests: XCTestCase {
         store.synchronize(userID: "user-1", forceReset: true)
         XCTAssertFalse(store.hasLoaded)
         XCTAssertNil(store.transaction(for: offering(), userID: "user-1"))
+        store.synchronize(userID: nil)
         await store.refresh(userID: nil, load: { XCTFail("Signed-out refresh must not load Plans"); return [] })
         XCTAssertNil(store.userID)
         XCTAssertFalse(store.hasLoaded)
@@ -500,6 +502,17 @@ final class NativeDiscoverTransactionTests: XCTestCase {
         }
     }
 
+    func testQueuedOldAccountRefreshCannotRestoreAnotherUsersState() async {
+        let store = NativeDiscoverTransactionStore()
+        store.synchronize(userID: "new-user")
+        await store.refresh(userID: "old-user", load: {
+            XCTFail("A queued request for another account must not execute")
+            return []
+        })
+        XCTAssertEqual(store.userID, "new-user")
+        XCTAssertFalse(store.hasLoaded)
+    }
+
     private enum TestFailure: Error { case unavailable }
 
     @MainActor
@@ -520,7 +533,8 @@ final class NativeDiscoverTransactionTests: XCTestCase {
 
     private func startRefresh(_ store: NativeDiscoverTransactionStore, userID: String,
                               suspended: SuspendedLoad) async -> Task<Void, Never> {
-        await withCheckedContinuation { started in
+        store.synchronize(userID: userID)
+        return await withCheckedContinuation { started in
             let task = Task { await store.refresh(userID: userID, load: { try await suspended.load() }) }
             suspended.onStart = { started.resume(returning: task) }
         }

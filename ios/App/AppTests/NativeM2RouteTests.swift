@@ -225,6 +225,16 @@ struct NativeM2RouteTests {
         }
     }
 
+    @Test func cardDistanceRequiresFreshAuthorizedOriginNotCatalogText() {
+        #expect(NativeM5DetailPolicy.distance(to: venue(), location: nil, authorized: true, now: referenceDate) == nil)
+        #expect(NativeM5DetailPolicy.distance(to: venue(), location: location(), authorized: false, now: referenceDate) == nil)
+        #expect(NativeM5DetailPolicy.distance(to: venue(), location: location(age: 61), authorized: true, now: referenceDate) == nil)
+        #expect(NativeM5DetailPolicy.distance(to: venue(latitude: 0, longitude: 0), location: location(), authorized: true, now: referenceDate) == nil)
+        let result = NativeM5DetailPolicy.distance(to: venue(), location: location(), authorized: true, now: referenceDate)
+        #expect(result?.contains("straight-line distance") == true)
+        #expect(result?.contains("invented catalog distance") == false)
+    }
+
     @Test func rideLinksCarryOnlyExactDestinationAndProviderOwnsPickup() throws {
         let destination = NativeM2RouteDestination(venue: venue())
         for provider in NativeM2RideProvider.allCases {

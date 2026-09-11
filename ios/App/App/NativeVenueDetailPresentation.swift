@@ -189,6 +189,13 @@ enum NativeM5DetailPolicy {
         return NativeVenueDetailPresentation.supportsManualCheckIn(venue)
     }
 
+    static func distance(to venue: NativeVenueSummary, location: CLLocation?, authorized: Bool, now: Date = Date()) -> String? {
+        guard venue.hasKnownCoordinates,
+              let origin = NativeVenueVisitLocation.freshCoordinate(location: location, authorized: authorized, now: now),
+              let value = origin.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) else { return nil }
+        return "\(value) · straight-line distance"
+    }
+
     static func distance(_ raw: String) -> String? {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if value == "Here" { return value }

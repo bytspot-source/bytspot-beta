@@ -491,8 +491,10 @@ final class NativeDiscoverTransactionStore: ObservableObject {
     /// Injectable read-only seam; each refresh supersedes older requests,
     /// including A → B → A account changes and same-account invalidation.
     func refresh(userID: String?, load: () async throws -> [NativePlan]) async {
-        synchronize(userID: userID)
-        guard let userID, !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        // Only the auth owner may change the account. A queued refresh from a
+        // dismissed surface must not switch this shared store back to an old user.
+        guard !Task.isCancelled, self.userID == userID,
+              let userID, !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let requestGeneration = UUID()
         generation = requestGeneration
         isLoading = true

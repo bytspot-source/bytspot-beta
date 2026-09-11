@@ -11403,8 +11403,11 @@ private struct NativeDiscoverView: View {
     }
 
     private func refreshTransactions() async {
-        await transactions.refresh(userID: catalogUserID,
-            api: NativePlanAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token })))
+        guard !Task.isCancelled else { return }
+        let userID = catalogUserID
+        transactions.synchronize(userID: userID)
+        let client = BytspotAPIClient(tokenProvider: { [credential = sessionStore.token] in credential })
+        await transactions.refresh(userID: userID, api: NativePlanAPI(client: client))
     }
 
     private var rankedCards: [DiscoverCardSpec] {
@@ -11665,6 +11668,7 @@ private struct NativeDiscoverPlanDestination: Identifiable { let id: String }
 
 private struct NativeDiscoverFeatureCard: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @EnvironmentObject private var locationStore: NativeLocationStore
     let card: NativeDiscoverView.DiscoverCardSpec
     let venue: NativeVenueSummary
     let transaction: NativeDiscoverTransaction?
@@ -11694,7 +11698,8 @@ private struct NativeDiscoverFeatureCard: View {
                         if let subtitle = NativeDiscoverBrowsePolicy.referenceSubtitle(card.subtitle) {
                             Text(subtitle).font(.subheadline).foregroundColor(.white.opacity(0.80))
                         }
-                        if venue.hasKnownCoordinates, let distance = NativeM5DetailPolicy.distance(venue.distance) {
+                        if let distance = NativeM5DetailPolicy.distance(to: venue, location: locationStore.lastLocation,
+                            authorized: locationStore.authorizationState == .allowed) {
                             Label(distance, systemImage: "location").font(.footnote).foregroundColor(.white.opacity(0.72))
                         }
                         Text(NativeDiscoverBrowsePolicy.sourceLine(offering: card.offering))
@@ -12077,9 +12082,11 @@ private struct NativeVenueDetailView: View {
         transactions.userID == detailUserID && transactions.hasLoaded && !transactions.isLoading && !transactions.failed
     }
     private func refreshDetailTransactions() async {
-        guard offering?.sourceKind == .coffeeSpot else { return }
-        await transactions.refresh(userID: detailUserID,
-            api: NativePlanAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token })))
+        guard !Task.isCancelled, offering?.sourceKind == .coffeeSpot else { return }
+        let userID = detailUserID
+        transactions.synchronize(userID: userID)
+        let client = BytspotAPIClient(tokenProvider: { [credential = sessionStore.token] in credential })
+        await transactions.refresh(userID: userID, api: NativePlanAPI(client: client))
     }
     private func loadSuppliedDetails() async {
         guard offering == nil, venue.googlePlaceID != nil else { return }
@@ -12134,16 +12141,21 @@ private struct NativeVenueDetailView: View {
                 .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
             Text(NativeDiscoverBrowsePolicy.categoryLabel(venue.discoverType)).font(.subheadline.weight(.semibold))
             Text(NativeM5DetailPolicy.address(for: venue)).font(.body).foregroundColor(.white.opacity(0.80))
-            if venue.hasKnownCoordinates, let distance = NativeM5DetailPolicy.distance(venue.distance) {
+            if let distance = NativeM5DetailPolicy.distance(to: venue, location: locationStore.lastLocation,
+                authorized: locationStore.authorizationState == .allowed) {
                 Label(distance, systemImage: "location").font(.footnote)
             }
             if let description = details?.description {
                 Text(description).font(.body).foregroundColor(.white.opacity(0.80))
             }
             HStack(spacing: 8) {
-                Circle().stroke(Color(hex: Int(placePresentation.actionHex ?? 0xB8B8B8)),
-                    style: StrokeStyle(lineWidth: 2, dash: placePresentation.ringStyle == .dashed ? [2, 2] : []))
-                    .frame(width: 10, height: 10)
+                if placePresentation.ringStyle == .dot {
+                    Circle().fill(Color.white.opacity(0.72)).frame(width: 6, height: 6)
+                } else {
+                    Circle().stroke(Color(hex: Int(placePresentation.actionHex ?? 0xB8B8B8)),
+                        style: StrokeStyle(lineWidth: 2, dash: placePresentation.ringStyle == .dashed ? [2, 2] : []))
+                        .frame(width: 10, height: 10)
+                }
                 Text(placePresentation.statusLabel).font(.subheadline.weight(.semibold))
             }
             Text(placePresentation.availabilityLine).font(.footnote).foregroundColor(.white.opacity(0.72))

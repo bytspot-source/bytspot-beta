@@ -347,3 +347,85 @@ struct NativeM2RouteSheet: View {
         }
     }
 }
+
+/// Provider links carry an exact destination, but never quote or book a ride.
+/// Pickup, price and final confirmation remain with the chosen provider.
+enum NativeM2RideProvider: String, CaseIterable, Identifiable {
+    case uber, lyft
+    var id: String { rawValue }
+    var title: String { self == .uber ? "Uber" : "Lyft" }
+}
+
+extension NativeM2RouteDestination {
+    func rideURL(for provider: NativeM2RideProvider) -> URL? {
+        guard let point else { return nil }
+        var url = URLComponents()
+        url.scheme = "https"
+        switch provider {
+        case .uber:
+            url.host = "m.uber.com"; url.path = "/ul/"
+            url.queryItems = [URLQueryItem(name: "action", value: "setPickup"),
+                URLQueryItem(name: "pickup", value: "my_location"),
+                URLQueryItem(name: "dropoff[latitude]", value: String(point.latitude)),
+                URLQueryItem(name: "dropoff[longitude]", value: String(point.longitude)),
+                URLQueryItem(name: "dropoff[nickname]", value: name)]
+        case .lyft:
+            url.host = "www.lyft.com"; url.path = "/ride"
+            url.queryItems = [URLQueryItem(name: "destination[latitude]", value: String(point.latitude)),
+                URLQueryItem(name: "destination[longitude]", value: String(point.longitude))]
+        }
+        return url.url
+    }
+}
+
+/// One container, independent venue/parking/ride state. No hold path exists in
+/// the mounted parking API, so this module cannot show HOLD or live counts.
+struct NativeM2ArrivalModule: View {
+    let venue: NativeVenueSummary
+    let openRoute: () -> Void
+    @Environment(\.openURL) private var openURL
+    @State private var handoffError: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Arrival").font(.title3.bold()).accessibilityAddTraits(.isHeader)
+            VStack(alignment: .leading, spacing: 10) {
+                Label("DRIVE", systemImage: "circle").font(.headline)
+                Text("Route to the venue").font(.subheadline.weight(.semibold))
+                Text("Review a driving estimate, then choose a Maps app. Parking inventory is not connected; no space is held.")
+                    .font(.subheadline).foregroundColor(.white.opacity(0.75))
+                Button(action: openRoute) {
+                    Label("Route", systemImage: "arrow.triangle.turn.up.right")
+                        .font(.headline).frame(minHeight: 44)
+                }.buttonStyle(.plain).accessibilityIdentifier("native-m2-arrival-route")
+            }
+            Divider().overlay(Color.white.opacity(0.15))
+            VStack(alignment: .leading, spacing: 10) {
+                Label("RIDE", systemImage: "circle").font(.headline)
+                Text("Confirm pickup, fare and availability with the provider. Opening a provider does not book a ride.")
+                    .font(.subheadline).foregroundColor(.white.opacity(0.75))
+                ForEach(NativeM2RideProvider.allCases) { provider in
+                    if let url = NativeM2RouteDestination(venue: venue).rideURL(for: provider) {
+                        Button {
+                            handoffError = nil
+                            openURL(url) { accepted in
+                                if !accepted { handoffError = "Could not open \(provider.title). Please try again." }
+                            }
+                        } label: {
+                            Label("Open \(provider.title) ↗", systemImage: "arrow.up.right")
+                                .font(.headline).frame(minHeight: 44)
+                        }.buttonStyle(.plain)
+                        .accessibilityIdentifier("native-m2-ride-\(provider.id)")
+                    }
+                }
+                if !venue.hasKnownCoordinates {
+                    Text("Ride destination unavailable: exact coordinates were not supplied.").font(.footnote)
+                }
+                if let handoffError { Text(handoffError).font(.footnote) }
+            }
+        }
+        .foregroundColor(.white).padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.06)).clipShape(RoundedRectangle(cornerRadius: 18))
+        .accessibilityIdentifier("native-m2-arrival")
+    }
+}

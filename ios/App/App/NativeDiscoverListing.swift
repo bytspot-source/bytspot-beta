@@ -377,3 +377,143 @@ struct NativeDiscoverBookablePresentation: Equatable {
         }
     }
 }
+
+// MARK: - Shared M5/M2 coffee transaction projection
+
+import Combine
+
+/// Read-only continuation to existing Plan detail, never proof of payment or a
+/// generic booking. Source identity and live reservation facts come from Plans.
+struct NativeDiscoverTransaction: Equatable {
+    let planID: String
+    let planTitle: String
+    let reservationID: String
+    let statusLabel: String
+    let detail: String
+    let primaryTitle: String
+
+    static func transaction(
+        for offering: NativePlanBookableOffering,
+        plans: [NativePlan],
+        userID: String?,
+        now: Date = Date()
+    ) -> NativeDiscoverTransaction? {
+        guard let userID, !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              NativeDiscoverBookablePresentation(offering: offering).capability == .request else { return nil }
+        var fallback: NativeDiscoverTransaction?
+        for plan in plans where plan.creatorUserId == userID && !plan.id.isEmpty {
+            for item in plan.items {
+                // No title, selectionKey, category, or reservation-ID guessing.
+                // A bare coffee selection and a legacy reservation lacking its
+                // exact coffeeSpotId are deliberately not transactions here.
+                guard item.coffeeSpotId == offering.sourceId, item.partyId == nil,
+                      let reservationID = item.coffeeReservationId,
+                      !reservationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      let reservation = item.reservation else { continue }
+                let label: String
+                let detail: String
+                switch reservation.status {
+                case "cancelled":
+                    label = "Cancelled"; detail = "This coffee request was cancelled."
+                case "declined":
+                    label = "Declined"; detail = "The host declined this coffee request."
+                case "expired":
+                    label = "Expired"; detail = "This coffee request has expired."
+                default:
+                    if item.status == "cancelled" {
+                        label = "Cancelled"; detail = "This coffee request was cancelled."
+                    } else if item.status == "expired" {
+                        label = "Expired"; detail = "This coffee request has expired."
+                    } else if item.status == "declined" {
+                        label = "Declined"; detail = "The host declined this coffee request."
+                    } else if reservation.status == "pending",
+                              let expiry = reservation.holdExpiresAt.flatMap(parseDate), expiry <= now {
+                        label = "Expired"; detail = "The coffee request's hold window has expired."
+                    } else if reservation.status == "pending" {
+                        label = "Requested"; detail = "Coffee request sent · subject to host acceptance. No payment confirmation."
+                    } else if reservation.status == "confirmed" || reservation.status == "accepted" {
+                        // The backend may roll a confirmed hold up to booked;
+                        // neither that flag nor Plan confirmation means paid.
+                        label = "Requested"; detail = "The host accepted the coffee hold. This is not a paid booking confirmation."
+                    } else {
+                        label = "Status unavailable"; detail = "Open the Plan for coffee request details."
+                    }
+                }
+                let result = NativeDiscoverTransaction(planID: plan.id, planTitle: plan.title,
+                    reservationID: reservationID, statusLabel: label, detail: detail,
+                    primaryTitle: label == "Requested" ? "View request" : "View details")
+                // A historical expired/cancelled request must not hide a live
+                // request against the same spot on another owned Plan.
+                if label == "Requested" { return result }
+                if fallback == nil { fallback = result }
+            }
+        }
+        return fallback
+    }
+
+    private static func parseDate(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: value) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
+    }
+}
+
+/// Both surfaces observe this instance and refresh on appearance/Plan changes.
+/// Nil transaction is NOT permission to acquire while loading, failed, or not
+/// loaded. Parent UI must check those flags and the current account first.
+@MainActor
+final class NativeDiscoverTransactionStore: ObservableObject {
+    static let shared = NativeDiscoverTransactionStore()
+
+    @Published private(set) var userID: String?
+    @Published private(set) var isLoading = false
+    @Published private(set) var failed = false
+    @Published private(set) var hasLoaded = false
+    @Published private var plans: [NativePlan] = []
+    private var generation = UUID()
+
+    func synchronize(userID: String?, forceReset: Bool = false) {
+        guard forceReset || self.userID != userID else { return }
+        generation = UUID()
+        self.userID = userID
+        plans = []
+        isLoading = false
+        failed = false
+        hasLoaded = false
+    }
+
+    func refresh(userID: String?, api: NativePlanAPI) async {
+        await refresh(userID: userID, load: { try await api.list() })
+    }
+
+    /// Injectable read-only seam; each refresh supersedes older requests,
+    /// including A → B → A account changes and same-account invalidation.
+    func refresh(userID: String?, load: () async throws -> [NativePlan]) async {
+        synchronize(userID: userID)
+        guard let userID, !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let requestGeneration = UUID()
+        generation = requestGeneration
+        isLoading = true
+        failed = false
+        hasLoaded = false
+        do {
+            let rows = try await load()
+            guard generation == requestGeneration, self.userID == userID else { return }
+            plans = rows.filter { $0.creatorUserId == userID }
+            isLoading = false
+            hasLoaded = true
+        } catch {
+            guard generation == requestGeneration, self.userID == userID else { return }
+            plans = []
+            isLoading = false
+            failed = true
+        }
+    }
+
+    func transaction(for offering: NativePlanBookableOffering, userID: String?) -> NativeDiscoverTransaction? {
+        guard self.userID == userID else { return nil }
+        return NativeDiscoverTransaction.transaction(for: offering, plans: plans, userID: userID)
+    }
+}

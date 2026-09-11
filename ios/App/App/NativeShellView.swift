@@ -5,6 +5,7 @@ import CoreLocation
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import CryptoKit
+import AVKit
 
 enum BytspotNativeTab: String, CaseIterable, Identifiable {
     case home, plan, host, discover, map, concierge, profile
@@ -447,6 +448,7 @@ struct BytspotNativeShellView: View {
             authCoordinator.runDebugAutorunIfRequested(sessionStore: sessionStore)
             #endif
             NativeAppearanceMode.applyWindowStyle(effectiveAppearance)
+            synchronizePlaceAccount()
             presentWelcomeBannerIfNeeded()
             if preferHomeAfterLaunch {
                 suppressInitialTabRequestAfterLaunch = true
@@ -470,7 +472,11 @@ struct BytspotNativeShellView: View {
         .onReceive(bridgeStore.$requestedHybridRoute.compactMap { $0 }) { route in if suppressInitialTabRequestAfterLaunch { bridgeStore.requestedHybridRoute = nil; return }; handleRequestedHybridRoute(route) }
         .onReceive(bridgeStore.$requestedProfilePanel.compactMap { $0 }) { openNativeProfile(panel: $0) }
         .onReceive(navigation.$requestedTab.compactMap { $0 }) { tab in if suppressInitialTabRequestAfterLaunch { navigation.requestedTab = nil; return }; applyRequestedTab(tab) }
-        .onChange(of: sessionStore.token ?? "") { _ in resolvePendingPostAuthIntentIfReady(); presentWelcomeBannerIfNeeded() }
+        .onChange(of: sessionStore.token ?? "") { _ in
+            synchronizePlaceAccount(forceReset: true)
+            resolvePendingPostAuthIntentIfReady(); presentWelcomeBannerIfNeeded()
+        }
+        .onChange(of: sessionStore.authenticatedUserID) { _ in synchronizePlaceAccount() }
         .onChange(of: authCoordinator.status) { status in if case .signedIn = status { resolvePendingPostAuthIntentIfReady(); presentWelcomeBannerIfNeeded() } }
         .onReceive(navigation.$requestedDestination.compactMap { $0 }) { destination in
             // Launch suppression exists to swallow stale *tab* restoration, not
@@ -11133,6 +11139,8 @@ private struct NativeDiscoverView: View {
     @State private var detailOffering: NativePlanBookableOffering?
     @State private var routeVenue: NativeVenueSummary?
     @State private var discoverStatusMessage: String?
+    @ObservedObject private var transactions = NativeDiscoverTransactionStore.shared
+    @State private var transactionPlan: NativeDiscoverPlanDestination?
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
@@ -11203,6 +11211,15 @@ private struct NativeDiscoverView: View {
         .onAppear { locationStore.startIfAuthorized(); applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested() }
         .task { await refreshDiscoverFeedOnOpen() }
         .task(id: catalogTaskID) { await loadBookables() }
+        .task(id: catalogUserID) { await refreshTransactions() }
+        .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidChange)) { _ in
+            Task { await refreshTransactions() }
+        }
+        .sheet(item: $transactionPlan) { target in
+            NativePlanDetailSheet(planID: target.id, sessionStore: sessionStore, onChanged: {
+                Task { await refreshTransactions() }
+            })
+        }
         .onChange(of: catalogUserID) { _ in clearAccountState() }
         .onChange(of: sessionStore.token) { _ in
             clearAccountState()
@@ -11272,6 +11289,11 @@ private struct NativeDiscoverView: View {
         VStack(alignment: .leading, spacing: 8) {
             discoverHeader
             if let discoverStatusMessage { discoverStatusBanner(discoverStatusMessage) }
+            if transactions.userID == catalogUserID && transactions.failed {
+                Text("Your request status couldn't be loaded. Refresh before sending another request.").font(.subheadline)
+                Button("Retry request status") { Task { await refreshTransactions() } }
+                    .font(.headline).foregroundColor(.white).frame(minHeight: 44)
+            }
             if catalog.userID == catalogUserID && catalog.failed {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Catalog options couldn't be loaded. Listed places are still available.").font(.subheadline)
@@ -11327,7 +11349,10 @@ private struct NativeDiscoverView: View {
                     .font(.headline).foregroundColor(.white).frame(minHeight: 44)
             } else {
                 ForEach(rankedCards, id: \.browseID) { card in
-                    NativeDiscoverFeatureCard(card: card,
+                    NativeDiscoverFeatureCard(card: card, venue: venueForDetail(card),
+                        transaction: card.offering.flatMap { transactions.transaction(for: $0, userID: catalogUserID) },
+                        requestReady: transactions.userID == catalogUserID && transactions.hasLoaded && !transactions.isLoading && !transactions.failed,
+                        openAuth: openNativeAuth,
                         openDetails: {
                             if let offering = card.offering {
                                 guard catalog.rows(for: catalogUserID).contains(offering) else {
@@ -11346,6 +11371,11 @@ private struct NativeDiscoverView: View {
                             }
                         },
                         primaryAction: {
+                            if let offering = card.offering,
+                               let transaction = transactions.transaction(for: offering, userID: catalogUserID) {
+                                transactionPlan = NativeDiscoverPlanDestination(id: transaction.planID)
+                                return
+                            }
                             if let offering = card.offering, offering.sourceKind == .party {
                                 guard catalog.rows(for: catalogUserID).contains(offering) else { return }
                                 offeringDetail = offering
@@ -11370,6 +11400,14 @@ private struct NativeDiscoverView: View {
         await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate)
         applyFilterHandoffIfRequested()
         applyShellFilterHandoffIfRequested()
+    }
+
+    private func refreshTransactions() async {
+        guard !Task.isCancelled else { return }
+        let userID = catalogUserID
+        transactions.synchronize(userID: userID)
+        let client = BytspotAPIClient(tokenProvider: { [credential = sessionStore.token] in credential })
+        await transactions.refresh(userID: userID, api: NativePlanAPI(client: client))
     }
 
     private var rankedCards: [DiscoverCardSpec] {
@@ -11474,9 +11512,15 @@ private struct NativeDiscoverView: View {
         detailVenue = nil
         discoverStatusMessage = nil
         signInAfterPlanDismissal = false
+        transactionPlan = nil
     }
 
     private func beginPlanSelection(_ card: DiscoverCardSpec, requestCoffee: Bool) {
+        if requestCoffee {
+            guard transactions.userID == catalogUserID, transactions.hasLoaded,
+                  !transactions.failed, !transactions.isLoading,
+                  card.offering.flatMap({ transactions.transaction(for: $0, userID: catalogUserID) }) == nil else { return }
+        }
         // No title matching: recheck this account's exact current offering.
         if let offering = card.offering {
             guard catalog.rows(for: catalogUserID).contains(offering) else {
@@ -11548,9 +11592,88 @@ private struct NativeDiscoverFilterChip: View {
     }
 }
 
+private extension BytspotNativeShellView {
+    func synchronizePlaceAccount(forceReset: Bool = false) {
+        let userID = sessionStore.canAttachBearerToken ? sessionStore.authenticatedUserID : nil
+        NativeVenueVisitStore.shared.synchronize(userID: userID, forceReset: forceReset)
+        NativeDiscoverTransactionStore.shared.synchronize(userID: userID, forceReset: forceReset)
+    }
+}
+
+/// One independent visit-validation control shared by M5 and M2. A tap never
+/// creates a local award, booking, pass, or optimistic history entry.
+private struct NativeVenueCheckInChip: View {
+    let venue: NativeVenueSummary
+    let openAuth: () -> Void
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @EnvironmentObject private var locationStore: NativeLocationStore
+    @ObservedObject private var visits = NativeVenueVisitStore.shared
+
+    private var userID: String? { sessionStore.canAttachBearerToken ? sessionStore.authenticatedUserID : nil }
+    private var state: NativeVenueVisitState { visits.state(userID: userID, venueID: venue.checkInVenueID) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Button(action: validate) {
+                HStack(spacing: 8) {
+                    if state.isLoading { ProgressView().tint(.white) }
+                    else { Image(systemName: state.isConfirmed ? "checkmark.seal" : "location.circle") }
+                    Text(state.label).font(.subheadline.weight(.semibold))
+                }
+                .foregroundColor(.white).padding(.horizontal, 12).frame(minHeight: 44)
+                .background(Color.white.opacity(0.10)).clipShape(Capsule())
+            }
+            .buttonStyle(.plain).disabled(state.isLoading || state.isConfirmed)
+            .accessibilityIdentifier("native-venue-check-in-\(venue.id)")
+            .accessibilityHint("Validates your visit. Points are determined by the server.")
+            if let detail = state.detail {
+                Text(detail).font(.footnote).foregroundColor(.white.opacity(0.80))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func validate() {
+        guard let userID, let context = visits.context(for: userID) else { openAuth(); return }
+        guard let venueID = venue.checkInVenueID, NativeM5DetailPolicy.canValidateVisit(venue) else { return }
+        let coordinate = NativeVenueVisitLocation.freshCoordinate(location: locationStore.lastLocation,
+            authorized: locationStore.authorizationState == .allowed)
+        let client = BytspotAPIClient(tokenProvider: { [credential = sessionStore.token] in credential })
+        Task { await visits.submit(context: context, venueID: venueID, coordinate: coordinate, api: NativeVenueVisitAPI(client: client)) }
+    }
+}
+
+private struct NativeVenueVibeSheet: View {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Text("Recorded Vibe · not live").font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }.frame(minHeight: 44)
+            }
+            VideoPlayer(player: player).accessibilityLabel("Venue Vibe video")
+        }
+        .padding(20).foregroundColor(.white).background(Color.black.ignoresSafeArea())
+        // This sheet is presented only by the visible Play Vibe button.
+        .onAppear { player = AVPlayer(url: url); player?.play() }
+        .onDisappear { player?.pause(); player = nil }
+    }
+}
+
+private struct NativeDiscoverPlanDestination: Identifiable { let id: String }
+
 private struct NativeDiscoverFeatureCard: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @EnvironmentObject private var locationStore: NativeLocationStore
     let card: NativeDiscoverView.DiscoverCardSpec
+    let venue: NativeVenueSummary
+    let transaction: NativeDiscoverTransaction?
+    let requestReady: Bool
+    let openAuth: () -> Void
     let openDetails: () -> Void
     let primaryAction: () -> Void
     let addToPlan: () -> Void
@@ -11575,6 +11698,10 @@ private struct NativeDiscoverFeatureCard: View {
                         if let subtitle = NativeDiscoverBrowsePolicy.referenceSubtitle(card.subtitle) {
                             Text(subtitle).font(.subheadline).foregroundColor(.white.opacity(0.80))
                         }
+                        if let distance = NativeM5DetailPolicy.distance(to: venue, location: locationStore.lastLocation,
+                            authorized: locationStore.authorizationState == .allowed) {
+                            Label(distance, systemImage: "location").font(.footnote).foregroundColor(.white.opacity(0.72))
+                        }
                         Text(NativeDiscoverBrowsePolicy.sourceLine(offering: card.offering))
                             .font(.footnote).foregroundColor(.white.opacity(0.72))
                         Text(NativeDiscoverBrowsePolicy.availabilityLine(offering: card.offering))
@@ -11590,6 +11717,18 @@ private struct NativeDiscoverFeatureCard: View {
             .accessibilityHint(NativeDiscoverBrowsePolicy.availabilityLine(offering: card.offering))
             .accessibilityIdentifier("native-discover-details-\(card.id)")
 
+            if let transaction {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(transaction.statusLabel).font(.headline)
+                    Text(transaction.detail).font(.footnote).foregroundColor(.white.opacity(0.75))
+                }
+                .foregroundColor(.white).padding(.horizontal, 16).padding(.bottom, 12)
+                .accessibilityIdentifier("native-m5-transaction")
+            }
+            if card.offering == nil, NativeM5DetailPolicy.canValidateVisit(venue) {
+                NativeVenueCheckInChip(venue: venue, openAuth: openAuth)
+                    .padding(.horizontal, 16).padding(.bottom, 12)
+            }
             Group {
                 if dynamicTypeSize.isAccessibilitySize {
                     VStack(spacing: 8) { cardActionButtons }
@@ -11612,11 +11751,12 @@ private struct NativeDiscoverFeatureCard: View {
     @ViewBuilder private var cardActionButtons: some View {
         if let title = card.executableActionTitle {
             Button(action: primaryAction) {
-                actionLabel(title)
+                actionLabel(transaction?.primaryTitle ?? title)
                     .background(Color(hex: Int(card.presentation.actionHex ?? 0xE5E5E5)))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             .buttonStyle(.plain)
+            .disabled(card.presentation.capability == .request && !requestReady)
             .accessibilityIdentifier("native-discover-primary-cta-\(card.id)")
         }
         Button(action: addToPlan) {
@@ -11640,7 +11780,7 @@ private struct NativeDiscoverFeatureCard: View {
             if card.presentation.ringStyle == .dot {
                 Circle().fill(Color.white.opacity(0.72)).frame(width: 6, height: 6)
             } else {
-                Circle().stroke(Color.white.opacity(0.72), style: StrokeStyle(lineWidth: 1.5,
+                Circle().stroke(Color(hex: Int(card.presentation.actionHex ?? 0xB8B8B8)), style: StrokeStyle(lineWidth: 1.5,
                     dash: card.presentation.ringStyle == .dashed ? [2, 2] : []))
                     .frame(width: 10, height: 10)
             }
@@ -11801,6 +11941,12 @@ private struct NativeVenueDetailView: View {
     @State private var coffeeRequest: NativeDiscoverCoffeeRequest?
     @State private var signInAfterPlanDismissal = false
     @State private var suppliedContextInvalidated = false
+    @State private var suppliedDetails: NativeVenueRichDetails?
+    @State private var detailsFailed = false
+    @State private var detailsLoading = false
+    @State private var showVibe = false
+    @ObservedObject private var transactions = NativeDiscoverTransactionStore.shared
+    @State private var transactionPlan: NativeDiscoverPlanDestination?
     @State private var isSaved = false
     @State private var didCheckIn = false
     @State private var statusMessage: String?
@@ -11832,15 +11978,25 @@ private struct NativeVenueDetailView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 20) {
                 placeHeader
-                compactPlaceActions
+                if let transaction = currentTransaction { transactionPanel(transaction) }
+                else if exactOffering?.sourceKind == .coffeeSpot && !requestStatusReady {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(transactions.failed ? "Your request status is unavailable." : "Checking your requests…").font(.subheadline)
+                        if transactions.failed {
+                            placeButton("Retry request status", icon: "arrow.clockwise") { Task { await refreshDetailTransactions() } }
+                        }
+                    }
+                }
                 if let statusMessage {
                     Text(statusMessage).font(.subheadline)
                         .padding(14).frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color.white.opacity(0.08))
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
+                offeringSection
                 placeFacts
                 arrivalModule
+                vendorInformation
                 Text(NativeM5DetailPolicy.planDisclaimer)
                     .font(.footnote).foregroundColor(.white.opacity(0.72))
             }
@@ -11855,6 +12011,19 @@ private struct NativeVenueDetailView: View {
             NativeGuestSavePromptSheet(title: guestPromptTitle, subtitle: guestPromptSubtitle, ctaTitle: guestPromptCTA, onSignIn: continueGuestPromptSignIn)
         }
         .sheet(isPresented: $showRoute) { NativeM2RouteSheet(venue: venue) }
+        .sheet(isPresented: $showVibe) {
+            if let url = details?.vibeVideoURL { NativeVenueVibeSheet(url: url) }
+        }
+        .sheet(item: $transactionPlan) { target in
+            NativePlanDetailSheet(planID: target.id, sessionStore: sessionStore, onChanged: {
+                Task { await refreshDetailTransactions() }
+            })
+        }
+        .task(id: venue.id) { await loadSuppliedDetails() }
+        .task(id: detailUserID) { await refreshDetailTransactions() }
+        .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidChange)) { _ in
+            Task { await refreshDetailTransactions() }
+        }
         .sheet(item: $planSelection, onDismiss: finishDetailPlanDismissal) { selection in
             NativeDiscoverAddToPlanSheet(selection: selection, sessionStore: sessionStore,
                 onSignIn: { signInAfterPlanDismissal = true },
@@ -11872,7 +12041,13 @@ private struct NativeVenueDetailView: View {
                     }, suggestedSpotID: request.spotID)
             }
         }
-        .onAppear { didCheckIn = NativeManualCheckInStore.hasRecentCheckIn(venueID: venue.id, scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)) }
+        .onAppear {
+            locationStore.startIfAuthorized()
+            isSaved = NativeVenueSavedState.contains(venueID: venue.id, userID: detailUserID)
+        }
+        .onChange(of: detailUserID) { _ in
+            isSaved = NativeVenueSavedState.contains(venueID: venue.id, userID: detailUserID)
+        }
         .onChange(of: sessionStore.token ?? "") { _ in
             invalidateDetailPlanContext()
             resumePendingCheckInIfReady()
@@ -11899,106 +12074,248 @@ private struct NativeVenueDetailView: View {
             externalURL: externalURL, externalProvider: externalProvider)
     }
 
+    private var details: NativeVenueRichDetails? { suppliedDetails ?? venue.richDetails }
+    private var currentTransaction: NativeDiscoverTransaction? {
+        exactOffering.flatMap { transactions.transaction(for: $0, userID: detailUserID) }
+    }
+    private var requestStatusReady: Bool {
+        transactions.userID == detailUserID && transactions.hasLoaded && !transactions.isLoading && !transactions.failed
+    }
+    private func refreshDetailTransactions() async {
+        guard !Task.isCancelled, offering?.sourceKind == .coffeeSpot else { return }
+        let userID = detailUserID
+        transactions.synchronize(userID: userID)
+        let client = BytspotAPIClient(tokenProvider: { [credential = sessionStore.token] in credential })
+        await transactions.refresh(userID: userID, api: NativePlanAPI(client: client))
+    }
+    private func loadSuppliedDetails() async {
+        guard offering == nil, venue.googlePlaceID != nil else { return }
+        detailsLoading = true; detailsFailed = false
+        defer { detailsLoading = false }
+        do {
+            let enriched = try await NativeVenueDetailsAPI(client: BytspotAPIClient()).enrich(venue)
+            guard !Task.isCancelled else { return }
+            suppliedDetails = enriched.richDetails
+        } catch { if !Task.isCancelled { detailsFailed = true } }
+    }
+
     private var placeHeader: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ZStack(alignment: .bottomLeading) {
-                if venue.imageUrl != nil {
-                    placeHero
-                    LinearGradient(colors: [.clear, .black.opacity(0.92)], startPoint: .center, endPoint: .bottom)
-                        .accessibilityHidden(true)
-                }
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Button { dismiss() } label: {
-                            Image(systemName: "chevron.left").font(.headline)
-                                .frame(width: 44, height: 44)
-                                .background(.black.opacity(0.70)).clipShape(Circle())
-                        }
-                        .buttonStyle(.plain).accessibilityLabel("Close details")
-                        Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: 16) {
+            ZStack(alignment: .top) {
+                placeHero
+                HStack(spacing: 12) {
+                    heroControl("Back", icon: "chevron.left") { dismiss() }
+                    Spacer(minLength: 8)
+                    ForEach(NativeM5DetailPolicy.compactActions(for: venue, offering: exactOffering, isCatalogSource: offering != nil).filter { $0.id != "checkIn" }) { action in
+                        heroControl(action.id == "save" && isSaved ? "Saved" : action.title,
+                            icon: action.id == "save" && isSaved ? "heart.fill" : action.systemImage) { handle(action) }
                     }
-                    Spacer(minLength: 36)
-                    Text(placePresentation.statusLabel).font(.caption.weight(.semibold))
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(.black.opacity(0.70)).clipShape(Capsule())
-                    Text(venue.name).font(.largeTitle.weight(.bold))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityAddTraits(.isHeader)
-                }
-                .padding(16)
+                }.padding(12)
             }
-            .frame(minHeight: venue.imageUrl == nil ? 160 : 304)
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            Text(NativeM5DetailPolicy.address(for: venue)).font(.body)
-                .foregroundColor(.white.opacity(0.80))
-            Text(placePresentation.availabilityLine).font(.subheadline)
-                .foregroundColor(.white.opacity(0.72))
+            if details?.vibeVideoURL != nil {
+                placeButton("Play Vibe · recorded video", icon: "play.circle") { showVibe = true }
+                    .accessibilityIdentifier("native-m2-play-vibe")
+            }
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 12) { placeIdentity; venueUtilities }
+            } else {
+                HStack(alignment: .top, spacing: 16) {
+                    placeIdentity.frame(maxWidth: .infinity, alignment: .leading)
+                    venueUtilities
+                }
+            }
+            if offering == nil, NativeM5DetailPolicy.canValidateVisit(venue) {
+                NativeVenueCheckInChip(venue: venue, openAuth: { openNativeAuth?() })
+            }
+            if detailsLoading { ProgressView("Loading place details…").tint(.white) }
+            if detailsFailed {
+                Text("Additional place details couldn't be loaded.").font(.footnote)
+                placeButton("Retry details", icon: "arrow.clockwise") { Task { await loadSuppliedDetails() } }
+            }
         }
     }
 
-    @ViewBuilder private var placeHero: some View {
-        // Only this venue's actual media input. No name-based stock gallery,
-        // pretend video, rating fallback, or category-themed fulfillment hero.
-        if let url = venue.imageUrl {
-            GeometryReader { proxy in
-                AsyncImage(url: url, transaction: Transaction(animation: nil)) { phase in
-                    if let image = phase.image {
-                        image.resizable().scaledToFill()
-                            .frame(width: proxy.size.width, height: proxy.size.height).clipped()
-                    } else {
-                        ZStack {
-                            Color.white.opacity(0.06)
-                            Label("Photo unavailable", systemImage: "photo").font(.subheadline)
-                        }
-                    }
-                }
+    private var placeIdentity: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(venue.name).font(.largeTitle.weight(.bold))
+                .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
+            Text(NativeDiscoverBrowsePolicy.categoryLabel(venue.discoverType)).font(.subheadline.weight(.semibold))
+            Text(NativeM5DetailPolicy.address(for: venue)).font(.body).foregroundColor(.white.opacity(0.80))
+            if let distance = NativeM5DetailPolicy.distance(to: venue, location: locationStore.lastLocation,
+                authorized: locationStore.authorizationState == .allowed) {
+                Label(distance, systemImage: "location").font(.footnote)
             }
-            .frame(height: 304)
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .accessibilityLabel("Photo of \(venue.name)")
+            if let description = details?.description {
+                Text(description).font(.body).foregroundColor(.white.opacity(0.80))
+            }
+            HStack(spacing: 8) {
+                if placePresentation.ringStyle == .dot {
+                    Circle().fill(Color.white.opacity(0.72)).frame(width: 6, height: 6)
+                } else {
+                    Circle().stroke(Color(hex: Int(placePresentation.actionHex ?? 0xB8B8B8)),
+                        style: StrokeStyle(lineWidth: 2, dash: placePresentation.ringStyle == .dashed ? [2, 2] : []))
+                        .frame(width: 10, height: 10)
+                }
+                Text(placePresentation.statusLabel).font(.subheadline.weight(.semibold))
+            }
+            Text(placePresentation.availabilityLine).font(.footnote).foregroundColor(.white.opacity(0.72))
         }
     }
 
-    private var compactPlaceActions: some View {
-        // Adaptive columns let accessibility text wrap instead of shrinking.
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 10)], spacing: 10) {
-            ForEach(NativeM5DetailPolicy.compactActions(for: venue, offering: exactOffering, isCatalogSource: offering != nil)) { action in
-                placeButton(action.id == "save" && isSaved ? "Saved" : detailActionTitle(for: action),
-                    icon: action.systemImage) { handle(action) }
-                    .accessibilityIdentifier("native-venue-action-\(action.id)")
+    private var venueUtilities: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            if let url = details?.phoneURL { utility("Call", icon: "phone", url: url) }
+            if let url = details?.menuURL { utility("Menu", icon: "menucard", url: url) }
+            if let url = details?.websiteURL { utility("Site ↗", icon: "globe", url: url) }
+        }
+        .accessibilityIdentifier("native-m2-venue-utilities")
+    }
+
+    private func utility(_ title: String, icon: String, url: URL) -> some View {
+        Button { handoffURL(url) { accepted in
+            if !accepted { statusMessage = "Could not open \(title). Please try again." }
+        } } label: {
+            Label(title, systemImage: icon).font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 12).frame(minHeight: 44)
+                .background(Color.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 12))
+        }.buttonStyle(.plain)
+    }
+
+    private func heroControl(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.headline).frame(width: 44, height: 44)
+                .background(Color.black.opacity(0.8)).clipShape(Circle())
+        }.buttonStyle(.plain).accessibilityLabel(title)
+    }
+
+    private var galleryURLs: [URL] {
+        var urls: [URL] = []
+        if let url = venue.imageUrl { urls.append(url) }
+        for url in details?.photoURLs ?? [] where !urls.contains(url) { urls.append(url) }
+        return urls
+    }
+
+    private var placeHero: some View {
+        Group {
+            if galleryURLs.isEmpty {
+                ZStack {
+                    Color.white.opacity(0.06)
+                    Label("Venue photos not provided", systemImage: "photo").font(.subheadline)
+                }
+            } else {
+                TabView {
+                    ForEach(galleryURLs, id: \.self) { url in
+                        GeometryReader { proxy in
+                            AsyncImage(url: url, transaction: Transaction(animation: nil)) { phase in
+                                if let image = phase.image {
+                                    image.resizable().scaledToFill()
+                                        .frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                                } else {
+                                    ZStack {
+                                        Color.white.opacity(0.06)
+                                        Label("Photo unavailable", systemImage: "photo").font(.subheadline)
+                                    }
+                                }
+                            }
+                        }
+                        .accessibilityLabel("Photo of \(venue.name)")
+                    }
+                }.tabViewStyle(.page(indexDisplayMode: galleryURLs.count > 1 ? .always : .never))
             }
+        }
+        .frame(height: galleryURLs.isEmpty ? 180 : 304)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+    }
+
+    private func transactionPanel(_ transaction: NativeDiscoverTransaction) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(transaction.statusLabel, systemImage: "doc.text").font(.headline)
+            Text(transaction.detail).font(.subheadline)
+            Text(transaction.planTitle).font(.subheadline).foregroundColor(.white.opacity(0.72))
+            placeButton(transaction.primaryTitle, icon: "arrow.right") {
+                transactionPlan = NativeDiscoverPlanDestination(id: transaction.planID)
+            }
+        }
+        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 18))
+        .accessibilityIdentifier("native-m2-transaction")
+    }
+
+    @ViewBuilder private var offeringSection: some View {
+        if let offering = exactOffering {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("What you can get here").font(.title3.bold()).accessibilityAddTraits(.isHeader)
+                Text(offering.title).font(.headline)
+                if let subtitle = offering.subtitle { Text(subtitle).font(.body) }
+                if offering.sourceKind == .coffeeSpot && placePresentation.capability == .request {
+                    Text("Choose your experience").font(.headline)
+                    Text("Select your Plan, then choose arrival time and guest count in the table request. Nothing is charged.")
+                        .font(.subheadline).foregroundColor(.white.opacity(0.75))
+                }
+            }
+            .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white.opacity(0.06)).clipShape(RoundedRectangle(cornerRadius: 18))
         }
     }
 
     private var placeFacts: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Place details").font(.headline)
-            Label(NativeM5DetailPolicy.hoursUnknown, systemImage: "clock")
+            Text("Know before you go").font(.title3.bold()).accessibilityAddTraits(.isHeader)
+            if let hours = details?.hours {
+                suppliedFacts("Supplied opening hours", values: hours)
+            } else { Label(NativeM5DetailPolicy.hoursUnknown, systemImage: "clock") }
             Label(NativeM5DetailPolicy.activity(for: venue), systemImage: "person.2")
+            if let amenities = details?.amenities { suppliedFacts("Amenities", values: amenities) }
+            if let accessibility = details?.accessibility { suppliedFacts("Accessibility", values: accessibility) }
+            if let rules = details?.rules { suppliedFacts("Requirements & rules", values: rules) }
+            if let cancellation = details?.cancellationPolicy { suppliedFacts("Cancellation terms", values: [cancellation]) }
+            if let price = details?.price { suppliedFacts("Supplied pricing · not a quote", values: [price]) }
         }
         .font(.body).frame(maxWidth: .infinity, alignment: .leading)
         .padding(16).background(Color.white.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 
-    private var arrivalModule: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Arrival").font(.headline)
-            Text("Review a driving estimate in Bytspot Route, then choose a Maps app. Adding this stop does not reserve transport or parking.")
-                .font(.subheadline).foregroundColor(.white.opacity(0.72))
-            placeButton("Route", icon: "arrow.triangle.turn.up.right") { showRoute = true }
-                .accessibilityIdentifier("native-m2-arrival-route")
+    private func suppliedFacts(_ title: String, values: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.headline)
+            ForEach(Array(values.enumerated()), id: \.offset) { _, value in
+                Text(value).font(.body).foregroundColor(.white.opacity(0.80))
+            }
         }
-        .padding(16).background(Color.white.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var arrivalModule: some View {
+        NativeM2ArrivalModule(venue: venue, openRoute: { showRoute = true })
+    }
+
+    private var vendorInformation: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Venue information").font(.headline)
+            if let vendor = details?.vendorName { Text(vendor).font(.body) }
+            if details?.hasGoogleFacts == true {
+                Text("Place details from Google Places. Contact the venue to verify details.").font(.footnote)
+            } else {
+                Text("Contact the venue for current information. Listing a place does not mean Bytspot controls its availability.").font(.footnote)
+            }
+        }
+        .foregroundColor(.white.opacity(0.80)).frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var placeBottomActions: some View {
-        Group {
-            if dynamicTypeSize.isAccessibilitySize {
-                VStack(spacing: 8) { placeActionButtons }
-            } else {
-                HStack(spacing: 8) { placeActionButtons }
+        VStack(alignment: .leading, spacing: 8) {
+            if let transaction = currentTransaction {
+                Text(transaction.statusLabel).font(.subheadline.weight(.semibold))
+            } else if placePresentation.capability == .request {
+                Text(requestStatusReady ? "Subject to host acceptance · no charge" : "Checking request status before continuing")
+                    .font(.footnote).foregroundColor(.white.opacity(0.75))
+            }
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(spacing: 8) { placeActionButtons }
+                } else {
+                    HStack(spacing: 8) { placeActionButtons }
+                }
             }
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
@@ -12006,10 +12323,11 @@ private struct NativeVenueDetailView: View {
     }
 
     @ViewBuilder private var placeActionButtons: some View {
-        placeButton(NativeM5DetailPolicy.primaryTitle(for: placePresentation),
+        placeButton(currentTransaction?.primaryTitle ?? NativeM5DetailPolicy.primaryTitle(for: placePresentation),
             icon: placePresentation.capability == .request ? "paperplane" : "arrow.up.right",
             supported: placePresentation.capability == .request) { performPlacePrimaryAction() }
-            .disabled(NativeM5DetailPolicy.primaryAction(for: placePresentation) == .unavailable)
+            .disabled(NativeM5DetailPolicy.primaryAction(for: placePresentation) == .unavailable ||
+                      (placePresentation.capability == .request && !requestStatusReady))
             .accessibilityIdentifier("native-m2-primary-action")
         placeButton(NativeM5DetailPolicy.addToPlanTitle, icon: "plus") {
             beginDetailPlanSelection(requestCoffee: false)
@@ -12032,6 +12350,10 @@ private struct NativeVenueDetailView: View {
     }
 
     private func performPlacePrimaryAction() {
+        if let transaction = currentTransaction {
+            transactionPlan = NativeDiscoverPlanDestination(id: transaction.planID)
+            return
+        }
         switch NativeM5DetailPolicy.primaryAction(for: placePresentation) {
         case .route: showRoute = true
         case .requestCoffee: beginDetailPlanSelection(requestCoffee: true)
@@ -12045,7 +12367,7 @@ private struct NativeVenueDetailView: View {
     }
 
     private func beginDetailPlanSelection(requestCoffee: Bool) {
-        guard !requestCoffee || (exactOffering?.sourceKind == .coffeeSpot && placePresentation.capability == .request) else { return }
+        guard !requestCoffee || (exactOffering?.sourceKind == .coffeeSpot && placePresentation.capability == .request && requestStatusReady && currentTransaction == nil) else { return }
         let selection = NativeDiscoverPlanSelection(title: venue.name,
             needKind: exactOffering?.category ?? venue.discoverType, offering: exactOffering)
         planIntent.begin(selection: selection, userID: detailUserID, requestCoffee: requestCoffee)
@@ -12063,6 +12385,7 @@ private struct NativeVenueDetailView: View {
     }
 
     private func invalidateDetailPlanContext() {
+        transactionPlan = nil
         suppliedContextInvalidated = true
         planIntent = NativeDiscoverPlanIntent()
         planSelection = nil
@@ -12394,8 +12717,10 @@ private struct NativeVenueDetailView: View {
         case .device:
             handleDevice(action.id)
         case .local:
-            if sessionStore.isAuthenticated { isSaved.toggle(); statusMessage = isSaved ? "Saved \(venue.name)." : "Removed \(venue.name) from saved places." }
-            else { presentGuestPrompt(title: "Save \(venue.name)?", subtitle: "Sign in to keep this spot in your favorites and sync it later.", cta: "Sign in to save") }
+            if let userID = detailUserID {
+                isSaved = NativeVenueSavedState.toggle(venueID: venue.id, userID: userID)
+                statusMessage = isSaved ? "Saved \(venue.name) on this device." : "Removed this device's saved marker for \(venue.name)."
+            } else { presentGuestPrompt(title: "Save \(venue.name)?", subtitle: "Sign in to keep a saved marker for this place on this device.", cta: "Sign in to save") }
         case .capability:
             // The shared place surface never infers fulfillment from category.
             statusMessage = "This listing does not offer controlled booking."
@@ -12529,24 +12854,17 @@ private struct NativeVenueDetailView: View {
     }
 
     private func submitCheckIn() async {
-        guard !didCheckIn else { statusMessage = "Already checked in recently at \(venue.name)."; return }
-        guard sessionStore.isAuthenticated else { statusMessage = "Sign in to keep manual check-ins, pending points, and Places I've Been."; openNativeAuth?(); return }
-        didCheckIn = true
-        let idempotencyKey = UUID().uuidString
-        let syncContext = NativeManualCheckInSyncContext.authenticated(token: sessionStore.token)
-        let (record, created) = NativeManualCheckInStore.record(venue: venue, idempotencyKey: idempotencyKey, scope: syncContext.scope, atVenue: NativeVenueDetailPresentation.isAtVenue(checkInCoordinate, venue: venue))
-        statusMessage = created ? "Manual check-in saved · \(record.pointsLine)." : "Already checked in recently at \(venue.name)."
-        guard created, syncContext.canSync else { return }
-        guard let body = try? JSONSerialization.data(withJSONObject: ["json": NativeVenueDetailContract.checkinInput(venueID: venue.id, idempotencyKey: idempotencyKey, coordinate: checkInCoordinate)]) else { return }
-        let client = syncContext.apiClient()
-        if (try? await client.data(path: "/trpc/\(NativeVenueDetailContract.checkinEndpoint)", method: "POST", body: body)) != nil {
-            NativeManualCheckInStore.markSynced(id: record.id, scope: syncContext.scope)
-            await MainActor.run {
-                if NativeManualCheckInScope.authenticated(token: sessionStore.token) == syncContext.scope {
-                    statusMessage = "Check-in synced · \(record.pointsLine)."
-                }
-            }
-        }
+        guard offering == nil, NativeM5DetailPolicy.canValidateVisit(venue), let venueID = venue.checkInVenueID else { return }
+        let visits = NativeVenueVisitStore.shared
+        guard let userID = detailUserID, let context = visits.context(for: userID) else { openNativeAuth?(); return }
+        let coordinate = NativeVenueVisitLocation.freshCoordinate(location: locationStore.lastLocation,
+            authorized: locationStore.authorizationState == .allowed)
+        let client = BytspotAPIClient(tokenProvider: { [credential = sessionStore.token] in credential })
+        await visits.submit(context: context, venueID: venueID, coordinate: coordinate, api: NativeVenueVisitAPI(client: client))
+        guard detailUserID == userID, visits.context(for: userID) == context else { return }
+        let state = visits.state(userID: userID, venueID: venueID)
+        didCheckIn = state.isConfirmed
+        statusMessage = state.detail
     }
 
     private func detailActionTitle(for action: NativeVenueDetailAction) -> String { action.id == "checkIn" && didCheckIn ? "Checked In" : NativeVenueDetailPresentation.actionTitle(for: action, venue: venue) }

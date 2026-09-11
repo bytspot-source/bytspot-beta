@@ -5687,3 +5687,602 @@ final class NativeDiscoverCoffeeSourceTests: XCTestCase {
         XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: "fine dining"), "dining")
     }
 }
+
+final class NativeVenueVisitTests: XCTestCase {
+    private func response(_ json: String = #"{"success":true,"proof":"nearby","pointsEarned":10,"pointsReason":"paid"}"#) throws -> NativeVenueVisitResponse {
+        try JSONDecoder().decode(NativeVenueVisitResponse.self, from: Data(json.utf8))
+    }
+
+    func testMountedResponseDecodesPlainAndTRPCEnvelopes() throws {
+        let row: [String: Any] = ["success": true, "proof": "verified", "pointsEarned": 10,
+                                  "pointsReason": "paid", "newCrowdLevel": 2]
+        let payloads: [Any] = [row, ["result": ["data": row]], ["result": ["data": ["json": row]]]]
+        for payload in payloads {
+            let data = try JSONSerialization.data(withJSONObject: BytspotAPIClient.unwrapTRPCData(payload))
+            let result = try JSONDecoder().decode(NativeVenueVisitResponse.self, from: data)
+            XCTAssertTrue(result.isConfirmed)
+            XCTAssertEqual(result.proof, .verified)
+            XCTAssertEqual(result.pointsEarned, 10)
+            XCTAssertEqual(result.pointsReason, .paid)
+        }
+    }
+
+    func testMalformedMissingUnknownAndContradictoryAwardsFailClosed() {
+        let invalid = [
+            #"null"#, #"[]"#, #"true"#, #"{}"#,
+            #"{"success":true}"#,
+            #"{"success":"true","proof":"nearby","pointsEarned":10,"pointsReason":"paid"}"#,
+            #"{"success":1,"proof":"nearby","pointsEarned":10,"pointsReason":"paid"}"#,
+            #"{"proof":"nearby","pointsEarned":10,"pointsReason":"paid"}"#,
+            #"{"success":true,"pointsEarned":10,"pointsReason":"paid"}"#,
+            #"{"success":true,"proof":null,"pointsEarned":10,"pointsReason":"paid"}"#,
+            #"{"success":true,"proof":"unknown","pointsEarned":10,"pointsReason":"paid"}"#,
+            #"{"success":true,"proof":"nearby","pointsReason":"paid"}"#,
+            #"{"success":true,"proof":"nearby","pointsEarned":"10","pointsReason":"paid"}"#,
+            #"{"success":true,"proof":"nearby","pointsEarned":true,"pointsReason":"paid"}"#,
+            #"{"success":true,"proof":"nearby","pointsEarned":1.5,"pointsReason":"paid"}"#,
+            #"{"success":true,"proof":"nearby","pointsEarned":-10,"pointsReason":"paid"}"#,
+            #"{"success":true,"proof":"nearby","pointsEarned":10}"#,
+            #"{"success":true,"proof":"nearby","pointsEarned":10,"pointsReason":"unknown"}"#,
+            #"{"success":true,"proof":"nearby","pointsEarned":0,"pointsReason":"paid"}"#,
+            #"{"success":true,"proof":"nearby","pointsEarned":10,"pointsReason":"same_visit"}"#,
+            #"{"success":true,"proof":"verified","pointsEarned":10,"pointsReason":"daily_ceiling"}"#,
+            #"{"success":true,"proof":"self_reported","pointsEarned":10,"pointsReason":"paid"}"#,
+            #"{"success":true,"proof":"nearby","pointsEarned":0,"pointsReason":"unproven"}"#
+        ]
+        for json in invalid { XCTAssertThrowsError(try response(json), json) }
+    }
+
+    @MainActor
+    func testZeroPointReasonsStillConfirmProvenVisitAndExplainWhy() async throws {
+        for proof in ["nearby", "verified"] {
+            for (reason, copy) in [("same_visit", "already earned"), ("daily_ceiling", "Daily check-in")] {
+                let store = NativeVenueVisitStore()
+                let context = try XCTUnwrap(store.synchronize(userID: "member"))
+                let result = try response("{\"success\":true,\"proof\":\"\(proof)\",\"pointsEarned\":0,\"pointsReason\":\"\(reason)\"}")
+                await store.submit(context: context, venueID: "internal-venue", coordinate: .verifiedMidtown) { _ in result }
+                let state = store.state(userID: "member", venueID: "internal-venue")
+                XCTAssertTrue(state.isConfirmed)
+                XCTAssertEqual(state.label, "Checked In")
+                XCTAssertEqual(state.pointsEarned, 0)
+                XCTAssertTrue(state.detail?.contains(copy) == true)
+                XCTAssertFalse(state.canRetry)
+            }
+        }
+    }
+
+    @MainActor
+    func testPendingHasNoOptimisticConfirmationAndBlocksOtherSurfaceAndSuccessResubmit() async throws {
+        let store = NativeVenueVisitStore()
+        let context = try XCTUnwrap(store.synchronize(userID: "member"))
+        let result = try response()
+        var calls = 0
+        await store.submit(context: context, venueID: "internal-venue", coordinate: .verifiedMidtown) { _ in
+            calls += 1
+            let otherSurface = store.state(userID: "member", venueID: "internal-venue")
+            XCTAssertTrue(otherSurface.isLoading)
+            XCTAssertFalse(otherSurface.isConfirmed)
+            XCTAssertEqual(otherSurface.pointsEarned, 0)
+            XCTAssertFalse(otherSurface.canRetry)
+            XCTAssertNotEqual(otherSurface.label, "Checked In")
+            await store.submit(context: context, venueID: "internal-venue", coordinate: .verifiedMidtown) { _ in
+                calls += 1
+                return result
+            }
+            return result
+        }
+        await store.submit(context: context, venueID: "internal-venue", coordinate: nil) { _ in
+            calls += 1
+            return result
+        }
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(store.state(userID: "member", venueID: "internal-venue").pointsEarned, 10)
+        XCTAssertTrue(store.state(userID: "member", venueID: "internal-venue").detail?.contains("+10 points") == true)
+    }
+
+    @MainActor
+    func testTransportAndCancellationFailuresRetainKeyAcrossAmbiguousRetries() async throws {
+        let store = NativeVenueVisitStore()
+        let context = try XCTUnwrap(store.synchronize(userID: "member"))
+        var keys: [String] = []
+        let moved = NativeLocationCoordinate(latitude: 33.7867, longitude: -84.3834, isFallback: false)
+        for attempt in 0..<2 {
+            await store.submit(context: context, venueID: "internal-venue", coordinate: .verifiedMidtown) { input in
+                keys.append(try XCTUnwrap(input["idempotencyKey"] as? String))
+                if attempt == 0 { throw URLError(.timedOut) }
+                throw CancellationError()
+            }
+            let state = store.state(userID: "member", venueID: "internal-venue")
+            XCTAssertEqual(state, .failed)
+            XCTAssertFalse(state.isConfirmed)
+            XCTAssertEqual(state.pointsEarned, 0)
+            XCTAssertEqual(state.label, "Retry Check In")
+            XCTAssertTrue(state.canRetry)
+        }
+        // Losing location between attempts must neither mutate nor lose the key.
+        await store.submit(context: context, venueID: "internal-venue", coordinate: .midtown) { _ in
+            XCTFail("Fallback must not mutate")
+            return try self.response()
+        }
+        await store.submit(context: context, venueID: "internal-venue", coordinate: moved) { input in
+            keys.append(try XCTUnwrap(input["idempotencyKey"] as? String))
+            XCTAssertEqual(input["venueId"] as? String, "internal-venue")
+            XCTAssertEqual(input["lat"] as? Double, moved.latitude)
+            XCTAssertEqual(input["lng"] as? Double, moved.longitude)
+            XCTAssertEqual(Set(input.keys), Set(["venueId", "idempotencyKey", "lat", "lng"]))
+            return try self.response()
+        }
+        XCTAssertEqual(keys.count, 3)
+        XCTAssertEqual(Set(keys).count, 1)
+        XCTAssertNotNil(UUID(uuidString: keys[0]))
+        XCTAssertTrue(store.state(userID: "member", venueID: "internal-venue").isConfirmed)
+    }
+
+    @MainActor
+    func testUnprovenAndExplicitFailureCannotConfirmOrAwardAndNewEvidenceCanRetry() async throws {
+        for json in [
+            #"{"success":true,"proof":"self_reported","pointsEarned":0,"pointsReason":"unproven"}"#,
+            #"{"success":false,"proof":"nearby","pointsEarned":10,"pointsReason":"paid"}"#
+        ] {
+            let store = NativeVenueVisitStore()
+            let context = try XCTUnwrap(store.synchronize(userID: "member"))
+            var firstKey: String?
+            await store.submit(context: context, venueID: "internal-venue", coordinate: .verifiedMidtown) { input in
+                firstKey = input["idempotencyKey"] as? String
+                return try self.response(json)
+            }
+            let state = store.state(userID: "member", venueID: "internal-venue")
+            guard case .rejected = state else { return XCTFail("Expected rejection, got \(state)") }
+            XCTAssertFalse(state.isConfirmed)
+            XCTAssertEqual(state.pointsEarned, 0)
+            XCTAssertTrue(state.canRetry)
+            XCTAssertNotEqual(state.label, "Checked In")
+            XCTAssertNotNil(state.detail)
+            await store.submit(context: context, venueID: "internal-venue", coordinate: .verifiedMidtown) { input in
+                XCTAssertNotEqual(input["idempotencyKey"] as? String, firstKey)
+                return try self.response()
+            }
+            XCTAssertTrue(store.state(userID: "member", venueID: "internal-venue").isConfirmed)
+        }
+    }
+
+    @MainActor
+    func testMalformedResponseLeavesFailedStateAndRetainsRetryKey() async throws {
+        let store = NativeVenueVisitStore()
+        let context = try XCTUnwrap(store.synchronize(userID: "member"))
+        var key: String?
+        await store.submit(context: context, venueID: "internal-venue", coordinate: .verifiedMidtown) { input in
+            key = input["idempotencyKey"] as? String
+            return try self.response(#"{"success":true}"#)
+        }
+        XCTAssertEqual(store.state(userID: "member", venueID: "internal-venue"), .failed)
+        await store.submit(context: context, venueID: "internal-venue", coordinate: .verifiedMidtown) { input in
+            XCTAssertEqual(input["idempotencyKey"] as? String, key)
+            return try self.response()
+        }
+        XCTAssertTrue(store.state(userID: "member", venueID: "internal-venue").isConfirmed)
+    }
+
+    @MainActor
+    func testExactIdentityAndPerUserLookupNeverChangeCurrentContext() async throws {
+        let store = NativeVenueVisitStore()
+        let context = try XCTUnwrap(store.synchronize(userID: "member"))
+        await store.submit(context: context, venueID: "Venue-A", coordinate: .verifiedMidtown) { _ in try self.response() }
+        XCTAssertEqual(store.state(userID: "member", venueID: "venue-a"), .idle)
+        XCTAssertEqual(store.state(userID: "member", venueID: "Venue-B"), .idle)
+        XCTAssertEqual(store.state(userID: "other", venueID: "Venue-A"), .idle)
+        XCTAssertEqual(store.state(userID: nil, venueID: "Venue-A"), .idle)
+        XCTAssertEqual(store.state(userID: "member", venueID: nil), .idle)
+        XCTAssertEqual(store.context(for: "member"), context)
+        XCTAssertEqual(store.synchronize(userID: "member"), context)
+        XCTAssertTrue(store.state(userID: "member", venueID: "Venue-A").isConfirmed)
+        XCTAssertNil(store.context(for: "other"))
+        _ = store.synchronize(userID: "other")
+        XCTAssertTrue(store.states.isEmpty)
+        XCTAssertEqual(store.state(userID: "member", venueID: "Venue-A"), .idle)
+        XCTAssertNil(store.synchronize(userID: nil))
+        XCTAssertNil(store.context(for: "other"))
+    }
+
+    @MainActor
+    func testABAStaleSuccessAndStaleSubmissionCannotOverwriteNewAccountGeneration() async throws {
+        let store = NativeVenueVisitStore()
+        let firstA = try XCTUnwrap(store.synchronize(userID: "a"))
+        var oldKey: String?
+        await store.submit(context: firstA, venueID: "internal-venue", coordinate: .verifiedMidtown) { input in
+            oldKey = input["idempotencyKey"] as? String
+            _ = store.synchronize(userID: "b")
+            let nextA = try XCTUnwrap(store.synchronize(userID: "a"))
+            XCTAssertNotEqual(firstA, nextA)
+            await store.submit(context: firstA, venueID: "internal-venue", coordinate: .verifiedMidtown) { _ in
+                XCTFail("Stale queued view must not submit")
+                return try self.response()
+            }
+            await store.submit(context: nextA, venueID: "internal-venue", coordinate: .verifiedMidtown) { input in
+                XCTAssertNotEqual(input["idempotencyKey"] as? String, oldKey)
+                return try self.response(#"{"success":true,"proof":"nearby","pointsEarned":0,"pointsReason":"same_visit"}"#)
+            }
+            return try self.response() // Old paid result must not replace the new zero.
+        }
+        XCTAssertEqual(store.state(userID: "a", venueID: "internal-venue").pointsEarned, 0)
+        XCTAssertTrue(store.state(userID: "a", venueID: "internal-venue").detail?.contains("already earned") == true)
+    }
+
+    @MainActor
+    func testStaleFailureDoesNotClearNewSuccessAndSignOutRejectsLateSuccess() async throws {
+        let store = NativeVenueVisitStore()
+        let context = try XCTUnwrap(store.synchronize(userID: "a"))
+        await store.submit(context: context, venueID: "internal-venue", coordinate: .verifiedMidtown) { _ in
+            let replacement = try XCTUnwrap(store.synchronize(userID: "a", forceReset: true))
+            XCTAssertNotEqual(context, replacement)
+            await store.submit(context: replacement, venueID: "internal-venue", coordinate: .verifiedMidtown) { _ in try self.response() }
+            throw CancellationError()
+        }
+        XCTAssertTrue(store.state(userID: "a", venueID: "internal-venue").isConfirmed)
+        let replacement = try XCTUnwrap(store.synchronize(userID: "a", forceReset: true))
+        await store.submit(context: replacement, venueID: "internal-venue", coordinate: .verifiedMidtown) { _ in
+            store.synchronize(userID: nil)
+            return try self.response()
+        }
+        XCTAssertTrue(store.states.isEmpty)
+        XCTAssertEqual(store.state(userID: "a", venueID: "internal-venue"), .idle)
+    }
+
+    @MainActor
+    func testAbsentFallbackAndInvalidCoordinateDoNotMutate() async throws {
+        let store = NativeVenueVisitStore()
+        let context = try XCTUnwrap(store.synchronize(userID: "member"))
+        let coordinates: [NativeLocationCoordinate?] = [nil, .midtown,
+            NativeLocationCoordinate(latitude: .nan, longitude: 0, isFallback: false),
+            NativeLocationCoordinate(latitude: 91, longitude: 0, isFallback: false),
+            NativeLocationCoordinate(latitude: 0, longitude: 0, isFallback: false)]
+        for coordinate in coordinates {
+            await store.submit(context: context, venueID: "internal-venue", coordinate: coordinate) { _ in
+                XCTFail("Missing or invalid location must not mutate")
+                return try self.response()
+            }
+            XCTAssertEqual(store.state(userID: "member", venueID: "internal-venue"), .rejected(NativeVenueVisitLocation.requiredDetail))
+        }
+        for id in ["", " internal-venue", "internal-venue "] {
+            await store.submit(context: context, venueID: id, coordinate: .verifiedMidtown) { _ in
+                XCTFail("Do not normalize identity or submit empty IDs")
+                return try self.response()
+            }
+        }
+    }
+
+    func testLocationMustBeAuthorizedFreshAccurateAndNotFutureDated() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        func location(age: TimeInterval = 0, accuracy: Double = 25) -> CLLocation {
+            CLLocation(coordinate: CLLocationCoordinate2D(latitude: 33.7866, longitude: -84.3833),
+                       altitude: 0, horizontalAccuracy: accuracy, verticalAccuracy: 25,
+                       timestamp: now.addingTimeInterval(-age))
+        }
+        XCTAssertEqual(NativeVenueVisitLocation.freshCoordinate(location: location(), authorized: true, now: now), .verifiedMidtown)
+        XCTAssertNil(NativeVenueVisitLocation.freshCoordinate(location: nil, authorized: true, now: now))
+        XCTAssertNil(NativeVenueVisitLocation.freshCoordinate(location: location(), authorized: false, now: now))
+        XCTAssertNil(NativeVenueVisitLocation.freshCoordinate(location: location(age: 61), authorized: true, now: now))
+        XCTAssertNil(NativeVenueVisitLocation.freshCoordinate(location: location(age: -1), authorized: true, now: now))
+        XCTAssertNil(NativeVenueVisitLocation.freshCoordinate(location: location(accuracy: 251), authorized: true, now: now))
+        XCTAssertNil(NativeVenueVisitLocation.freshCoordinate(location: location(accuracy: -1), authorized: true, now: now))
+        XCTAssertNotNil(NativeVenueVisitLocation.freshCoordinate(location: location(age: 60, accuracy: 250), authorized: true, now: now))
+    }
+}
+
+@MainActor
+final class NativeVenueRichDetailsTests: XCTestCase {
+    private let placeID = "ChIJ_Exact-MixedCase42"
+
+    private var sparseVenue: [String: Any] {
+        ["id": "internal-venue", "name": "Listed Coffee", "category": "coffee",
+         "lat": 33.7866, "lng": -84.3833]
+    }
+
+    private var suppliedFacts: [String: Any] {
+        ["description": "  A quiet courtyard.  ",
+         "photoUrls": ["https://venue.example/photo.jpg"],
+         "vibeVideoUrl": "https://venue.example/vibe.mp4",
+         "phone": "+1 (404) 555-0100", "menuUrl": "https://venue.example/menu",
+         "websiteUrl": "https://venue.example/", "openingHours": [" Monday: 9–5 ", " "],
+         "amenities": [" Courtyard "], "accessibility": ["Step-free entry"],
+         "rules": ["No smoking"], "cancellationPolicy": "Contact the venue.",
+         "entryPrice": "$12", "vendorName": "Courtyard operator"]
+    }
+
+    /// The Bytspot places.details projection, not Google's upstream Place DTO.
+    private var placePayload: [String: Any] {
+        ["place": ["placeId": placeID, "name": "Listed Coffee",
+                   "editorialSummary": "  Coffee in a courtyard.  ",
+                   "photoUrls": ["https://places.example/photo.jpg"],
+                   "websiteUri": "https://venue.example/", "phone": "+1 (404) 555-0100",
+                   "openingHours": [" Monday: 9–5 ", " "], "priceLevel": "PRICE_LEVEL_MODERATE",
+                   "isOpen": true, "types": ["cafe", "restaurant"],
+                   "reviews": [["text": "Great menu and live music"]]]]
+    }
+
+    private func stubSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [NativePartyURLProtocolStub.self]
+        return URLSession(configuration: configuration)
+    }
+
+    func testSparseCanonicalVenueOnlyBindsCheckInAtCanonicalBoundary() throws {
+        let canonical = try XCTUnwrap(NativeTabContentStore.canonicalVenue(from: sparseVenue))
+        let display = try XCTUnwrap(NativeTabContentStore.venue(from: sparseVenue))
+        XCTAssertEqual(canonical.checkInVenueID, "internal-venue")
+        XCTAssertNil(display.checkInVenueID)
+        var unbound = canonical
+        unbound.checkInVenueID = nil
+        XCTAssertEqual(unbound, display)
+        XCTAssertNil(canonical.googlePlaceID)
+        XCTAssertNil(canonical.richDetails)
+        XCTAssertNil(canonical.rating)
+        XCTAssertNil(canonical.crowd)
+        XCTAssertNil(canonical.verifiedPatchId)
+        XCTAssertNil(canonical.imageUrl)
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(venue: canonical))
+    }
+
+    func testCanonicalCheckInNeverUsesAliasesOrMalformedDisplayIDs() throws {
+        for id in ["", " internal-venue", "internal-venue ", "internal venue", "internal\nvenue"] {
+            var row = sparseVenue
+            row["id"] = id
+            let venue = try XCTUnwrap(NativeTabContentStore.canonicalVenue(from: row))
+            XCTAssertNil(venue.checkInVenueID, id)
+        }
+        var row = sparseVenue
+        row.removeValue(forKey: "id")
+        row["slug"] = "display-slug"
+        row["googlePlaceId"] = placeID
+        row["checkInVenueID"] = "untrusted-alias"
+        let venue = try XCTUnwrap(NativeTabContentStore.canonicalVenue(from: row))
+        XCTAssertEqual(venue.id, "display-slug")
+        XCTAssertEqual(venue.googlePlaceID, placeID)
+        XCTAssertNil(venue.checkInVenueID)
+    }
+
+    func testGooglePlaceIDIsExactAndNeverDerivedFromDisplayIdentity() throws {
+        var row = sparseVenue
+        row["googlePlaceId"] = placeID
+        XCTAssertEqual(try XCTUnwrap(NativeTabContentStore.venue(from: row)).googlePlaceID, placeID)
+        XCTAssertEqual(NativeVenueDetailsDTO.exactGooglePlaceID(placeID), placeID)
+        let invalid: [Any] = ["", " \(placeID)", "\(placeID) ", "\(placeID)\n", "places/\(placeID)",
+                              "\(placeID)?other=1", "ChIJé", 42, NSNull()]
+        for value in invalid {
+            row["googlePlaceId"] = value
+            XCTAssertNil(NativeVenueDetailsDTO.exactGooglePlaceID(value))
+            XCTAssertNil(try XCTUnwrap(NativeTabContentStore.venue(from: row)).googlePlaceID)
+        }
+        row.removeValue(forKey: "googlePlaceId")
+        row["id"] = placeID
+        row["placeId"] = placeID
+        row["googlePlaceID"] = placeID
+        XCTAssertNil(try XCTUnwrap(NativeTabContentStore.venue(from: row)).googlePlaceID)
+    }
+
+    func testExplicitVenueFactsDecodeAndSurviveWithDistance() throws {
+        var row = sparseVenue.merging(suppliedFacts) { _, supplied in supplied }
+        row["googlePlaceId"] = placeID
+        row["imageUrl"] = "https://venue.example/hero.jpg"
+        row["rating"] = 4.7
+        row["crowd"] = ["level": 2, "label": "Typical", "source": "typical", "waitMins": 5]
+        let original = try XCTUnwrap(NativeTabContentStore.canonicalVenue(from: row))
+        let details = try XCTUnwrap(original.richDetails)
+        XCTAssertEqual(details.source, .venue)
+        XCTAssertEqual(details.description, "A quiet courtyard.")
+        XCTAssertEqual(details.photoURLs?.map(\.absoluteString), ["https://venue.example/photo.jpg"])
+        XCTAssertEqual(details.vibeVideoURL?.absoluteString, "https://venue.example/vibe.mp4")
+        XCTAssertEqual(details.phone, "+1 (404) 555-0100")
+        XCTAssertEqual(details.phoneURL?.absoluteString, "tel:+14045550100")
+        XCTAssertEqual(details.menuURL?.absoluteString, "https://venue.example/menu")
+        XCTAssertEqual(details.websiteURL?.absoluteString, "https://venue.example/")
+        XCTAssertEqual(details.hours, ["Monday: 9–5"])
+        XCTAssertEqual(details.amenities, ["Courtyard"])
+        XCTAssertEqual(details.accessibility, ["Step-free entry"])
+        XCTAssertEqual(details.rules, ["No smoking"])
+        XCTAssertEqual(details.cancellationPolicy, "Contact the venue.")
+        XCTAssertEqual(details.price, "$12")
+        XCTAssertEqual(details.vendorName, "Courtyard operator")
+        let moved = original.withDistance("1.2 mi")
+        XCTAssertEqual(moved.distance, "1.2 mi")
+        XCTAssertEqual(moved.checkInVenueID, original.checkInVenueID)
+        XCTAssertEqual(moved.googlePlaceID, placeID)
+        XCTAssertEqual(moved.richDetails, details)
+        XCTAssertEqual(moved.withDistance(original.distance), original, "Distance must be the only changed field")
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(venue: moved), "Supplied menu/vendor facts do not grant control")
+    }
+
+    func testEmptyNullAndMalformedOptionalFactsRemainAbsent() {
+        XCTAssertNil(NativeVenueDetailsDTO.venueDetails(from: [:]))
+        let empty: [String: Any] = ["description": " \n", "photoUrls": [], "vibeVideoUrl": NSNull(),
+                                   "phone": 123, "menuUrl": "", "websiteUrl": NSNull(),
+                                   "openingHours": [" "], "amenities": [""], "accessibility": NSNull(),
+                                   "rules": [42], "cancellationPolicy": false, "entryPrice": NSNull(),
+                                   "vendorName": " "]
+        XCTAssertNil(NativeVenueDetailsDTO.venueDetails(from: empty))
+        XCTAssertNil(NativeVenueDetailsDTO.placeDetails(from: ["place": ["placeId": placeID]], googlePlaceID: placeID))
+    }
+
+    func testActualPlacesDetailsPayloadDecodesPlainAndTRPCEnvelopes() throws {
+        let payloads: [Any] = [placePayload, ["result": ["data": placePayload]],
+                               ["result": ["data": ["json": placePayload]]]]
+        for payload in payloads {
+            let details = try XCTUnwrap(NativeVenueDetailsDTO.placeDetails(from: payload, googlePlaceID: placeID))
+            XCTAssertEqual(details.source, .googlePlaces(placeID: placeID))
+            XCTAssertEqual(details.description, "Coffee in a courtyard.")
+            XCTAssertEqual(details.photoURLs?.map(\.absoluteString), ["https://places.example/photo.jpg"])
+            XCTAssertEqual(details.websiteURL?.absoluteString, "https://venue.example/")
+            XCTAssertEqual(details.phoneURL?.absoluteString, "tel:+14045550100")
+            XCTAssertEqual(details.hours, ["Monday: 9–5"])
+            XCTAssertEqual(details.price, "Moderate")
+            XCTAssertNil(details.menuURL)
+            XCTAssertNil(details.vibeVideoURL)
+            XCTAssertNil(details.amenities)
+            XCTAssertNil(details.accessibility)
+            XCTAssertNil(details.rules)
+            XCTAssertNil(details.vendorName)
+            XCTAssertNil(details.cancellationPolicy)
+        }
+    }
+
+    func testPlacesDetailsRejectsMissingMalformedAndMismatchedIdentity() throws {
+        let place = try XCTUnwrap(placePayload["place"] as? [String: Any])
+        let invalid: [Any] = [NSNull(), [], [:], ["place": NSNull()], ["place": []], place,
+                              ["place": ["editorialSummary": "No ID"]],
+                              ["place": ["id": placeID, "editorialSummary": "Wrong ID field"]]]
+        for payload in invalid {
+            XCTAssertNil(NativeVenueDetailsDTO.placeDetails(from: payload, googlePlaceID: placeID))
+        }
+        for id in ["ChIJ_other", placeID.lowercased(), " \(placeID)", "\(placeID) "] {
+            var mismatched = place
+            mismatched["placeId"] = id
+            XCTAssertNil(NativeVenueDetailsDTO.placeDetails(from: ["place": mismatched], googlePlaceID: placeID))
+        }
+        var malformed = place
+        malformed["placeId"] = "bad/id"
+        XCTAssertNil(NativeVenueDetailsDTO.placeDetails(from: ["place": malformed], googlePlaceID: "bad/id"))
+    }
+
+    func testHTTPSValidationRejectsUnsafeLinksAcrossAllRichMediaFields() throws {
+        let unsafe = ["http://venue.example/menu", "javascript:alert(1)", "data:text/plain,menu",
+                      "file:///menu", "//venue.example/menu", "/menu", "https:///",
+                      "https://visitor@venue.example/menu", "https://venue.example/a b",
+                      "https://venue.example/a\nb", "https://venue.example/%0Amenu",
+                      "https://venue.example/%00menu", "https://venue.example/%5Cmenu"]
+        XCTAssertNil(NativeVenueDetailsDTO.safeHTTPSURL(nil))
+        XCTAssertEqual(NativeVenueDetailsDTO.safeHTTPSURL("  https://venue.example/menu  ")?.absoluteString,
+                       "https://venue.example/menu")
+        for raw in unsafe {
+            XCTAssertNil(NativeVenueDetailsDTO.safeHTTPSURL(raw), raw)
+            let details = try XCTUnwrap(NativeVenueDetailsDTO.venueDetails(from:
+                ["description": "Retained", "photoUrls": [raw], "vibeVideoUrl": raw,
+                 "menuUrl": raw, "websiteUrl": raw]))
+            XCTAssertNil(details.photoURLs, raw)
+            XCTAssertNil(details.vibeVideoURL, raw)
+            XCTAssertNil(details.menuURL, raw)
+            XCTAssertNil(details.websiteURL, raw)
+            let place = try XCTUnwrap(NativeVenueDetailsDTO.placeDetails(from:
+                ["place": ["placeId": placeID, "editorialSummary": "Retained", "photoUrls": [raw], "websiteUri": raw]],
+                googlePlaceID: placeID))
+            XCTAssertNil(place.photoURLs, raw)
+            XCTAssertNil(place.websiteURL, raw)
+        }
+        let mixed = try XCTUnwrap(NativeVenueDetailsDTO.venueDetails(from:
+            ["photoUrls": ["http://venue.example/no.jpg", "https://venue.example/yes.jpg"]]))
+        XCTAssertEqual(mixed.photoURLs?.map(\.absoluteString), ["https://venue.example/yes.jpg"])
+    }
+
+    func testPhoneValidationRejectsDialCommandsExtensionsAndURLs() {
+        XCTAssertNil(NativeVenueDetailsDTO.safePhoneURL(nil))
+        XCTAssertEqual(NativeVenueDetailsDTO.safePhoneURL(" (404) 555-0100 ")?.absoluteString, "tel:4045550100")
+        XCTAssertEqual(NativeVenueDetailsDTO.safePhoneURL("+1 404.555.0100")?.absoluteString, "tel:+14045550100")
+        for raw in ["", "123456", "1234567890123456", "tel:+14045550100", "+14045550100;123",
+                    "+14045550100,123", "+14045550100 ext 2", "*1234567#", "++14045550100",
+                    "1404+5550100", "404\n5550100", "https://venue.example/call"] {
+            XCTAssertNil(NativeVenueDetailsDTO.safePhoneURL(raw), raw)
+            XCTAssertNil(NativeVenueDetailsDTO.venueDetails(from: ["phone": raw]), raw)
+            XCTAssertNil(NativeVenueDetailsDTO.placeDetails(from: ["place": ["placeId": placeID, "phone": raw]],
+                                                            googlePlaceID: placeID), raw)
+        }
+    }
+
+    func testCategoryReviewsAndWebsiteNeverInferMenuVideoOrBookingAuthority() throws {
+        let row = sparseVenue.merging(["websiteUrl": "https://venue.example/menu", "entryPrice": "$12",
+                                       "isOpen": true, "capability": "book", "vendorName": "Operator",
+                                       "bookingUrl": "https://venue.example/book", "videoUrl": "https://venue.example/video.mp4"]) { _, value in value }
+        let venue = try XCTUnwrap(NativeTabContentStore.venue(from: row))
+        let details = try XCTUnwrap(venue.richDetails)
+        XCTAssertNil(details.menuURL)
+        XCTAssertNil(details.vibeVideoURL)
+        XCTAssertNil(details.amenities)
+        XCTAssertNil(venue.checkInVenueID)
+        XCTAssertNil(venue.verifiedPatchId)
+        XCTAssertNil(venue.crowd)
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(venue: venue))
+        let action = try XCTUnwrap(NativeVenueDetailContract.actions.first { $0.id == "getTickets" })
+        XCTAssertEqual(NativeVenueDetailPresentation.actionTitle(for: action, venue: venue), "Details")
+        let inferenceOnly: [String: Any] = ["placeId": placeID, "isOpen": true, "types": ["restaurant"],
+                                           "reviews": [["text": "Menu, video and bookable tables"]],
+                                           "menuUrl": "https://venue.example/menu", "vibeVideoUrl": "https://venue.example/vibe.mp4",
+                                           "vendorName": "Not a Places authority", "capability": "book"]
+        XCTAssertNil(NativeVenueDetailsDTO.placeDetails(from: ["place": inferenceOnly], googlePlaceID: placeID))
+    }
+
+    func testDetailsAPIRequestsOnlyExactPlaceIDAndRejectsMismatchedResponse() async throws {
+        let session = stubSession()
+        defer { session.invalidateAndCancel(); NativePartyURLProtocolStub.handler = nil }
+        let api = NativeVenueDetailsAPI(client: BytspotAPIClient(baseURL: try XCTUnwrap(URL(string: "https://party.test")), urlSession: session))
+        let expectedID = placeID
+        let payload = placePayload
+        NativePartyURLProtocolStub.handler = { request in
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.url?.path, "/trpc/places.details")
+            let components = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false))
+            XCTAssertEqual(components.queryItems?.map(\.name), ["input"])
+            let input = try XCTUnwrap(components.queryItems?.first?.value)
+            let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(input.utf8)) as? [String: String])
+            XCTAssertEqual(decoded, ["placeId": expectedID])
+            XCTAssertNil(NativePartyURLProtocolStub.bodyData(for: request))
+            return (200, try JSONSerialization.data(withJSONObject: ["result": ["data": ["json": payload]]]))
+        }
+        let result = try await api.details(googlePlaceID: placeID)
+        XCTAssertEqual(result?.source, .googlePlaces(placeID: placeID))
+        XCTAssertEqual(result?.description, "Coffee in a courtyard.")
+        NativePartyURLProtocolStub.handler = { _ in
+            (200, try JSONSerialization.data(withJSONObject:
+                ["result": ["data": ["place": ["placeId": "ChIJ_other", "editorialSummary": "Wrong venue"]]]]))
+        }
+        let mismatched = try await api.details(googlePlaceID: placeID)
+        XCTAssertNil(mismatched)
+    }
+
+    func testEnrichmentPreservesIdentityPrimaryMediaCoordinatesAndAuthority() async throws {
+        let session = stubSession()
+        defer { session.invalidateAndCancel(); NativePartyURLProtocolStub.handler = nil }
+        let api = NativeVenueDetailsAPI(client: BytspotAPIClient(baseURL: try XCTUnwrap(URL(string: "https://party.test")), urlSession: session))
+        let payload = placePayload
+        NativePartyURLProtocolStub.handler = { _ in (200, try JSONSerialization.data(withJSONObject: payload)) }
+        var row = sparseVenue
+        row["googlePlaceId"] = placeID
+        row["imageUrl"] = "https://venue.example/primary.jpg"
+        let original = try XCTUnwrap(NativeTabContentStore.venue(from: row))
+        var enriched = try await api.enrich(original)
+        XCTAssertEqual(enriched.richDetails?.source, .googlePlaces(placeID: placeID))
+        XCTAssertEqual(enriched.withDistance("2 mi").richDetails, enriched.richDetails)
+        XCTAssertNil(enriched.checkInVenueID)
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(venue: enriched))
+        enriched.richDetails = nil
+        XCTAssertEqual(enriched, original, "Enrichment may change only richDetails")
+    }
+
+    func testInvalidIDsNeverRequestAndEnrichmentPreservesExistingVenueFacts() async throws {
+        let session = stubSession()
+        defer { session.invalidateAndCancel(); NativePartyURLProtocolStub.handler = nil }
+        let api = NativeVenueDetailsAPI(client: BytspotAPIClient(baseURL: try XCTUnwrap(URL(string: "https://party.test")), urlSession: session))
+        NativePartyURLProtocolStub.handler = { _ in
+            XCTFail("No provider request is allowed for absent/invalid identity")
+            throw URLError(.badServerResponse)
+        }
+        for id in ["", " \(placeID)", "\(placeID) ", "places/\(placeID)"] {
+            let result = try await api.details(googlePlaceID: id)
+            XCTAssertNil(result)
+        }
+        var row = sparseVenue
+        row["id"] = placeID // A plausible display ID is still not a source binding.
+        let unbound = try XCTUnwrap(NativeTabContentStore.venue(from: row))
+        let unchanged = try await api.enrich(unbound)
+        XCTAssertEqual(unchanged, unbound)
+        row["googlePlaceId"] = placeID
+        row["entryPrice"] = "$12" // Pricing must not block missing phone/hours enrichment.
+        let supplied = try XCTUnwrap(NativeTabContentStore.canonicalVenue(from: row))
+        let payload = placePayload
+        NativePartyURLProtocolStub.handler = { _ in (200, try JSONSerialization.data(withJSONObject: payload)) }
+        let preserved = try await api.enrich(supplied)
+        XCTAssertEqual(preserved.checkInVenueID, supplied.checkInVenueID)
+        XCTAssertEqual(preserved.richDetails?.price, "$12")
+        XCTAssertEqual(preserved.richDetails?.phone, "+1 (404) 555-0100")
+        XCTAssertEqual(preserved.richDetails?.source, .venue)
+        XCTAssertEqual(preserved.richDetails?.supplementarySource, .googlePlaces(placeID: placeID))
+        XCTAssertEqual(preserved.richDetails?.hasGoogleFacts, true)
+    }
+}

@@ -225,6 +225,43 @@ struct NativeM2RouteTests {
         }
     }
 
+    @Test func cardDistanceRequiresFreshAuthorizedOriginNotCatalogText() {
+        #expect(NativeM5DetailPolicy.distance(to: venue(), location: nil, authorized: true, now: referenceDate) == nil)
+        #expect(NativeM5DetailPolicy.distance(to: venue(), location: location(), authorized: false, now: referenceDate) == nil)
+        #expect(NativeM5DetailPolicy.distance(to: venue(), location: location(age: 61), authorized: true, now: referenceDate) == nil)
+        #expect(NativeM5DetailPolicy.distance(to: venue(latitude: 0, longitude: 0), location: location(), authorized: true, now: referenceDate) == nil)
+        let result = NativeM5DetailPolicy.distance(to: venue(), location: location(), authorized: true, now: referenceDate)
+        #expect(result?.contains("straight-line distance") == true)
+        #expect(result?.contains("invented catalog distance") == false)
+    }
+
+    @Test func rideLinksCarryOnlyExactDestinationAndProviderOwnsPickup() throws {
+        let destination = NativeM2RouteDestination(venue: venue())
+        for provider in NativeM2RideProvider.allCases {
+            let url = try #require(destination.rideURL(for: provider))
+            let parts = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            #expect(parts.scheme == "https")
+            #expect(parts.host == (provider == .uber ? "m.uber.com" : "www.lyft.com"))
+            #expect(parts.fragment == nil)
+            let query = Dictionary(uniqueKeysWithValues: (parts.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+            let prefix = provider == .uber ? "dropoff" : "destination"
+            #expect(query["\(prefix)[latitude]"] == String(venue().latitude))
+            #expect(query["\(prefix)[longitude]"] == String(venue().longitude))
+            #expect(query["pickup[latitude]"] == nil)
+            #expect(query["price"] == nil)
+            #expect(query["bookingId"] == nil)
+            if provider == .uber { #expect(query["dropoff[nickname]"] == venue().name) }
+        }
+    }
+
+    @Test func rideLinksNeverInventMissingOrInvalidCoordinates() {
+        for provider in NativeM2RideProvider.allCases {
+            #expect(NativeM2RouteDestination(venue: venue(latitude: 0, longitude: 0)).rideURL(for: provider) == nil)
+            #expect(NativeM2RouteDestination(venue: venue(latitude: .nan)).rideURL(for: provider) == nil)
+            #expect(NativeM2RouteDestination(venue: venue(latitude: 91)).rideURL(for: provider) == nil)
+        }
+    }
+
     @MainActor
     private final class EstimatorStub {
         struct Request {

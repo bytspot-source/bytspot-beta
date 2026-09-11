@@ -2237,6 +2237,185 @@ enum NativeDiscoverCategoryNormalizer {
     }
 }
 
+/// Supplied descriptive facts only. None of these fields grants booking,
+/// check-in, vendor control, or live-availability authority.
+struct NativeVenueRichDetails: Equatable {
+    enum Source: Equatable {
+        case venue
+        case googlePlaces(placeID: String)
+    }
+
+    var source: Source = .venue
+    var supplementarySource: Source? = nil
+    var description: String? = nil
+    var photoURLs: [URL]? = nil
+    var vibeVideoURL: URL? = nil
+    var phone: String? = nil
+    var menuURL: URL? = nil
+    var websiteURL: URL? = nil
+    var hours: [String]? = nil
+    var amenities: [String]? = nil
+    var accessibility: [String]? = nil
+    var rules: [String]? = nil
+    var cancellationPolicy: String? = nil
+    var price: String? = nil
+    var vendorName: String? = nil
+
+    var phoneURL: URL? { NativeVenueDetailsDTO.safePhoneURL(phone) }
+    var hasGoogleFacts: Bool {
+        if case .googlePlaces = source { return true }
+        if case .googlePlaces? = supplementarySource { return true }
+        return false
+    }
+
+    /// Fill missing descriptive facts, never replace supplied venue facts or
+    /// attach provider fulfillment authority. Keep both source labels.
+    func supplementing(with extra: NativeVenueRichDetails) -> NativeVenueRichDetails {
+        var result = self
+        result.supplementarySource = extra.source
+        result.description = description ?? extra.description
+        result.photoURLs = photoURLs ?? extra.photoURLs
+        result.phone = phone ?? extra.phone
+        result.websiteURL = websiteURL ?? extra.websiteURL
+        result.hours = hours ?? extra.hours
+        result.price = price ?? extra.price
+        return result
+    }
+
+    fileprivate var hasSuppliedFacts: Bool {
+        description != nil || photoURLs != nil || vibeVideoURL != nil
+            || phone != nil || menuURL != nil || websiteURL != nil || hours != nil
+            || amenities != nil || accessibility != nil || rules != nil
+            || cancellationPolicy != nil || price != nil || vendorName != nil
+    }
+}
+
+/// Pure, source-specific parsing. Do not use Places search/name matching to
+/// attach details, or treat a venue's display ID as a Google identifier.
+enum NativeVenueDetailsDTO {
+    static func safeHTTPSURL(_ value: String?) -> URL? {
+        guard let value else { return nil }
+        let raw = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty,
+              raw.rangeOfCharacter(from: .whitespacesAndNewlines.union(.controlCharacters)) == nil,
+              let decoded = raw.removingPercentEncoding,
+              decoded.rangeOfCharacter(from: .controlCharacters) == nil,
+              !decoded.contains("\\"),
+              let components = URLComponents(string: raw),
+              components.scheme?.lowercased() == "https",
+              components.user == nil, components.password == nil,
+              let host = components.host, !host.isEmpty,
+              host.rangeOfCharacter(from: .whitespacesAndNewlines.union(.controlCharacters)) == nil,
+              !host.contains("@"),
+              let url = components.url else { return nil }
+        return url
+    }
+
+    /// Accept ordinary formatted phone numbers, not dial commands, extensions,
+    /// USSD codes, or URLs supplied by the server.
+    static func safePhoneURL(_ value: String?) -> URL? {
+        guard let value else { return nil }
+        let raw = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowed = CharacterSet(charactersIn: "+0123456789 ()-.")
+        guard !raw.isEmpty, raw.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+        let normalized = raw.filter { "+0123456789".contains($0) }
+        let digits = normalized.filter { "0123456789".contains($0) }
+        guard (7...15).contains(digits.count),
+              normalized == digits || normalized == "+" + digits else { return nil }
+        return URL(string: "tel:" + normalized)
+    }
+
+    /// Preserve the source's exact opaque ID; never trim, case-fold or derive it.
+    static func exactGooglePlaceID(_ value: Any?) -> String? {
+        guard let value = value as? String, !value.isEmpty,
+              value.unicodeScalars.allSatisfy({ CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-").contains($0) }) else { return nil }
+        return value
+    }
+
+    /// Optional internal fields are read only when explicitly supplied. Today's
+    /// venues.list has entryPrice, but no description/contact/amenity contract.
+    static func venueDetails(from item: [String: Any]) -> NativeVenueRichDetails? {
+        var details = NativeVenueRichDetails()
+        details.description = text(item["description"])
+        details.photoURLs = photos(item["photoUrls"])
+        details.vibeVideoURL = safeHTTPSURL(item["vibeVideoUrl"] as? String)
+        details.phone = safePhoneURL(item["phone"] as? String) == nil ? nil : text(item["phone"])
+        details.menuURL = safeHTTPSURL(item["menuUrl"] as? String)
+        details.websiteURL = safeHTTPSURL(item["websiteUrl"] as? String)
+        details.hours = strings(item["openingHours"])
+        details.amenities = strings(item["amenities"])
+        details.accessibility = strings(item["accessibility"])
+        details.rules = strings(item["rules"])
+        details.cancellationPolicy = text(item["cancellationPolicy"])
+        details.price = text(item["entryPrice"])
+        details.vendorName = text(item["vendorName"])
+        return details.hasSuppliedFacts ? details : nil
+    }
+
+    /// Maps the actual places.details { place } DTO, not Google's upstream DTO.
+    /// A missing/null place or a mismatched placeId can never enrich this venue.
+    static func placeDetails(from payload: Any, googlePlaceID: String) -> NativeVenueRichDetails? {
+        guard exactGooglePlaceID(googlePlaceID) == googlePlaceID,
+              let root = BytspotAPIClient.unwrapTRPCData(payload) as? [String: Any],
+              let place = root["place"] as? [String: Any],
+              place["placeId"] as? String == googlePlaceID else { return nil }
+        var details = NativeVenueRichDetails(source: .googlePlaces(placeID: googlePlaceID))
+        details.description = text(place["editorialSummary"])
+        details.photoURLs = photos(place["photoUrls"])
+        details.websiteURL = safeHTTPSURL(place["websiteUri"] as? String)
+        details.phone = safePhoneURL(place["phone"] as? String) == nil ? nil : text(place["phone"])
+        details.hours = strings(place["openingHours"])
+        let priceLabels = ["PRICE_LEVEL_FREE": "Free (provider price category)", "PRICE_LEVEL_INEXPENSIVE": "Inexpensive",
+                           "PRICE_LEVEL_MODERATE": "Moderate", "PRICE_LEVEL_EXPENSIVE": "Expensive",
+                           "PRICE_LEVEL_VERY_EXPENSIVE": "Very expensive"]
+        details.price = text(place["priceLevel"]).flatMap { priceLabels[$0] }
+        // isOpen, reviews, types and websiteUri do not imply availability,
+        // amenities, vendor ownership, a menu, or an external booking action.
+        return details.hasSuppliedFacts ? details : nil
+    }
+
+    private static func text(_ value: Any?) -> String? {
+        guard let value = value as? String else { return nil }
+        let cleaned = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
+    private static func strings(_ value: Any?) -> [String]? {
+        guard let values = value as? [String] else { return nil }
+        let cleaned = values.compactMap { text($0) }
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
+    private static func photos(_ value: Any?) -> [URL]? {
+        guard let values = value as? [String] else { return nil }
+        let urls = values.compactMap { safeHTTPSURL($0) }
+        return urls.isEmpty ? nil : urls
+    }
+}
+
+/// Dormant until explicitly invoked for a source-bound Google ID. Uses only the
+/// existing Bytspot route; no additional provider integration or name lookup.
+struct NativeVenueDetailsAPI {
+    static let detailsPath = "/trpc/places.details"
+    let client: BytspotAPIClient
+
+    func details(googlePlaceID: String) async throws -> NativeVenueRichDetails? {
+        guard NativeVenueDetailsDTO.exactGooglePlaceID(googlePlaceID) == googlePlaceID else { return nil }
+        let payload = try await client.trpcQueryPayload(path: Self.detailsPath, input: ["placeId": googlePlaceID])
+        return NativeVenueDetailsDTO.placeDetails(from: payload, googlePlaceID: googlePlaceID)
+    }
+
+    /// Keep existing supplied facts and their provenance intact. Enrichment does
+    /// not replace primary media, coordinates, crowd, identity, or authority.
+    func enrich(_ venue: NativeVenueSummary) async throws -> NativeVenueSummary {
+        guard let googlePlaceID = venue.googlePlaceID else { return venue }
+        guard let additional = try await details(googlePlaceID: googlePlaceID) else { return venue }
+        var enriched = venue
+        enriched.richDetails = venue.richDetails.map { $0.supplementing(with: additional) } ?? additional
+        return enriched
+    }
+}
+
 struct NativeVenueSummary: Identifiable, Equatable {
     let id: String
     let name: String
@@ -2250,6 +2429,16 @@ struct NativeVenueSummary: Identifiable, Equatable {
     let parking: NativeParkingSummary
     let verifiedPatchId: String?
     let imageUrl: URL?
+
+    /// Set only by the canonical venues API decoder, never by display-ID inference.
+    var checkInVenueID: String? = nil
+    /// Exact source binding, not the display ID or a name-based match.
+    var googlePlaceID: String? = nil
+    var richDetails: NativeVenueRichDetails? = nil
+
+    func withDistance(_ distance: String) -> NativeVenueSummary {
+        NativeVenueSummary(id: id, name: name, category: category, address: address, distance: distance, rating: rating, latitude: latitude, longitude: longitude, crowd: crowd, parking: parking, verifiedPatchId: verifiedPatchId, imageUrl: imageUrl, checkInVenueID: checkInVenueID, googlePlaceID: googlePlaceID, richDetails: richDetails)
+    }
 
     var discoverType: String {
         NativeDiscoverCategoryNormalizer.type(for: category)
@@ -2934,7 +3123,7 @@ final class NativeTabContentStore: ObservableObject {
     private func fetchVenues(client: BytspotAPIClient) async throws -> [NativeVenueSummary] {
         let payload = try await client.json(path: "/trpc/venues.list")
         guard let rows = Self.findArray(named: "venues", in: payload) else { return [] }
-        return rows.compactMap(Self.venue(from:))
+        return rows.compactMap(Self.canonicalVenue(from:))
     }
 
     private func fetchEvents(client: BytspotAPIClient, location: NativeLocationCoordinate) async throws -> [NativeEventSummary] {
@@ -3274,7 +3463,7 @@ final class NativeTabContentStore: ObservableObject {
             guard let miles = location.distanceMiles(toLatitude: venue.latitude, longitude: venue.longitude),
                   miles <= localVenueRadiusMiles else { return nil }
             let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) ?? venue.distance
-            return NativeVenueSummary(id: venue.id, name: venue.name, category: venue.category, address: venue.address, distance: distance, rating: venue.rating, latitude: venue.latitude, longitude: venue.longitude, crowd: venue.crowd, parking: venue.parking, verifiedPatchId: venue.verifiedPatchId, imageUrl: venue.imageUrl)
+            return venue.withDistance(distance)
         }
     }
 
@@ -3590,6 +3779,17 @@ final class NativeTabContentStore: ObservableObject {
         }
     }
 
+    /// Only rows decoded at the canonical venues.list boundary gain check-in
+    /// identity. Bootstrap, curated, and synthetic summaries remain unbound.
+    static func canonicalVenue(from value: Any) -> NativeVenueSummary? {
+        guard let item = value as? [String: Any], var venue = venue(from: item) else { return nil }
+        if let id = item["id"] as? String, !id.isEmpty,
+           id.rangeOfCharacter(from: .whitespacesAndNewlines.union(.controlCharacters)) == nil {
+            venue.checkInVenueID = id
+        }
+        return venue
+    }
+
     static func venue(from value: Any) -> NativeVenueSummary? {
         guard let item = value as? [String: Any] else { return nil }
         let location = item["location"] as? [String: Any]
@@ -3621,7 +3821,9 @@ final class NativeTabContentStore: ObservableObject {
             crowd: crowd,
             parking: NativeParkingSummary(totalAvailable: spots, priceLabel: price),
             verifiedPatchId: patch,
-            imageUrl: url(item, ["imageUrl", "image_url", "photoUrl", "image", "heroImage"])
+            imageUrl: url(item, ["imageUrl", "image_url", "photoUrl", "image", "heroImage"]),
+            googlePlaceID: NativeVenueDetailsDTO.exactGooglePlaceID(item["googlePlaceId"]),
+            richDetails: NativeVenueDetailsDTO.venueDetails(from: item)
         )
     }
 

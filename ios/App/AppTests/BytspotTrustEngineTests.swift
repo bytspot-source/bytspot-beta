@@ -5048,6 +5048,123 @@ final class NativePlanBookablesContractTests: XCTestCase {
     }
 }
 
+final class NativePlanInviteRegressionTests: XCTestCase {
+    private func invitation(_ id: String = "friend", status: String = "accepted", name: String = "Ada") -> NativeSocialInvitation {
+        NativeSocialInvitation(id: "invite-\(id)", direction: "incoming", status: status,
+                               personID: id, personName: name, circleID: nil, circleName: nil)
+    }
+
+    func testConnectionsDistinguishLoadingFailureEmptyAndRetrySuccess() {
+        var state = NativePlanConnectionsState()
+        XCTAssertEqual(state.phase, .loading)
+        XCTAssertNil(state.emptyMessage(participants: []))
+        let first = state.begin(userID: "me")
+        state.finish(nil, generation: first)
+        XCTAssertEqual(state.phase, .failed)
+        XCTAssertNil(state.emptyMessage(participants: []), "A network failure must not say there are no connections.")
+        let retry = state.begin(userID: "me")
+        XCTAssertEqual(state.phase, .loading)
+        state.finish([], generation: retry)
+        XCTAssertEqual(state.phase, .loaded)
+        XCTAssertTrue(state.emptyMessage(participants: [])?.contains("No connections yet") == true)
+        let refresh = state.begin(userID: "me")
+        state.finish([invitation()], generation: refresh)
+        XCTAssertEqual(state.rows(for: "me").map(\.id), ["friend"])
+        XCTAssertNil(state.emptyMessage(participants: []))
+    }
+
+    func testOnlyAcceptedDistinctOtherPeopleBecomeInviteTargets() {
+        var state = NativePlanConnectionsState()
+        let generation = state.begin(userID: "me")
+        state.finish([invitation(), invitation(), invitation("me"), invitation(""),
+                      invitation("pending", status: "pending"), invitation("declined", status: "declined")],
+                     generation: generation)
+        XCTAssertEqual(state.connections, [NativePlanConnection(id: "friend", name: "Ada")])
+    }
+
+    func testExistingParticipantsAreNotMistakenForNoConnections() {
+        var state = NativePlanConnectionsState()
+        let generation = state.begin(userID: "me")
+        state.finish([invitation()], generation: generation)
+        for status in ["invited", "accepted", "maybe", "declined"] {
+            let seat = NativePlan.Participant(userId: "friend", role: "guest", status: status)
+            XCTAssertEqual(state.emptyMessage(participants: [seat]), "All your connections are already invited or in this Plan.")
+            XCTAssertTrue(NativePlanDisplay.invitableConnections(state.connections, participants: [seat]).isEmpty)
+        }
+        let removed = NativePlan.Participant(userId: "friend", role: "guest", status: "removed")
+        XCTAssertNil(state.emptyMessage(participants: [removed]))
+        XCTAssertEqual(NativePlanDisplay.invitableConnections(state.connections, participants: [removed]).count, 1)
+    }
+
+    func testOlderLoadsCannotOverwriteRetryOrAnotherAccountsConnections() {
+        var state = NativePlanConnectionsState()
+        let first = state.begin(userID: "me")
+        let retry = state.begin(userID: "me")
+        state.finish([invitation("stale")], generation: first)
+        state.finish(nil, generation: first)
+        XCTAssertEqual(state.phase, .loading)
+        XCTAssertTrue(state.connections.isEmpty)
+        state.finish([invitation()], generation: retry)
+        XCTAssertTrue(state.rows(for: "other").isEmpty)
+        XCTAssertTrue(state.rows(for: nil).isEmpty)
+        let other = state.begin(userID: "other")
+        state.finish([invitation("stale")], generation: retry)
+        XCTAssertTrue(state.connections.isEmpty)
+        state.finish([invitation("new-friend")], generation: other)
+        XCTAssertEqual(state.rows(for: "other").map(\.id), ["new-friend"])
+        _ = state.begin(userID: nil)
+        state.finish([invitation()], generation: other)
+        XCTAssertEqual(state.phase, .signedOut)
+        XCTAssertTrue(state.connections.isEmpty)
+    }
+
+    func testInviteSheetOwnsItsGroundAndShowsRetryAndSendFailure() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("App/NativePlansPanel.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "private struct NativePlanInviteSheet: View {"))
+        let end = try XCTUnwrap(source.range(of: "enum NativePlanCreationStep:"))
+        let sheet = String(source[start.lowerBound..<end.lowerBound])
+        XCTAssertTrue(sheet.contains(".background(NativeDeepSpaceGround())"), "White theme text needs its own ground in a Light Mode sheet.")
+        for identifier in ["native-plan-connections-loading", "native-plan-connections-error", "native-plan-connections-retry",
+                           "native-plan-connections-empty", "native-plan-invite-error", "native-plan-invite-by-text"] {
+            XCTAssertTrue(sheet.contains(identifier), "Missing visible picker state/action: \(identifier)")
+        }
+        XCTAssertTrue(sheet.contains("await onRetry()"))
+        XCTAssertTrue(sheet.contains("if await onInvite(person.id)"))
+        XCTAssertTrue(sheet.contains("guard busyID == nil"))
+        XCTAssertTrue(sheet.contains("participantIDs.contains(person.id)"))
+        XCTAssertTrue(source.contains("Button(action: { showInvite = true })"))
+        XCTAssertTrue(source.contains(".sheet(isPresented: $showInvite)"))
+        XCTAssertTrue(source.contains(".task(id: sessionStore.authenticatedUserID) { await loadConnections() }"))
+        XCTAssertFalse(source.contains("await reload(); await loadConnections()"), "Prime Path must not delay connection loading.")
+    }
+
+    func testInvitationAPIFailureThrowsAndRetryTargetsSamePlanAndPerson() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [NativePartyURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        defer { NativePartyURLProtocolStub.handler = nil; session.invalidateAndCancel() }
+        let api = NativePlanAPI(client: BytspotAPIClient(baseURL: URL(string: "https://party.test")!, urlSession: session))
+        var attempts = 0
+        NativePartyURLProtocolStub.handler = { request in
+            XCTAssertEqual(request.url?.path, "/trpc/plans.invite")
+            XCTAssertEqual(request.httpMethod, "POST")
+            let body = try XCTUnwrap(NativePartyURLProtocolStub.bodyData(for: request))
+            XCTAssertEqual(try JSONSerialization.jsonObject(with: body) as? [String: String],
+                           ["planId": "plan-1", "userId": "friend"])
+            attempts += 1
+            return attempts == 1 ? (503, Data("{}".utf8)) : (200, Data("{\"result\":{\"data\":{\"ok\":true}}}".utf8))
+        }
+        do {
+            try await api.invite("plan-1", userId: "friend")
+            XCTFail("A failed invite must remain retryable, not be marked Invited.")
+        } catch { /* Expected; the sheet displays its inline retry message. */ }
+        try await api.invite("plan-1", userId: "friend")
+        XCTAssertEqual(attempts, 2)
+    }
+}
+
 final class NativeAppearanceModeContractTests: XCTestCase {
     func testAppearanceModeInteractiveSelectionContract() {
         XCTAssertEqual(NativeAppearanceMode.defaultsKey, "bytspot_native_appearance_mode")

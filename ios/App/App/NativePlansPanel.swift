@@ -428,6 +428,51 @@ enum NativePlanContract {
 /// person's userId; `name` is their display name from the social graph.
 struct NativePlanConnection: Identifiable, Equatable { let id: String; let name: String }
 
+/// A failed or unfinished social request is not an empty connection list.
+/// Generation/account scoping keeps a retry or account switch from restoring
+/// someone else's invite targets after an older request finishes.
+struct NativePlanConnectionsState {
+    enum Phase: Equatable { case loading, loaded, failed, signedOut }
+    private(set) var phase: Phase = .loading
+    private(set) var connections: [NativePlanConnection] = []
+    private(set) var userID: String?
+    private var generation = UUID()
+
+    mutating func begin(userID: String?) -> UUID {
+        generation = UUID()
+        self.userID = userID
+        connections = []
+        phase = userID == nil ? .signedOut : .loading
+        return generation
+    }
+
+    mutating func finish(_ invitations: [NativeSocialInvitation]?, generation: UUID) {
+        guard self.generation == generation, let userID else { return }
+        guard let invitations else { phase = .failed; return }
+        var seen = Set<String>()
+        connections = invitations.compactMap { invitation in
+            guard invitation.status == "accepted", !invitation.personID.isEmpty,
+                  invitation.personID != userID, seen.insert(invitation.personID).inserted else { return nil }
+            return NativePlanConnection(id: invitation.personID, name: invitation.personName)
+        }
+        phase = .loaded
+    }
+
+    func rows(for userID: String?) -> [NativePlanConnection] {
+        guard let userID, self.userID == userID, phase == .loaded else { return [] }
+        return connections
+    }
+
+    func emptyMessage(participants: [NativePlan.Participant]) -> String? {
+        guard phase == .loaded else { return nil }
+        if connections.isEmpty { return "No connections yet. Connect with people in Network, or share this Plan's invite link." }
+        if NativePlanDisplay.invitableConnections(connections, participants: participants).isEmpty {
+            return "All your connections are already invited or in this Plan."
+        }
+        return nil
+    }
+}
+
 enum NativePlanDisplay {
     static let unbookedLabel = "Not booked"
     static let bookablesFootnote = "Optional selections only. Nothing is requested, reserved or paid for."
@@ -1520,9 +1565,11 @@ struct NativePlanDetailSheet: View {
     @State private var suggestedCoffeeSpotID: String?
     @State private var showBookables = false
     @State private var showInvite = false
-    /// The caller's accepted connections, loaded once alongside the Plan.
-    /// Doubles as the invite source and the name book for the People list.
-    @State private var connections: [NativePlanConnection] = []
+    /// Shared by the invite picker and the People-list name book.
+    @State private var connectionsState = NativePlanConnectionsState()
+    private var connections: [NativePlanConnection] {
+        connectionsState.rows(for: sessionStore.canAttachBearerToken ? sessionStore.authenticatedUserID : nil)
+    }
     /// C3: Prime Path ranked candidates, loaded after the Plan to avoid
     /// blocking the initial render.
     @State private var primePathNeeds: [NativePrimePathNeed] = []
@@ -1545,7 +1592,10 @@ struct NativePlanDetailSheet: View {
         .interactiveDismissDisabled(busy)
         .disabled(busy)
         .accessibilityIdentifier("native-plan-detail-\(planID)")
-        .task { await reload(); await loadConnections() }
+        .task { await reload() }
+        // Do not wait for Plan/Prime Path requests before loading invite targets.
+        .task(id: sessionStore.authenticatedUserID) { await loadConnections() }
+        .onChange(of: sessionStore.authenticatedUserID) { _ in showInvite = false }
         .sheet(isPresented: $showCoffeeAttach) {
             NativeCoffeeAttachSheet(
                 planID: planID,
@@ -1564,10 +1614,13 @@ struct NativePlanDetailSheet: View {
         }
         .sheet(isPresented: $showInvite) {
             NativePlanInviteSheet(
-                people: plan.map { NativePlanDisplay.invitableConnections(connections, participants: $0.participants) } ?? [],
+                connectionsState: $connectionsState,
+                participants: plan?.participants ?? [],
+                onRetry: { await loadConnections() },
                 onInvite: { userId in await inviteUser(userId) },
                 onInviteByText: { if let plan { inviteByText(for: plan) } }
             )
+            .id(sessionStore.authenticatedUserID)
         }
     }
 
@@ -1887,16 +1940,19 @@ struct NativePlanDetailSheet: View {
         NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token }))
     }
 
-    // Connections drive both the invite picker and the People-list name book.
-    // A load failure is silent: the Plan still opens, the People list falls
-    // back to "Bytspot member", and the picker simply shows no one.
     private func loadConnections() async {
-        guard sessionStore.canAttachBearerToken else { return }
-        guard let invites = try? await socialAPI().listSocialInvitationsViaRpc() else { return }
-        var seen = Set<String>()
-        connections = invites.compactMap { invite in
-            guard invite.status == "accepted", seen.insert(invite.personID).inserted else { return nil }
-            return NativePlanConnection(id: invite.personID, name: invite.personName)
+        let userID = sessionStore.canAttachBearerToken ? sessionStore.authenticatedUserID : nil
+        let generation = connectionsState.begin(userID: userID)
+        guard let userID else { return }
+        do {
+            let invitations = try await socialAPI().listSocialInvitationsViaRpc()
+            guard !Task.isCancelled, sessionStore.canAttachBearerToken,
+                  sessionStore.authenticatedUserID == userID else { return }
+            connectionsState.finish(invitations, generation: generation)
+        } catch {
+            guard !Task.isCancelled, sessionStore.canAttachBearerToken,
+                  sessionStore.authenticatedUserID == userID else { return }
+            connectionsState.finish(nil, generation: generation)
         }
     }
 
@@ -1912,10 +1968,21 @@ struct NativePlanDetailSheet: View {
     // Mirrors `run` but returns whether the invite landed, so the sheet only
     // marks a row "Invited" on success and leaves it retryable on failure.
     private func inviteUser(_ userId: String) async -> Bool {
-        guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to update this Plan."; return false }
+        guard !busy, sessionStore.canAttachBearerToken,
+              let plan, NativePlanDisplay.canAddBookables(plan, userID: sessionStore.authenticatedUserID),
+              connections.contains(where: { $0.id == userId }) else { return false }
+        let userID = sessionStore.authenticatedUserID
         busy = true; defer { busy = false }
-        do { try await api().invite(planID, userId: userId); onChanged(); await reload(); return true }
-        catch { errorMessage = "That didn't go through."; return false }
+        do {
+            try await api().invite(planID, userId: userId)
+            guard sessionStore.canAttachBearerToken, sessionStore.authenticatedUserID == userID else { return false }
+            errorMessage = nil
+            onChanged()
+            // A successful invitation is visible immediately; refreshing Plan
+            // and Prime Path must not keep the row stuck on Sending.
+            Task { await reload() }
+            return true
+        } catch { return false }
     }
 }
 
@@ -1924,12 +1991,19 @@ struct NativePlanDetailSheet: View {
 /// whole point: reach the people you already know. Each row is a plain add;
 /// the invitee answers for themselves from their own Plan list.
 private struct NativePlanInviteSheet: View {
-    let people: [NativePlanConnection]
+    @Binding var connectionsState: NativePlanConnectionsState
+    let participants: [NativePlan.Participant]
+    let onRetry: () async -> Void
     let onInvite: (String) async -> Bool
     let onInviteByText: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var invited: Set<String> = []
     @State private var busyID: String?
+    @State private var inviteError: String?
+
+    private var participantIDs: Set<String> {
+        Set(NativePlanDisplay.visibleParticipants(participants).map(\.userId))
+    }
 
     var body: some View {
         ScrollView {
@@ -1937,24 +2011,47 @@ private struct NativePlanInviteSheet: View {
                 HStack {
                     Text("Invite people").font(.system(size: 22, weight: .black)).foregroundColor(NativeTheme.textPrimary)
                     Spacer()
-                    Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 24, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 24, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain).disabled(busyID != nil)
+                    .accessibilityLabel("Close invitations")
                 }
                 Text("People you're connected to on Bytspot. Inviting adds them to the Plan; each person still answers for themselves.")
                     .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
-                if people.isEmpty {
-                    Text("No connections yet. Connect with people in Network, then invite them here.")
-                        .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
-                } else {
-                    ForEach(people) { person in
+                switch connectionsState.phase {
+                case .loading:
+                    ProgressView("Loading connections…").tint(NativeTheme.textSecondary)
+                        .foregroundColor(NativeTheme.textSecondary)
+                        .accessibilityIdentifier("native-plan-connections-loading")
+                case .failed:
+                    Text("Couldn't load your connections. Try again.")
+                        .font(.subheadline).foregroundColor(NativeTheme.orange)
+                        .accessibilityIdentifier("native-plan-connections-error")
+                    Button("Retry") { Task { await onRetry() } }
+                        .buttonStyle(.plain).foregroundColor(NativeTheme.cyan)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("native-plan-connections-retry")
+                case .signedOut:
+                    Text("Sign in to invite your Bytspot connections.")
+                        .font(.subheadline).foregroundColor(NativeTheme.textSecondary)
+                case .loaded:
+                    if let message = connectionsState.emptyMessage(participants: participants) {
+                        Text(message).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                            .accessibilityIdentifier("native-plan-connections-empty")
+                    }
+                    ForEach(connectionsState.connections) { person in
                         HStack {
                             Text(person.name).font(.system(size: 14, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
                             Spacer()
-                            if invited.contains(person.id) {
-                                Text("Invited").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.purple)
+                            if invited.contains(person.id) || participantIDs.contains(person.id) {
+                                Text(invited.contains(person.id) ? "Invited" : "Already invited / in Plan")
+                                    .font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.purple)
                             } else {
-                                Button(action: { Task { busyID = person.id; if await onInvite(person.id) { invited.insert(person.id) }; busyID = nil } }) {
-                                    Text(busyID == person.id ? "..." : "Invite").font(.system(size: 12, weight: .black)).foregroundColor(.white)
-                                        .padding(.horizontal, 12).padding(.vertical, 6)
+                                Button(action: { sendInvite(to: person) }) {
+                                    Text(busyID == person.id ? "Sending…" : "Invite").font(.system(size: 12, weight: .black)).foregroundColor(.white)
+                                        .padding(.horizontal, 12).frame(minHeight: 44)
                                         .background(NativeTheme.purple).clipShape(Capsule())
                                 }
                                 .buttonStyle(.plain).disabled(busyID != nil)
@@ -1963,6 +2060,10 @@ private struct NativePlanInviteSheet: View {
                         }
                         .padding(10).background(planRowBackground).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
+                }
+                if let inviteError {
+                    Text(inviteError).font(.subheadline).foregroundColor(NativeTheme.orange)
+                        .accessibilityIdentifier("native-plan-invite-error")
                 }
                 // Someone not on Bytspot yet: the creator shares the plan link
                 // from their own device, so Bytspot never handles a phone
@@ -1985,7 +2086,25 @@ private struct NativePlanInviteSheet: View {
             }
             .padding(20)
         }
+        // Sheets own their ground: white theme text is otherwise invisible
+        // against the system's default Light Mode presentation background.
+        .background(NativeDeepSpaceGround())
+        .interactiveDismissDisabled(busyID != nil)
         .accessibilityIdentifier("native-plan-invite-sheet")
+    }
+
+    private func sendInvite(to person: NativePlanConnection) {
+        guard busyID == nil, !invited.contains(person.id), !participantIDs.contains(person.id) else { return }
+        busyID = person.id
+        inviteError = nil
+        Task {
+            defer { busyID = nil }
+            if await onInvite(person.id) {
+                invited.insert(person.id)
+            } else {
+                inviteError = "Couldn't invite \(person.name). Tap Invite to try again."
+            }
+        }
     }
 }
 

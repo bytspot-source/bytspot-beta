@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 @testable import App
 
 @MainActor
@@ -282,6 +283,16 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertFalse(NativeVenueSavedState.toggle(venueID: "venue", userID: "one", defaults: defaults))
     }
 
+    func testDiscoverAndMountedDetailReloadOnAccountInvalidationNotOnlyUserID() throws {
+        let shell = try shellSource()
+        XCTAssertTrue(shell.contains(".task(id: transactions.accountRevision) { await refreshTransactions() }"))
+        XCTAssertTrue(shell.contains(".task(id: transactions.accountRevision) { await refreshDetailTransactions() }"))
+        XCTAssertFalse(shell.contains(".task(id: catalogUserID) { await refreshTransactions() }"))
+        XCTAssertFalse(shell.contains(".task(id: detailUserID) { await refreshDetailTransactions() }"))
+        let credentialChange = try region(in: shell, from: ".onChange(of: sessionStore.token ?? \"\")", to: ".onChange(of: sessionStore.authenticatedUserID)")
+        XCTAssertTrue(credentialChange.contains("synchronizePlaceAccount(forceReset: true)"))
+    }
+
     private func shellSource() throws -> String {
         let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("App/NativeShellView.swift")
@@ -511,6 +522,71 @@ final class NativeDiscoverTransactionTests: XCTestCase {
         })
         XCTAssertEqual(store.userID, "new-user")
         XCTAssertFalse(store.hasLoaded)
+    }
+
+    func testSameUserCredentialResetPublishesNewRefreshIdentity() async {
+        let store = NativeDiscoverTransactionStore()
+        store.synchronize(userID: "user-1")
+        await store.refresh(userID: "user-1", load: { [self.plan([self.item()])] })
+        let previousRevision = store.accountRevision
+        var revisions: [UUID] = []
+        let observation = store.$accountRevision.sink { revisions.append($0) }
+        defer { observation.cancel() }
+
+        store.synchronize(userID: "user-1", forceReset: true)
+
+        XCTAssertEqual(store.userID, "user-1")
+        XCTAssertNotEqual(store.accountRevision, previousRevision)
+        XCTAssertEqual(revisions, [previousRevision, store.accountRevision])
+        XCTAssertFalse(store.hasLoaded)
+        XCTAssertNil(store.transaction(for: offering(), userID: "user-1"))
+        // The newly keyed view task reloads even though its user ID is unchanged.
+        await store.refresh(userID: "user-1", load: { [self.plan([self.item()], id: "renewed-plan")] })
+        XCTAssertTrue(store.hasLoaded)
+        XCTAssertFalse(store.isLoading)
+        XCTAssertFalse(store.failed)
+        XCTAssertEqual(store.transaction(for: offering(), userID: "user-1")?.planID, "renewed-plan")
+        XCTAssertEqual(revisions.count, 2, "Loading and completion must not restart the view task")
+    }
+
+    func testRefreshIdentityIsStableUntilAccountOrCredentialInvalidation() async {
+        let store = NativeDiscoverTransactionStore()
+        store.synchronize(userID: "user-1")
+        let signedInRevision = store.accountRevision
+        store.synchronize(userID: "user-1")
+        await store.refresh(userID: "user-1", load: { throw TestFailure.unavailable })
+        XCTAssertEqual(store.accountRevision, signedInRevision)
+        await store.refresh(userID: "user-1", load: { [] })
+        XCTAssertEqual(store.accountRevision, signedInRevision)
+
+        store.synchronize(userID: "user-2")
+        XCTAssertNotEqual(store.accountRevision, signedInRevision)
+        let otherRevision = store.accountRevision
+        store.synchronize(userID: nil)
+        XCTAssertNotEqual(store.accountRevision, otherRevision)
+        let signedOutRevision = store.accountRevision
+        await store.refresh(userID: nil, load: { XCTFail("Signed-out refresh must not load"); return [] })
+        store.synchronize(userID: nil)
+        XCTAssertEqual(store.accountRevision, signedOutRevision)
+        XCTAssertFalse(store.hasLoaded)
+    }
+
+    func testRenewalReloadRejectsStaleSuccessAndFailureFromPreviousCredential() async {
+        for shouldFail in [false, true] {
+            let store = NativeDiscoverTransactionStore()
+            let suspended = SuspendedLoad()
+            let old = await startRefresh(store, userID: "user-1", suspended: suspended)
+            store.synchronize(userID: "user-1", forceReset: true)
+            let renewedRevision = store.accountRevision
+            await store.refresh(userID: "user-1", load: { [self.plan([self.item()], id: "renewed-plan")] })
+            suspended.finish(shouldFail ? .failure(TestFailure.unavailable) : .success([plan([item()], id: "stale-plan")]))
+            await old.value
+            XCTAssertEqual(store.accountRevision, renewedRevision)
+            XCTAssertTrue(store.hasLoaded)
+            XCTAssertFalse(store.failed)
+            XCTAssertFalse(store.isLoading)
+            XCTAssertEqual(store.transaction(for: offering(), userID: "user-1")?.planID, "renewed-plan")
+        }
     }
 
     private enum TestFailure: Error { case unavailable }

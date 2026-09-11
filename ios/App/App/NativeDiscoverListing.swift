@@ -471,6 +471,9 @@ final class NativeDiscoverTransactionStore: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var failed = false
     @Published private(set) var hasLoaded = false
+    /// Credential-free task identity. Changes only after account invalidation,
+    /// not during a request, so mounted surfaces reload without a refresh loop.
+    @Published private(set) var accountRevision = UUID()
     @Published private var plans: [NativePlan] = []
     private var generation = UUID()
 
@@ -482,6 +485,7 @@ final class NativeDiscoverTransactionStore: ObservableObject {
         isLoading = false
         failed = false
         hasLoaded = false
+        accountRevision = UUID()
     }
 
     func refresh(userID: String?, api: NativePlanAPI) async {

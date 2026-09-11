@@ -11211,7 +11211,7 @@ private struct NativeDiscoverView: View {
         .onAppear { locationStore.startIfAuthorized(); applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested() }
         .task { await refreshDiscoverFeedOnOpen() }
         .task(id: catalogTaskID) { await loadBookables() }
-        .task(id: catalogUserID) { await refreshTransactions() }
+        .task(id: transactions.accountRevision) { await refreshTransactions() }
         .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidChange)) { _ in
             Task { await refreshTransactions() }
         }
@@ -12020,7 +12020,7 @@ private struct NativeVenueDetailView: View {
             })
         }
         .task(id: venue.id) { await loadSuppliedDetails() }
-        .task(id: detailUserID) { await refreshDetailTransactions() }
+        .task(id: transactions.accountRevision) { await refreshDetailTransactions() }
         .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidChange)) { _ in
             Task { await refreshDetailTransactions() }
         }

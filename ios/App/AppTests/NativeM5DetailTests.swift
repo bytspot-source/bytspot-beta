@@ -38,6 +38,11 @@ final class NativeM5DetailTests: XCTestCase {
     func testMapStartupAssertionsKeepUnverifiedHoursUnknown() {
         NativeMapParitySelfTests.runIfRequested()
     }
+
+    func testAllDebugStartupAssertionsMatchCurrentAppContracts() {
+        // This is the same complete ordered guard list called by the app root.
+        NativeStartupSelfTests.run()
+    }
     #endif
 
     func testListedDefaultsToRouteAndAddToPlanWithoutControl() {

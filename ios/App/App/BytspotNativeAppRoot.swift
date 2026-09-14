@@ -124,6 +124,35 @@ final class NativeAppearanceRuntimeStore: ObservableObject {
     }
 }
 
+#if DEBUG
+/// A single list for real opt-in startup and XCTest. Keeping separate lists
+/// allowed focused tests to pass while the next launch assertion still trapped.
+@MainActor
+enum NativeStartupSelfTests {
+    static func run() {
+        NativeAuthSeamSelfTests.runIfRequested()
+        NativeAuthSplashSelfTests.runIfRequested()
+        NativeLaunchQuizIntentSelfTests.runIfRequested()
+        NativeJourneyThemeSelfTests.runIfRequested()
+        NativePatchRouteSelfTests.runIfRequested()
+        NativePatchBookingSelfTests.runIfRequested()
+        NativePatchSpecialFlowSelfTests.runIfRequested()
+        NativeShellThemeSelfTests.runIfRequested()
+        NativeHomeParitySelfTests.runIfRequested()
+        NativePostAuthIntentSelfTests.runIfRequested()
+        NativeMapParitySelfTests.runIfRequested()
+        NativeAccessParitySelfTests.runIfRequested()
+        NativeBookingParitySelfTests.runIfRequested()
+        NativeAccountParitySelfTests.runIfRequested()
+        NativeDiscoverParitySelfTests.runIfRequested()
+        NativeConciergeParitySelfTests.runIfRequested()
+        NativePhase4TabContentSelfTests.runIfRequested()
+        NativeContactSyncSelfTests.runIfRequested()
+        NativeMenuParitySelfTests.runIfRequested()
+    }
+}
+#endif
+
 struct BytspotNativeAppRoot: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var sessionStore = BytspotSessionStore()
@@ -148,25 +177,7 @@ struct BytspotNativeAppRoot: View {
     init() {
         #if DEBUG
         if NativeMigrationConfig.shouldRunDebugSelfTests {
-            NativeAuthSeamSelfTests.runIfRequested()
-            NativeAuthSplashSelfTests.runIfRequested()
-            NativeLaunchQuizIntentSelfTests.runIfRequested()
-            NativeJourneyThemeSelfTests.runIfRequested()
-            NativePatchRouteSelfTests.runIfRequested()
-            NativePatchBookingSelfTests.runIfRequested()
-            NativePatchSpecialFlowSelfTests.runIfRequested()
-            NativeShellThemeSelfTests.runIfRequested()
-            NativeHomeParitySelfTests.runIfRequested()
-            NativePostAuthIntentSelfTests.runIfRequested()
-            NativeMapParitySelfTests.runIfRequested()
-            NativeAccessParitySelfTests.runIfRequested()
-            NativeBookingParitySelfTests.runIfRequested()
-            NativeAccountParitySelfTests.runIfRequested()
-            NativeDiscoverParitySelfTests.runIfRequested()
-            NativeConciergeParitySelfTests.runIfRequested()
-            NativePhase4TabContentSelfTests.runIfRequested()
-            NativeContactSyncSelfTests.runIfRequested()
-            NativeMenuParitySelfTests.runIfRequested()
+            NativeStartupSelfTests.run()
         }
         #endif
     }

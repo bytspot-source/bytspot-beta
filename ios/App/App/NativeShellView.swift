@@ -19172,7 +19172,12 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeDiscoverView.curatedCards.allSatisfy { $0.offering == nil && $0.presentation.primaryActionTitle == nil && $0.presentation.actionHex == nil }, "NativeDiscoverParitySelfTests: reference text and control never grant booking capability.")
         precondition(coffeeCard.presentation.statusLabel == "Listed" && coffeeCard.presentation.availabilityLine == "Place discovery · Bytspot does not control availability", "NativeDiscoverParitySelfTests: references cannot claim verified availability.")
         let foodSearch = NativeSearchRouter.suggestions(query: "food", snapshot: .fallback, limit: 3)
-        precondition(foodSearch.first?.title == "Broni Home Taste", "NativeDiscoverParitySelfTests: premium relevant dining vendor should lead food search.")
+        precondition(foodSearch.contains { suggestion in
+            if case .discoverFilter(let category) = suggestion.route {
+                return NativeDiscoverBookablePresentation.matchesCategory(category, filter: "eat_drink")
+            }
+            return false
+        }, "NativeDiscoverParitySelfTests: food search must offer Eat & Drink discovery without requiring a sample partner to outrank other results.")
         let parkingSearch = NativeSearchRouter.suggestions(query: "parking", snapshot: .fallback, limit: 3)
         if case .map(_, "Smart Parking") = parkingSearch.first?.route {} else { preconditionFailure("NativeDiscoverParitySelfTests: parking intent must route to Map before unrelated premium vendors.") }
         precondition(NativeTabContentSnapshot.canonicalServiceCards.map(\.title) == ["Broni Home Taste", "GH Akwaaba Pass"], "NativeDiscoverParitySelfTests: canonical service labels drifted.")

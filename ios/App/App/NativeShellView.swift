@@ -18866,9 +18866,12 @@ enum NativeMapParitySelfTests {
 	        precondition(NativeVendorExperience.actionTitle(for: NativeVenueDetailContract.actions.first(where: { $0.id == "call" })!, venue: broniVenue) == "Contact", "NativeMapParitySelfTests: Broni dining detail call action must read Contact.")
 	        precondition(NativeVendorExperience.actionTitle(for: NativeVenueDetailContract.actions.first(where: { $0.id == "navigate" })!, venue: broniVenue) == "Route", "NativeMapParitySelfTests: Broni dining detail navigation action must read Route.")
         precondition(NativeVendorExperience.headerBadgeTitle(for: NativeVenueSummary(id: "patch", name: "Approved Patch Venue", category: "dining", address: "Atlanta", distance: "0.4 mi", rating: 4.9, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Free"), verifiedPatchId: "BYT424-0301-P", imageUrl: nil)) == "VERIFIED PATCH", "NativeMapParitySelfTests: real patch/vendor-approved details must claim VERIFIED PATCH authentication.")
-        precondition(NativeVenueHours.openStatus(category: "coffee", hour: 8, minute: 0, weekday: 3).label == "Open Now", "NativeMapParitySelfTests: coffee venue must read Open Now at 8am (parity with venueHours.ts).")
-        precondition(NativeVenueHours.openStatus(category: "coffee", hour: 5, minute: 0, weekday: 3).isOpen == false, "NativeMapParitySelfTests: coffee venue must read closed at 5am (parity with venueHours.ts).")
-        precondition(NativeVenueHours.openStatus(category: "gallery", hour: 12, minute: 0, weekday: 3).label == "Hours pending", "NativeMapParitySelfTests: unverified categories must show the gray Hours pending tone, never fabricated default hours.")
+        // Category schedules are not verified venue hours. Keep the startup
+        // contract aligned with the fail-closed policy used by the XCTest suite.
+        for (category, hour) in [("coffee", 8), ("coffee", 5), ("gallery", 12)] {
+            let status = NativeVenueHours.openStatus(category: category, hour: hour, minute: 0, weekday: 3)
+            precondition(status.label == "Hours unknown" && !status.isOpen && status.detail == NativeM5DetailPolicy.hoursUnknown, "NativeMapParitySelfTests: missing venue-provided hours must remain unknown at every time, never inferred open from category.")
+        }
         precondition(NativeMapExploreView.verifiedZoneRadiusMeters == 120, "NativeMapParitySelfTests: VERIFIED_ZONE_RADIUS proximity gate drifted from React MapSection 120 m.")
         precondition(NativeMapExploreView.proximityOverrideEnvironmentKey == "BYT_NATIVE_MAP_PROXIMITY_METERS", "NativeMapParitySelfTests: proximity simulator override env key drifted.")
         precondition(NativeMapExploreView.suppressLocationPromptEnvironmentKey == "BYT_NATIVE_SUPPRESS_LOCATION_PROMPT", "NativeMapParitySelfTests: screenshot location-prompt suppression env key drifted.")

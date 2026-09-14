@@ -28,6 +28,14 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(header.contains("openNativeProfile(panel: nil)"))
     }
 
+    #if DEBUG
+    func testHomeStartupAssertionsAcceptListedPartnerWithoutGrantingControl() {
+        // Exercise the actual opt-in launch assertions, not just the detail
+        // projection. A passing UI policy suite previously missed this trap.
+        NativeHomeParitySelfTests.runIfRequested()
+    }
+    #endif
+
     func testListedDefaultsToRouteAndAddToPlanWithoutControl() {
         let listed = NativeDiscoverBookablePresentation()
         XCTAssertEqual(listed.statusLabel, "Listed")

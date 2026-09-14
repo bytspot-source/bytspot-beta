@@ -37,6 +37,70 @@ enum NativeVenueActionKind: Equatable {
     case handoff
 }
 
+/// Stable service-intent vocabulary. A category, vendor name, badge, or curated
+/// placement never promotes one of these rows into an executable capability.
+enum NativeVendorCapabilityIntent: String, CaseIterable, Equatable {
+    case booking
+    case ordering
+    case requesting
+
+    var title: String { rawValue.capitalized }
+}
+
+/// The currently mounted continuation for a capability row. Keeping this apart
+/// from intent and transaction state prevents a visual treatment from becoming
+/// fulfillment authority.
+enum NativeVendorExecutableRoute: Equatable {
+    case requestCoffee
+    case external(URL)
+    case unavailable
+}
+
+struct NativeVendorCapabilityRow: Identifiable, Equatable {
+    var id: String { intent.rawValue }
+    let intent: NativeVendorCapabilityIntent
+    let detail: String
+    let route: NativeVendorExecutableRoute
+
+    var isExecutable: Bool { route != .unavailable }
+    var actionTitle: String? {
+        switch route {
+        case .requestCoffee: return "Request"
+        case .external: return "Open provider ↗"
+        case .unavailable: return nil
+        }
+    }
+}
+
+enum NativeVendorCapabilityTable {
+    static let stableTokens = NativeVendorCapabilityIntent.allCases.map(\.rawValue)
+
+    static func rows(for presentation: NativeDiscoverBookablePresentation) -> [NativeVendorCapabilityRow] {
+        NativeVendorCapabilityIntent.allCases.map { intent in
+            switch intent {
+            case .booking:
+                if case .redirect = presentation.capability, let url = presentation.externalURL {
+                    return .init(intent: intent,
+                        detail: "Availability and confirmation stay with the named provider.", route: .external(url))
+                }
+                return .init(intent: intent,
+                    detail: "No controlled booking route is connected for this listing.", route: .unavailable)
+            case .ordering:
+                return .init(intent: intent,
+                    detail: "Menu links are for browsing; no ordering endpoint is connected.", route: .unavailable)
+            case .requesting:
+                if presentation.capability == .request {
+                    return .init(intent: intent,
+                        detail: "Send a table request after adding the exact offering to a Plan. Subject to acceptance.",
+                        route: .requestCoffee)
+                }
+                return .init(intent: intent,
+                    detail: "No request route is connected for this listing.", route: .unavailable)
+            }
+        }
+    }
+}
+
 enum NativeVenueDetailContract {
     static let surfaceCapability: BytspotTrustCapability = .viewVenue
     static let checkinEndpoint = "venues.checkin"
@@ -66,7 +130,7 @@ enum NativeVenueDetailContract {
     static var actionIDs: [String] { actions.map(\.id) }
 }
 
-enum NativeVenueDetailPresentation {
+enum NativeVendorExperience {
     /// Mirrors the server fence so the copy can be honest before the round
     /// trip. The server decides — this only governs what we promise.
     static let fenceMetres: Double = 250
@@ -161,6 +225,11 @@ enum NativeVenueDetailPresentation {
     }
 }
 
+// Source compatibility for callers outside the native shell while the renamed
+// file/type rolls out. New code should use NativeVendorExperience.
+@available(*, deprecated, renamed: "NativeVendorExperience")
+typealias NativeVenueDetailPresentation = NativeVendorExperience
+
 struct NativeVenueDetailSection: Equatable {
     let title: String
     let subtitle: String
@@ -186,7 +255,7 @@ enum NativeM5DetailPolicy {
     static func canValidateVisit(_ venue: NativeVenueSummary) -> Bool {
         guard let id = venue.checkInVenueID, !id.isEmpty,
               id == venue.id else { return false }
-        return NativeVenueDetailPresentation.supportsManualCheckIn(venue)
+        return NativeVendorExperience.supportsManualCheckIn(venue)
     }
 
     static func distance(to venue: NativeVenueSummary, location: CLLocation?, authorized: Bool, now: Date = Date()) -> String? {
@@ -225,7 +294,7 @@ enum NativeM5DetailPolicy {
                                isCatalogSource: Bool = false) -> [NativeVenueDetailAction] {
         // A catalog source key is not a venues.checkin venue ID, even after
         // an account change invalidates the exact offering's action authority.
-        let canCheckIn = !isCatalogSource && offering == nil && NativeVenueDetailPresentation.supportsManualCheckIn(venue)
+        let canCheckIn = !isCatalogSource && offering == nil && NativeVendorExperience.supportsManualCheckIn(venue)
         let ids = canCheckIn ? ["save", "share", "checkIn"] : ["save", "share"]
         return ids.compactMap { id in NativeVenueDetailContract.actions.first { $0.id == id } }
     }

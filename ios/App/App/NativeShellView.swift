@@ -397,7 +397,8 @@ struct BytspotNativeShellView: View {
                     case .plan:
                         NativePlanTabView(sessionStore: sessionStore, openDiscoverFilter: openDiscoverFilter, openMap: { selectNativeTab(.map) }, onCancel: { selectNativeTab(.home) }, onSavingChanged: { isPlanSaving = $0 })
                     case .discover:
-                        NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
+                        NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, hostStudioCircles: hostStudioCircles, membershipTier: membershipStore.tier, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
+                            .task { await loadHostStudioCircles() }
                     case .map:
                         NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membershipTier: membershipStore.tier, plainOpenGeneration: plainMapOpenGeneration, handoffMapCenter: navigation.requestedMapCenter)
                             .environmentObject(pairingStore)
@@ -1239,7 +1240,7 @@ private struct NativeMobilityHandoffConfirmationCard: View {
 
 /// Read-only continuation for App Clip Party Pass handoffs. Participation is
 /// deliberately absent until a Party-specific server-authorized action exists.
-private struct NativePartyPassPreview: View {
+struct NativePartyPassPreview: View {
     enum LoadState {
         case loading
         case loaded(NativePartyPassRecord)
@@ -10993,14 +10994,15 @@ enum NativeDiscoverBrowsePolicy {
     }
 
     static func categoryLabel(_ category: String) -> String {
+        if let railID = NativeDiscoverRailRegistry.resolve(category),
+           let rail = NativeDiscoverRailRegistry.rails.first(where: { $0.id == railID }) { return rail.title }
         guard let rail = NativeDiscoverBookablePresentation.rail(category: category),
               let index = NativeDiscoverBookablePresentation.railTokens.firstIndex(of: rail) else { return "Other" }
         return NativeDiscoverBookablePresentation.railLabels[index]
     }
 
-    static func matchesCategory(_ offering: NativePlanBookableOffering, filter: String?) -> Bool {
-        guard let filter, filter != "all" else { return true }
-        return NativeDiscoverBookablePresentation.rail(category: offering.category) == filter
+    static func matchesCategory(_ offering: NativePlanBookableOffering, rail: NativeDiscoverRailID) -> Bool {
+        NativeDiscoverRailRegistry.rails(for: offering).contains(rail)
     }
 
     static func sourceLine(offering: NativePlanBookableOffering?) -> String {
@@ -11034,11 +11036,15 @@ enum NativeDiscoverBrowsePolicy {
     }
 
     static func partyRoute(offering: NativePlanBookableOffering) -> NativePartyPassRoute? {
+        guard offering.sourceKind == .party else { return nil }
+        return partyRoute(partyID: offering.sourceId)
+    }
+
+    static func partyRoute(partyID: String) -> NativePartyPassRoute? {
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-:")
-        guard offering.sourceKind == .party, !offering.sourceId.isEmpty,
-              offering.sourceId.unicodeScalars.allSatisfy({ allowed.contains($0) }),
-              let url = URL(string: "https://bytspot.app/party/\(offering.sourceId)"),
-              let route = NativePartyPassRoute(url: url), route.partyID == offering.sourceId else { return nil }
+        guard !partyID.isEmpty, partyID.unicodeScalars.allSatisfy({ allowed.contains($0) }),
+              let url = URL(string: "https://bytspot.app/party/\(partyID)"),
+              let route = NativePartyPassRoute(url: url), route.partyID == partyID else { return nil }
         return route
     }
 }
@@ -11124,11 +11130,14 @@ private struct NativeDiscoverView: View {
     let openDirectRoute: (NativeVenueSummary) -> Void
     let openNativeAccess: () -> Void
     let openNativeAuth: () -> Void
+    let hostStudioCircles: [NativeSocialCircle]
+    let membershipTier: BytspotTier
     var onRideBookingCompleted: (NativeMobilityRideRecord) -> Void = { _ in }
     var handoffFilter: String? = nil
     var consumeHandoffFilter: () -> Void = {}
-    @State private var selectedFilter: String? = Self.previewFilter
+    @State private var selectedRail: NativeDiscoverRailID = Self.previewRail
     @State private var catalog = NativeDiscoverCatalogState()
+    @State private var partyHydration = NativeDiscoverPartyHydrationState()
     @State private var catalogReloadID = UUID()
     @State private var planSelection: NativeDiscoverPlanSelection?
     @State private var planIntent = NativeDiscoverPlanIntent()
@@ -11139,6 +11148,7 @@ private struct NativeDiscoverView: View {
     @State private var detailOffering: NativePlanBookableOffering?
     @State private var routeVenue: NativeVenueSummary?
     @State private var discoverStatusMessage: String?
+    @State private var showHostStudio = false
     @ObservedObject private var transactions = NativeDiscoverTransactionStore.shared
     @State private var transactionPlan: NativeDiscoverPlanDestination?
     @EnvironmentObject private var sessionStore: BytspotSessionStore
@@ -11175,16 +11185,18 @@ private struct NativeDiscoverView: View {
 
         var address: String? = nil
         var offering: NativePlanBookableOffering? = nil
+        var party: NativePartyPassRecord? = nil
+        var partyDetailsFailed = false
         var presentation: NativeDiscoverBookablePresentation { NativeDiscoverBrowsePolicy.presentation(offering: offering) }
         var executableActionTitle: String? { offering?.sourceKind == .party ? "View party" : NativeM5DetailPolicy.primaryTitle(for: presentation) }
         var browseID: String { offering.map { "offering:\($0.selection.id)" } ?? "reference:\(id)" }
     }
 
-    static let categoryLabels = NativeDiscoverBookablePresentation.railLabels
+    static let categoryLabels = NativeDiscoverRailRegistry.rails.map(\.title)
 #if DEBUG
-    static let categoryRailRegressionOrderDescription = "All → Boutique Stay → Mobility → Nightlife → Dining → Coffee → Shopping → Events → Services → Fitness → Parking"
-    static let categoryRailRegressionFilterOrder = ["all", "boutique_apartment", "mobility", "nightlife", "dining", "coffee", "shopping", "entertainment", "service", "fitness", "parking"]
-    static func debugCategoryRailFilterOrder() -> [String] { categoryLabels.map { Self.filterValue(for: $0) ?? "all" } }
+    static let categoryRailRegressionOrderDescription = "Explore → Eat & Drink → Shop & Style → Experience → Social → Events → Wellness → Create & Learn → Nightlife → Stay → Move → Celebrate → Services → HOST"
+    static let categoryRailRegressionFilterOrder = NativeDiscoverRailRegistry.rails.map { $0.id.rawValue }
+    static func debugCategoryRailFilterOrder() -> [String] { NativeDiscoverRailRegistry.rails.map { $0.id.rawValue } }
 #endif
     static let visibleSectionOrder = ["filters", "feed"]
     static let filterRowCount = 1
@@ -11211,6 +11223,7 @@ private struct NativeDiscoverView: View {
         .onAppear { locationStore.startIfAuthorized(); applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested() }
         .task { await refreshDiscoverFeedOnOpen() }
         .task(id: catalogTaskID) { await loadBookables() }
+        .task(id: partyHydrationTaskID) { await hydrateVisibleParties() }
         .task(id: transactions.accountRevision) { await refreshTransactions() }
         .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidChange)) { _ in
             Task { await refreshTransactions() }
@@ -11281,6 +11294,9 @@ private struct NativeDiscoverView: View {
                 } }
             }
         }
+        .sheet(isPresented: $showHostStudio) {
+            NativeHostStudioView(circles: hostStudioCircles, membershipTier: membershipTier)
+        }
         .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-discover-depth")
     }
@@ -11317,7 +11333,7 @@ private struct NativeDiscoverView: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Discover").font(.title2.bold()).foregroundColor(.white)
-                Text("Places, rides, services and parking")
+                Text(selectedRail == .host ? "Public parties and your next hosted moment" : "Real places, parties, services and ways to move")
                     .font(.subheadline).foregroundColor(.white.opacity(0.75))
             }
             Spacer(minLength: 8)
@@ -11329,12 +11345,12 @@ private struct NativeDiscoverView: View {
     private var categoryRail: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(Self.categoryLabels, id: \.self) { label in
+                ForEach(NativeDiscoverRailRegistry.rails) { rail in
                     NativeDiscoverFilterChip(
-                        title: label,
-                        active: active(label)
+                        title: rail.title,
+                        active: selectedRail == rail.id
                     ) {
-                        selectedFilter = Self.filterValue(for: label)
+                        selectedRail = rail.id
                     }
                 }
             }
@@ -11344,9 +11360,17 @@ private struct NativeDiscoverView: View {
 
     private var discoverDeck: some View {
         LazyVStack(spacing: 24) {
+            if selectedRail == .host { hostEntry }
             if rankedCards.isEmpty {
-                Button("No options in this category. Show All") { selectedFilter = nil }
-                    .font(.headline).foregroundColor(.white).frame(minHeight: 44)
+                VStack(alignment: .leading, spacing: 8) {
+                    if selectedRail == .host && catalogUserID == nil {
+                        Text("Sign in to see public HOST parties in the current catalog.")
+                        Button("Sign in") { openNativeAuth() }.frame(minHeight: 44)
+                    } else {
+                        Text("No matching offerings in the current returned catalog.")
+                        Button("Show Explore") { selectedRail = .explore }.frame(minHeight: 44)
+                    }
+                }.font(.headline).foregroundColor(.white)
             } else {
                 ForEach(rankedCards, id: \.browseID) { card in
                     NativeDiscoverFeatureCard(card: card, venue: venueForDetail(card),
@@ -11394,6 +11418,24 @@ private struct NativeDiscoverView: View {
         .accessibilityIdentifier("native-discover-card-deck")
     }
 
+    private var hostEntry: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Create a party", systemImage: "sparkles").font(.title3.bold())
+            Text("Open Host Studio to shape and publish a party. Creation is separate from the public party collection below.")
+                .font(.subheadline).foregroundColor(.white.opacity(0.76))
+            Button("Create a party") {
+                if catalogUserID == nil { openNativeAuth() } else { showHostStudio = true }
+            }
+            .font(.headline).foregroundColor(.black).frame(maxWidth: .infinity, minHeight: 48)
+            .background(Color.white).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .buttonStyle(NativePremiumPressStyle())
+            .accessibilityIdentifier("native-discover-host-create")
+        }
+        .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+        .nativeFrostedSurface()
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
     private func refreshDiscoverFeedOnOpen() async {
         applyFilterHandoffIfRequested()
         applyShellFilterHandoffIfRequested()
@@ -11413,10 +11455,18 @@ private struct NativeDiscoverView: View {
     private var rankedCards: [DiscoverCardSpec] {
         // Preserve the existing location/safety visibility filter. A reference
         // never acquires supply identity by sharing a title with an offering.
-        let references = NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot, matching: selectedFilter).map(Self.spec(from:))
+        let references = NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot)
+            .filter(NativeDiscoverRailRegistry.isTrustedReference)
+            .filter { NativeDiscoverRailRegistry.referenceRails(for: $0.type).contains(selectedRail) }
+            .map(Self.spec(from:))
         let offerings = catalog.rows(for: catalogUserID).filter {
-            NativeDiscoverBrowsePolicy.matchesCategory($0, filter: selectedFilter)
-        }.map(Self.spec(offering:))
+            NativeDiscoverBrowsePolicy.matchesCategory($0, rail: selectedRail)
+                && partyHydration.isVisible($0, userID: catalogUserID)
+        }.map { offering in
+            Self.spec(offering: offering, rail: selectedRail,
+                      party: partyHydration.record(for: offering, userID: catalogUserID),
+                      partyDetailsFailed: partyHydration.failedToHydrate(offering, userID: catalogUserID))
+        }
         return (references + offerings).sorted { first, second in
             NativeDiscoverBrowsePolicy.precedes(
                 supported: first.presentation.primaryActionTitle != nil, relevance: searchScore(for: first), id: first.browseID,
@@ -11425,28 +11475,29 @@ private struct NativeDiscoverView: View {
     }
 
     private func searchScore(for card: DiscoverCardSpec) -> Int {
-        NativeSearchRouter.discoverScore(query: selectedFilter ?? "", categoryHint: selectedFilter,
+        NativeSearchRouter.discoverScore(query: selectedRail.rawValue, categoryHint: selectedRail.rawValue,
             title: card.title, subtitle: card.subtitle, type: card.type, categoryLabel: card.categoryLabel,
             metadataLine: "", features: [], verified: false, premium: false, vibeScore: 0)
     }
 
-    private static func spec(offering: NativePlanBookableOffering) -> DiscoverCardSpec {
-        let rail = NativeDiscoverBookablePresentation.rail(category: offering.category) ?? offering.category
-        return DiscoverCardSpec(id: offering.selection.id, type: rail, title: offering.title,
-            subtitle: offering.subtitle ?? "", distance: "", rating: "", icon: "square.grid.2x2",
-            verified: false, entryType: "", cta: "Add to Plan", imageUrl: nil,
-            categoryLabel: NativeDiscoverBrowsePolicy.categoryLabel(rail), badgeText: "", metadataLine: "",
+    private static func spec(offering: NativePlanBookableOffering, rail: NativeDiscoverRailID,
+                             party: NativePartyPassRecord?, partyDetailsFailed: Bool) -> DiscoverCardSpec {
+        return DiscoverCardSpec(id: offering.selection.id, type: rail.rawValue, title: party?.title ?? offering.title,
+            subtitle: party?.tagline ?? offering.subtitle ?? "", distance: "", rating: "", icon: "square.grid.2x2",
+            verified: false, entryType: "", cta: "Add to Plan", imageUrl: party?.coverURL,
+            categoryLabel: NativeDiscoverBrowsePolicy.categoryLabel(rail.rawValue), badgeText: "", metadataLine: "",
             features: [], vibeScore: 0, availability: "", membershipRequired: false,
-            latitude: nil, longitude: nil, offering: offering)
+            latitude: nil, longitude: nil, offering: offering, party: party,
+            partyDetailsFailed: partyDetailsFailed)
     }
 
-    private static var previewFilter: String? {
-        normalizedFilter(ProcessInfo.processInfo.environment[filterEnvironmentKey] ?? UserDefaults.standard.string(forKey: filterDefaultsKey) ?? nativeLaunchArgument("byt-native-discover-filter"))
+    private static var previewRail: NativeDiscoverRailID {
+        normalizedFilter(ProcessInfo.processInfo.environment[filterEnvironmentKey] ?? UserDefaults.standard.string(forKey: filterDefaultsKey) ?? nativeLaunchArgument("byt-native-discover-filter")) ?? .explore
     }
 
     private func applyFilterHandoffIfRequested() {
         guard let filter = Self.normalizedFilter(UserDefaults.standard.string(forKey: Self.filterDefaultsKey)) else { return }
-        selectedFilter = filter
+        selectedRail = filter
         UserDefaults.standard.removeObject(forKey: Self.filterDefaultsKey)
         UserDefaults.standard.synchronize()
     }
@@ -11456,13 +11507,12 @@ private struct NativeDiscoverView: View {
         UserDefaults.standard.removeObject(forKey: Self.filterDefaultsKey)
         UserDefaults.standard.synchronize()
         detailVenue = nil
-        selectedFilter = filter
+        selectedRail = filter
         consumeHandoffFilter()
     }
 
-    private static func normalizedFilter(_ raw: String?) -> String? {
-        guard let raw, let rail = NativeDiscoverBookablePresentation.rail(category: raw), rail != "all" else { return nil }
-        return rail
+    private static func normalizedFilter(_ raw: String?) -> NativeDiscoverRailID? {
+        NativeDiscoverRailRegistry.resolve(raw)
     }
 
     fileprivate static func spec(from card: NativeDiscoverSummary) -> DiscoverCardSpec {
@@ -11482,6 +11532,10 @@ private struct NativeDiscoverView: View {
     }
 
     private var catalogTaskID: String { "\(catalogUserID ?? "guest"):\(catalogReloadID)" }
+    private var partyHydrationTaskID: String {
+        let ids = catalog.rows(for: catalogUserID).filter { $0.sourceKind == .party }.map(\.sourceId).sorted().joined(separator: ",")
+        return "\(catalogTaskID):\(selectedRail.rawValue):\(ids)"
+    }
 
     @MainActor private func loadBookables() async {
         guard !Task.isCancelled else { return }
@@ -11502,8 +11556,33 @@ private struct NativeDiscoverView: View {
         }
     }
 
+    @MainActor private func hydrateVisibleParties() async {
+        let visible = catalog.rows(for: catalogUserID).filter {
+            $0.sourceKind == .party && NativeDiscoverRailRegistry.partyRails(for: $0).contains(selectedRail)
+        }
+        let rows = Array(visible.prefix(NativeDiscoverPartyHydrationState.limit))
+        let generation = partyHydration.begin(userID: catalogUserID, partyIDs: rows.map(\.sourceId))
+        guard let userID = catalogUserID, let credential = sessionStore.token else { return }
+        let api = NativePartyPassAPI(client: BytspotAPIClient(tokenProvider: { credential }))
+        for offering in rows {
+            guard !Task.isCancelled, catalogUserID == userID, sessionStore.token == credential else { return }
+            do {
+                let record = try await api.invite(partyID: offering.sourceId)
+                guard !Task.isCancelled, catalogUserID == userID, sessionStore.token == credential else { return }
+                partyHydration.finish(partyID: offering.sourceId, outcome: .loaded(record), generation: generation, userID: userID)
+            } catch BytspotAPIClient.APIError.server(let status, _) where [401, 403, 404, 410].contains(status) {
+                partyHydration.finish(partyID: offering.sourceId, outcome: .unavailable, generation: generation, userID: userID)
+            } catch {
+                guard !Task.isCancelled else { return }
+                partyHydration.finish(partyID: offering.sourceId, outcome: .failed, generation: generation, userID: userID)
+            }
+        }
+        partyHydration.complete(generation: generation, userID: userID)
+    }
+
     private func clearAccountState() {
         if catalog.userID != catalogUserID { _ = catalog.begin(userID: catalogUserID) }
+        _ = partyHydration.begin(userID: catalogUserID, partyIDs: [])
         planIntent = NativeDiscoverPlanIntent()
         planSelection = nil
         coffeeRequest = nil
@@ -11560,15 +11639,6 @@ private struct NativeDiscoverView: View {
 
     fileprivate static func routeVenue(for card: DiscoverCardSpec, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
         NativeDiscoverRouteResolver.routeVenue(cardID: card.id, title: card.title, subtitle: card.address ?? "", type: card.type, distance: card.distance, imageURL: card.imageUrl, latitude: card.latitude, longitude: card.longitude, venues: venues.filter { $0.id == card.id || "venue-\($0.id)" == card.id })
-    }
-
-    private static func filterValue(for label: String) -> String? {
-        guard let index = Self.categoryLabels.firstIndex(of: label), index > 0 else { return nil }
-        return NativeDiscoverBookablePresentation.railTokens[index]
-    }
-
-    private func active(_ label: String) -> Bool {
-        Self.filterValue(for: label) == selectedFilter
     }
 
 }
@@ -11645,13 +11715,18 @@ private struct NativeVenueCheckInChip: View {
 
 private struct NativeVenueVibeSheet: View {
     let url: URL
+    let title: String
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var player: AVPlayer?
 
     var body: some View {
         VStack(spacing: 16) {
-            HStack {
-                Text("Recorded Vibe · not live").font(.headline)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.headline)
+                    Text("Recorded Vibe · not live").font(.subheadline).foregroundColor(.white.opacity(0.72))
+                }
                 Spacer()
                 Button("Done") { dismiss() }.frame(minHeight: 44)
             }
@@ -11660,7 +11735,14 @@ private struct NativeVenueVibeSheet: View {
         .padding(20).foregroundColor(.white).background(Color.black.ignoresSafeArea())
         // This sheet is presented only by the visible Play Vibe button.
         .onAppear { player = AVPlayer(url: url); player?.play() }
-        .onDisappear { player?.pause(); player = nil }
+        .onChange(of: scenePhase) { phase in if phase != .active { stopPlayback() } }
+        .onDisappear { stopPlayback() }
+    }
+
+    private func stopPlayback() {
+        player?.pause()
+        player?.seek(to: .zero)
+        player = nil
     }
 }
 
@@ -11677,7 +11759,7 @@ private struct NativeDiscoverFeatureCard: View {
     let openDetails: () -> Void
     let primaryAction: () -> Void
     let addToPlan: () -> Void
-    static let heroHeight: CGFloat = 200
+    static let heroHeight: CGFloat = 240
     static let minimumTapHeight: CGFloat = 44
 
     var body: some View {
@@ -11706,13 +11788,22 @@ private struct NativeDiscoverFeatureCard: View {
                             .font(.footnote).foregroundColor(.white.opacity(0.72))
                         Text(NativeDiscoverBrowsePolicy.availabilityLine(offering: card.offering))
                             .font(.footnote).foregroundColor(.white.opacity(0.72))
+                        if let party = card.party {
+                            Label(party.scheduledDate, systemImage: "calendar")
+                                .font(.footnote).foregroundColor(.white.opacity(0.78))
+                            Label(party.locationLabel, systemImage: "mappin.and.ellipse")
+                                .font(.footnote).foregroundColor(.white.opacity(0.78))
+                        } else if card.partyDetailsFailed {
+                            Text("Party details couldn't load. Open the party to retry.")
+                                .font(.footnote).foregroundColor(.white.opacity(0.78))
+                        }
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(NativePremiumPressStyle())
             .accessibilityLabel("Details for \(card.title)")
             .accessibilityHint(NativeDiscoverBrowsePolicy.availabilityLine(offering: card.offering))
             .accessibilityIdentifier("native-discover-details-\(card.id)")
@@ -11742,7 +11833,7 @@ private struct NativeDiscoverFeatureCard: View {
         // Reduce Motion both work without truncation or swipe instruction.
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity)
-        .background(Color(hex: NativeDiscoverBookablePresentation.surfaceHex))
+        .nativeFrostedSurface()
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
         .accessibilityIdentifier("native-discover-feature-card-\(card.id)")
@@ -11755,7 +11846,7 @@ private struct NativeDiscoverFeatureCard: View {
                     .background(Color(hex: Int(card.presentation.actionHex ?? 0xE5E5E5)))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(NativePremiumPressStyle())
             .disabled(card.presentation.capability == .request && !requestReady)
             .accessibilityIdentifier("native-discover-primary-cta-\(card.id)")
         }
@@ -11764,7 +11855,7 @@ private struct NativeDiscoverFeatureCard: View {
                 .background(card.executableActionTitle == nil ? Color.white : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NativePremiumPressStyle())
         .accessibilityIdentifier("native-discover-add-to-plan-\(card.id)")
     }
 
@@ -12004,7 +12095,7 @@ private struct NativeVenueDetailView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { placeBottomActions }
         .foregroundColor(.white)
-        .background(Color(hex: NativeDiscoverBookablePresentation.surfaceHex).ignoresSafeArea())
+        .background(NativeDeepSpaceGround())
         .preferredColorScheme(.dark)
         .accessibilityIdentifier("native-venue-detail")
         .sheet(isPresented: $showGuestSavePrompt) {
@@ -12012,7 +12103,7 @@ private struct NativeVenueDetailView: View {
         }
         .sheet(isPresented: $showRoute) { NativeM2RouteSheet(venue: venue) }
         .sheet(isPresented: $showVibe) {
-            if let url = details?.vibeVideoURL { NativeVenueVibeSheet(url: url) }
+            if let url = details?.vibeVideoURL { NativeVenueVibeSheet(url: url, title: venue.name) }
         }
         .sheet(item: $transactionPlan) { target in
             NativePlanDetailSheet(planID: target.id, sessionStore: sessionStore, onChanged: {
@@ -12101,20 +12192,37 @@ private struct NativeVenueDetailView: View {
 
     private var placeHeader: some View {
         VStack(alignment: .leading, spacing: 16) {
-            ZStack(alignment: .top) {
+            ZStack {
                 placeHero
-                HStack(spacing: 12) {
-                    heroControl("Back", icon: "chevron.left") { dismiss() }
-                    Spacer(minLength: 8)
-                    ForEach(NativeM5DetailPolicy.compactActions(for: venue, offering: exactOffering, isCatalogSource: offering != nil).filter { $0.id != "checkIn" }) { action in
-                        heroControl(action.id == "save" && isSaved ? "Saved" : action.title,
-                            icon: action.id == "save" && isSaved ? "heart.fill" : action.systemImage) { handle(action) }
+                VStack {
+                    HStack(spacing: 12) {
+                        heroControl("Back", icon: "chevron.left") { dismiss() }
+                        Spacer(minLength: 8)
+                        ForEach(NativeM5DetailPolicy.compactActions(for: venue, offering: exactOffering, isCatalogSource: offering != nil).filter { $0.id != "checkIn" }) { action in
+                            heroControl(action.id == "save" && isSaved ? "Saved" : action.title,
+                                icon: action.id == "save" && isSaved ? "heart.fill" : action.systemImage) { handle(action) }
+                        }
+                    }
+                    Spacer(minLength: 12)
+                    if details?.vibeVideoURL != nil {
+                        HStack {
+                            Button { showVibe = true } label: {
+                                HStack(spacing: 9) {
+                                    Image(systemName: "play.fill").frame(width: 32, height: 32)
+                                        .background(Color.black.opacity(0.64)).clipShape(Circle())
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text("Play Vibe").font(.subheadline.weight(.semibold))
+                                        Text("Recorded film").font(.caption2).foregroundColor(.white.opacity(0.72))
+                                    }
+                                }.padding(.horizontal, 10).padding(.vertical, 7)
+                            }
+                            .buttonStyle(NativePremiumPressStyle())
+                            .nativeFrostedSurface().clipShape(Capsule())
+                            .accessibilityIdentifier("native-m2-play-vibe")
+                            Spacer()
+                        }
                     }
                 }.padding(12)
-            }
-            if details?.vibeVideoURL != nil {
-                placeButton("Play Vibe · recorded video", icon: "play.circle") { showVibe = true }
-                    .accessibilityIdentifier("native-m2-play-vibe")
             }
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 12) { placeIdentity; venueUtilities }
@@ -12175,17 +12283,20 @@ private struct NativeVenueDetailView: View {
         Button { handoffURL(url) { accepted in
             if !accepted { statusMessage = "Could not open \(title). Please try again." }
         } } label: {
-            Label(title, systemImage: icon).font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 12).frame(minHeight: 44)
-                .background(Color.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 12))
-        }.buttonStyle(.plain)
+            VStack(spacing: 4) {
+                Image(systemName: icon).font(.headline)
+                Text(title).font(.caption.weight(.semibold))
+            }
+            .frame(width: 58).frame(minHeight: 54)
+            .nativeFrostedSurface().clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }.buttonStyle(NativePremiumPressStyle())
     }
 
     private func heroControl(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon).font(.headline).frame(width: 44, height: 44)
-                .background(Color.black.opacity(0.8)).clipShape(Circle())
-        }.buttonStyle(.plain).accessibilityLabel(title)
+                .nativeFrostedSurface().clipShape(Circle())
+        }.buttonStyle(NativePremiumPressStyle()).accessibilityLabel(title)
     }
 
     private var galleryURLs: [URL] {
@@ -12224,7 +12335,7 @@ private struct NativeVenueDetailView: View {
             }
         }
         .frame(height: galleryURLs.isEmpty ? 180 : 304)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
     }
 
     private func transactionPanel(_ transaction: NativeDiscoverTransaction) -> some View {
@@ -12237,7 +12348,7 @@ private struct NativeVenueDetailView: View {
             }
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 18))
+        .nativeFrostedSurface().clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityIdentifier("native-m2-transaction")
     }
 
@@ -12254,7 +12365,7 @@ private struct NativeVenueDetailView: View {
                 }
             }
             .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.white.opacity(0.06)).clipShape(RoundedRectangle(cornerRadius: 18))
+            .nativeFrostedSurface().clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
     }
 
@@ -12272,8 +12383,8 @@ private struct NativeVenueDetailView: View {
             if let price = details?.price { suppliedFacts("Supplied pricing · not a quote", values: [price]) }
         }
         .font(.body).frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16).background(Color.white.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .padding(16).nativeFrostedSurface()
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func suppliedFacts(_ title: String, values: [String]) -> some View {
@@ -12319,7 +12430,7 @@ private struct NativeVenueDetailView: View {
             }
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
-        .background(Color(hex: NativeDiscoverBookablePresentation.surfaceHex))
+        .nativeFrostedSurface()
     }
 
     @ViewBuilder private var placeActionButtons: some View {
@@ -12346,7 +12457,7 @@ private struct NativeVenueDetailView: View {
                 .background(supported ? Color(hex: 0x00BFFF) : Color.white.opacity(0.10))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NativePremiumPressStyle())
     }
 
     private func performPlacePrimaryAction() {
@@ -19117,7 +19228,7 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeDiscoverView.filterRowCount == 1, "NativeDiscoverParitySelfTests: Discover has category filtering only.")
         precondition(NativeDiscoverView.filterEnvironmentKey == "BYT_NATIVE_DISCOVER_FILTER", "NativeDiscoverParitySelfTests: Discover filter screenshot env key drifted.")
         precondition(NativeDiscoverFeatureCard.minimumTapHeight >= 44, "NativeDiscoverParitySelfTests: Discover needs accessible, independent tap targets.")
-        precondition(NativeDiscoverView.categoryLabels == ["All", "Boutique Stay", "Mobility", "Nightlife", "Dining", "Coffee", "Shopping", "Events", "Services", "Fitness", "Parking"], "NativeDiscoverParitySelfTests: native category labels must remain emoji-free.")
+        precondition(NativeDiscoverView.categoryLabels == ["Explore", "Eat & Drink", "Shop & Style", "Experience", "Social", "Events", "Wellness", "Create & Learn", "Nightlife", "Stay", "Move", "Celebrate", "Services", "HOST"], "NativeDiscoverParitySelfTests: native category labels must remain emoji-free.")
         precondition(NativeDiscoverView.categoryLabels.joined(separator: " → ") == NativeDiscoverView.categoryRailRegressionOrderDescription, "NativeDiscoverParitySelfTests: native category rail order drifted.")
         precondition(NativeDiscoverView.debugCategoryRailFilterOrder() == NativeDiscoverView.categoryRailRegressionFilterOrder, "NativeDiscoverParitySelfTests: native category rail filter mapping drifted.")
         precondition(NativeDiscoverView.curatedCards.map(\.title) == ["Morning Coffee Walk", "Midtown Boutique Suite", "Dinner Spots That Match Your Vibe", "Nightlife Near You", "Smart Parking Before You Arrive", "Events Worth Leaving For", "Wellness Reset Nearby", "Private Airport Transfer", "Group Transport", "Broni Home Taste", "GH Akwaaba Pass"], "NativeDiscoverParitySelfTests: curated fallback cards drifted from the approved native deck.")

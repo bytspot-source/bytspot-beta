@@ -10,26 +10,40 @@ final class NativeDiscoverM6BrowseTests: XCTestCase {
                                   category: category, title: title, subtitle: nil, capability: capability)
     }
 
-    func testDiscoverKeepsAllAndTenEmojiFreeCategoryRails() {
-        XCTAssertEqual(NativeDiscoverBookablePresentation.railLabels,
-                       ["All", "Boutique Stay", "Mobility", "Nightlife", "Dining", "Coffee", "Shopping", "Events", "Services", "Fitness", "Parking"])
-        XCTAssertEqual(NativeDiscoverBookablePresentation.railTokens.count, 11)
-        for (rail, label) in zip(NativeDiscoverBookablePresentation.railTokens, NativeDiscoverBookablePresentation.railLabels) {
-            XCTAssertEqual(NativeDiscoverBrowsePolicy.categoryLabel(rail), label)
-        }
+    func testDiscoverKeepsFourteenTypedEmojiFreeRailsInProductOrder() {
+        XCTAssertEqual(NativeDiscoverRailRegistry.rails.map(\.id), NativeDiscoverRailID.allCases)
+        XCTAssertEqual(NativeDiscoverRailRegistry.rails.map(\.title),
+                       ["Explore", "Eat & Drink", "Shop & Style", "Experience", "Social", "Events", "Wellness",
+                        "Create & Learn", "Nightlife", "Stay", "Move", "Celebrate", "Services", "HOST"])
+        XCTAssertEqual(NativeDiscoverRailRegistry.resolve("all"), .explore)
+        XCTAssertEqual(NativeDiscoverRailRegistry.resolve("Dining"), .eatDrink)
+        XCTAssertEqual(NativeDiscoverRailRegistry.resolve("boutique apartment"), .stay)
+        XCTAssertEqual(NativeDiscoverRailRegistry.resolve("mobility"), .move)
+        XCTAssertNil(NativeDiscoverRailRegistry.resolve("unknown"))
     }
 
-    func testCatalogDomainMappingDoesNotCollapseEveryPublicPartyIntoEvents() {
-        for (domain, rail) in [("events", "entertainment"), ("stay", "boutique_apartment"),
-                               ("automotive", "mobility"), ("transport", "mobility"), ("stall", "parking"),
-                               ("wellness", "service"), ("green", "service"), ("dining", "dining")] {
-            let row = offering(kind: .party, category: domain, capability: "book")
-            XCTAssertTrue(NativeDiscoverBrowsePolicy.matchesCategory(row, filter: rail))
-            XCTAssertTrue(NativeDiscoverBrowsePolicy.matchesCategory(row, filter: nil))
-            XCTAssertTrue(NativeDiscoverBrowsePolicy.matchesCategory(row, filter: "all"))
-            if rail != "entertainment" { XCTAssertFalse(NativeDiscoverBrowsePolicy.matchesCategory(row, filter: "entertainment")) }
-        }
-        XCTAssertFalse(NativeDiscoverBrowsePolicy.matchesCategory(offering(category: "unknown-domain"), filter: "coffee"))
+    func testPartyTaxonomyPlacesPublicCatalogRowsWithoutChangingSupplyIdentity() {
+        var row = offering("party-a", kind: .party, category: "events", capability: "book")
+        row.hostCategory = NativeHostCategory.nightlife.rawValue
+        row.hostType = "club"
+        XCTAssertEqual(NativeDiscoverRailRegistry.partyRails(for: row), [.explore, .events, .host, .nightlife])
+        XCTAssertTrue(NativeDiscoverBrowsePolicy.matchesCategory(row, rail: .host))
+        XCTAssertTrue(NativeDiscoverBrowsePolicy.matchesCategory(row, rail: .nightlife))
+        XCTAssertFalse(NativeDiscoverBrowsePolicy.matchesCategory(row, rail: .stay))
+        XCTAssertEqual(row.selection.id, "party:party-a")
+    }
+
+    func testPartyHydrationRejectsStaleAccountsAndHidesServerUnavailableRows() {
+        let party = offering("party-a", kind: .party, category: "events", capability: "book")
+        let coffee = offering()
+        var state = NativeDiscoverPartyHydrationState()
+        let stale = state.begin(userID: "user-a", partyIDs: [party.sourceId])
+        let current = state.begin(userID: "user-b", partyIDs: [party.sourceId])
+        state.finish(partyID: party.sourceId, outcome: .unavailable, generation: stale, userID: "user-a")
+        XCTAssertTrue(state.isVisible(party, userID: "user-b"))
+        state.finish(partyID: party.sourceId, outcome: .unavailable, generation: current, userID: "user-b")
+        XCTAssertFalse(state.isVisible(party, userID: "user-b"))
+        XCTAssertTrue(state.isVisible(coffee, userID: nil))
     }
 
     func testReferencesNeverClaimSupportedActionOrAvailability() {
@@ -4780,7 +4794,8 @@ final class NativePlanBookablesContractTests: XCTestCase {
 
     func testDerivedBookedFlagWinsOverUnbookedStoredStatus() throws {
         let booked = try item(["partyId": "party-1", "capability": "book", "booked": true])
-        XCTAssertEqual(NativePlanDisplay.itemStatusLabel(booked), "Booked")
+        XCTAssertEqual(NativePlanDisplay.itemStatusLabel(booked), "Admission separate · open the Party to RSVP, get a ticket, or view your pass")
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel(booked), "Plan item")
         XCTAssertEqual(NativePlanDisplay.itemStatusLabel(try item()), "Not booked")
     }
 
@@ -4886,7 +4901,8 @@ final class NativePlanBookablesContractTests: XCTestCase {
     func testAvailablePartyIsUnbookedRegardlessOfCapability() throws {
         for capability in ["book", "request", "details"] {
             let selected = try item(["partyId": "party-1", "capability": capability])
-            XCTAssertEqual(NativePlanDisplay.itemStatusLabel(selected.status), "Not booked")
+            XCTAssertEqual(NativePlanDisplay.itemStatusLabel(selected), "Admission separate · open the Party to RSVP, get a ticket, or view your pass")
+            XCTAssertEqual(NativePlanDisplay.capabilityLabel(selected), "Plan item")
             XCTAssertEqual(selected.capability, capability)
             XCTAssertNil(NativePlanDisplay.coffeeRequestSpotID(selected))
         }

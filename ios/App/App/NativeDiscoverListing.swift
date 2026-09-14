@@ -1,5 +1,180 @@
 import Foundation
 
+enum NativeDiscoverRailID: String, CaseIterable, Codable, Identifiable {
+    case explore
+    case eatDrink = "eat_drink"
+    case shopStyle = "shop_style"
+    case experience
+    case social
+    case events
+    case wellness
+    case createLearn = "create_learn"
+    case nightlife
+    case stay
+    case move
+    case celebrate
+    case services
+    case host
+
+    var id: String { rawValue }
+}
+
+struct NativeDiscoverRail: Identifiable, Equatable {
+    let id: NativeDiscoverRailID
+    let title: String
+}
+
+/// Presentation facets over existing supply. These identifiers never travel to
+/// `plans.bookables`; the app still asks that API only for `coffee` and `events`.
+enum NativeDiscoverRailRegistry {
+    static let rails: [NativeDiscoverRail] = [
+        .init(id: .explore, title: "Explore"),
+        .init(id: .eatDrink, title: "Eat & Drink"),
+        .init(id: .shopStyle, title: "Shop & Style"),
+        .init(id: .experience, title: "Experience"),
+        .init(id: .social, title: "Social"),
+        .init(id: .events, title: "Events"),
+        .init(id: .wellness, title: "Wellness"),
+        .init(id: .createLearn, title: "Create & Learn"),
+        .init(id: .nightlife, title: "Nightlife"),
+        .init(id: .stay, title: "Stay"),
+        .init(id: .move, title: "Move"),
+        .init(id: .celebrate, title: "Celebrate"),
+        .init(id: .services, title: "Services"),
+        .init(id: .host, title: "HOST")
+    ]
+
+    private static let aliases: [String: NativeDiscoverRailID] = [
+        "all": .explore, "dining": .eatDrink, "coffee": .eatDrink,
+        "shopping": .shopStyle, "entertainment": .events,
+        "fitness": .wellness, "parking": .move, "mobility": .move,
+        "boutique_apartment": .stay, "service": .services
+    ]
+
+    static func resolve(_ raw: String?) -> NativeDiscoverRailID? {
+        guard let raw else { return nil }
+        let key = normalized(raw)
+        if let alias = aliases[key] { return alias }
+        return rails.first { normalized($0.id.rawValue) == key || normalized($0.title) == key }?.id
+    }
+
+    static func referenceRails(for legacyType: String) -> Set<NativeDiscoverRailID> {
+        let direct: Set<NativeDiscoverRailID>
+        switch normalized(legacyType) {
+        case "dining", "coffee": direct = [.eatDrink]
+        case "shopping": direct = [.shopStyle]
+        case "entertainment": direct = [.experience, .events]
+        case "fitness": direct = [.wellness]
+        case "nightlife": direct = [.nightlife]
+        case "boutique_apartment": direct = [.stay]
+        case "parking", "mobility": direct = [.move]
+        case "service": direct = [.services]
+        default: direct = []
+        }
+        return direct.union([.explore])
+    }
+
+    static func partyRails(for offering: NativePlanBookableOffering) -> Set<NativeDiscoverRailID> {
+        guard offering.sourceKind == .party else { return [] }
+        var result: Set<NativeDiscoverRailID> = [.explore, .events, .host]
+        guard let taxonomy = offering.hostTaxonomy else { return result }
+        switch taxonomy.category {
+        case .party: result.insert(.celebrate)
+        case .nightlife: result.insert(.nightlife)
+        case .music: result.insert(.events)
+        case .sports: result.insert(.experience)
+        case .food: result.insert(.eatDrink)
+        case .social: result.insert(.social)
+        case .culture: result.formUnion([.createLearn, .experience])
+        case .cars: result.formUnion([.experience, .move])
+        case .outdoor: result.formUnion([.experience, .wellness])
+        case .community: result.formUnion([.social, .createLearn])
+        }
+        return result
+    }
+
+    static func rails(for offering: NativePlanBookableOffering) -> Set<NativeDiscoverRailID> {
+        guard offering.sourceKind != .party else { return partyRails(for: offering) }
+        guard let legacy = NativeDiscoverBookablePresentation.rail(category: offering.category) else { return [.explore] }
+        return referenceRails(for: legacy)
+    }
+
+    /// Discover intentionally drops synthetic minimum-count filler and clone
+    /// cards. Registered/API venues and actual place/event integrations remain.
+    static func isTrustedReference(_ card: NativeDiscoverSummary) -> Bool {
+        let syntheticPrefixes = ["coverage-", "starter-", "companion-"]
+        guard !syntheticPrefixes.contains(where: card.id.hasPrefix),
+              !card.badgeText.localizedCaseInsensitiveContains("CURATED") else { return false }
+        return card.badgeText.localizedCaseInsensitiveContains("LIVE")
+            || card.badgeText.localizedCaseInsensitiveContains("GOOGLE")
+            || card.badgeText.localizedCaseInsensitiveContains("APPLE MAPS")
+            || card.badgeText.localizedCaseInsensitiveContains("BEST VALUE")
+            || card.id.hasPrefix("venue-")
+    }
+
+    private static func normalized(_ value: String) -> String {
+        String(value.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "_" })
+            .split(separator: "_").joined(separator: "_")
+    }
+}
+
+enum NativeDiscoverPartyHydrationOutcome {
+    case loaded(NativePartyPassRecord)
+    case unavailable
+    case failed
+}
+
+/// Detail hydration is a bounded enhancement of an already eligible catalog.
+/// It cannot introduce a Party, and a server-invalidated Party disappears.
+struct NativeDiscoverPartyHydrationState {
+    static let limit = 12
+    private(set) var userID: String?
+    private(set) var generation = UUID()
+    private(set) var records: [String: NativePartyPassRecord] = [:]
+    private(set) var failedIDs: Set<String> = []
+    private(set) var unavailableIDs: Set<String> = []
+    private(set) var isLoading = false
+
+    mutating func begin(userID: String?, partyIDs: [String]) -> UUID {
+        self.userID = userID
+        generation = UUID()
+        records = [:]
+        failedIDs = []
+        unavailableIDs = []
+        isLoading = userID?.isEmpty == false && !partyIDs.isEmpty
+        return generation
+    }
+
+    mutating func finish(partyID: String, outcome: NativeDiscoverPartyHydrationOutcome,
+                         generation: UUID, userID: String) {
+        guard self.generation == generation, self.userID == userID else { return }
+        switch outcome {
+        case .loaded(let record) where record.id == partyID: records[partyID] = record
+        case .loaded: unavailableIDs.insert(partyID)
+        case .unavailable: unavailableIDs.insert(partyID)
+        case .failed: failedIDs.insert(partyID)
+        }
+    }
+
+    mutating func complete(generation: UUID, userID: String) {
+        guard self.generation == generation, self.userID == userID else { return }
+        isLoading = false
+    }
+
+    func record(for offering: NativePlanBookableOffering, userID: String?) -> NativePartyPassRecord? {
+        guard offering.sourceKind == .party, self.userID == userID else { return nil }
+        return records[offering.sourceId]
+    }
+
+    func isVisible(_ offering: NativePlanBookableOffering, userID: String?) -> Bool {
+        offering.sourceKind != .party || (self.userID == userID && !unavailableIDs.contains(offering.sourceId))
+    }
+
+    func failedToHydrate(_ offering: NativePlanBookableOffering, userID: String?) -> Bool {
+        offering.sourceKind == .party && self.userID == userID && failedIDs.contains(offering.sourceId)
+    }
+}
+
 /// Discover listing plug — what a card is allowed to promise.
 ///
 /// Three states, fail-closed. A card may only say BOOK when Bytspot controls

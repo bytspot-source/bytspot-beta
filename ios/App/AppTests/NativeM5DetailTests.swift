@@ -34,6 +34,10 @@ final class NativeM5DetailTests: XCTestCase {
         // projection. A passing UI policy suite previously missed this trap.
         NativeHomeParitySelfTests.runIfRequested()
     }
+
+    func testMapStartupAssertionsKeepUnverifiedHoursUnknown() {
+        NativeMapParitySelfTests.runIfRequested()
+    }
     #endif
 
     func testListedDefaultsToRouteAndAddToPlanWithoutControl() {

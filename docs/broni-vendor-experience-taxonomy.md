@@ -44,8 +44,8 @@ External provider actions identify the destination and remain handoffs. A handof
 
 ### Discover — choose
 
-- Preserve legitimate category browsing while excluding demo-only host navigation and synthetic category-coverage cards from the production feed.
-- Real Host Studio creation and real party access are not removed.
+- The main-branch baseline has no demo HOST pill rail. This refactor deliberately does not import the separate 14-rail/HOST prototype; real Host Studio creation and real party access are not removed.
+- Preserve legitimate category browsing. The Discover reference filter rejects the known `coverage-`, `starter-`, and `companion-` IDs minted by synthetic category-filler generators. Surviving references gain no new authority.
 - Use source-backed restaurant identity, one dominant next action and an independent Plan action.
 - Keep unavailable price, distance, rating, hours and inventory absent or explicitly unknown.
 - Use the premium hero/material language without converting sample media into venue photography.
@@ -60,7 +60,8 @@ External provider actions identify the destination and remain handoffs. A handof
 
 ### Book — review intent and capability
 
-- Use the same identity, offering vocabulary and capability resolution as Discover/Venue.
+- Each Venue capability row is a real review button. `NativeVendorReviewSheet` uses the same venue identity and capability table as Discover/Venue; unsupported intents explain their limits instead of simulating completion.
+- A supported request continues only after the review sheet dismisses. The parent re-resolves current capability and request status; account changes clear pending continuation, and existing requests cannot trigger another submission from the review.
 - Distinguish Booking, Ordering and Requesting without introducing another demo host rail.
 - Make missing fulfillment support explicit. A polished review surface does not need fake success to feel complete.
 - Never display sample menu items, available slots, prices, cancellation terms or confirmation numbers as restaurant facts.
@@ -98,6 +99,8 @@ Required regression coverage:
 - No dummy host/category coverage cards are added to Discover.
 - Route and video lifecycle protections remain intact.
 - Renamed imports and Xcode references resolve; no duplicate old implementation remains.
+
+The adapter checks passed 406 JavaScript unit tests and TypeScript type checking. Native-root (32 checks) and App Clip packaging (45 checks) passed on the initial combined branch. The initial native commit was reported to pass its simulator build and 487 XCTest + 19 Swift Testing cases; **these results do not cover the subsequent review-sheet/accessibility correction**. A fresh macOS run and four-surface screenshots are required before final acceptance.
 
 Validation results and any unverified device behavior will be recorded in the final PR/handoff. Simulator fixtures, if used for visual inspection, must be disclosed and must not be included in Release. This document describes the contract; it is not evidence of a live restaurant booking, order, payout, parking hold or dispatched ride.
 

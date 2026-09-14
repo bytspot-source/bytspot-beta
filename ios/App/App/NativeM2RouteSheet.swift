@@ -388,7 +388,11 @@ struct NativeM2ArrivalModule: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Arrival").font(.title3.bold()).accessibilityAddTraits(.isHeader)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Arrival").font(.title3.bold()).accessibilityAddTraits(.isHeader)
+                Text("Drive or hand off to a ride provider. Neither path confirms venue fulfillment.")
+                    .font(.subheadline).foregroundColor(.white.opacity(0.72))
+            }
             VStack(alignment: .leading, spacing: 10) {
                 Label("DRIVE", systemImage: "circle").font(.headline)
                 Text("Route to the venue").font(.subheadline.weight(.semibold))
@@ -424,8 +428,10 @@ struct NativeM2ArrivalModule: View {
                 if let handoffError { Text(handoffError).font(.footnote) }
             }
         }
-        .foregroundColor(.white).padding(16).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.06)).clipShape(RoundedRectangle(cornerRadius: 18))
+        .foregroundColor(.white).padding(18).frame(maxWidth: .infinity, alignment: .leading)
+        .background(.ultraThinMaterial)
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .accessibilityIdentifier("native-m2-arrival")
     }
 }

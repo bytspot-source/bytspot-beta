@@ -966,6 +966,47 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(source.contains("if NativeDiscoverCardControl.isPartnerProfile(cardID: card.id) { return \"Details\" }"))
     }
 
+    @MainActor
+    func testLiveServiceRowsCannotShadowCanonicalBroniPartnerProfile() throws {
+        func unsafeBroni(id: String, title: String) -> NativeDiscoverSummary {
+            NativeDiscoverSummary(id: id, type: "service", title: title, subtitle: "Book and pay now",
+                distance: "Service", rating: "5.0", icon: "fork.knife", verified: true, entryType: "paid",
+                cta: "Request Service", imageUrl: URL(string: "https://example.com/invented.jpg"),
+                categoryLabel: "Services", badgeText: "LIVE API", metadataLine: "$99 • Available now",
+                features: ["Menu", "Checkout"], vibeScore: 10, availability: "Available now",
+                membershipRequired: true, control: NativeDiscoverCardControl.vendor,
+                latitude: 33.78, longitude: -84.38, address: "Invented address")
+        }
+
+        let exactID = unsafeBroni(id: "broni-home-taste", title: "Backend Broni")
+        let titleShadow = unsafeBroni(id: "live-vendor-42", title: "  Broni Home Taste  ")
+        let decks = [
+            NativeTabContentStore.discoverCards(from: [], services: [exactID]),
+            NativeTabContentStore.discoverCards(from: [], services: [titleShadow]),
+            NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [], services: [exactID, titleShadow],
+                                                    location: .verifiedMidtown)
+        ]
+
+        for cards in decks {
+            let matches = cards.filter { $0.id == "broni-home-taste" }
+            let broni = try XCTUnwrap(matches.first)
+            XCTAssertEqual(matches.count, 1)
+            XCTAssertEqual(broni.title, "Broni Home Taste")
+            XCTAssertEqual(broni.control, NativeDiscoverCardControl.local)
+            XCTAssertFalse(broni.verified)
+            XCTAssertEqual(broni.entryType, "free")
+            XCTAssertEqual(broni.cta, "Details")
+            XCTAssertEqual(broni.rating, "New")
+            XCTAssertNil(broni.imageUrl)
+            XCTAssertTrue(broni.features.isEmpty)
+            XCTAssertEqual(broni.vibeScore, 0)
+            XCTAssertNil(broni.latitude)
+            XCTAssertNil(broni.longitude)
+            XCTAssertNil(broni.address)
+            XCTAssertFalse(cards.contains { $0.id == "live-vendor-42" || $0.title == "Backend Broni" })
+        }
+    }
+
     func testServicesRailListsControlledVendorsAndExplicitPartnerProfiles() {
         let snapshot = NativeTabContentSnapshot.fallback
         let services = NativeLocationAwareUIContent.discoverCards(in: snapshot, matching: "service")

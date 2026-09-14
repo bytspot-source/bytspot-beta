@@ -19341,7 +19341,7 @@ enum NativeDiscoverParitySelfTests {
         let coffeeCard = NativeDiscoverView.curatedCards.first(where: { $0.type == "coffee" })!
         precondition(NativeDiscoverView.venueForDetail(coffeeCard, venues: []).discoverType == "coffee", "NativeDiscoverParitySelfTests: Coffee card must resolve to a coffee detail venue.")
         precondition(NativeDiscoverView.curatedCards.allSatisfy { $0.offering == nil && $0.presentation.primaryActionTitle == nil && $0.presentation.actionHex == nil }, "NativeDiscoverParitySelfTests: reference text and control never grant booking capability.")
-        precondition(coffeeCard.presentation.statusLabel == "Reference" && coffeeCard.presentation.availabilityLine == "Availability unconfirmed", "NativeDiscoverParitySelfTests: references cannot claim verified availability.")
+        precondition(coffeeCard.presentation.statusLabel == "Listed" && coffeeCard.presentation.availabilityLine == "Place discovery · Bytspot does not control availability", "NativeDiscoverParitySelfTests: references cannot claim verified availability.")
         let foodSearch = NativeSearchRouter.suggestions(query: "food", snapshot: .fallback, limit: 3)
         precondition(foodSearch.first?.title == "Broni Home Taste", "NativeDiscoverParitySelfTests: premium relevant dining vendor should lead food search.")
         let parkingSearch = NativeSearchRouter.suggestions(query: "parking", snapshot: .fallback, limit: 3)

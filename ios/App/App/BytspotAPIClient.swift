@@ -3342,8 +3342,22 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private static func appendUnique(_ cards: [NativeDiscoverSummary], to merged: inout [NativeDiscoverSummary]) {
-        for card in cards where !merged.contains(where: { $0.id == card.id || $0.title.caseInsensitiveCompare(card.title) == .orderedSame }) {
+        for candidate in cards {
+            let card = canonicalPartnerProfile(matching: candidate) ?? candidate
+            guard !merged.contains(where: { $0.id == card.id || $0.title.caseInsensitiveCompare(card.title) == .orderedSame }) else { continue }
             merged.append(card)
+        }
+    }
+
+    /// Live service discovery cannot promote an explicitly local partner profile
+    /// into vendor-controlled fulfillment by reusing its ID or display title.
+    private static func canonicalPartnerProfile(matching card: NativeDiscoverSummary) -> NativeDiscoverSummary? {
+        let candidateID = card.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidateTitle = card.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return NativeTabContentSnapshot.canonicalServiceCards.first { canonical in
+            guard NativeDiscoverCardControl.isPartnerProfile(cardID: canonical.id) else { return false }
+            return canonical.id.caseInsensitiveCompare(candidateID) == .orderedSame
+                || canonical.title.caseInsensitiveCompare(candidateTitle) == .orderedSame
         }
     }
 
@@ -3692,7 +3706,8 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private static func mergeCanonicalDiscoverCards(into liveServices: [NativeDiscoverSummary]) -> [NativeDiscoverSummary] {
-        var cards = liveServices
+        var cards: [NativeDiscoverSummary] = []
+        appendUnique(liveServices, to: &cards)
         for canonical in NativeTabContentSnapshot.specialDiscoverCards.reversed() where !cards.contains(where: { $0.id == canonical.id || $0.title.caseInsensitiveCompare(canonical.title) == .orderedSame }) {
             cards.insert(canonical, at: 0)
         }

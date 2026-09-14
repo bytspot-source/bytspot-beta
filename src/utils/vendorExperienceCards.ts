@@ -1,3 +1,12 @@
+/**
+ * Vendor experience adapters (formerly vendorServiceCards.ts).
+ *
+ * Discovery category, Booking/Ordering/Requesting intent, vendor provenance,
+ * and executable capability are separate concerns. These adapters preserve
+ * source identity; a restaurant name or sample card never grants fulfillment.
+ * Native presentation follows NativeVendorExperience.swift. The legacy
+ * curated fixtures below are not a native restaurant inventory feed.
+ */
 import type { DiscoverCard } from './mockData';
 import { adaptVendorServiceToMatchDocument } from './vendorMatching.ts';
 import { resolveVenuePhoto } from './venuePhoto.ts';

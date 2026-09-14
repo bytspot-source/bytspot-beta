@@ -352,29 +352,61 @@ struct NativeDiscoverBookablePresentation: Equatable {
         }
     }
 
-    /// M5's All + ten rails, in the same order, with emoji-free labels.
+    /// Consumer browse taxonomy only. Host remains a separate tab/workbench;
+    /// no pill grants inventory, publication, payment or request authority.
     static let railLabels = [
-        "All", "Boutique Stay", "Mobility", "Nightlife", "Dining", "Coffee",
-        "Shopping", "Events", "Services", "Fitness", "Parking"
+        "Explore", "Eat & Drink", "Shop & Style", "Experience", "Social", "Events",
+        "Wellness", "Create & Learn", "Nightlife", "Stay", "Move", "Celebrate", "Services"
     ]
     static let railTokens = [
-        "all", "boutique_apartment", "mobility", "nightlife", "dining", "coffee",
-        "shopping", "entertainment", "service", "fitness", "parking"
+        "explore", "eat_drink", "shop_style", "experience", "social", "events",
+        "wellness", "create_learn", "nightlife", "stay", "move", "celebrate", "services"
     ]
 
-    /// Domain-to-rail metadata only; this never participates in capability.
-    /// automotive/stall/wellness/green are the actual bookable catalog domains.
-    /// transport is the explicit transport category; unknown aliases stay nil.
+    /// Exact source category aliases, never title/marketing keyword matching.
+    /// Retain legacy type IDs and catalog domains so old Home handoffs and
+    /// plans.bookables categories select the same grouped consumer rail.
     static func rail(category: String) -> String? {
         let normalized = category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let index = railLabels.firstIndex(where: { $0.lowercased() == normalized }) {
+            return railTokens[index]
+        }
         switch normalized {
-        case "events": return "entertainment"
-        case "stay": return "boutique_apartment"
-        case "automotive", "transport": return "mobility"
-        case "stall": return "parking"
-        case "wellness", "green": return "service"
+        case "all": return "explore"
+        case "dining", "coffee", "restaurant", "cafe", "café", "food-drink", "catering": return "eat_drink"
+        case "shopping", "retail", "fashion", "styling": return "shop_style"
+        case "culture", "outdoor", "sports", "museum", "attraction", "tour": return "experience"
+        case "community", "meetup", "fan-meetup": return "social"
+        case "entertainment", "event", "event pass", "music": return "events"
+        case "fitness", "spa", "gym", "recovery": return "wellness"
+        case "class", "workshop", "tutoring", "studio", "education": return "create_learn"
+        case "bar", "club", "night_club": return "nightlife"
+        case "boutique_apartment", "boutique stay", "hotel", "lodging": return "stay"
+        case "mobility", "automotive", "transport", "parking", "stall": return "move"
+        case "party", "private-party", "celebration", "wedding", "birthday": return "celebrate"
+        case "service", "green", "local-service": return "services"
         default: return railTokens.contains(normalized) ? normalized : nil
         }
+    }
+
+    /// A supplied category can refine a broad legacy type (e.g. service/spa).
+    /// Unknown source categories fall back to the original type, not a guess.
+    static func referenceRail(type: String, sourceCategory: String? = nil) -> String? {
+        let normalizedType = type.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let typeRail = rail(category: type)
+        if typeRail == nil || ["venue", "service", "green", "entertainment"].contains(normalizedType) {
+            if let sourceCategory, let sourceRail = rail(category: sourceCategory), sourceRail != "explore" {
+                return sourceRail
+            }
+        }
+        return typeRail
+    }
+
+    static func matchesCategory(_ category: String, filter: String?, sourceCategory: String? = nil) -> Bool {
+        guard let filter else { return true }
+        guard let selectedRail = rail(category: filter) else { return false }
+        if selectedRail == "explore" { return true }
+        return referenceRail(type: category, sourceCategory: sourceCategory) == selectedRail
     }
 }
 

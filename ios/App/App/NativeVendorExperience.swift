@@ -47,6 +47,16 @@ enum NativeVendorCapabilityIntent: String, CaseIterable, Equatable, Identifiable
 
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
+
+    /// Intent semantics, not permissions: exact supply and the existing action
+    /// policy still decide whether anything can execute, independently of pills.
+    var requirement: String {
+        switch self {
+        case .booking: return "Bookable: time and capacity"
+        case .ordering: return "Orderable: purchase and fulfillment"
+        case .requesting: return "Requestable: provider-mediated request"
+        }
+    }
 }
 
 /// The currently mounted continuation for a capability row. Keeping this apart
@@ -107,61 +117,9 @@ struct NativeVendorSurface: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var body: some View {
         Group {
-            if reduceTransparency { Color(hex: 0x191D36) }
+            if reduceTransparency { Color(red: 25.0 / 255, green: 29.0 / 255, blue: 54.0 / 255) }
             else { Rectangle().fill(.ultraThinMaterial) }
         }
-    }
-}
-
-/// An intent review is not a transaction. Only the parent may continue into
-/// an existing supported flow, after this sheet has finished dismissing.
-struct NativeVendorReviewSheet: View {
-    let venueName: String
-    let row: NativeVendorCapabilityRow
-    let canContinue: Bool
-    let onContinue: () -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack {
-                    Text("\(row.intent.title) review").font(.headline)
-                    Spacer()
-                    Button("Done") { dismiss() }.frame(minWidth: 44, minHeight: 44)
-                }
-                Text(venueName).font(.largeTitle.bold())
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.isHeader)
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(row.availabilityTitle).font(.title3.bold())
-                    Text(row.detail).font(.body)
-                    Text(NativeVendorCapabilityTable.reviewDisclaimer)
-                        .font(.footnote).foregroundColor(.white.opacity(0.75))
-                }
-                .padding(20).frame(maxWidth: .infinity, alignment: .leading)
-                .background(NativeVendorSurface())
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                if let title = row.actionTitle {
-                    if !canContinue {
-                        Text("Return to the venue to check your current request before continuing.")
-                            .font(.subheadline)
-                    }
-                    Button(action: onContinue) {
-                        Text(title).font(.headline)
-                            .multilineTextAlignment(.center)
-                            .padding(14).frame(maxWidth: .infinity, minHeight: 44)
-                            .foregroundColor(canContinue ? .black : .white)
-                            .background(canContinue ? NativeTheme.cyan : Color.white.opacity(0.12))
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                    }.buttonStyle(.plain).disabled(!canContinue)
-                }
-                Text(NativeM5DetailPolicy.planDisclaimer).font(.footnote)
-            }.padding(20)
-        }
-        .foregroundColor(.white).tint(.white)
-        .background(NativeDeepSpaceGround()).preferredColorScheme(.dark)
-        .accessibilityIdentifier("native-vendor-review-\(row.id)")
     }
 }
 

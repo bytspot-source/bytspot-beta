@@ -28,6 +28,23 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(header.contains("openNativeProfile(panel: nil)"))
     }
 
+    #if DEBUG
+    func testHomeStartupAssertionsAcceptListedPartnerWithoutGrantingControl() {
+        // Exercise the actual opt-in launch assertions, not just the detail
+        // projection. A passing UI policy suite previously missed this trap.
+        NativeHomeParitySelfTests.runIfRequested()
+    }
+
+    func testMapStartupAssertionsKeepUnverifiedHoursUnknown() {
+        NativeMapParitySelfTests.runIfRequested()
+    }
+
+    func testAllDebugStartupAssertionsMatchCurrentAppContracts() {
+        // This is the same complete ordered guard list called by the app root.
+        NativeStartupSelfTests.run()
+    }
+    #endif
+
     func testListedDefaultsToRouteAndAddToPlanWithoutControl() {
         let listed = NativeDiscoverBookablePresentation()
         XCTAssertEqual(listed.statusLabel, "Listed")
@@ -74,12 +91,66 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertEqual(NativeDiscoverBrowsePolicy.executableActionTitle(offering: coffee), "Request")
     }
 
+    func testVendorCapabilityTaxonomyIsStableAndFailClosed() throws {
+        XCTAssertEqual(NativeVendorCapabilityTable.stableTokens, ["booking", "ordering", "requesting"])
+        XCTAssertEqual(NativeVendorCapabilityIntent.allCases.map(\.title), ["Booking", "Ordering", "Requesting"])
+        XCTAssertEqual(NativeVendorCapabilityIntent.allCases.map(\.requirement), [
+            "Bookable: time and capacity", "Orderable: purchase and fulfillment",
+            "Requestable: provider-mediated request"
+        ])
+        XCTAssertEqual(NativeVendorCapabilityTable.reviewDisclaimer,
+            "Opening this review does not book, order or send a request.",
+            "The review must not deny an existing request or booking")
+
+        let listedRows = NativeVendorCapabilityTable.rows(for: NativeDiscoverBookablePresentation())
+        XCTAssertEqual(listedRows.map(\.intent), [.booking, .ordering, .requesting])
+        XCTAssertTrue(listedRows.allSatisfy { $0.route == .unavailable && !$0.isExecutable })
+
+        let request = NativeDiscoverBookablePresentation(
+            offering: offering("request", kind: .coffeeSpot, category: "coffee"))
+        let requestRows = NativeVendorCapabilityTable.rows(for: request)
+        XCTAssertEqual(requestRows.first(where: { $0.intent == .booking })?.route, .unavailable)
+        XCTAssertEqual(requestRows.first(where: { $0.intent == .ordering })?.route, .unavailable)
+        XCTAssertEqual(requestRows.first(where: { $0.intent == .requesting })?.route, .requestCoffee)
+
+        let url = try XCTUnwrap(URL(string: "https://provider.example.com/booking/1"))
+        let external = NativeDiscoverBookablePresentation(externalURL: url, externalProvider: "Provider")
+        XCTAssertTrue(NativeVendorCapabilityTable.rows(for: external).allSatisfy { !$0.isExecutable },
+            "An external destination alone does not establish a booking or ordering intent")
+        XCTAssertEqual(NativeM5DetailPolicy.primaryAction(for: external), .external(url))
+        XCTAssertTrue(listedRows.allSatisfy { $0.availabilityTitle == "Not available" })
+        XCTAssertEqual(requestRows.last?.accessibilityTitle, "Requesting: Available")
+    }
+
+    func testBroniPartnerProfileDoesNotInventAuthorityOrMedia() throws {
+        let card = try XCTUnwrap(NativeTabContentSnapshot.canonicalServiceCards.first)
+        XCTAssertEqual(card.title, "Broni Home Taste")
+        XCTAssertNil(card.imageUrl)
+        XCTAssertEqual(card.cta, "Details")
+        XCTAssertEqual(card.features, [])
+        XCTAssertFalse(card.verified)
+        XCTAssertEqual(card.control, NativeDiscoverCardControl.local)
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: card.id))
+        let presentation = NativeDiscoverBrowsePolicy.referencePresentation(for: card)
+        XCTAssertEqual(presentation.capability, .details)
+        XCTAssertTrue(NativeVendorCapabilityTable.rows(for: presentation).allSatisfy { !$0.isExecutable })
+    }
+
+    func testSyntheticCategoryFillersAreExcludedWithoutPromotingOtherReferences() {
+        for id in ["coverage-dining-1-broni", "starter-coffee-1", "companion-parking-venue-1"] {
+            XCTAssertFalse(NativeVendorExperience.isDiscoveryReference(id: id))
+        }
+        XCTAssertTrue(NativeVendorExperience.isDiscoveryReference(id: "venue-real-1"))
+        XCTAssertTrue(NativeVendorExperience.isDiscoveryReference(id: "party:party-1"))
+        XCTAssertEqual(NativeVendorCapabilityTable.rows(for: .init()).filter(\.isExecutable).count, 0)
+    }
+
     func testExternalRequiresExplicitNamedValidatedHandoff() throws {
         let url = try XCTUnwrap(URL(string: "https://provider.example.com/booking/1"))
         let external = NativeDiscoverBookablePresentation(externalURL: url, externalProvider: "Example Provider")
         XCTAssertEqual(external.statusLabel, "External")
         XCTAssertEqual(NativeM5DetailPolicy.primaryAction(for: external), .external(url))
-        XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: external), "Book on Example Provider ↗")
+        XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: external), "Open Example Provider ↗")
         XCTAssertNil(external.actionHex)
         XCTAssertTrue(external.availabilityLine.contains("not Bytspot"))
         let unnamed = NativeDiscoverBookablePresentation(externalURL: url)
@@ -207,6 +278,17 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(detail.contains("var offering: NativePlanBookableOffering? = nil"))
         XCTAssertTrue(detail.contains("var externalURL: URL? = nil"))
         XCTAssertTrue(detail.contains("safeAreaInset(edge: .bottom"))
+        for removed in ["NativeVendorCapabilityTable", "native-vendor-capability-table", "vendorReview", "pendingVendorContinuation", "NativeVendorReviewSheet"] {
+            XCTAssertFalse(detail.contains(removed), "The venue must not render a capability table or review sheet")
+        }
+        XCTAssertTrue(detail.contains("requestStatusReady && currentTransaction == nil"))
+        XCTAssertTrue(detail.contains("case .requestCoffee: beginDetailPlanSelection(requestCoffee: true)"))
+        let card = try region(in: shell, from: "private struct NativeDiscoverFeatureCard: View {", to: "private struct NativeSpecialDiscoverCard: View {")
+        XCTAssertFalse(card.contains("NativeVendorCapabilityTable"))
+        XCTAssertFalse(card.contains("capabilitySummary"))
+        XCTAssertTrue(card.contains("NativeVenueCheckInChip"))
+        XCTAssertTrue(card.contains(".background(NativeVendorSurface())"))
+        XCTAssertFalse(discover.contains("DEMO"))
     }
 
     func testRenderedDetailUsesActualMediaAndSafeDynamicTypeSurface() throws {

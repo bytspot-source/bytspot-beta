@@ -248,7 +248,7 @@ export function useVenues(): UseVenuesResult {
     let savedRequestCards: DiscoverCard[] = [];
 
     try {
-      const { savedServiceRequestToCard, vendorServiceToCard } = await import('../vendorServiceCards');
+      const { savedServiceRequestToCard, vendorServiceToCard } = await import('../vendorExperienceCards');
       const context = loadVirtualPatchContext();
       const patchId = context?.patchId ?? null;
       const distanceMeters = context?.distanceMeters ?? null;

@@ -6,6 +6,20 @@ Bytspot Discover should not feel like a Google/Yelp directory. It should feel li
 
 > Google helps users find places. Bytspot helps users choose experiences.
 
+## Native vendor-experience refinement
+
+The native implementation follows [Broni vendor experience and capability taxonomy](broni-vendor-experience-taxonomy.md). The adapter formerly named `src/utils/vendorServiceCards.ts` is now `src/utils/vendorExperienceCards.ts`; this is a module rename, not a new booking or ordering integration.
+
+**Category, intent, verification, executable capability, and transaction state are separate.** A partner name, patch badge, sample offering, or category never grants fulfillment. Demo-only host rails are not inventory and must not populate production Discover. Actual Host Studio and party access remain separate features.
+
+| Intent | What the user is asking for | Evidence required for execution | Current native boundary |
+|---|---|---|---|
+| Booking | Capacity at a specified time: table, seat, or experience | Exact offering and a supported inventory/confirmation path | General restaurant booking is unavailable until its real route is integrated; party admission uses its own flow |
+| Ordering | Specific menu items, quantities, and fulfillment method | Published menu/item IDs and a supported order submission/acknowledgment path | No generic restaurant ordering route is mounted; viewing a menu is not placing an order |
+| Requesting | Provider consideration of an ask | A supported request path for the exact supply | The existing coffee request path is supported; an ask remains pending until the provider accepts |
+
+Listed places retain Details/Route and independent Add to Plan. External provider links remain explicit handoffs, not Bytspot confirmations. Authentication and freshness checks still apply to every supported write.
+
 Every Discover card should answer four questions quickly:
 
 1. **What is it?**
@@ -30,7 +44,7 @@ Provider APIs supply raw data only:
 - Google Places: photos, hours, address, phone, rating, place ID.
 - Yelp Fusion: categories, price, photos, reviews, phone, business ID.
 - Bytspot vendors: menu, price, availability, patch ID, checkout, contact, media.
-- Curated fixtures: editorial cards used as fallback or launch content.
+- Curated fixtures: explicitly labeled design/test content, not evidence of live availability, verification, or fulfillment. Native Discover must not use category-coverage clones or demo host cards as real supply.
 
 Providers should never directly own card copy, ranking, CTA hierarchy, or Bytspot trust language.
 
@@ -194,7 +208,9 @@ It should not automatically unlock irreversible actions. Scan, redeem, burn, or 
 
 ---
 
-## Example: Broni Home Taste
+## Example: Broni Home Taste (illustrative copy only)
+
+Broni is the user-designated first restaurant partner for this design. The example below is a historical copy fixture: its badge, menu, price, hours, availability, and location are not verified facts. In production, render each only from its corresponding supplied and validated field; omit missing values. Never match the restaurant by name to unlock booking, ordering, verification, or media provenance.
 
 ```text
 Dining · Patch verified
@@ -276,7 +292,7 @@ Redeem
 
 ## Availability tones
 
-Use availability as a decision signal, not a directory badge.
+Use availability as a decision signal, not a directory badge. The historical web palette below is not the native M6 capability palette: native infrastructure and unknown/informational states stay neutral; cyan foreground transaction treatment is earned by a supported capability. Explicit status text must carry meaning without relying on color alone.
 
 ```text
 Green  = Open now · until 10pm

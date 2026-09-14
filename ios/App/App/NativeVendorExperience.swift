@@ -72,6 +72,13 @@ struct NativeVendorCapabilityRow: Identifiable, Equatable {
         case .unavailable: return "Not available"
         }
     }
+    var compactStatusTitle: String {
+        switch route {
+        case .requestCoffee: return "Available"
+        case .external: return "External"
+        case .unavailable: return "Unavailable"
+        }
+    }
     var continuationTitle: String? {
         switch route {
         case .requestCoffee: return "Continue request"

@@ -956,6 +956,16 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(NativeTabContentSnapshot.fallbackDiscoverCards.allSatisfy { $0.control == NativeDiscoverCardControl.local }, "Curated fallback cards must stay local.")
     }
 
+    func testNeutralBroniProfileCannotRenderAnInventedVibeScore() throws {
+        let broni = try XCTUnwrap(NativeTabContentSnapshot.canonicalServiceCards.first)
+        XCTAssertEqual(broni.vibeScore, 0)
+        let sourceURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("App/NativeShellView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        XCTAssertTrue(source.contains("card.vibeScore > 0 ? \"Vibe \\(card.vibeScore)/10\" : \"Details only\""))
+        XCTAssertTrue(source.contains("if NativeDiscoverCardControl.isPartnerProfile(cardID: card.id) { return \"Details\" }"))
+    }
+
     func testServicesRailListsControlledVendorsAndExplicitPartnerProfiles() {
         let snapshot = NativeTabContentSnapshot.fallback
         let services = NativeLocationAwareUIContent.discoverCards(in: snapshot, matching: "service")

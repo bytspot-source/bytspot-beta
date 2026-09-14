@@ -81,6 +81,7 @@ final class NativeM5DetailTests: XCTestCase {
         let listedRows = NativeVendorCapabilityTable.rows(for: NativeDiscoverBookablePresentation())
         XCTAssertEqual(listedRows.map(\.intent), [.booking, .ordering, .requesting])
         XCTAssertTrue(listedRows.allSatisfy { $0.route == .unavailable && !$0.isExecutable })
+        XCTAssertEqual(listedRows.map(\.compactStatusTitle), ["Unavailable", "Unavailable", "Unavailable"])
 
         let request = NativeDiscoverBookablePresentation(
             offering: offering("request", kind: .coffeeSpot, category: "coffee"))
@@ -88,6 +89,7 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertEqual(requestRows.first(where: { $0.intent == .booking })?.route, .unavailable)
         XCTAssertEqual(requestRows.first(where: { $0.intent == .ordering })?.route, .unavailable)
         XCTAssertEqual(requestRows.first(where: { $0.intent == .requesting })?.route, .requestCoffee)
+        XCTAssertEqual(requestRows.first(where: { $0.intent == .requesting })?.compactStatusTitle, "Available")
 
         let url = try XCTUnwrap(URL(string: "https://provider.example.com/booking/1"))
         let external = NativeDiscoverBookablePresentation(externalURL: url,
@@ -236,7 +238,7 @@ final class NativeM5DetailTests: XCTestCase {
         let discover = try region(in: shell, from: "private struct NativeDiscoverView: View {", to: "private struct NativeDiscoverFilterChip: View {")
         XCTAssertTrue(discover.contains(".sheet(item: $routeVenue)"))
         XCTAssertTrue(discover.contains("NativeM2RouteSheet(venue: venue)"))
-        XCTAssertTrue(discover.contains("case .route: routeVenue = venueForDetail(card)"))
+        XCTAssertTrue(discover.contains("if venue.hasKnownCoordinates { routeVenue = venue }"))
         XCTAssertTrue(discover.contains("detailVenue = venueForDetail(card)"))
         XCTAssertFalse(discover.contains("openDirectRoute("))
         let detail = try region(in: shell, from: "private struct NativeVenueDetailView: View {", to: "private struct NativeEventRideBookingSheet: View {")
@@ -254,6 +256,9 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(detail.contains("NativeVendorIntentReviewSheet"))
         XCTAssertTrue(detail.contains("accessibilityReduceTransparency"))
         XCTAssertTrue(detail.contains("minHeight: 44"))
+        XCTAssertTrue(detail.contains("Route unavailable"))
+        XCTAssertTrue(shell.contains("cardPrimaryActionTitle"))
+        XCTAssertTrue(shell.contains("row.compactStatusTitle"))
         XCTAssertFalse(discover.contains("DEMO"))
     }
 

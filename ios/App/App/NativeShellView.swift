@@ -7165,6 +7165,7 @@ private struct NativeHomeDashboardView: View {
 
     static func primaryCTATitle(for card: NativeDiscoverSummary) -> String {
         if card.id == Self.valetRideServiceID { return "Request Transfer" }
+        if NativeDiscoverCardControl.isPartnerProfile(cardID: card.id) { return "Details" }
         if card.type == "boutique_apartment" { return "View Stay" }
         if card.type == "coffee" { return "Plan Stop" }
         if card.type == "parking" { return "Route" }
@@ -10928,7 +10929,8 @@ private struct NativeHomeServiceRecommendationCard: View {
                     Text(card.title).font(.system(size: 19, weight: .black)).foregroundColor(colorScheme == .dark ? .white : NativeTheme.textPrimary).lineLimit(2)
                     Text(card.metadataLine).font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan).lineLimit(1)
                     HStack(spacing: 6) {
-                        Text("Vibe \(card.vibeScore)/10").serviceChip(color: colorScheme == .dark ? Color.black.opacity(0.58) : NativeTheme.selectedControlSurface, foreground: colorScheme == .dark ? .white : NativeTheme.textPrimary)
+                        Text(card.vibeScore > 0 ? "Vibe \(card.vibeScore)/10" : "Details only")
+                            .serviceChip(color: colorScheme == .dark ? Color.black.opacity(0.58) : NativeTheme.selectedControlSurface, foreground: colorScheme == .dark ? .white : NativeTheme.textPrimary)
                         Text(NativeDiscoverListing.primaryCTATitle(proposed: card.cta, control: card.control, rail: card.type))
                             .serviceChip(color: NativeTheme.cyan, foreground: .black)
                     }
@@ -11386,7 +11388,10 @@ private struct NativeDiscoverView: View {
                                 return
                             }
                             switch NativeM5DetailPolicy.primaryAction(for: card.presentation) {
-                            case .route: routeVenue = venueForDetail(card)
+                            case .route:
+                                let venue = venueForDetail(card)
+                                if venue.hasKnownCoordinates { routeVenue = venue }
+                                else { detailOffering = card.offering; detailVenue = venue }
                             case .requestCoffee: beginPlanSelection(card, requestCoffee: true)
                             case .external, .unavailable: break // No external feed data or controlled booking target today.
                             }
@@ -11763,7 +11768,7 @@ private struct NativeDiscoverFeatureCard: View {
     }
 
     @ViewBuilder private var cardActionButtons: some View {
-        if let title = card.executableActionTitle {
+        if let title = cardPrimaryActionTitle {
             Button(action: primaryAction) {
                 actionLabel(transaction?.primaryTitle ?? title)
                     .background(Color(hex: Int(card.presentation.actionHex ?? 0xE5E5E5)))
@@ -11774,12 +11779,19 @@ private struct NativeDiscoverFeatureCard: View {
             .accessibilityIdentifier("native-discover-primary-cta-\(card.id)")
         }
         Button(action: addToPlan) {
-            actionLabel(NativeM5DetailPolicy.addToPlanTitle, foreground: card.executableActionTitle == nil ? .black : .white)
-                .background(card.executableActionTitle == nil ? Color.white : Color.clear)
+            actionLabel(NativeM5DetailPolicy.addToPlanTitle, foreground: cardPrimaryActionTitle == nil ? .black : .white)
+                .background(cardPrimaryActionTitle == nil ? Color.white : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("native-discover-add-to-plan-\(card.id)")
+    }
+
+    private var cardPrimaryActionTitle: String? {
+        guard let title = card.executableActionTitle else { return nil }
+        if NativeM5DetailPolicy.primaryAction(for: card.presentation) == .route,
+           !venue.hasKnownCoordinates { return "Details" }
+        return title
     }
 
     private func actionLabel(_ title: String, foreground: Color = .black) -> some View {
@@ -11798,7 +11810,7 @@ private struct NativeDiscoverFeatureCard: View {
                 HStack(spacing: 7) { capabilityLabels(rows) }
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Booking, Ordering, and Requesting availability")
     }
 
@@ -11806,10 +11818,17 @@ private struct NativeDiscoverFeatureCard: View {
         ForEach(rows) { row in
             HStack(spacing: 5) {
                 Circle().fill(row.isExecutable ? Color(hex: 0x00BFFF) : Color.white.opacity(0.34)).frame(width: 6, height: 6)
-                Text(row.intent.title).font(.caption2.weight(.semibold)).foregroundColor(.white.opacity(0.78))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(row.intent.title).font(.caption2.weight(.semibold))
+                    Text(row.compactStatusTitle).font(.caption2).foregroundColor(.white.opacity(0.64))
+                }
+                .foregroundColor(.white.opacity(0.82))
             }
-            .padding(.horizontal, 9).frame(minHeight: 28)
+            .padding(.horizontal, 8).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .background(Color.white.opacity(0.06)).clipShape(Capsule())
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(row.intent.title)
+            .accessibilityValue(row.statusTitle)
         }
     }
 
@@ -12426,15 +12445,23 @@ private struct NativeVenueDetailView: View {
     }
 
     @ViewBuilder private var placeActionButtons: some View {
-        placeButton(currentTransaction?.primaryTitle ?? NativeM5DetailPolicy.primaryTitle(for: placePresentation),
+        placeButton(currentTransaction?.primaryTitle ?? placePrimaryActionTitle,
             icon: placePresentation.capability == .request ? "paperplane" : "arrow.up.right",
             supported: placePresentation.capability == .request) { performPlacePrimaryAction() }
-            .disabled(placePresentation.capability == .request && !requestStatusReady)
+            .disabled(placePrimaryRouteUnavailable || (placePresentation.capability == .request && !requestStatusReady))
             .accessibilityIdentifier("native-m2-primary-action")
         placeButton(NativeM5DetailPolicy.addToPlanTitle, icon: "plus") {
             beginDetailPlanSelection(requestCoffee: false)
         }
         .accessibilityIdentifier("native-m2-add-to-plan")
+    }
+
+    private var placePrimaryRouteUnavailable: Bool {
+        NativeM5DetailPolicy.primaryAction(for: placePresentation) == .route && !venue.hasKnownCoordinates
+    }
+
+    private var placePrimaryActionTitle: String {
+        placePrimaryRouteUnavailable ? "Route unavailable" : NativeM5DetailPolicy.primaryTitle(for: placePresentation)
     }
 
     private func placeButton(_ title: String, icon: String, supported: Bool = false,

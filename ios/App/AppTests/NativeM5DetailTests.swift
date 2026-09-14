@@ -77,6 +77,9 @@ final class NativeM5DetailTests: XCTestCase {
     func testVendorCapabilityTaxonomyIsStableAndFailClosed() throws {
         XCTAssertEqual(NativeVendorCapabilityTable.stableTokens, ["booking", "ordering", "requesting"])
         XCTAssertEqual(NativeVendorCapabilityIntent.allCases.map(\.title), ["Booking", "Ordering", "Requesting"])
+        XCTAssertEqual(NativeVendorCapabilityTable.reviewDisclaimer,
+            "Opening this review does not book, order or send a request.",
+            "The review must not deny an existing request or booking")
 
         let listedRows = NativeVendorCapabilityTable.rows(for: NativeDiscoverBookablePresentation())
         XCTAssertEqual(listedRows.map(\.intent), [.booking, .ordering, .requesting])
@@ -91,8 +94,11 @@ final class NativeM5DetailTests: XCTestCase {
 
         let url = try XCTUnwrap(URL(string: "https://provider.example.com/booking/1"))
         let external = NativeDiscoverBookablePresentation(externalURL: url, externalProvider: "Provider")
-        XCTAssertEqual(NativeVendorCapabilityTable.rows(for: external)
-            .first(where: { $0.intent == .booking })?.route, .external(url))
+        XCTAssertTrue(NativeVendorCapabilityTable.rows(for: external).allSatisfy { !$0.isExecutable },
+            "An external destination alone does not establish a booking or ordering intent")
+        XCTAssertEqual(NativeM5DetailPolicy.primaryAction(for: external), .external(url))
+        XCTAssertTrue(listedRows.allSatisfy { $0.availabilityTitle == "Not available" })
+        XCTAssertEqual(requestRows.last?.accessibilityTitle, "Requesting: Available")
     }
 
     func testBroniPartnerProfileDoesNotInventAuthorityOrMedia() throws {
@@ -102,9 +108,20 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertEqual(card.cta, "Details")
         XCTAssertEqual(card.features, [])
         XCTAssertFalse(card.verified)
+        XCTAssertEqual(card.control, NativeDiscoverCardControl.local)
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: card.id))
         let presentation = NativeDiscoverBrowsePolicy.referencePresentation(for: card)
         XCTAssertEqual(presentation.capability, .details)
         XCTAssertTrue(NativeVendorCapabilityTable.rows(for: presentation).allSatisfy { !$0.isExecutable })
+    }
+
+    func testSyntheticCategoryFillersAreExcludedWithoutPromotingOtherReferences() {
+        for id in ["coverage-dining-1-broni", "starter-coffee-1", "companion-parking-venue-1"] {
+            XCTAssertFalse(NativeVendorExperience.isDiscoveryReference(id: id))
+        }
+        XCTAssertTrue(NativeVendorExperience.isDiscoveryReference(id: "venue-real-1"))
+        XCTAssertTrue(NativeVendorExperience.isDiscoveryReference(id: "party:party-1"))
+        XCTAssertEqual(NativeVendorCapabilityTable.rows(for: .init()).filter(\.isExecutable).count, 0)
     }
 
     func testExternalRequiresExplicitNamedValidatedHandoff() throws {
@@ -112,7 +129,7 @@ final class NativeM5DetailTests: XCTestCase {
         let external = NativeDiscoverBookablePresentation(externalURL: url, externalProvider: "Example Provider")
         XCTAssertEqual(external.statusLabel, "External")
         XCTAssertEqual(NativeM5DetailPolicy.primaryAction(for: external), .external(url))
-        XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: external), "Book on Example Provider ↗")
+        XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: external), "Open Example Provider ↗")
         XCTAssertNil(external.actionHex)
         XCTAssertTrue(external.availabilityLine.contains("not Bytspot"))
         let unnamed = NativeDiscoverBookablePresentation(externalURL: url)
@@ -242,6 +259,10 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(detail.contains("safeAreaInset(edge: .bottom"))
         XCTAssertTrue(detail.contains("NativeVendorCapabilityTable.rows(for: placePresentation)"))
         XCTAssertTrue(detail.contains("native-vendor-capability-table"))
+        XCTAssertTrue(detail.contains(".sheet(item: $vendorReview, onDismiss: finishVendorReview)"))
+        XCTAssertTrue(detail.contains("Button { vendorReview = row.intent }"))
+        XCTAssertTrue(detail.contains("pendingVendorContinuation = nil"))
+        XCTAssertTrue(detail.contains("requestStatusReady, currentTransaction == nil"))
         XCTAssertFalse(discover.contains("DEMO"))
     }
 

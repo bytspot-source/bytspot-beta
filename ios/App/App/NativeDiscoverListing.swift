@@ -290,7 +290,7 @@ struct NativeDiscoverBookablePresentation: Equatable {
         switch capability {
         case .book: return "Book"
         case .request: return "Request"
-        case .redirect: return externalProvider.map { "Book on \($0) ↗" }
+        case .redirect: return externalProvider.map { "Open \($0) ↗" }
         case .details: return nil
         }
     }

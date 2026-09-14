@@ -11413,7 +11413,9 @@ private struct NativeDiscoverView: View {
     private var rankedCards: [DiscoverCardSpec] {
         // Preserve the existing location/safety visibility filter. A reference
         // never acquires supply identity by sharing a title with an offering.
-        let references = NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot, matching: selectedFilter).map(Self.spec(from:))
+        let references = NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot, matching: selectedFilter)
+            .filter { NativeVendorExperience.isDiscoveryReference(id: $0.id) }
+            .map(Self.spec(from:))
         let offerings = catalog.rows(for: catalogUserID).filter {
             NativeDiscoverBrowsePolicy.matchesCategory($0, filter: selectedFilter)
         }.map(Self.spec(offering:))
@@ -11787,22 +11789,18 @@ private struct NativeDiscoverFeatureCard: View {
 
     private var capabilitySummary: some View {
         let rows = NativeVendorCapabilityTable.rows(for: card.presentation)
-        return Group {
-            if dynamicTypeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 7) { capabilityLabels(rows) }
-            } else {
-                HStack(spacing: 7) { capabilityLabels(rows) }
-            }
-        }
+        return VStack(alignment: .leading, spacing: 7) { capabilityLabels(rows) }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Booking, Ordering, and Requesting availability")
+        .accessibilityLabel(rows.map(\.accessibilityTitle).joined(separator: ". "))
     }
 
     @ViewBuilder private func capabilityLabels(_ rows: [NativeVendorCapabilityRow]) -> some View {
         ForEach(rows) { row in
             HStack(spacing: 5) {
                 Circle().fill(row.isExecutable ? Color(hex: 0x00BFFF) : Color.white.opacity(0.34)).frame(width: 6, height: 6)
-                Text(row.intent.title).font(.caption2.weight(.semibold)).foregroundColor(.white.opacity(0.78))
+                Text("\(row.intent.title) · \(row.availabilityTitle)")
+                    .font(.caption2.weight(.semibold)).foregroundColor(.white.opacity(0.78))
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 9).frame(minHeight: 28)
             .background(Color.white.opacity(0.06)).clipShape(Capsule())
@@ -11979,6 +11977,8 @@ private struct NativeVenueDetailView: View {
     @State private var detailsFailed = false
     @State private var detailsLoading = false
     @State private var showVibe = false
+    @State private var vendorReview: NativeVendorCapabilityIntent?
+    @State private var pendingVendorContinuation: NativeVendorCapabilityIntent?
     @ObservedObject private var transactions = NativeDiscoverTransactionStore.shared
     @State private var transactionPlan: NativeDiscoverPlanDestination?
     @State private var isSaved = false
@@ -12048,6 +12048,16 @@ private struct NativeVenueDetailView: View {
         .sheet(isPresented: $showRoute) { NativeM2RouteSheet(venue: venue) }
         .sheet(isPresented: $showVibe) {
             if let url = details?.vibeVideoURL { NativeVenueVibeSheet(url: url) }
+        }
+        .sheet(item: $vendorReview, onDismiss: finishVendorReview) { intent in
+            if let row = NativeVendorCapabilityTable.rows(for: placePresentation).first(where: { $0.intent == intent }) {
+                NativeVendorReviewSheet(venueName: venue.name, row: row,
+                    canContinue: row.route == .requestCoffee && requestStatusReady && currentTransaction == nil,
+                    onContinue: {
+                        pendingVendorContinuation = intent
+                        vendorReview = nil
+                    })
+            }
         }
         .sheet(item: $transactionPlan) { target in
             NativePlanDetailSheet(planID: target.id, sessionStore: sessionStore, onChanged: {
@@ -12151,7 +12161,7 @@ private struct NativeVenueDetailView: View {
                 Button { showVibe = true } label: {
                     Label("Recorded Vibe", systemImage: "play.fill")
                         .font(.subheadline.weight(.semibold)).padding(.horizontal, 14)
-                        .frame(minHeight: 44).background(.ultraThinMaterial).clipShape(Capsule())
+                        .frame(minHeight: 44).background(NativeVendorSurface()).clipShape(Capsule())
                 }
                 .buttonStyle(.plain).accessibilityHint("Plays venue-supplied recorded video")
                 .accessibilityIdentifier("native-m2-play-vibe")
@@ -12217,14 +12227,14 @@ private struct NativeVenueDetailView: View {
         } } label: {
             Label(title, systemImage: icon).font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 12).frame(minHeight: 44)
-                .background(.ultraThinMaterial).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(NativeVendorSurface()).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }.buttonStyle(.plain)
     }
 
     private func heroControl(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon).font(.headline).frame(width: 44, height: 44)
-                .background(.ultraThinMaterial).clipShape(Circle())
+                .background(NativeVendorSurface()).clipShape(Circle())
         }.buttonStyle(.plain).accessibilityLabel(title)
     }
 
@@ -12286,7 +12296,7 @@ private struct NativeVenueDetailView: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Ways to continue").font(.title3.bold()).accessibilityAddTraits(.isHeader)
-                Text("Availability follows connected routes, never a category or partner name.")
+                Text("Review what's available before making your plans.")
                     .font(.subheadline).foregroundColor(.white.opacity(0.72))
             }
             ForEach(NativeVendorCapabilityTable.rows(for: placePresentation)) { row in
@@ -12294,32 +12304,35 @@ private struct NativeVenueDetailView: View {
             }
         }
         .padding(18).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial)
+        .background(NativeVendorSurface())
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .accessibilityIdentifier("native-vendor-capability-table")
     }
 
     private func vendorCapabilityRow(_ row: NativeVendorCapabilityRow) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: row.isExecutable ? "arrow.right.circle.fill" : "minus.circle")
-                .foregroundColor(row.isExecutable ? NativeTheme.cyan : .white.opacity(0.45))
-                .frame(width: 24, height: 24)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(row.intent.title).font(.headline)
-                Text(row.detail).font(.subheadline).foregroundColor(.white.opacity(0.72))
-                    .fixedSize(horizontal: false, vertical: true)
+        Button { vendorReview = row.intent } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: row.isExecutable ? "arrow.right.circle.fill" : "minus.circle")
+                    .foregroundColor(row.isExecutable ? NativeTheme.cyan : .white.opacity(0.45))
+                    .frame(width: 24, height: 24)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(row.intent.title).font(.headline)
+                    Text(row.availabilityTitle).font(.caption.weight(.semibold))
+                    Text(row.detail).font(.subheadline).foregroundColor(.white.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Label("Review options", systemImage: "chevron.right").font(.footnote)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 8)
-            if let title = row.actionTitle {
-                Text(title).font(.caption.weight(.semibold))
-                    .foregroundColor(row.isExecutable ? NativeTheme.cyan : .white.opacity(0.6))
-            } else {
-                Text("Unavailable").font(.caption.weight(.semibold)).foregroundColor(.white.opacity(0.52))
-            }
+            .foregroundColor(.white).multilineTextAlignment(.leading)
+            .padding(.vertical, 8).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, 5)
-        .accessibilityElement(children: .combine)
+        .buttonStyle(.plain)
+        .accessibilityLabel(row.accessibilityTitle)
+        .accessibilityHint("Opens a review. Nothing is booked, ordered or requested.")
+        .accessibilityIdentifier("native-vendor-review-button-\(row.id)")
     }
 
     @ViewBuilder private var offeringSection: some View {
@@ -12400,7 +12413,7 @@ private struct NativeVenueDetailView: View {
             }
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
-        .background(.ultraThinMaterial)
+        .background(NativeVendorSurface())
         .overlay(alignment: .top) { Divider().overlay(Color.white.opacity(0.12)) }
     }
 
@@ -12466,7 +12479,20 @@ private struct NativeVenueDetailView: View {
         }
     }
 
+    private func finishVendorReview() {
+        let intent = pendingVendorContinuation
+        pendingVendorContinuation = nil
+        // Re-resolve after dismissal; never dispatch a stale saved route.
+        guard intent == .requesting, requestStatusReady, currentTransaction == nil,
+              NativeVendorCapabilityTable.rows(for: placePresentation).contains(where: {
+                  $0.intent == .requesting && $0.route == .requestCoffee
+              }) else { return }
+        performPlacePrimaryAction()
+    }
+
     private func invalidateDetailPlanContext() {
+        pendingVendorContinuation = nil
+        vendorReview = nil
         transactionPlan = nil
         suppliedContextInvalidated = true
         planIntent = NativeDiscoverPlanIntent()

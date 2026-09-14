@@ -390,7 +390,7 @@ struct NativeM2ArrivalModule: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Arrival").font(.title3.bold()).accessibilityAddTraits(.isHeader)
-                Text("Drive or hand off to a ride provider. Neither path confirms venue fulfillment.")
+                Text("Choose how to get there. Your visit and your ride are arranged separately.")
                     .font(.subheadline).foregroundColor(.white.opacity(0.72))
             }
             VStack(alignment: .leading, spacing: 10) {
@@ -429,7 +429,7 @@ struct NativeM2ArrivalModule: View {
             }
         }
         .foregroundColor(.white).padding(18).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial)
+        .background(NativeVendorSurface())
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .accessibilityIdentifier("native-m2-arrival")

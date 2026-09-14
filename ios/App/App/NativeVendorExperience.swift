@@ -1,6 +1,7 @@
 import CoreLocation
 import Foundation
 import Combine
+import SwiftUI
 
 /// Device-local saved markers, isolated by signed-in account. This is not a
 /// cloud-synced favorites promise or a booking/visit confirmation.
@@ -39,11 +40,12 @@ enum NativeVenueActionKind: Equatable {
 
 /// Stable service-intent vocabulary. A category, vendor name, badge, or curated
 /// placement never promotes one of these rows into an executable capability.
-enum NativeVendorCapabilityIntent: String, CaseIterable, Equatable {
+enum NativeVendorCapabilityIntent: String, CaseIterable, Equatable, Identifiable {
     case booking
     case ordering
     case requesting
 
+    var id: String { rawValue }
     var title: String { rawValue.capitalized }
 }
 
@@ -52,7 +54,6 @@ enum NativeVendorCapabilityIntent: String, CaseIterable, Equatable {
 /// fulfillment authority.
 enum NativeVendorExecutableRoute: Equatable {
     case requestCoffee
-    case external(URL)
     case unavailable
 }
 
@@ -63,10 +64,11 @@ struct NativeVendorCapabilityRow: Identifiable, Equatable {
     let route: NativeVendorExecutableRoute
 
     var isExecutable: Bool { route != .unavailable }
+    var availabilityTitle: String { isExecutable ? "Available" : "Not available" }
+    var accessibilityTitle: String { "\(intent.title): \(availabilityTitle)" }
     var actionTitle: String? {
         switch route {
-        case .requestCoffee: return "Request"
-        case .external: return "Open provider ↗"
+        case .requestCoffee: return "Continue to request"
         case .unavailable: return nil
         }
     }
@@ -74,30 +76,92 @@ struct NativeVendorCapabilityRow: Identifiable, Equatable {
 
 enum NativeVendorCapabilityTable {
     static let stableTokens = NativeVendorCapabilityIntent.allCases.map(\.rawValue)
+    static let reviewDisclaimer = "Opening this review does not book, order or send a request."
 
     static func rows(for presentation: NativeDiscoverBookablePresentation) -> [NativeVendorCapabilityRow] {
         NativeVendorCapabilityIntent.allCases.map { intent in
             switch intent {
             case .booking:
-                if case .redirect = presentation.capability, let url = presentation.externalURL {
-                    return .init(intent: intent,
-                        detail: "Availability and confirmation stay with the named provider.", route: .external(url))
-                }
+                // A generic external link supplies no booking intent or inventory.
+                // Keep the named provider handoff in the existing primary action.
                 return .init(intent: intent,
-                    detail: "No controlled booking route is connected for this listing.", route: .unavailable)
+                    detail: "Reservations aren't available in Bytspot for this place yet.", route: .unavailable)
             case .ordering:
                 return .init(intent: intent,
-                    detail: "Menu links are for browsing; no ordering endpoint is connected.", route: .unavailable)
+                    detail: "You can browse a supplied menu, but orders aren't available in Bytspot here yet.", route: .unavailable)
             case .requesting:
                 if presentation.capability == .request {
                     return .init(intent: intent,
-                        detail: "Send a table request after adding the exact offering to a Plan. Subject to acceptance.",
+                        detail: "Choose your Plan, arrival time and party size. Your table request needs the provider's acceptance.",
                         route: .requestCoffee)
                 }
                 return .init(intent: intent,
-                    detail: "No request route is connected for this listing.", route: .unavailable)
+                    detail: "Requests aren't available in Bytspot for this place yet.", route: .unavailable)
             }
         }
+    }
+}
+
+/// Shared material for the four surfaces; solid fallback preserves contrast.
+struct NativeVendorSurface: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    var body: some View {
+        Group {
+            if reduceTransparency { Color(hex: 0x191D36) }
+            else { Rectangle().fill(.ultraThinMaterial) }
+        }
+    }
+}
+
+/// An intent review is not a transaction. Only the parent may continue into
+/// an existing supported flow, after this sheet has finished dismissing.
+struct NativeVendorReviewSheet: View {
+    let venueName: String
+    let row: NativeVendorCapabilityRow
+    let canContinue: Bool
+    let onContinue: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack {
+                    Text("\(row.intent.title) review").font(.headline)
+                    Spacer()
+                    Button("Done") { dismiss() }.frame(minWidth: 44, minHeight: 44)
+                }
+                Text(venueName).font(.largeTitle.bold())
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(row.availabilityTitle).font(.title3.bold())
+                    Text(row.detail).font(.body)
+                    Text(NativeVendorCapabilityTable.reviewDisclaimer)
+                        .font(.footnote).foregroundColor(.white.opacity(0.75))
+                }
+                .padding(20).frame(maxWidth: .infinity, alignment: .leading)
+                .background(NativeVendorSurface())
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                if let title = row.actionTitle {
+                    if !canContinue {
+                        Text("Return to the venue to check your current request before continuing.")
+                            .font(.subheadline)
+                    }
+                    Button(action: onContinue) {
+                        Text(title).font(.headline)
+                            .multilineTextAlignment(.center)
+                            .padding(14).frame(maxWidth: .infinity, minHeight: 44)
+                            .foregroundColor(canContinue ? .black : .white)
+                            .background(canContinue ? NativeTheme.cyan : Color.white.opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }.buttonStyle(.plain).disabled(!canContinue)
+                }
+                Text(NativeM5DetailPolicy.planDisclaimer).font(.footnote)
+            }.padding(20)
+        }
+        .foregroundColor(.white).tint(.white)
+        .background(NativeDeepSpaceGround()).preferredColorScheme(.dark)
+        .accessibilityIdentifier("native-vendor-review-\(row.id)")
     }
 }
 
@@ -131,6 +195,12 @@ enum NativeVenueDetailContract {
 }
 
 enum NativeVendorExperience {
+    /// IDs minted by category filler are presentation clones, not offerings.
+    /// This filter never grants identity or fulfillment to surviving references.
+    static func isDiscoveryReference(id: String) -> Bool {
+        !["coverage-", "starter-", "companion-"].contains { id.hasPrefix($0) }
+    }
+
     /// Mirrors the server fence so the copy can be honest before the round
     /// trip. The server decides — this only governs what we promise.
     static let fenceMetres: Double = 250

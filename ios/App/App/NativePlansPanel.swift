@@ -82,7 +82,15 @@ struct NativePlanBookableOffering: Codable, Equatable, Identifiable {
     let title: String
     let subtitle: String?
     let capability: String
+    var hostCategory: String? = nil
+    var hostType: String? = nil
     var selection: NativePlanBookableSelection { .init(sourceKind: sourceKind, sourceId: sourceId) }
+
+    var hostTaxonomy: (category: NativeHostCategory, type: NativeHostType)? {
+        guard sourceKind == .party, let category = hostCategory.flatMap(NativeHostCategory.init(rawValue:)),
+              let type = hostType.flatMap(NativeHostType.type(id:)), type.category == category else { return nil }
+        return (category, type)
+    }
 }
 
 struct NativePlanBookables: Codable { let offerings: [NativePlanBookableOffering] }
@@ -493,7 +501,10 @@ enum NativePlanDisplay {
     }
 
     static func itemStatusLabel(_ item: NativePlan.Item) -> String {
-        item.booked == true ? "Booked" : itemStatusLabel(item.status)
+        // A Plan attachment is itinerary context, not Party admission. `booked`
+        // is plan-wide legacy state and cannot say which participant has a pass.
+        if item.partyId != nil { return "Admission separate · open the Party to RSVP, get a ticket, or view your pass" }
+        return item.booked == true ? "Booked" : itemStatusLabel(item.status)
     }
 
     static func selectedSourceIDs(in items: [NativePlan.Item]) -> Set<String> {
@@ -557,6 +568,10 @@ enum NativePlanDisplay {
         case "details": return "Reference"
         default: return "Reference"
         }
+    }
+
+    static func capabilityLabel(_ item: NativePlan.Item) -> String {
+        item.partyId == nil ? capabilityLabel(item.capability) : "Plan item"
     }
 
     /// The needs a caller can declare when starting a Plan. A need is the
@@ -1552,6 +1567,11 @@ private struct NativePlanListRow: View {
     }
 }
 
+private struct NativePlanPartyDestination: Identifiable {
+    let route: NativePartyPassRoute
+    var id: String { route.partyID }
+}
+
 struct NativePlanDetailSheet: View {
     let planID: String
     @ObservedObject var sessionStore: BytspotSessionStore
@@ -1565,6 +1585,7 @@ struct NativePlanDetailSheet: View {
     @State private var suggestedCoffeeSpotID: String?
     @State private var showBookables = false
     @State private var showInvite = false
+    @State private var partyDestination: NativePlanPartyDestination?
     /// Shared by the invite picker and the People-list name book.
     @State private var connectionsState = NativePlanConnectionsState()
     private var connections: [NativePlanConnection] {
@@ -1621,6 +1642,9 @@ struct NativePlanDetailSheet: View {
                 onInviteByText: { if let plan { inviteByText(for: plan) } }
             )
             .id(sessionStore.authenticatedUserID)
+        }
+        .sheet(item: $partyDestination) { destination in
+            NavigationView { NativePartyPassPreview(route: destination.route).environmentObject(sessionStore) }
         }
     }
 
@@ -1682,6 +1706,12 @@ struct NativePlanDetailSheet: View {
                             Text(NativePlanDisplay.needLabel(item.needKind)).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
                             Text(NativePlanDisplay.itemStatusLabel(item))
                                 .font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                            if let partyID = item.partyId,
+                               let route = NativeDiscoverBrowsePolicy.partyRoute(partyID: partyID) {
+                                Button("View party") { partyDestination = .init(route: route) }
+                                    .frame(minHeight: 44)
+                                    .accessibilityIdentifier("native-plan-view-party-\(item.id)")
+                            }
                             if NativePlanDisplay.canAddBookables(plan, userID: sessionStore.authenticatedUserID),
                                let spotID = NativePlanDisplay.coffeeRequestSpotID(item) {
                                 Button("Request a table") {
@@ -1699,7 +1729,7 @@ struct NativePlanDetailSheet: View {
                             }
                         }
                         Spacer()
-                        Text(NativePlanDisplay.capabilityLabel(item.capability))
+                        Text(NativePlanDisplay.capabilityLabel(item))
                             .font(.system(size: 11, weight: .black))
                             .foregroundColor(NativeTheme.textPrimary)
                             .padding(.horizontal, 8).padding(.vertical, 3)

@@ -100,6 +100,38 @@ struct NativeDeepSpaceGround: View {
     }
 }
 
+struct NativePremiumPressStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .opacity(configuration.isPressed ? 0.88 : 1)
+            .animation(reduceMotion ? nil : .interactiveSpring(response: 0.35, dampingFraction: 1),
+                       value: configuration.isPressed)
+    }
+}
+
+struct NativeFrostedSurface: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    private let panel = Color(red: 17.0 / 255.0, green: 20.0 / 255.0, blue: 43.0 / 255.0)
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if reduceTransparency {
+            content.background(panel)
+        } else {
+            content
+                .background(.ultraThinMaterial)
+                .background(panel.opacity(0.70))
+        }
+    }
+}
+
+extension View {
+    func nativeFrostedSurface() -> some View { modifier(NativeFrostedSurface()) }
+}
+
 struct BytspotNativeBackground: View {
     let tier: BytspotTier
     var intent: String = ""

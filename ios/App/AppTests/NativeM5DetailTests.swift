@@ -77,6 +77,10 @@ final class NativeM5DetailTests: XCTestCase {
     func testVendorCapabilityTaxonomyIsStableAndFailClosed() throws {
         XCTAssertEqual(NativeVendorCapabilityTable.stableTokens, ["booking", "ordering", "requesting"])
         XCTAssertEqual(NativeVendorCapabilityIntent.allCases.map(\.title), ["Booking", "Ordering", "Requesting"])
+        XCTAssertEqual(NativeVendorCapabilityIntent.allCases.map(\.requirement), [
+            "Bookable: time and capacity", "Orderable: purchase and fulfillment",
+            "Requestable: provider-mediated request"
+        ])
         XCTAssertEqual(NativeVendorCapabilityTable.reviewDisclaimer,
             "Opening this review does not book, order or send a request.",
             "The review must not deny an existing request or booking")
@@ -257,12 +261,16 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(detail.contains("var offering: NativePlanBookableOffering? = nil"))
         XCTAssertTrue(detail.contains("var externalURL: URL? = nil"))
         XCTAssertTrue(detail.contains("safeAreaInset(edge: .bottom"))
-        XCTAssertTrue(detail.contains("NativeVendorCapabilityTable.rows(for: placePresentation)"))
-        XCTAssertTrue(detail.contains("native-vendor-capability-table"))
-        XCTAssertTrue(detail.contains(".sheet(item: $vendorReview, onDismiss: finishVendorReview)"))
-        XCTAssertTrue(detail.contains("Button { vendorReview = row.intent }"))
-        XCTAssertTrue(detail.contains("pendingVendorContinuation = nil"))
-        XCTAssertTrue(detail.contains("requestStatusReady, currentTransaction == nil"))
+        for removed in ["NativeVendorCapabilityTable", "native-vendor-capability-table", "vendorReview", "pendingVendorContinuation", "NativeVendorReviewSheet"] {
+            XCTAssertFalse(detail.contains(removed), "The venue must not render a capability table or review sheet")
+        }
+        XCTAssertTrue(detail.contains("requestStatusReady && currentTransaction == nil"))
+        XCTAssertTrue(detail.contains("case .requestCoffee: beginDetailPlanSelection(requestCoffee: true)"))
+        let card = try region(in: shell, from: "private struct NativeDiscoverFeatureCard: View {", to: "private struct NativeSpecialDiscoverCard: View {")
+        XCTAssertFalse(card.contains("NativeVendorCapabilityTable"))
+        XCTAssertFalse(card.contains("capabilitySummary"))
+        XCTAssertTrue(card.contains("NativeVenueCheckInChip"))
+        XCTAssertTrue(card.contains(".background(NativeVendorSurface())"))
         XCTAssertFalse(discover.contains("DEMO"))
     }
 

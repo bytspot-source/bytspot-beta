@@ -2522,8 +2522,9 @@ enum NativeDiscoverCardControl {
     static let local = "local"
     static let vendor = "vendor"
 
-    /// Canonical Bytspot-controlled listings shipped in the binary.
-    static let controlledCardIDs: Set<String> = ["broni-home-taste", "gh-akwaaba-pass", "service-valet-ride", "group-transport", "broni"]
+    /// Legacy controlled listings. Broni's sample partner identity is not
+    /// connected supply; only real supplied authorization may grant control.
+    static let controlledCardIDs: Set<String> = ["gh-akwaaba-pass", "service-valet-ride", "group-transport"]
 
     static func isControlled(cardID: String) -> Bool { controlledCardIDs.contains(cardID) }
 
@@ -3924,7 +3925,7 @@ extension NativeTabContentSnapshot {
     ]
 
     static let canonicalServiceCards = [
-        NativeDiscoverSummary(id: "broni-home-taste", type: "service", title: "Broni Home Taste", subtitle: "First restaurant partner profile. Current menu and fulfillment details have not been supplied.", distance: "Service", rating: "New", icon: "fork.knife", verified: false, entryType: "free", cta: "Details", imageUrl: nil, categoryLabel: "Dining", badgeText: "Dining", metadataLine: "Partner profile · fulfillment not connected", features: [], vibeScore: 0, availability: "Details only", membershipRequired: false, control: NativeDiscoverCardControl.vendor),
+        NativeDiscoverSummary(id: "broni-home-taste", type: "service", title: "Broni Home Taste", subtitle: "First restaurant partner profile. Current menu and fulfillment details have not been supplied.", distance: "Service", rating: "New", icon: "fork.knife", verified: false, entryType: "free", cta: "Details", imageUrl: nil, categoryLabel: "Dining", badgeText: "Dining", metadataLine: "Partner profile · fulfillment not connected", features: [], vibeScore: 0, availability: "Details only", membershipRequired: false, control: NativeDiscoverCardControl.local),
         NativeDiscoverSummary(id: "gh-akwaaba-pass", type: "service", title: "GH Akwaaba Pass", subtitle: "Ghana matchday access, ready on your phone.", distance: "Pass", rating: "4.9", icon: "ticket.fill", verified: true, entryType: "paid", cta: "View Pass", imageUrl: URL(string: "https://images.unsplash.com/photo-1522778119026-d647f0596c20?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Event Pass", badgeText: "Event Pass", metadataLine: "$50 • Digital pass ready", features: ["Fast-track entry", "VIP lounge access", "Digital pass delivery"], vibeScore: 9, availability: "Digital pass ready", membershipRequired: true, control: NativeDiscoverCardControl.vendor)
     ]
 

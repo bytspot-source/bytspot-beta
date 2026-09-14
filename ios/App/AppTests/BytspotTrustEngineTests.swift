@@ -911,8 +911,9 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     func testDiscoverControlGateOnlyControlsCanonicalVendorsAndRealPatches() {
-        // Canonical vendor IDs are controlled.
-        XCTAssertTrue(NativeDiscoverCardControl.isControlled(cardID: "broni-home-taste"))
+        // A sample partner identity is not fulfillment authority.
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: "broni-home-taste"))
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: "broni"))
         XCTAssertTrue(NativeDiscoverCardControl.isControlled(cardID: "gh-akwaaba-pass"))
         // Local dining/coverage/Google-shaped IDs are not.
         XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: "dinner-vibe"))
@@ -947,7 +948,9 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     func testCanonicalDiscoverCardsCarryVendorControlAndClonesStayLocal() {
-        XCTAssertTrue(NativeTabContentSnapshot.canonicalServiceCards.allSatisfy { $0.control == NativeDiscoverCardControl.vendor })
+        XCTAssertTrue(NativeTabContentSnapshot.canonicalServiceCards.allSatisfy {
+            $0.control == ($0.id == "broni-home-taste" ? NativeDiscoverCardControl.local : NativeDiscoverCardControl.vendor)
+        })
         XCTAssertTrue(NativeTabContentSnapshot.canonicalMobilityCards.allSatisfy { $0.control == NativeDiscoverCardControl.vendor })
         XCTAssertTrue(NativeTabContentSnapshot.fallbackDiscoverCards.allSatisfy { $0.control == NativeDiscoverCardControl.local }, "Curated fallback cards must stay local.")
     }

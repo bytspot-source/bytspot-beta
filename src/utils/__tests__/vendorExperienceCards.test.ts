@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getRankedDiscoverCardsWithSimplex } from '../vendorMatching.ts';
-import { curatedServiceRecommendationCards, savedServiceRequestToCard, vendorServiceToCard } from '../vendorServiceCards.ts';
+import { curatedServiceRecommendationCards, savedServiceRequestToCard, vendorServiceToCard } from '../vendorExperienceCards.ts';
 import { discoverCardCapability, discoverCardControl } from '../mockData/discover.ts';
 import { controlFromCapability } from '../bookableProjection.ts';
 
@@ -88,6 +88,24 @@ test('saved virtual-patch requests only earn vendor control when live-vendor bac
   const live = savedServiceRequestToCard({ ...base, id: 'req-3', vendorId: 'vendor-1', serviceId: 'svc-9', source: 'live' } as never, 2);
   assert.equal(live.control, 'vendor');
   assert.equal(live.vendorServiceId, 'svc-9');
+});
+
+test('Broni sample identity does not promote curated content to booking or ordering authority', () => {
+  const sample = { ...curatedServiceRecommendationCards[0], name: 'Broni Home Taste Restaurant', type: 'dining' as const };
+  assert.equal(discoverCardCapability(sample), 'details');
+  assert.equal(discoverCardControl(sample), 'local');
+});
+
+test('Broni sample requests retain informational status without acquiring a live service identity', () => {
+  const card = savedServiceRequestToCard({
+    id: 'broni-preview-request', kind: 'vendor-request', vendorName: 'Broni Home Taste Restaurant',
+    serviceName: 'Dining request', actionLabel: 'Request', status: 'requested',
+    requestedAt: '2026-09-14T00:00:00Z', source: 'fallback',
+  }, 0);
+  assert.equal(card.vendorId, undefined);
+  assert.equal(card.vendorServiceId, undefined);
+  assert.equal(card.availability, 'Service requested');
+  assert.equal(discoverCardCapability(card), 'details');
 });
 
 test('Simplex ranking consumes attached live vendor match documents without generic card flattening', () => {

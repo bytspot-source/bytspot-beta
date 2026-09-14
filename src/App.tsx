@@ -75,7 +75,7 @@ import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
 import { canonicalLegalPath } from './utils/nativeHandoffGuard';
 import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
 import { detectBytspotPatchTierFromUrl, detectBytspotTagIntentFromUrl, detectBytspotTagUseModeFromUrl, normalizeBytspotPatchTier, type BytspotPatchTier, type BytspotTagIntent, type BytspotTagUseMode } from './utils/patchTiers';
-import { curatedServiceRecommendationCards, savedServiceRequestToCard } from './utils/vendorServiceCards';
+import { curatedServiceRecommendationCards, savedServiceRequestToCard } from './utils/vendorExperienceCards';
 import { markCuratedFallbackDiscoverCards, rankDiscoverCardsWithSimplex } from './utils/vendorMatching';
 import { resolveVenuePhoto } from './utils/venuePhoto';
 import type { CardType, DiscoverCard } from './utils/mockData';

@@ -1,6 +1,6 @@
 import type { DiscoverCard } from './mockData';
 import type { UserPreferences, CulturalContext } from './personalization';
-import type { VendorDiscoveryService } from './vendorServiceCards';
+import type { VendorDiscoveryService } from './vendorExperienceCards';
 
 export type BytspotProviderSource = 'google_places' | 'yelp_fusion' | 'bytspot_vendor' | 'bytspot_discover' | 'bytspot_curated';
 export type BytspotMediaKind = 'image' | 'video' | 'thumbnail';

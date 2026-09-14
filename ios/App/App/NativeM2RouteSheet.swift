@@ -384,6 +384,7 @@ struct NativeM2ArrivalModule: View {
     let venue: NativeVenueSummary
     let openRoute: () -> Void
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceTransparency) private var accessibilityReduceTransparency
     @State private var handoffError: String?
 
     var body: some View {
@@ -429,7 +430,13 @@ struct NativeM2ArrivalModule: View {
             }
         }
         .foregroundColor(.white).padding(18).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial)
+        .background {
+            if accessibilityReduceTransparency {
+                NativeTheme.panel
+            } else {
+                Rectangle().fill(.ultraThinMaterial)
+            }
+        }
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .accessibilityIdentifier("native-m2-arrival")

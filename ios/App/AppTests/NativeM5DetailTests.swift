@@ -90,9 +90,12 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertEqual(requestRows.first(where: { $0.intent == .requesting })?.route, .requestCoffee)
 
         let url = try XCTUnwrap(URL(string: "https://provider.example.com/booking/1"))
-        let external = NativeDiscoverBookablePresentation(externalURL: url, externalProvider: "Provider")
+        let external = NativeDiscoverBookablePresentation(externalURL: url,
+            externalProvider: "Provider", externalIntent: .booking)
         XCTAssertEqual(NativeVendorCapabilityTable.rows(for: external)
-            .first(where: { $0.intent == .booking })?.route, .external(url))
+            .first(where: { $0.intent == .booking })?.route, .external(url, provider: "Provider"))
+        XCTAssertFalse(NativeVendorCapabilityTable.rows(for: external)
+            .first(where: { $0.intent == .booking })?.isExecutable ?? true)
     }
 
     func testBroniPartnerProfileDoesNotInventAuthorityOrMedia() throws {
@@ -102,6 +105,9 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertEqual(card.cta, "Details")
         XCTAssertEqual(card.features, [])
         XCTAssertFalse(card.verified)
+        XCTAssertEqual(card.control, NativeDiscoverCardControl.local)
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: card.id))
+        XCTAssertTrue(NativeDiscoverCardControl.isPartnerProfile(cardID: card.id))
         let presentation = NativeDiscoverBrowsePolicy.referencePresentation(for: card)
         XCTAssertEqual(presentation.capability, .details)
         XCTAssertTrue(NativeVendorCapabilityTable.rows(for: presentation).allSatisfy { !$0.isExecutable })
@@ -109,10 +115,13 @@ final class NativeM5DetailTests: XCTestCase {
 
     func testExternalRequiresExplicitNamedValidatedHandoff() throws {
         let url = try XCTUnwrap(URL(string: "https://provider.example.com/booking/1"))
-        let external = NativeDiscoverBookablePresentation(externalURL: url, externalProvider: "Example Provider")
+        let implicit = NativeDiscoverBookablePresentation(externalURL: url, externalProvider: "Example Provider")
+        XCTAssertEqual(NativeM5DetailPolicy.primaryAction(for: implicit), .route)
+        let external = NativeDiscoverBookablePresentation(externalURL: url,
+            externalProvider: "Example Provider", externalIntent: .booking)
         XCTAssertEqual(external.statusLabel, "External")
         XCTAssertEqual(NativeM5DetailPolicy.primaryAction(for: external), .external(url))
-        XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: external), "Book on Example Provider ↗")
+        XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: external), "Open Example Provider ↗")
         XCTAssertNil(external.actionHex)
         XCTAssertTrue(external.availabilityLine.contains("not Bytspot"))
         let unnamed = NativeDiscoverBookablePresentation(externalURL: url)
@@ -242,6 +251,9 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(detail.contains("safeAreaInset(edge: .bottom"))
         XCTAssertTrue(detail.contains("NativeVendorCapabilityTable.rows(for: placePresentation)"))
         XCTAssertTrue(detail.contains("native-vendor-capability-table"))
+        XCTAssertTrue(detail.contains("NativeVendorIntentReviewSheet"))
+        XCTAssertTrue(detail.contains("accessibilityReduceTransparency"))
+        XCTAssertTrue(detail.contains("minHeight: 44"))
         XCTAssertFalse(discover.contains("DEMO"))
     }
 

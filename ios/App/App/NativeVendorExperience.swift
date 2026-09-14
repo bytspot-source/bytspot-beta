@@ -52,7 +52,7 @@ enum NativeVendorCapabilityIntent: String, CaseIterable, Equatable {
 /// fulfillment authority.
 enum NativeVendorExecutableRoute: Equatable {
     case requestCoffee
-    case external(URL)
+    case external(URL, provider: String)
     case unavailable
 }
 
@@ -62,11 +62,20 @@ struct NativeVendorCapabilityRow: Identifiable, Equatable {
     let detail: String
     let route: NativeVendorExecutableRoute
 
-    var isExecutable: Bool { route != .unavailable }
-    var actionTitle: String? {
+    /// Only an in-app route is executable capability. A provider link remains a
+    /// neutral handoff even after its destination and intent are explicit.
+    var isExecutable: Bool { route == .requestCoffee }
+    var statusTitle: String {
         switch route {
-        case .requestCoffee: return "Request"
-        case .external: return "Open provider ↗"
+        case .requestCoffee: return "Available in Bytspot"
+        case .external(_, let provider): return "Continue on \(provider)"
+        case .unavailable: return "Not available"
+        }
+    }
+    var continuationTitle: String? {
+        switch route {
+        case .requestCoffee: return "Continue request"
+        case .external(_, let provider): return "Open \(provider) ↗"
         case .unavailable: return nil
         }
     }
@@ -79,23 +88,43 @@ enum NativeVendorCapabilityTable {
         NativeVendorCapabilityIntent.allCases.map { intent in
             switch intent {
             case .booking:
-                if case .redirect = presentation.capability, let url = presentation.externalURL {
+                if case .redirect = presentation.capability,
+                   presentation.externalIntent == intent,
+                   let url = presentation.externalURL,
+                   let provider = presentation.externalProvider {
                     return .init(intent: intent,
-                        detail: "Availability and confirmation stay with the named provider.", route: .external(url))
+                        detail: "Review availability and confirmation with \(provider). Bytspot cannot confirm this booking.",
+                        route: .external(url, provider: provider))
                 }
                 return .init(intent: intent,
-                    detail: "No controlled booking route is connected for this listing.", route: .unavailable)
+                    detail: "Booking isn't available in Bytspot for this place.", route: .unavailable)
             case .ordering:
+                if case .redirect = presentation.capability,
+                   presentation.externalIntent == intent,
+                   let url = presentation.externalURL,
+                   let provider = presentation.externalProvider {
+                    return .init(intent: intent,
+                        detail: "Review the menu, fulfillment, and payment with \(provider). Bytspot cannot confirm this order.",
+                        route: .external(url, provider: provider))
+                }
                 return .init(intent: intent,
-                    detail: "Menu links are for browsing; no ordering endpoint is connected.", route: .unavailable)
+                    detail: "Ordering isn't available in Bytspot. A menu link is for browsing only.", route: .unavailable)
             case .requesting:
                 if presentation.capability == .request {
                     return .init(intent: intent,
-                        detail: "Send a table request after adding the exact offering to a Plan. Subject to acceptance.",
+                        detail: "Add this exact option to a Plan, then send a request. The provider must accept it.",
                         route: .requestCoffee)
                 }
+                if case .redirect = presentation.capability,
+                   presentation.externalIntent == intent,
+                   let url = presentation.externalURL,
+                   let provider = presentation.externalProvider {
+                    return .init(intent: intent,
+                        detail: "Send the request on \(provider). Bytspot cannot track or confirm its status.",
+                        route: .external(url, provider: provider))
+                }
                 return .init(intent: intent,
-                    detail: "No request route is connected for this listing.", route: .unavailable)
+                    detail: "Requests aren't available in Bytspot for this place.", route: .unavailable)
             }
         }
     }

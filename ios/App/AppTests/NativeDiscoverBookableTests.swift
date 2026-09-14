@@ -41,12 +41,16 @@ final class NativeDiscoverBookablePolicyTests: XCTestCase {
         XCTAssertEqual(NativeDiscoverBookablePresentation().statusLabel, "Listed")
     }
 
-    func testNamedHTTPSHandoffRemainsNeutralAndExternal() throws {
+    func testNamedHTTPSHandoffRequiresExplicitIntentAndRemainsNeutral() throws {
         let url = try XCTUnwrap(URL(string: "https://tickets.example.com/event/1"))
-        let card = NativeDiscoverBookablePresentation(externalURL: url, externalProvider: "Example Tickets")
+        let implicit = NativeDiscoverBookablePresentation(externalURL: url, externalProvider: "Example Tickets")
+        XCTAssertEqual(implicit.capability, .details)
+        let card = NativeDiscoverBookablePresentation(externalURL: url,
+            externalProvider: "Example Tickets", externalIntent: .booking)
         XCTAssertEqual(card.capability, .redirect)
-        XCTAssertEqual(card.primaryActionTitle, "Book on Example Tickets ↗")
+        XCTAssertEqual(card.primaryActionTitle, "Open Example Tickets ↗")
         XCTAssertEqual(card.externalURL, url)
+        XCTAssertEqual(card.externalIntent, .booking)
         XCTAssertEqual(card.statusLabel, "External")
         XCTAssertEqual(card.ringStyle, .dot)
         XCTAssertNil(card.actionHex)
@@ -55,14 +59,16 @@ final class NativeDiscoverBookablePolicyTests: XCTestCase {
     func testUnsafeOrUnnamedHandoffsDoNotEarnAnAction() throws {
         for value in ["http://example.com", "javascript:alert(1)", "https://localhost", "https://example.com:8080"] {
             let url = try XCTUnwrap(URL(string: value))
-            let card = NativeDiscoverBookablePresentation(externalURL: url, externalProvider: "Provider")
+            let card = NativeDiscoverBookablePresentation(externalURL: url,
+                externalProvider: "Provider", externalIntent: .booking)
             XCTAssertEqual(card.capability, .details)
             XCTAssertNil(card.externalURL)
             XCTAssertNil(card.primaryActionTitle)
         }
         let url = try XCTUnwrap(URL(string: "https://example.com"))
         for provider in ["", " ", "Provider\nBook"] {
-            XCTAssertEqual(NativeDiscoverBookablePresentation(externalURL: url, externalProvider: provider).capability, .details)
+            XCTAssertEqual(NativeDiscoverBookablePresentation(externalURL: url,
+                externalProvider: provider, externalIntent: .booking).capability, .details)
         }
     }
 

@@ -911,8 +911,9 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     func testDiscoverControlGateOnlyControlsCanonicalVendorsAndRealPatches() {
-        // Canonical vendor IDs are controlled.
-        XCTAssertTrue(NativeDiscoverCardControl.isControlled(cardID: "broni-home-taste"))
+        // Partner placement and fulfillment control are independent.
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: "broni-home-taste"))
+        XCTAssertTrue(NativeDiscoverCardControl.isPartnerProfile(cardID: "broni-home-taste"))
         XCTAssertTrue(NativeDiscoverCardControl.isControlled(cardID: "gh-akwaaba-pass"))
         // Local dining/coverage/Google-shaped IDs are not.
         XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: "dinner-vibe"))
@@ -946,17 +947,23 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(section?.highlights.contains("Menu preview") ?? true)
     }
 
-    func testCanonicalDiscoverCardsCarryVendorControlAndClonesStayLocal() {
-        XCTAssertTrue(NativeTabContentSnapshot.canonicalServiceCards.allSatisfy { $0.control == NativeDiscoverCardControl.vendor })
+    func testCanonicalDiscoverCardsSeparatePartnerPlacementFromVendorControl() throws {
+        let broni = try XCTUnwrap(NativeTabContentSnapshot.canonicalServiceCards.first)
+        XCTAssertEqual(broni.control, NativeDiscoverCardControl.local)
+        XCTAssertTrue(NativeDiscoverCardControl.isPartnerProfile(cardID: broni.id))
+        XCTAssertTrue(NativeTabContentSnapshot.canonicalServiceCards.dropFirst().allSatisfy { $0.control == NativeDiscoverCardControl.vendor })
         XCTAssertTrue(NativeTabContentSnapshot.canonicalMobilityCards.allSatisfy { $0.control == NativeDiscoverCardControl.vendor })
         XCTAssertTrue(NativeTabContentSnapshot.fallbackDiscoverCards.allSatisfy { $0.control == NativeDiscoverCardControl.local }, "Curated fallback cards must stay local.")
     }
 
-    func testServicesRailOnlyListsControlledVendorCards() {
+    func testServicesRailListsControlledVendorsAndExplicitPartnerProfiles() {
         let snapshot = NativeTabContentSnapshot.fallback
         let services = NativeLocationAwareUIContent.discoverCards(in: snapshot, matching: "service")
         XCTAssertFalse(services.isEmpty)
-        XCTAssertTrue(services.allSatisfy { $0.control == NativeDiscoverCardControl.vendor || NativeDiscoverCardControl.isControlled(cardID: $0.id) })
+        XCTAssertTrue(services.allSatisfy {
+            $0.control == NativeDiscoverCardControl.vendor || NativeDiscoverCardControl.isControlled(cardID: $0.id) ||
+                NativeDiscoverCardControl.isPartnerProfile(cardID: $0.id)
+        })
     }
 
     @MainActor

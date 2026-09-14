@@ -248,11 +248,13 @@ struct NativeDiscoverBookablePresentation: Equatable {
     let capability: NativeDiscoverBookableCapability
     let externalURL: URL?
     let externalProvider: String?
+    let externalIntent: NativeVendorCapabilityIntent?
 
     init(
         offering: NativePlanBookableOffering? = nil,
         externalURL: URL? = nil,
-        externalProvider: String? = nil
+        externalProvider: String? = nil,
+        externalIntent: NativeVendorCapabilityIntent? = nil
     ) {
         let resolved: NativeDiscoverBookableCapability
         if let offering = offering {
@@ -272,6 +274,7 @@ struct NativeDiscoverBookablePresentation: Equatable {
         }
 
         if resolved == .redirect,
+           let externalIntent,
            let url = externalURL, Self.isValidExternalURL(url),
            let provider = externalProvider?.trimmingCharacters(in: .whitespacesAndNewlines),
            !provider.isEmpty,
@@ -279,10 +282,12 @@ struct NativeDiscoverBookablePresentation: Equatable {
             capability = .redirect
             self.externalURL = url
             self.externalProvider = provider
+            self.externalIntent = externalIntent
         } else {
             capability = resolved == .redirect ? .details : resolved
             self.externalURL = nil
             self.externalProvider = nil
+            self.externalIntent = nil
         }
     }
 
@@ -290,7 +295,7 @@ struct NativeDiscoverBookablePresentation: Equatable {
         switch capability {
         case .book: return "Book"
         case .request: return "Request"
-        case .redirect: return externalProvider.map { "Book on \($0) ↗" }
+        case .redirect: return externalProvider.map { "Open \($0) ↗" }
         case .details: return nil
         }
     }

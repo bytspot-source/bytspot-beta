@@ -5894,7 +5894,11 @@ enum NativeLocationAwareUIContent {
         // Service-shaped local cards (cottage lookalikes, coverage clones)
         // never earn Book chrome, so they don't earn the rail either.
         if type == "service" {
-            return snapshot.discoverCards.filter { $0.type == type && ($0.control == NativeDiscoverCardControl.vendor || NativeDiscoverCardControl.isControlled(cardID: $0.id)) }
+            return snapshot.discoverCards.filter {
+                $0.type == type && ($0.control == NativeDiscoverCardControl.vendor ||
+                    NativeDiscoverCardControl.isControlled(cardID: $0.id) ||
+                    NativeDiscoverCardControl.isPartnerProfile(cardID: $0.id))
+            }
         }
         return snapshot.discoverCards.filter { $0.type == type }
     }
@@ -11950,6 +11954,7 @@ private extension Notification.Name {
 
 private struct NativeVenueDetailView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceTransparency) private var accessibilityReduceTransparency
     @EnvironmentObject private var locationStore: NativeLocationStore
     let venue: NativeVenueSummary
     let openHybrid: (BytspotHybridRoute) -> Void
@@ -11965,6 +11970,7 @@ private struct NativeVenueDetailView: View {
     // Today's catalog has no external feed data, so these remain dormant.
     var externalURL: URL? = nil
     var externalProvider: String? = nil
+    var externalIntent: NativeVendorCapabilityIntent? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var handoffURL
     @EnvironmentObject private var sessionStore: BytspotSessionStore
@@ -11994,6 +12000,8 @@ private struct NativeVenueDetailView: View {
     @State private var showParkingBooking = false
     @State private var showStayBooking = false
     @State private var showPartnerMenu = false
+    @State private var reviewedCapability: NativeVendorCapabilityRow?
+    @State private var pendingCapabilityRoute: NativeVendorExecutableRoute?
 
     private var openStatus: NativeVenueOpenStatus { NativeVenueHours.openStatus(category: venue.discoverType) }
     private var currentTrustLevel: BytspotTrustLevel { .staticDiscovery }
@@ -12048,6 +12056,11 @@ private struct NativeVenueDetailView: View {
         .sheet(isPresented: $showRoute) { NativeM2RouteSheet(venue: venue) }
         .sheet(isPresented: $showVibe) {
             if let url = details?.vibeVideoURL { NativeVenueVibeSheet(url: url) }
+        }
+        .sheet(item: $reviewedCapability, onDismiss: continueReviewedCapability) { row in
+            NativeVendorIntentReviewSheet(venueName: venue.name, row: row, onContinue: {
+                pendingCapabilityRoute = row.route
+            })
         }
         .sheet(item: $transactionPlan) { target in
             NativePlanDetailSheet(planID: target.id, sessionStore: sessionStore, onChanged: {
@@ -12106,7 +12119,7 @@ private struct NativeVenueDetailView: View {
 
     private var placePresentation: NativeDiscoverBookablePresentation {
         NativeDiscoverBookablePresentation(offering: exactOffering,
-            externalURL: externalURL, externalProvider: externalProvider)
+            externalURL: externalURL, externalProvider: externalProvider, externalIntent: externalIntent)
     }
 
     private var details: NativeVenueRichDetails? { suppliedDetails ?? venue.richDetails }
@@ -12151,7 +12164,9 @@ private struct NativeVenueDetailView: View {
                 Button { showVibe = true } label: {
                     Label("Recorded Vibe", systemImage: "play.fill")
                         .font(.subheadline.weight(.semibold)).padding(.horizontal, 14)
-                        .frame(minHeight: 44).background(.ultraThinMaterial).clipShape(Capsule())
+                        .frame(minHeight: 44)
+                        .nativeVendorMaterial(reduceTransparency: accessibilityReduceTransparency)
+                        .clipShape(Capsule())
                 }
                 .buttonStyle(.plain).accessibilityHint("Plays venue-supplied recorded video")
                 .accessibilityIdentifier("native-m2-play-vibe")
@@ -12217,14 +12232,16 @@ private struct NativeVenueDetailView: View {
         } } label: {
             Label(title, systemImage: icon).font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 12).frame(minHeight: 44)
-                .background(.ultraThinMaterial).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .nativeVendorMaterial(reduceTransparency: accessibilityReduceTransparency)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }.buttonStyle(.plain)
     }
 
     private func heroControl(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon).font(.headline).frame(width: 44, height: 44)
-                .background(.ultraThinMaterial).clipShape(Circle())
+                .nativeVendorMaterial(reduceTransparency: accessibilityReduceTransparency)
+                .clipShape(Circle())
         }.buttonStyle(.plain).accessibilityLabel(title)
     }
 
@@ -12294,32 +12311,36 @@ private struct NativeVenueDetailView: View {
             }
         }
         .padding(18).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial)
+        .nativeVendorMaterial(reduceTransparency: accessibilityReduceTransparency)
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .accessibilityIdentifier("native-vendor-capability-table")
     }
 
     private func vendorCapabilityRow(_ row: NativeVendorCapabilityRow) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: row.isExecutable ? "arrow.right.circle.fill" : "minus.circle")
-                .foregroundColor(row.isExecutable ? NativeTheme.cyan : .white.opacity(0.45))
-                .frame(width: 24, height: 24)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(row.intent.title).font(.headline)
-                Text(row.detail).font(.subheadline).foregroundColor(.white.opacity(0.72))
-                    .fixedSize(horizontal: false, vertical: true)
+        Button { reviewedCapability = row } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: row.isExecutable ? "checkmark.circle.fill" : "info.circle")
+                    .foregroundColor(row.isExecutable ? NativeTheme.cyan : .white.opacity(0.62))
+                    .frame(width: 24, height: 24)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(row.intent.title).font(.headline)
+                    Text(row.statusTitle).font(.subheadline.weight(.semibold))
+                        .foregroundColor(row.isExecutable ? NativeTheme.cyan : .white.opacity(0.78))
+                    Text(row.detail).font(.subheadline).foregroundColor(.white.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").font(.footnote.weight(.bold))
+                    .foregroundColor(.white.opacity(0.55)).padding(.top, 4)
             }
-            Spacer(minLength: 8)
-            if let title = row.actionTitle {
-                Text(title).font(.caption.weight(.semibold))
-                    .foregroundColor(row.isExecutable ? NativeTheme.cyan : .white.opacity(0.6))
-            } else {
-                Text("Unavailable").font(.caption.weight(.semibold)).foregroundColor(.white.opacity(0.52))
-            }
+            .padding(.vertical, 8).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         }
-        .padding(.vertical, 5)
-        .accessibilityElement(children: .combine)
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(row.intent.title)
+        .accessibilityValue(row.statusTitle)
+        .accessibilityHint("Opens an intent and capability review")
     }
 
     @ViewBuilder private var offeringSection: some View {
@@ -12400,7 +12421,7 @@ private struct NativeVenueDetailView: View {
             }
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
-        .background(.ultraThinMaterial)
+        .nativeVendorMaterial(reduceTransparency: accessibilityReduceTransparency)
         .overlay(alignment: .top) { Divider().overlay(Color.white.opacity(0.12)) }
     }
 
@@ -12408,8 +12429,7 @@ private struct NativeVenueDetailView: View {
         placeButton(currentTransaction?.primaryTitle ?? NativeM5DetailPolicy.primaryTitle(for: placePresentation),
             icon: placePresentation.capability == .request ? "paperplane" : "arrow.up.right",
             supported: placePresentation.capability == .request) { performPlacePrimaryAction() }
-            .disabled(NativeM5DetailPolicy.primaryAction(for: placePresentation) == .unavailable ||
-                      (placePresentation.capability == .request && !requestStatusReady))
+            .disabled(placePresentation.capability == .request && !requestStatusReady)
             .accessibilityIdentifier("native-m2-primary-action")
         placeButton(NativeM5DetailPolicy.addToPlanTitle, icon: "plus") {
             beginDetailPlanSelection(requestCoffee: false)
@@ -12438,13 +12458,29 @@ private struct NativeVenueDetailView: View {
         }
         switch NativeM5DetailPolicy.primaryAction(for: placePresentation) {
         case .route: showRoute = true
-        case .requestCoffee: beginDetailPlanSelection(requestCoffee: true)
-        case .external(let url):
-            // The visible CTA names the provider; only this explicit tap leaves Bytspot.
+        case .requestCoffee: reviewCapability(.requesting)
+        case .external: reviewCapability(placePresentation.externalIntent ?? .booking)
+        case .unavailable: reviewCapability(.booking)
+        }
+    }
+
+    private func reviewCapability(_ intent: NativeVendorCapabilityIntent) {
+        reviewedCapability = NativeVendorCapabilityTable.rows(for: placePresentation)
+            .first(where: { $0.intent == intent })
+    }
+
+    private func continueReviewedCapability() {
+        guard let route = pendingCapabilityRoute else { return }
+        pendingCapabilityRoute = nil
+        switch route {
+        case .requestCoffee:
+            beginDetailPlanSelection(requestCoffee: true)
+        case .external(let url, let provider):
             handoffURL(url) { accepted in
-                if !accepted { statusMessage = "Could not open the provider. Please try again." }
+                if !accepted { statusMessage = "Could not open \(provider). Please try again." }
             }
-        case .unavailable: statusMessage = "Controlled booking is not available yet."
+        case .unavailable:
+            break
         }
     }
 
@@ -12947,6 +12983,83 @@ private struct NativeVenueDetailView: View {
     private func openURL(_ url: URL?) { guard let url else { return }; UIApplication.shared.open(url) }
     private func urlEncoded(_ value: String) -> String { value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value }
     private func presentShare(text: String) { _ = NativePartySharePresentation.share([text]) }
+}
+
+/// The Book surface reviews one intent at a time. Unsupported intents still
+/// receive a complete, dismissible explanation; only an explicit continuation
+/// can enter the existing request route or leave for a named provider.
+private struct NativeVendorIntentReviewSheet: View {
+    let venueName: String
+    let row: NativeVendorCapabilityRow
+    let onContinue: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceTransparency) private var accessibilityReduceTransparency
+
+    private var accent: Color { row.isExecutable ? NativeTheme.cyan : .white }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("REVIEW INTENT").font(.caption.weight(.bold)).tracking(1.2)
+                            .foregroundColor(accent.opacity(0.85))
+                        Text(row.intent.title).font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
+                        Text(venueName).font(.title3.weight(.semibold)).foregroundColor(.white.opacity(0.78))
+                    }
+                    Spacer(minLength: 8)
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark").font(.headline).frame(width: 44, height: 44)
+                            .nativeVendorMaterial(reduceTransparency: accessibilityReduceTransparency)
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain).accessibilityLabel("Close review")
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Label(row.statusTitle, systemImage: row.isExecutable ? "checkmark.circle.fill" : "info.circle")
+                        .font(.headline).foregroundColor(accent)
+                    Text(row.detail).font(.body).foregroundColor(.white.opacity(0.82))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("A partner name, category, menu, or Plan item does not confirm fulfillment.")
+                        .font(.footnote).foregroundColor(.white.opacity(0.68))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+                .nativeVendorMaterial(reduceTransparency: accessibilityReduceTransparency)
+                .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.white.opacity(0.14), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .accessibilityElement(children: .combine)
+
+                if let title = row.continuationTitle {
+                    Button {
+                        onContinue()
+                        dismiss()
+                    } label: {
+                        Text(title).font(.headline).frame(maxWidth: .infinity, minHeight: 44)
+                            .padding(.horizontal, 12)
+                            .foregroundColor(row.isExecutable ? .black : .white)
+                            .background(row.isExecutable ? NativeTheme.cyan : Color.white.opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(row.isExecutable ? "Continues in Bytspot" : "Leaves Bytspot for the named provider")
+                } else {
+                    Button("Done") { dismiss() }
+                        .font(.headline).frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Color.white.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .buttonStyle(.plain)
+                }
+            }
+            .padding(20)
+        }
+        .foregroundColor(.white)
+        .background(NativeDeepSpaceGround())
+        .preferredColorScheme(.dark)
+        .accessibilityIdentifier("native-vendor-intent-review")
+    }
 }
 
 private struct NativeEventRideBookingSheet: View {
@@ -19314,6 +19427,15 @@ private extension NativeLiveValueOption {
 }
 
 private extension View {
+    @ViewBuilder
+    func nativeVendorMaterial(reduceTransparency: Bool, fallback: Color = NativeTheme.panel) -> some View {
+        if reduceTransparency {
+            self.background(fallback)
+        } else {
+            self.background(.ultraThinMaterial)
+        }
+    }
+
     func nativePanel() -> some View {
         self.background(LinearGradient(colors: [NativePolish.elevatedSurface, NativePolish.glassSurface], startPoint: .topLeading, endPoint: .bottomTrailing)).background(.ultraThinMaterial).overlay(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: NativePolish.cardRadius, style: .continuous)).shadow(color: NativeTheme.softShadow, radius: 16, x: 0, y: 8)
     }

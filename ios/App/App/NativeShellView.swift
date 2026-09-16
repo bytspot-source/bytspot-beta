@@ -349,6 +349,15 @@ struct BytspotNativeShellView: View {
         return raw == "1" || raw == "true"
     }
 
+#if DEBUG
+    /// Design-preview hook for the storefront grant gallery
+    /// (BYT_NATIVE_PREVIEW_STOREFRONT=1). Review builds strip it entirely.
+    private static var previewStorefrontRequested: Bool {
+        let raw = (ProcessInfo.processInfo.environment["BYT_NATIVE_PREVIEW_STOREFRONT"] ?? nativeLaunchArgument("byt-native-preview-storefront"))?.lowercased()
+        return ["1", "true", "yes"].contains(raw ?? "")
+    }
+#endif
+
     private static var previewValetRequested: Bool {
         guard NativeMigrationConfig.isNativeRootEnabled else { return false }
         let raw = (ProcessInfo.processInfo.environment["BYT_NATIVE_VALET_PREVIEW"] ?? nativeLaunchArgument("byt-native-valet-preview"))?.lowercased()
@@ -376,6 +385,13 @@ struct BytspotNativeShellView: View {
     }
 
     var body: some View {
+#if DEBUG
+        if Self.previewStorefrontRequested { return AnyView(NativeStorefrontGrantPreview()) }
+#endif
+        return AnyView(shellBody)
+    }
+
+    private var shellBody: some View {
         ZStack {
             BytspotNativeBackground(tier: activeTier, intent: launchIntent).ignoresSafeArea()
             // The ground belongs to the window, not to the scrolling content:

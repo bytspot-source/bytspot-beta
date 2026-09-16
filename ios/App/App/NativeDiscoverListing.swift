@@ -438,9 +438,13 @@ struct NativeDiscoverBookablePresentation: Equatable {
         }
         switch normalized {
         case "all": return "explore"
-        case "dining", "coffee", "restaurant", "cafe", "café", "food-drink", "catering": return "eat_drink"
+        // "market" files under Eat & Drink because every market in the live
+        // catalogue is a food hall (Ponce City, Krog Street, Colony Square).
+        // If a produce or flea market is ever onboarded, split the alias
+        // rather than moving this one.
+        case "dining", "coffee", "restaurant", "cafe", "café", "food-drink", "catering", "market": return "eat_drink"
         case "shopping", "retail", "fashion", "styling": return "shop_style"
-        case "culture", "outdoor", "sports", "museum", "attraction", "tour": return "experience"
+        case "culture", "outdoor", "sports", "museum", "attraction", "tour", "park": return "experience"
         case "community", "meetup", "fan-meetup": return "social"
         case "entertainment", "event", "event pass", "music": return "events"
         case "fitness", "spa", "gym", "recovery": return "wellness"

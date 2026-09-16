@@ -350,10 +350,34 @@ struct NativeM2RouteSheet: View {
 
 /// Provider links carry an exact destination, but never quote or book a ride.
 /// Pickup, price and final confirmation remain with the chosen provider.
+///
+/// Every provider keeps a permanent row. `privateCar` and `elite` have no
+/// source connected yet, so they state that rather than vanishing; connecting
+/// an operator later fills the same row without changing this section.
 enum NativeM2RideProvider: String, CaseIterable, Identifiable {
-    case uber, lyft
+    case uber, lyft, privateCar, elite
     var id: String { rawValue }
-    var title: String { self == .uber ? "Uber" : "Lyft" }
+
+    var title: String {
+        switch self {
+        case .uber: return "Uber"
+        case .lyft: return "Lyft"
+        case .privateCar: return "Private"
+        case .elite: return "Elite"
+        }
+    }
+
+    /// What the row will carry once a source exists, stated while it does not.
+    var unconnectedDetail: String {
+        switch self {
+        case .uber, .lyft:
+            return "Ride destination unavailable: exact coordinates were not supplied."
+        case .privateCar:
+            return "No contracted car service or saved driver is connected to this account."
+        case .elite:
+            return "No premium tier or elite partner is connected for this place."
+        }
+    }
 }
 
 extension NativeM2RouteDestination {
@@ -362,6 +386,10 @@ extension NativeM2RouteDestination {
         var url = URLComponents()
         url.scheme = "https"
         switch provider {
+        // No contracted operator, saved driver, or elite partner exists yet, and
+        // a ride link is never inferred from a venue's own contact details.
+        case .privateCar, .elite:
+            return nil
         case .uber:
             url.host = "m.uber.com"; url.path = "/ul/"
             url.queryItems = [URLQueryItem(name: "action", value: "setPickup"),
@@ -420,10 +448,17 @@ struct NativeM2ArrivalModule: View {
                                 .font(.headline).frame(minHeight: 44)
                         }.buttonStyle(.plain)
                         .accessibilityIdentifier("native-m2-ride-\(provider.id)")
+                    } else {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Label(provider.title, systemImage: "circle.dashed")
+                                .font(.headline).frame(minHeight: 44)
+                            Text(provider.unconnectedDetail)
+                                .font(.footnote).foregroundColor(.white.opacity(0.60))
+                        }
+                        .foregroundColor(.white.opacity(0.45))
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("native-m2-ride-\(provider.id)-empty")
                     }
-                }
-                if !venue.hasKnownCoordinates {
-                    Text("Ride destination unavailable: exact coordinates were not supplied.").font(.footnote)
                 }
                 if let handoffError { Text(handoffError).font(.footnote) }
             }

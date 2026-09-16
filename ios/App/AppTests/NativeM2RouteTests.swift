@@ -237,7 +237,7 @@ struct NativeM2RouteTests {
 
     @Test func rideLinksCarryOnlyExactDestinationAndProviderOwnsPickup() throws {
         let destination = NativeM2RouteDestination(venue: venue())
-        for provider in NativeM2RideProvider.allCases {
+        for provider in [NativeM2RideProvider.uber, .lyft] {
             let url = try #require(destination.rideURL(for: provider))
             let parts = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
             #expect(parts.scheme == "https")
@@ -260,6 +260,17 @@ struct NativeM2RouteTests {
             #expect(NativeM2RouteDestination(venue: venue(latitude: .nan)).rideURL(for: provider) == nil)
             #expect(NativeM2RouteDestination(venue: venue(latitude: 91)).rideURL(for: provider) == nil)
         }
+    }
+
+    /// Private and Elite keep a permanent row, but no operator is connected, so
+    /// no link may be produced for them even from a fully valid destination.
+    @Test func unconnectedRideProvidersStayPresentAndProduceNoLink() {
+        let destination = NativeM2RouteDestination(venue: venue())
+        for provider in [NativeM2RideProvider.privateCar, .elite] {
+            #expect(destination.rideURL(for: provider) == nil)
+            #expect(!provider.unconnectedDetail.isEmpty)
+        }
+        #expect(NativeM2RideProvider.allCases.map(\.id) == ["uber", "lyft", "privateCar", "elite"])
     }
 
     @MainActor

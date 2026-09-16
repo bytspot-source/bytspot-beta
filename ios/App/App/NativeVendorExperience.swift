@@ -23,6 +23,54 @@ enum NativeVenueSavedState {
     private static func key(_ userID: String) -> String { "bytspot.native.place-saves.\(userID)" }
 }
 
+/// A photograph is an endorsement. Only media Bytspot owns, or media a host
+/// uploaded to their own Party, may fill a detail hero; anything borrowed from
+/// a listing provider stays routing data and never enters the frame. A
+/// provenance that cannot be read is borrowed, so the hero fails closed.
+enum NativeVenuePhotoProvenance: String, Equatable {
+    case bytspotOwned = "bytspot_owned"
+    case partyMedia = "party_media"
+    case borrowed
+
+    static func parse(_ value: Any?) -> NativeVenuePhotoProvenance {
+        guard let raw = value as? String,
+              let parsed = NativeVenuePhotoProvenance(
+                rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        else { return .borrowed }
+        return parsed
+    }
+
+    var earnsHero: Bool { self == .bytspotOwned || self == .partyMedia }
+}
+
+/// Every slot on a place detail is permanent. A slot with nothing behind it
+/// states what was not supplied instead of disappearing, so supply fills the
+/// same element later without the screen changing shape.
+enum NativeVenueSlotCopy {
+    static let heroEmptyTitle = "No photograph supplied"
+    static let heroEmptyDetail = "A photograph appears here when this place or a host supplies one."
+    static let vibeEmptyTitle = "No vibe recorded"
+    static let vibeEmptyDetail = "A recorded walkthrough appears here when this place supplies one."
+    static let descriptionEmpty = "No description provided by this place."
+    static let priceEmpty = "Pricing not provided"
+
+    static func utilityEmpty(_ title: String) -> String { "\(title) not provided" }
+}
+
+/// Borrowed listing imagery never reaches the hero, so a place that has not
+/// supplied media keeps the empty frame until it does.
+enum NativeVenueHeroMedia {
+    static func heroURLs(venueImage: URL?, provenance: NativeVenuePhotoProvenance,
+                         details: NativeVenueRichDetails?) -> [URL] {
+        var urls: [URL] = []
+        if provenance.earnsHero, let venueImage { urls.append(venueImage) }
+        if let details, details.photoProvenance.earnsHero {
+            for url in details.photoURLs ?? [] where !urls.contains(url) { urls.append(url) }
+        }
+        return urls
+    }
+}
+
 struct NativeVenueDetailAction: Identifiable, Equatable {
     let id: String
     let title: String

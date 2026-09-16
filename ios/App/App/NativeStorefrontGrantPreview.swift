@@ -108,6 +108,13 @@ enum NativeStorefrontGrant: String, CaseIterable, Identifiable {
 }
 
 struct NativeStorefrontGrantPreview: View {
+    /// `Color(hex:)` is file-private in the shell, so resolve the shared
+    /// surface token locally rather than widening production access.
+    private static let surface = Color(
+        red: Double((NativeDiscoverBookablePresentation.surfaceHex >> 16) & 0xFF) / 255,
+        green: Double((NativeDiscoverBookablePresentation.surfaceHex >> 8) & 0xFF) / 255,
+        blue: Double(NativeDiscoverBookablePresentation.surfaceHex & 0xFF) / 255)
+
     @State private var rail = NativeDiscoverBookablePresentation.railLabels[1]
     @State private var grant: NativeStorefrontGrant = .booking
 
@@ -231,7 +238,7 @@ struct NativeStorefrontGrantPreview: View {
             }
             .padding(14)
         }
-        .background(Color(hex: Int(NativeDiscoverBookablePresentation.surfaceHex)))
+        .background(Self.surface)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
             .stroke(Color.white.opacity(0.14), lineWidth: 1))
@@ -282,7 +289,7 @@ struct NativeStorefrontGrantPreview: View {
                 .font(.caption2).foregroundColor(NativeTheme.textSecondary)
         }
         .padding(16)
-        .background(Color(hex: Int(NativeDiscoverBookablePresentation.surfaceHex)))
+        .background(Self.surface)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
             .stroke(Color.white.opacity(0.14), lineWidth: 1))

@@ -5899,8 +5899,14 @@ enum NativeLocationAwareUIContent {
         return snapshot.discoverCards.filter { $0.type == type }
     }
 
-    static func unresolvedVenue(id: String, name: String, category: String, address: String, distance: String, imageURL: URL?) -> NativeVenueSummary {
-        NativeVenueSummary(id: "suggestion-\(id)", name: name, category: category, address: address, distance: distance, rating: nil, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby", isKnown: false), verifiedPatchId: nil, imageUrl: imageURL)
+    /// A place we could not match to a known venue, but whose coordinates the
+    /// card already carried. Unresolved means unmatched, not location-less:
+    /// dropping the coordinates here silently disabled Arrival's ride
+    /// providers, which only mount for a destination they can actually name.
+    /// `latitude`/`longitude` stay optional so a genuinely location-less
+    /// suggestion still reads as coordinate-free rather than as (0, 0).
+    static func unresolvedVenue(id: String, name: String, category: String, address: String, distance: String, imageURL: URL?, sourceCategory: String? = nil, latitude: Double? = nil, longitude: Double? = nil) -> NativeVenueSummary {
+        NativeVenueSummary(id: "suggestion-\(id)", name: name, category: category, address: address, distance: distance, rating: nil, latitude: latitude ?? 0, longitude: longitude ?? 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby", isKnown: false), verifiedPatchId: nil, imageUrl: imageURL, sourceCategory: sourceCategory)
     }
 
     static func hasKnownCoordinates(_ venue: NativeVenueSummary) -> Bool {
@@ -7134,7 +7140,7 @@ private struct NativeHomeDashboardView: View {
     private func venueForAIPick(_ card: NativeDiscoverSummary) -> NativeVenueSummary {
         let venues = NativeLocationAwareUIContent.venues(in: regionalSnapshot)
         if let direct = venues.first(where: { $0.id == card.id || "venue-\($0.id)" == card.id || $0.name.caseInsensitiveCompare(card.title) == .orderedSame }) { return direct }
-        return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, imageURL: card.imageUrl)
+        return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, imageURL: card.imageUrl, sourceCategory: card.categoryLabel, latitude: card.latitude, longitude: card.longitude)
     }
 
     private func routeToAIPick(_ venue: NativeVenueSummary) {
@@ -11557,7 +11563,7 @@ private struct NativeDiscoverView: View {
     fileprivate static func venueForDetail(_ card: DiscoverCardSpec, venues candidates: [NativeVenueSummary]) -> NativeVenueSummary {
         // Never turn a marketing subtitle into an address or join places by title.
         if let direct = NativeDiscoverRouteResolver.routeVenue(cardID: card.id, title: card.title, subtitle: card.address ?? "", type: card.type, distance: card.distance, imageURL: card.imageUrl, latitude: card.latitude, longitude: card.longitude, venues: candidates.filter { $0.id == card.id || "venue-\($0.id)" == card.id }) { return direct }
-        return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.address ?? "", distance: card.distance, imageURL: card.imageUrl)
+        return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.address ?? "", distance: card.distance, imageURL: card.imageUrl, sourceCategory: card.categoryLabel, latitude: card.latitude, longitude: card.longitude)
     }
 
     fileprivate static func routeVenue(for card: DiscoverCardSpec, venues: [NativeVenueSummary]) -> NativeVenueSummary? {

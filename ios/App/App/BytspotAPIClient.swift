@@ -2485,13 +2485,6 @@ struct NativeDiscoverSummary: Identifiable, Equatable {
     /// A source-provided address, never inferred from marketing subtitle text.
     let address: String?
 
-    /// A listed profile with no coordinates, paid entry, or membership claim
-    /// says nothing about the viewer's location, so withholding it protects
-    /// nothing. Anything priced, gated, or placed stays location scoped.
-    var isLocationIndependentProfile: Bool {
-        control == NativeDiscoverCardControl.local && entryType == "free" && !membershipRequired
-            && latitude == nil && longitude == nil
-    }
 
     init(id: String, type: String, title: String, subtitle: String, distance: String, rating: String, icon: String, verified: Bool, entryType: String, cta: String, imageUrl: URL?, categoryLabel: String, badgeText: String, metadataLine: String, features: [String], vibeScore: Int, availability: String, membershipRequired: Bool, control: String = NativeDiscoverCardControl.local, latitude: Double? = nil, longitude: Double? = nil, address: String? = nil) {
         self.id = id
@@ -3958,9 +3951,5 @@ extension NativeTabContentSnapshot {
     ]
 
     static let fallback = NativeTabContentSnapshot(venues: fallbackVenues, discoverCards: fallbackDiscoverCards + specialDiscoverCards, events: fallbackEvents, source: .fallback, lastUpdated: nil, errorMessage: nil)
-    /// Location-gated content stays out until location resolves, but a partner
-    /// profile that claims no distance, event, or paid entry is not location
-    /// scoped: hiding it made a real partner invisible to anyone who declined
-    /// location.
-    static let unresolved = NativeTabContentSnapshot(venues: [], discoverCards: fallbackDiscoverCards.filter { $0.id != "midtown-boutique-suite" } + specialDiscoverCards.filter(\.isLocationIndependentProfile), events: [], source: .fallback, lastUpdated: nil, errorMessage: nil)
+    static let unresolved = NativeTabContentSnapshot(venues: [], discoverCards: fallbackDiscoverCards.filter { $0.id != "midtown-boutique-suite" }, events: [], source: .fallback, lastUpdated: nil, errorMessage: nil)
 }

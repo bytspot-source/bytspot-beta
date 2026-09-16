@@ -545,17 +545,20 @@ enum NativePlanDisplay {
         "\(stateLabel(state)) · \(readinessLabel(readiness))"
     }
 
-    /// What a caller reads on a capability chip. `details` is called out as
-    /// "Reference" so it is unambiguously not a booking Bytspot can make.
-    /// An unknown server value is coerced to "Reference" rather than printed
-    /// verbatim: a future capability like "reserve" or "book_now" must not
-    /// render as a settlement chip until this client learns to honour it.
+    /// What a caller reads on a capability chip, in the one vocabulary every
+    /// surface shares, so a plan row cannot call a place something the card and
+    /// the detail do not. `details` reads as "Listed": unambiguously not a
+    /// booking Bytspot can make. An unknown server value is coerced to the same
+    /// label rather than printed verbatim, so a future capability like
+    /// "reserve" or "book_now" cannot render as a settlement chip until this
+    /// client learns to honour it.
     static func capabilityLabel(_ capability: String) -> String {
         switch capability {
-        case "book": return "Book"
-        case "request": return "Request"
-        case "details": return "Reference"
-        default: return "Reference"
+        case "book": return NativeDiscoverBookableCapability.book.statusLabel
+        case "order": return NativeDiscoverBookableCapability.order.statusLabel
+        case "request": return NativeDiscoverBookableCapability.request.statusLabel
+        case "details": return NativeDiscoverBookableCapability.details.statusLabel
+        default: return NativeDiscoverBookableCapability.details.statusLabel
         }
     }
 

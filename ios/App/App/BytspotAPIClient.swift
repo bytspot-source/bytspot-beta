@@ -2249,6 +2249,9 @@ struct NativeVenueRichDetails: Equatable {
     var supplementarySource: Source? = nil
     var description: String? = nil
     var photoURLs: [URL]? = nil
+    /// Travels with `photoURLs`, so borrowed imagery can never be mistaken for
+    /// supplied media once details are merged.
+    var photoProvenance: NativeVenuePhotoProvenance = .borrowed
     var vibeVideoURL: URL? = nil
     var phone: String? = nil
     var menuURL: URL? = nil
@@ -2275,6 +2278,7 @@ struct NativeVenueRichDetails: Equatable {
         result.supplementarySource = extra.source
         result.description = description ?? extra.description
         result.photoURLs = photoURLs ?? extra.photoURLs
+        result.photoProvenance = photoURLs == nil ? extra.photoProvenance : photoProvenance
         result.phone = phone ?? extra.phone
         result.websiteURL = websiteURL ?? extra.websiteURL
         result.hours = hours ?? extra.hours
@@ -2338,6 +2342,7 @@ enum NativeVenueDetailsDTO {
         var details = NativeVenueRichDetails()
         details.description = text(item["description"])
         details.photoURLs = photos(item["photoUrls"])
+        details.photoProvenance = NativeVenuePhotoProvenance.parse(item["photoProvenance"] ?? item["photo_provenance"])
         details.vibeVideoURL = safeHTTPSURL(item["vibeVideoUrl"] as? String)
         details.phone = safePhoneURL(item["phone"] as? String) == nil ? nil : text(item["phone"])
         details.menuURL = safeHTTPSURL(item["menuUrl"] as? String)
@@ -2438,9 +2443,12 @@ struct NativeVenueSummary: Identifiable, Equatable {
     /// The category the supply itself asserted, kept alongside the normalized
     /// type so a detail screen resolves the same browse rail as its card.
     var sourceCategory: String? = nil
+    /// Supplied by the venues contract. Absent reads as borrowed, which keeps
+    /// `imageUrl` out of the hero until provenance is actually asserted.
+    var photoProvenance: NativeVenuePhotoProvenance = .borrowed
 
     func withDistance(_ distance: String) -> NativeVenueSummary {
-        NativeVenueSummary(id: id, name: name, category: category, address: address, distance: distance, rating: rating, latitude: latitude, longitude: longitude, crowd: crowd, parking: parking, verifiedPatchId: verifiedPatchId, imageUrl: imageUrl, checkInVenueID: checkInVenueID, googlePlaceID: googlePlaceID, richDetails: richDetails, sourceCategory: sourceCategory)
+        NativeVenueSummary(id: id, name: name, category: category, address: address, distance: distance, rating: rating, latitude: latitude, longitude: longitude, crowd: crowd, parking: parking, verifiedPatchId: verifiedPatchId, imageUrl: imageUrl, checkInVenueID: checkInVenueID, googlePlaceID: googlePlaceID, richDetails: richDetails, sourceCategory: sourceCategory, photoProvenance: photoProvenance)
     }
 
     var discoverType: String {
@@ -3828,7 +3836,8 @@ final class NativeTabContentStore: ObservableObject {
             verifiedPatchId: patch,
             imageUrl: url(item, ["imageUrl", "image_url", "photoUrl", "image", "heroImage"]),
             googlePlaceID: NativeVenueDetailsDTO.exactGooglePlaceID(item["googlePlaceId"]),
-            richDetails: NativeVenueDetailsDTO.venueDetails(from: item)
+            richDetails: NativeVenueDetailsDTO.venueDetails(from: item),
+            photoProvenance: NativeVenuePhotoProvenance.parse(item["photoProvenance"] ?? item["photo_provenance"])
         )
     }
 

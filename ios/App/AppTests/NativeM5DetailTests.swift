@@ -482,6 +482,72 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(credentialChange.contains("synchronizePlaceAccount(forceReset: true)"))
     }
 
+    func testHeroAcceptsOnlyOwnedMediaAndFailsClosedOnUnknownProvenance() {
+        let owned = URL(string: "https://cdn.bytspot.com/owned.jpg")!
+        let borrowed = URL(string: "https://places.example/borrowed.jpg")!
+
+        XCTAssertEqual(NativeVenuePhotoProvenance.parse("bytspot_owned"), .bytspotOwned)
+        XCTAssertEqual(NativeVenuePhotoProvenance.parse("party_media"), .partyMedia)
+        for unknown: Any? in [nil, "", "google", "owned", 7, ["bytspot_owned"]] {
+            XCTAssertEqual(NativeVenuePhotoProvenance.parse(unknown), .borrowed)
+        }
+
+        XCTAssertTrue(NativeVenueHeroMedia.heroURLs(venueImage: borrowed,
+            provenance: .borrowed, details: nil).isEmpty)
+        XCTAssertEqual(NativeVenueHeroMedia.heroURLs(venueImage: owned,
+            provenance: .bytspotOwned, details: nil), [owned])
+        XCTAssertEqual(NativeVenueHeroMedia.heroURLs(venueImage: owned,
+            provenance: .partyMedia, details: nil), [owned])
+
+        var borrowedDetails = NativeVenueRichDetails()
+        borrowedDetails.photoURLs = [borrowed]
+        borrowedDetails.photoProvenance = .borrowed
+        XCTAssertTrue(NativeVenueHeroMedia.heroURLs(venueImage: nil,
+            provenance: .borrowed, details: borrowedDetails).isEmpty)
+
+        var ownedDetails = NativeVenueRichDetails()
+        ownedDetails.photoURLs = [owned]
+        ownedDetails.photoProvenance = .partyMedia
+        XCTAssertEqual(NativeVenueHeroMedia.heroURLs(venueImage: nil,
+            provenance: .borrowed, details: ownedDetails), [owned])
+    }
+
+    func testGooglePhotosStayBorrowedWhenTheyFillAVenueWithNoMedia() {
+        let borrowed = URL(string: "https://places.example/borrowed.jpg")!
+        var google = NativeVenueRichDetails(source: .googlePlaces(placeID: "abc"))
+        google.photoURLs = [borrowed]
+        XCTAssertEqual(google.photoProvenance, .borrowed)
+
+        let supplemented = NativeVenueRichDetails().supplementing(with: google)
+        XCTAssertEqual(supplemented.photoURLs, [borrowed])
+        XCTAssertEqual(supplemented.photoProvenance, .borrowed)
+        XCTAssertTrue(NativeVenueHeroMedia.heroURLs(venueImage: nil,
+            provenance: .borrowed, details: supplemented).isEmpty)
+
+        var owned = NativeVenueRichDetails()
+        owned.photoURLs = [URL(string: "https://cdn.bytspot.com/owned.jpg")!]
+        owned.photoProvenance = .bytspotOwned
+        XCTAssertEqual(owned.supplementing(with: google).photoProvenance, .bytspotOwned)
+    }
+
+    func testEveryDetailSlotStaysPresentWhenNothingIsSupplied() throws {
+        let shell = try shellSource()
+        let detail = try region(in: shell, from: "private struct NativeVenueDetailView: View {",
+                                to: "private struct NativeEventRideBookingSheet: View {")
+        for identifier in ["native-m2-hero-empty", "native-m2-play-vibe-empty", "native-m2-description-empty",
+                           "native-m2-utility-call-empty", "native-m2-utility-menu-empty",
+                           "native-m2-utility-site-empty", "native-m2-price-empty"] {
+            XCTAssertTrue(detail.contains(identifier), identifier)
+        }
+        let utilities = try region(in: detail, from: "    private var venueUtilities: some View {",
+                                   to: "    private func utilityLabel(")
+        for slot in ["utility(\"Call\"", "utility(\"Menu\"", "utility(\"Site\""] {
+            XCTAssertTrue(utilities.contains(slot), slot)
+        }
+        XCTAssertFalse(utilities.contains("if let url = details?"))
+        XCTAssertTrue(detail.contains("NativeVenueHeroMedia.heroURLs(venueImage: venue.imageUrl"))
+    }
+
     private func shellSource() throws -> String {
         let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("App/NativeShellView.swift")

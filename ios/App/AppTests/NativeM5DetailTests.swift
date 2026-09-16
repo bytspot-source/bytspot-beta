@@ -421,6 +421,36 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(detail.contains("NativeVenueHeroMedia.heroURLs(venueImage: venue.imageUrl"))
     }
 
+    func testHeroIsOneFullPhotoAndExtraMediaHidesBehindTheCluster() throws {
+        let shell = try shellSource()
+        let detail = try region(in: shell, from: "private struct NativeVenueDetailView: View {",
+                                to: "private struct NativeEventRideBookingSheet: View {")
+        let hero = try region(in: detail, from: "    private var placeHero: some View {",
+                              to: "    private func transactionPanel(")
+        // One photograph, not a paging filmstrip.
+        XCTAssertFalse(hero.contains("TabView"))
+        XCTAssertFalse(hero.contains("tabViewStyle"))
+        XCTAssertTrue(hero.contains("native-m2-hero-photo"))
+        XCTAssertTrue(hero.contains("native-m2-photo-cluster"))
+        XCTAssertTrue(hero.contains("native-m2-photo-cluster-strip"))
+        // The cluster and its strip only exist when there is more than the hero.
+        XCTAssertEqual(hero.components(separatedBy: "galleryURLs.count > 1").count - 1, 2)
+        XCTAssertTrue(hero.contains("showPhotoCluster.toggle()"))
+        XCTAssertTrue(hero.contains("ScrollView(.horizontal, showsIndicators: false)"))
+        XCTAssertTrue(hero.contains("heroPhotoIndex = index"))
+        XCTAssertTrue(hero.contains("reduceMotion ? nil :"))
+        XCTAssertTrue(detail.contains("@State private var showPhotoCluster = false"))
+    }
+
+    func testDetailRideOffersUberAndLyftOnly() throws {
+        let arrival = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("App/NativeM2RouteSheet.swift"), encoding: .utf8)
+        XCTAssertTrue(arrival.contains("case uber, lyft\n"))
+        for removed in ["privateCar", "elite", "Elite", "unconnectedDetail"] {
+            XCTAssertFalse(arrival.contains(removed), removed)
+        }
+    }
+
     private func shellSource() throws -> String {
         let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("App/NativeShellView.swift")

@@ -75,12 +75,6 @@ final class NativeM5DetailTests: XCTestCase {
 
     // MARK: Four-surface authority contract
 
-    private func supplyOffering(_ capability: String, kind: NativePlanBookableSelection.SourceKind,
-                                category: String = "dining") -> NativePlanBookableOffering {
-        NativePlanBookableOffering(id: "byt-1", sourceKind: kind, sourceId: "src-1", category: category,
-            title: "Supply", subtitle: nil, capability: capability)
-    }
-
     /// Discover, Venue detail, Review and Arrival must read one capability from
     /// supply. A surface that re-derives it can upgrade authority by rendering.
     func testAllFourSurfacesResolveOneCapabilityFromSupply() {
@@ -92,11 +86,11 @@ final class NativeM5DetailTests: XCTestCase {
             ("redirect", .party, .details)
         ]
         for (capability, kind, expected) in cases {
-            let supply = NativeDiscoverBookablePresentation(offering: supplyOffering(capability, kind: kind))
+            let supply = NativeDiscoverBookablePresentation(offering: offering(capability, kind: kind, category: "dining"))
             XCTAssertEqual(supply.capability, expected, "\(kind) \(capability) resolved the wrong capability")
 
             // Surface 1 — Discover card.
-            XCTAssertEqual(NativeDiscoverBrowsePolicy.presentation(offering: supplyOffering(capability, kind: kind)).capability, expected)
+            XCTAssertEqual(NativeDiscoverBrowsePolicy.presentation(offering: offering(capability, kind: kind, category: "dining")).capability, expected)
             // Surface 2 — Venue detail.
             XCTAssertEqual(NativeM5DetailPolicy.primaryAction(for: supply), expected == .request ? .requestCoffee : .route)
             XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: supply), expected == .request ? "Request" : "Route")
@@ -114,11 +108,12 @@ final class NativeM5DetailTests: XCTestCase {
     /// Booking and Ordering are intent vocabulary only: no supply currently
     /// mounts them, so no surface may render an executable row for them.
     func testBookingAndOrderingIntentsNeverExecuteOnAnySurface() {
+        let partnerCard = NativeTabContentSnapshot.canonicalServiceCards.first { $0.id == "broni-home-taste" }!
         let supplies = [
             NativeDiscoverBookablePresentation(),
-            NativeDiscoverBookablePresentation(offering: supplyOffering("request", kind: .coffeeSpot)),
-            NativeDiscoverBookablePresentation(offering: supplyOffering("book", kind: .party)),
-            NativeDiscoverBrowsePolicy.referencePresentation(for: card)
+            NativeDiscoverBookablePresentation(offering: offering("request", kind: .coffeeSpot, category: "coffee")),
+            NativeDiscoverBookablePresentation(offering: offering("book", kind: .party)),
+            NativeDiscoverBrowsePolicy.referencePresentation(for: partnerCard)
         ]
         for supply in supplies {
             let rows = NativeVendorCapabilityTable.rows(for: supply)
@@ -139,15 +134,19 @@ final class NativeM5DetailTests: XCTestCase {
     func testCategoryBadgeAndPlacementNeverGrantAuthorityOnAnySurface() {
         let listed = NativeDiscoverBookablePresentation()
         for rail in NativeDiscoverBookablePresentation.railTokens {
-            let dressed = NativeDiscoverBookablePresentation(offering: supplyOffering("book", kind: .party, category: rail))
+            let dressed = NativeDiscoverBookablePresentation(offering: offering("book", kind: .party, category: rail))
             XCTAssertEqual(dressed.capability, listed.capability)
             XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: dressed), NativeM5DetailPolicy.primaryTitle(for: listed))
             XCTAssertEqual(NativeVendorCapabilityTable.rows(for: dressed).filter(\.isExecutable).count, 0)
         }
         // Exactly thirteen pills, and no guest rail is introduced alongside them.
-        XCTAssertEqual(NativeDiscoverBookablePresentation.railLabels.count, 13)
+        // The pill rail itself is NativeDiscoverView.categoryLabels, which is
+        // private to the app target; the startup guard asserts it equals these.
+        XCTAssertEqual(NativeDiscoverBookablePresentation.railLabels, [
+            "Explore", "Eat & Drink", "Shop & Style", "Experience", "Social", "Events",
+            "Wellness", "Create & Learn", "Nightlife", "Stay", "Move", "Celebrate", "Services"
+        ])
         XCTAssertEqual(NativeDiscoverBookablePresentation.railTokens.count, 13)
-        XCTAssertEqual(NativeDiscoverView.categoryLabels, NativeDiscoverBookablePresentation.railLabels)
         for absent in ["host", "guest", "partner", "featured", "sponsored", "broni"] {
             XCTAssertNil(NativeDiscoverBookablePresentation.rail(category: absent), "\(absent) must not be a rail")
         }

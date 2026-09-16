@@ -675,23 +675,34 @@ final class NativeM5DetailTests: XCTestCase {
         }
     }
 
-    /// The two conversions that build a detail from a card must both forward
-    /// the coordinates the card carried. Source-level, because both are
-    /// private to their views.
-    func testBothCardToDetailConversionsForwardCoordinates() throws {
+    /// Every conversion that builds a detail from a card must forward the
+    /// coordinates the card carried. Scans all call sites rather than named
+    /// functions: the names are ambiguous (there are three `venueForDetail`
+    /// overloads, one a thin wrapper) and a future call site would otherwise
+    /// be added without this guard noticing.
+    func testEveryCardToDetailConversionForwardsCoordinates() throws {
         let source = try shellSource()
-        for conversion in ["venueForAIPick", "venueForDetail"] {
-            let body = try XCTUnwrap(source.range(of: "func \(conversion)").map {
-                String(source[$0.lowerBound...].prefix(1200))
-            })
-            let call = try XCTUnwrap(body.range(of: "unresolvedVenue(").map {
-                String(body[$0.lowerBound...].prefix(400))
-            })
-            XCTAssertTrue(call.contains("latitude: card.latitude"),
-                          "\(conversion) must forward the card's latitude, or Arrival loses its ride providers.")
-            XCTAssertTrue(call.contains("longitude: card.longitude"),
-                          "\(conversion) must forward the card's longitude, or Arrival loses its ride providers.")
+        var searchStart = source.startIndex
+        var checked = 0
+
+        while let found = source.range(of: "unresolvedVenue(", range: searchStart..<source.endIndex) {
+            searchStart = found.upperBound
+            // Skip the declaration itself; we only care about callers.
+            let prefix = source[..<found.lowerBound].suffix(20)
+            if prefix.contains("func ") { continue }
+
+            let call = String(source[found.upperBound...].prefix(600))
+            let arguments = String(call.prefix(upTo: call.firstIndex(of: "\n") ?? call.endIndex))
+            guard arguments.contains("card.") else { continue }
+
+            checked += 1
+            XCTAssertTrue(arguments.contains("latitude: card.latitude"),
+                          "A card→detail conversion drops the card's latitude, so Arrival loses its ride providers: \(arguments)")
+            XCTAssertTrue(arguments.contains("longitude: card.longitude"),
+                          "A card→detail conversion drops the card's longitude, so Arrival loses its ride providers: \(arguments)")
         }
+
+        XCTAssertEqual(checked, 2, "Expected exactly two card→detail conversions; if this changed, the new one needs the same guard.")
     }
 
     func testDetailRideOffersUberAndLyftOnly() throws {

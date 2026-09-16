@@ -315,11 +315,28 @@ struct NativeVenueDetailSection: Equatable {
 
 /// Shared card/detail routing contract. There is deliberately no checkout route:
 /// no controlled-inventory booking backend is registered. Do not substitute payments.
+/// Which unmounted path a card named, so the refusal says the right word.
+enum NativeM5UnavailableIntent: String, Equatable {
+    case book, order
+
+    var unavailableTitle: String {
+        switch self {
+        case .book: return "Booking unavailable"
+        case .order: return "Ordering unavailable"
+        }
+    }
+}
+
 enum NativeM5PrimaryAction: Equatable {
     case route
     case requestCoffee
     case external(URL)
-    case unavailable
+    case unavailable(NativeM5UnavailableIntent)
+
+    var isUnavailable: Bool {
+        if case .unavailable = self { return true }
+        return false
+    }
 }
 
 enum NativeM5DetailPolicy {
@@ -353,7 +370,10 @@ enum NativeM5DetailPolicy {
         case .details: return .route
         case .request: return .requestCoffee
         case .redirect: return presentation.externalURL.map(NativeM5PrimaryAction.external) ?? .route
-        case .book: return .unavailable
+        // Neither generic booking nor ordering is mounted. The card still
+        // states which one it would be, and the detail refuses to run it.
+        case .book: return .unavailable(.book)
+        case .order: return .unavailable(.order)
         }
     }
 
@@ -362,7 +382,7 @@ enum NativeM5DetailPolicy {
         case .route: return "Route"
         case .requestCoffee: return "Request"
         case .external: return presentation.primaryActionTitle ?? "Route"
-        case .unavailable: return "Booking unavailable"
+        case .unavailable(let intent): return intent.unavailableTitle
         }
     }
 

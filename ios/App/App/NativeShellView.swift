@@ -11403,7 +11403,7 @@ private struct NativeDiscoverView: View {
                             switch NativeM5DetailPolicy.primaryAction(for: card.presentation) {
                             case .route: routeVenue = venueForDetail(card)
                             case .requestCoffee: beginPlanSelection(card, requestCoffee: true)
-                            case .external, .unavailable: break // No external feed data or controlled booking target today.
+                            case .external, .unavailable: break // No external feed data, booking, or ordering target today.
                             }
                         },
                         addToPlan: { beginPlanSelection(card, requestCoffee: false) })
@@ -11813,7 +11813,7 @@ private struct NativeDiscoverFeatureCard: View {
                 Circle().fill(Color.white.opacity(0.72)).frame(width: 6, height: 6)
             } else {
                 Circle().stroke(Color(hex: Int(card.presentation.actionHex ?? 0xB8B8B8)), style: StrokeStyle(lineWidth: 1.5,
-                    dash: card.presentation.ringStyle == .dashed ? [2, 2] : []))
+                    dash: card.presentation.ringStyle.dashPattern.map { CGFloat($0) }))
                     .frame(width: 10, height: 10)
             }
             Text(card.offering?.sourceKind == .party ? "Party" : card.presentation.statusLabel)
@@ -12196,7 +12196,7 @@ private struct NativeVenueDetailView: View {
                     Circle().fill(Color.white.opacity(0.72)).frame(width: 6, height: 6)
                 } else {
                     Circle().stroke(Color(hex: Int(placePresentation.actionHex ?? 0xB8B8B8)),
-                        style: StrokeStyle(lineWidth: 2, dash: placePresentation.ringStyle == .dashed ? [2, 2] : []))
+                        style: StrokeStyle(lineWidth: 2, dash: placePresentation.ringStyle.dashPattern.map { CGFloat($0) }))
                         .frame(width: 10, height: 10)
                 }
                 Text(placePresentation.statusLabel).font(.subheadline.weight(.semibold))
@@ -12515,7 +12515,7 @@ private struct NativeVenueDetailView: View {
         placeButton(currentTransaction?.primaryTitle ?? NativeM5DetailPolicy.primaryTitle(for: placePresentation),
             icon: placePresentation.capability == .request ? "paperplane" : "arrow.up.right",
             supported: placePresentation.capability == .request) { performPlacePrimaryAction() }
-            .disabled(NativeM5DetailPolicy.primaryAction(for: placePresentation) == .unavailable ||
+            .disabled(NativeM5DetailPolicy.primaryAction(for: placePresentation).isUnavailable ||
                       (placePresentation.capability == .request && !requestStatusReady))
             .accessibilityIdentifier("native-m2-primary-action")
         placeButton(NativeM5DetailPolicy.addToPlanTitle, icon: "plus") {
@@ -12551,7 +12551,10 @@ private struct NativeVenueDetailView: View {
             handoffURL(url) { accepted in
                 if !accepted { statusMessage = "Could not open the provider. Please try again." }
             }
-        case .unavailable: statusMessage = "Controlled booking is not available yet."
+        case .unavailable(let intent):
+            statusMessage = intent == .order
+                ? "Ordering is not available yet."
+                : "Controlled booking is not available yet."
         }
     }
 
@@ -19318,6 +19321,10 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeDiscoverView.venueForDetail(coffeeCard, venues: []).discoverType == "coffee", "NativeDiscoverParitySelfTests: Coffee card must resolve to a coffee detail venue.")
         precondition(NativeDiscoverView.curatedCards.allSatisfy { $0.offering == nil && $0.presentation.primaryActionTitle == nil && $0.presentation.actionHex == nil }, "NativeDiscoverParitySelfTests: reference text and control never grant booking capability.")
         precondition(coffeeCard.presentation.statusLabel == "Listed" && coffeeCard.presentation.availabilityLine == "Place discovery · Bytspot does not control availability", "NativeDiscoverParitySelfTests: references cannot claim verified availability.")
+        // The card vocabulary is exactly these five words, each with its own ring.
+        precondition(NativeDiscoverBookableCapability.displayOrder.map(\.statusLabel) == ["Book", "Order", "Request", "External", "Listed"], "NativeDiscoverParitySelfTests: discover card capability vocabulary drifted.")
+        precondition(Set(NativeDiscoverBookableCapability.displayOrder.map(\.ringStyle)).count == 4, "NativeDiscoverParitySelfTests: every capability needs a distinguishable ring.")
+        precondition(NativeDiscoverBookableCapability.displayOrder.count == NativeDiscoverBookableCapability.allCases.count, "NativeDiscoverParitySelfTests: a capability exists with no indicator.")
         let foodSearch = NativeSearchRouter.suggestions(query: "food", snapshot: .fallback, limit: 3)
         precondition(foodSearch.contains { suggestion in
             if case .discoverFilter(let category) = suggestion.route {

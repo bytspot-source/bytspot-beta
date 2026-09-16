@@ -231,12 +231,66 @@ enum NativeDiscoverListing {
 /// Book stays dormant: booking.createCheckout is not registered and generic
 /// payments.checkout cannot establish controlled inventory. Party is a preview,
 /// never a Book action. Only the exact Coffee request route is executable today.
-enum NativeDiscoverBookableCapability: String, Equatable {
-    case book, request, redirect, details
+/// The one indicator vocabulary. Every surface — discover card, detail, grant
+/// and arrival — reads its word, ring and colour from here, so a place cannot
+/// describe itself differently depending on which screen you are looking at.
+enum NativeDiscoverBookableCapability: String, Equatable, CaseIterable {
+    case book, order, request, redirect, details
+
+    /// Strongest promise first. This is also the legend order.
+    static let displayOrder: [Self] = [.book, .order, .request, .redirect, .details]
+
+    var statusLabel: String {
+        switch self {
+        case .book: return "Book"
+        case .order: return "Order"
+        case .request: return "Request"
+        case .redirect: return "External"
+        case .details: return "Listed"
+        }
+    }
+
+    /// Blue belongs only to a supported Bytspot action, never an external link.
+    var actionHex: UInt? {
+        switch self {
+        case .book, .order, .request: return 0x00BFFF
+        case .redirect, .details: return nil
+        }
+    }
+
+    /// Ring geometry separates the two settling actions from the one that waits
+    /// on a person and the two Bytspot does not control.
+    var ringStyle: NativeDiscoverBookableRingStyle {
+        switch self {
+        case .book: return .solid
+        case .order: return .segmented
+        case .request: return .dashed
+        case .redirect, .details: return .dot
+        }
+    }
+
+    var availabilityLine: String {
+        switch self {
+        case .book: return "Review availability before booking"
+        case .order: return "Items and fulfillment are confirmed by the order result"
+        case .request: return "Subject to host acceptance"
+        case .redirect: return "Availability and confirmation are handled by the provider, not Bytspot"
+        case .details: return "Place discovery · Bytspot does not control availability"
+        }
+    }
 }
 
 enum NativeDiscoverBookableRingStyle: String, Equatable {
-    case solid, dashed, dot
+    case solid, segmented, dashed, dot
+
+    /// One dash pattern per ring so every surface draws the same indicator.
+    var dashPattern: [Double] {
+        switch self {
+        case .solid, .dot: return []
+        case .segmented: return [4, 2]
+        case .dashed: return [2, 2]
+        }
+    }
 }
 
 /// Pass an offering only from plans.bookables, never one synthesized from a
@@ -262,6 +316,9 @@ struct NativeDiscoverBookablePresentation: Equatable {
                 switch (offering.sourceKind, offering.capability) {
                 case (.coffeeSpot, "request"): resolved = .request
                 case (.party, _): resolved = .details
+                // Ordering is only ever the server's own assertion. No menu,
+                // category, or fulfillment hint may promote a card to Order.
+                case (_, "order"): resolved = .order
                 case (_, "redirect"): resolved = .redirect
                 default: resolved = .details
                 }
@@ -289,45 +346,17 @@ struct NativeDiscoverBookablePresentation: Equatable {
     var primaryActionTitle: String? {
         switch capability {
         case .book: return "Book"
+        case .order: return "Order"
         case .request: return "Request"
         case .redirect: return externalProvider.map { "Open \($0) ↗" }
         case .details: return nil
         }
     }
 
-    var statusLabel: String {
-        switch capability {
-        case .book: return "Book"
-        case .request: return "Request"
-        case .redirect: return "External"
-        case .details: return "Listed"
-        }
-    }
-
-    /// Blue belongs only to a supported Bytspot action, never an external link.
-    var actionHex: UInt? {
-        switch capability {
-        case .book, .request: return 0x00BFFF
-        case .redirect, .details: return nil
-        }
-    }
-
-    var ringStyle: NativeDiscoverBookableRingStyle {
-        switch capability {
-        case .book: return .solid
-        case .request: return .dashed
-        case .redirect, .details: return .dot
-        }
-    }
-
-    var availabilityLine: String {
-        switch capability {
-        case .book: return "Review availability before booking"
-        case .request: return "Subject to host acceptance"
-        case .redirect: return "Availability and confirmation are handled by the provider, not Bytspot"
-        case .details: return "Place discovery · Bytspot does not control availability"
-        }
-    }
+    var statusLabel: String { capability.statusLabel }
+    var actionHex: UInt? { capability.actionHex }
+    var ringStyle: NativeDiscoverBookableRingStyle { capability.ringStyle }
+    var availabilityLine: String { capability.availabilityLine }
 
     /// Opaque source IDs may be UUIDs or server keys. Do not repair malformed
     /// identity strings, or mistake a display title/URL for a canonical key.

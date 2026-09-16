@@ -269,7 +269,10 @@ final class NativeM5DetailTests: XCTestCase {
     func testRenderedDetailUsesActualMediaAndSafeDynamicTypeSurface() throws {
         let shell = try shellSource()
         let surface = try region(in: shell, from: "    private var placeHeader: some View {", to: "    private func performPlacePrimaryAction() {")
-        XCTAssertTrue(surface.contains("if let url = venue.imageUrl"))
+        // The hero still shows the venue's own media, but only once provenance
+        // has earned it; `venue.imageUrl` may no longer reach the frame raw.
+        XCTAssertTrue(surface.contains("NativeVenueHeroMedia.heroURLs(venueImage: venue.imageUrl"))
+        XCTAssertFalse(surface.contains("if let url = venue.imageUrl"))
         XCTAssertTrue(surface.contains("NativeM5DetailPolicy.address(for: venue)"))
         XCTAssertTrue(surface.contains("NativeM5DetailPolicy.hoursUnknown"))
         XCTAssertTrue(surface.contains("NativeM5DetailPolicy.activity(for: venue)"))
@@ -402,11 +405,13 @@ final class NativeM5DetailTests: XCTestCase {
         let shell = try shellSource()
         let detail = try region(in: shell, from: "private struct NativeVenueDetailView: View {",
                                 to: "private struct NativeEventRideBookingSheet: View {")
-        for identifier in ["native-m2-hero-empty", "native-m2-play-vibe-empty", "native-m2-description-empty",
-                           "native-m2-utility-call-empty", "native-m2-utility-menu-empty",
-                           "native-m2-utility-site-empty", "native-m2-price-empty"] {
+        for identifier in ["native-m2-hero-empty", "native-m2-play-vibe-empty",
+                           "native-m2-description-empty", "native-m2-price-empty"] {
             XCTAssertTrue(detail.contains(identifier), identifier)
         }
+        // The three utility slots share one interpolated identifier, so the
+        // empty state is proven at its single source rather than per title.
+        XCTAssertTrue(detail.contains("native-m2-utility-\\(title.lowercased())-empty"))
         let utilities = try region(in: detail, from: "    private var venueUtilities: some View {",
                                    to: "    private func utilityLabel(")
         for slot in ["utility(\"Call\"", "utility(\"Menu\"", "utility(\"Site\""] {

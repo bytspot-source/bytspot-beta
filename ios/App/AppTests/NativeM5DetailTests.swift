@@ -81,7 +81,7 @@ final class NativeM5DetailTests: XCTestCase {
         let cases: [(String, NativePlanBookableSelection.SourceKind, NativeDiscoverBookableCapability)] = [
             ("request", .coffeeSpot, .request),
             ("book", .coffeeSpot, .details),
-            ("order", .coffeeSpot, .details),
+            ("order", .coffeeSpot, .order),
             ("book", .party, .details),
             ("redirect", .party, .details)
         ]
@@ -92,8 +92,11 @@ final class NativeM5DetailTests: XCTestCase {
             // Surface 1 — Discover card.
             XCTAssertEqual(NativeDiscoverBrowsePolicy.presentation(offering: offering(capability, kind: kind, category: "dining")).capability, expected)
             // Surface 2 — Venue detail.
-            XCTAssertEqual(NativeM5DetailPolicy.primaryAction(for: supply), expected == .request ? .requestCoffee : .route)
-            XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: supply), expected == .request ? "Request" : "Route")
+            let detailAction: NativeM5PrimaryAction = expected == .request ? .requestCoffee
+                : (expected == .order ? .unavailable(.order) : .route)
+            XCTAssertEqual(NativeM5DetailPolicy.primaryAction(for: supply), detailAction)
+            XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: supply), expected == .request ? "Request"
+                : (expected == .order ? "Ordering unavailable" : "Route"))
             // Surface 3 — Review. Only the mounted route may execute.
             let rows = NativeVendorCapabilityTable.rows(for: supply)
             XCTAssertEqual(rows.map(\.intent), NativeVendorCapabilityIntent.allCases)
@@ -113,6 +116,7 @@ final class NativeM5DetailTests: XCTestCase {
             NativeDiscoverBookablePresentation(),
             NativeDiscoverBookablePresentation(offering: offering("request", kind: .coffeeSpot, category: "coffee")),
             NativeDiscoverBookablePresentation(offering: offering("book", kind: .party)),
+            NativeDiscoverBookablePresentation(offering: offering("order", kind: .coffeeSpot, category: "dining")),
             NativeDiscoverBrowsePolicy.referencePresentation(for: partnerCard)
         ]
         for supply in supplies {
@@ -551,6 +555,45 @@ final class NativeM5DetailTests: XCTestCase {
         }
         XCTAssertFalse(utilities.contains("if let url = details?"))
         XCTAssertTrue(detail.contains("NativeVenueHeroMedia.heroURLs(venueImage: venue.imageUrl"))
+    }
+
+    /// Book, Order, Request, External and Listed each own one word, one ring and
+    /// one colour, defined once and read by every surface.
+    func testCardIndicatorVocabularyIsSingleSourcedAndDistinguishable() {
+        let all = NativeDiscoverBookableCapability.displayOrder
+        XCTAssertEqual(all.map(\.statusLabel), ["Book", "Order", "Request", "External", "Listed"])
+        XCTAssertEqual(all.count, NativeDiscoverBookableCapability.allCases.count)
+        XCTAssertEqual(all.map(\.ringStyle), [.solid, .segmented, .dashed, .dot, .dot])
+        // Blue marks a Bytspot action; an external link or a listing never earns it.
+        XCTAssertEqual(all.map(\.actionHex), [0x00BFFF, 0x00BFFF, 0x00BFFF, nil, nil])
+        XCTAssertEqual(NativeDiscoverBookableRingStyle.solid.dashPattern, [])
+        XCTAssertEqual(NativeDiscoverBookableRingStyle.segmented.dashPattern, [4, 2])
+        XCTAssertEqual(NativeDiscoverBookableRingStyle.dashed.dashPattern, [2, 2])
+        XCTAssertTrue(all.allSatisfy { !$0.availabilityLine.isEmpty })
+        // The presentation may not restate the vocabulary, only forward it.
+        let listed = NativeDiscoverBookablePresentation()
+        XCTAssertEqual(listed.statusLabel, listed.capability.statusLabel)
+        XCTAssertEqual(listed.ringStyle, listed.capability.ringStyle)
+        XCTAssertEqual(listed.availabilityLine, listed.capability.availabilityLine)
+    }
+
+    /// Ordering is not mounted, so it may only arrive as a server assertion and
+    /// the detail must refuse it by name rather than offering booking wording.
+    func testOrderIsOnlyEverAServerAssertionAndStaysUnmounted() {
+        XCTAssertNotEqual(NativeDiscoverBookablePresentation().capability, .order)
+        let ordering = NativeDiscoverBookablePresentation(offering: offering("order", kind: .coffeeSpot, category: "dining"))
+        XCTAssertEqual(ordering.capability, .order)
+        XCTAssertEqual(ordering.statusLabel, "Order")
+        XCTAssertEqual(NativeM5DetailPolicy.primaryAction(for: ordering), .unavailable(.order))
+        XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: ordering), "Ordering unavailable")
+        XCTAssertTrue(NativeM5DetailPolicy.primaryAction(for: ordering).isUnavailable)
+    }
+
+    func testStarfieldCarriesSeventyTwoStars() throws {
+        let design = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("App/NativeShellDesignSystem.swift"), encoding: .utf8)
+        XCTAssertTrue(design.contains("(0..<72).map"))
+        XCTAssertTrue(design.contains("144 stars"))
     }
 
     func testHeroIsOneFullPhotoAndExtraMediaHidesBehindTheCluster() throws {

@@ -71,6 +71,86 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(NativeTabContentSnapshot.unresolved.events.isEmpty)
     }
 
+    // MARK: Four-surface authority contract
+
+    private func supplyOffering(_ capability: String, kind: NativePlanBookableSelection.SourceKind,
+                                category: String = "dining") -> NativePlanBookableOffering {
+        NativePlanBookableOffering(id: "byt-1", sourceKind: kind, sourceId: "src-1", category: category,
+            title: "Supply", subtitle: nil, capability: capability)
+    }
+
+    /// Discover, Venue detail, Review and Arrival must read one capability from
+    /// supply. A surface that re-derives it can upgrade authority by rendering.
+    func testAllFourSurfacesResolveOneCapabilityFromSupply() {
+        let cases: [(String, NativePlanBookableSelection.SourceKind, NativeDiscoverBookableCapability)] = [
+            ("request", .coffeeSpot, .request),
+            ("book", .coffeeSpot, .details),
+            ("order", .coffeeSpot, .details),
+            ("book", .party, .details),
+            ("redirect", .party, .details)
+        ]
+        for (capability, kind, expected) in cases {
+            let supply = NativeDiscoverBookablePresentation(offering: supplyOffering(capability, kind: kind))
+            XCTAssertEqual(supply.capability, expected, "\(kind) \(capability) resolved the wrong capability")
+
+            // Surface 1 — Discover card.
+            XCTAssertEqual(NativeDiscoverBrowsePolicy.presentation(offering: supplyOffering(capability, kind: kind)).capability, expected)
+            // Surface 2 — Venue detail.
+            XCTAssertEqual(NativeM5DetailPolicy.primaryAction(for: supply), expected == .request ? .requestCoffee : .route)
+            XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: supply), expected == .request ? "Request" : "Route")
+            // Surface 3 — Review. Only the mounted route may execute.
+            let rows = NativeVendorCapabilityTable.rows(for: supply)
+            XCTAssertEqual(rows.map(\.intent), NativeVendorCapabilityIntent.allCases)
+            XCTAssertEqual(rows.filter(\.isExecutable).map(\.intent), expected == .request ? [.requesting] : [])
+            XCTAssertTrue(rows.allSatisfy { $0.isExecutable || $0.actionTitle == nil })
+            // Surface 4 — Arrival never carries fulfillment, whatever the capability.
+            XCTAssertEqual(NativeM5DetailPolicy.addToPlanTitle, "Add to Plan")
+            XCTAssertTrue(NativeM5DetailPolicy.planDisclaimer.contains("does not book or request"))
+        }
+    }
+
+    /// Booking and Ordering are intent vocabulary only: no supply currently
+    /// mounts them, so no surface may render an executable row for them.
+    func testBookingAndOrderingIntentsNeverExecuteOnAnySurface() {
+        let supplies = [
+            NativeDiscoverBookablePresentation(),
+            NativeDiscoverBookablePresentation(offering: supplyOffering("request", kind: .coffeeSpot)),
+            NativeDiscoverBookablePresentation(offering: supplyOffering("book", kind: .party)),
+            NativeDiscoverBrowsePolicy.referencePresentation(for: card)
+        ]
+        for supply in supplies {
+            let rows = NativeVendorCapabilityTable.rows(for: supply)
+            for intent in [NativeVendorCapabilityIntent.booking, .ordering] {
+                let row = rows.first { $0.intent == intent }!
+                XCTAssertFalse(row.isExecutable, "\(intent) must stay unmounted")
+                XCTAssertNil(row.actionTitle)
+                XCTAssertEqual(row.availabilityTitle, "Not available")
+            }
+            XCTAssertTrue(NativeVendorCapabilityTable.reviewDisclaimer.contains("does not book, order or send a request"))
+        }
+        // Intent vocabulary stays stable and carries no permission wording.
+        XCTAssertEqual(NativeVendorCapabilityTable.stableTokens, ["booking", "ordering", "requesting"])
+    }
+
+    /// Category name, partner badge, verified flag and curated placement are
+    /// presentation. None of them may move capability on any surface.
+    func testCategoryBadgeAndPlacementNeverGrantAuthorityOnAnySurface() {
+        let listed = NativeDiscoverBookablePresentation()
+        for rail in NativeDiscoverBookablePresentation.railTokens {
+            let dressed = NativeDiscoverBookablePresentation(offering: supplyOffering("book", kind: .party, category: rail))
+            XCTAssertEqual(dressed.capability, listed.capability)
+            XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: dressed), NativeM5DetailPolicy.primaryTitle(for: listed))
+            XCTAssertEqual(NativeVendorCapabilityTable.rows(for: dressed).filter(\.isExecutable).count, 0)
+        }
+        // Exactly thirteen pills, and no guest rail is introduced alongside them.
+        XCTAssertEqual(NativeDiscoverBookablePresentation.railLabels.count, 13)
+        XCTAssertEqual(NativeDiscoverBookablePresentation.railTokens.count, 13)
+        XCTAssertEqual(NativeDiscoverView.categoryLabels, NativeDiscoverBookablePresentation.railLabels)
+        for absent in ["host", "guest", "partner", "featured", "sponsored", "broni"] {
+            XCTAssertNil(NativeDiscoverBookablePresentation.rail(category: absent), "\(absent) must not be a rail")
+        }
+    }
+
     func testListedDefaultsToRouteAndAddToPlanWithoutControl() {
         let listed = NativeDiscoverBookablePresentation()
         XCTAssertEqual(listed.statusLabel, "Listed")

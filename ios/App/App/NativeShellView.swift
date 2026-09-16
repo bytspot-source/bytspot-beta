@@ -11981,6 +11981,11 @@ private struct NativeVenueDetailView: View {
     @State private var detailsFailed = false
     @State private var detailsLoading = false
     @State private var showVibe = false
+    /// The cluster stays closed until asked for, so the hero opens as one
+    /// photograph rather than a filmstrip.
+    @State private var showPhotoCluster = false
+    @State private var heroPhotoIndex = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var transactions = NativeDiscoverTransactionStore.shared
     @State private var transactionPlan: NativeDiscoverPlanDestination?
     @State private var isSaved = false
@@ -12219,7 +12224,8 @@ private struct NativeVenueDetailView: View {
                     .accessibilityIdentifier("native-m2-play-vibe-empty")
             }
         }
-        .padding(14).padding(.bottom, galleryURLs.count > 1 ? 20 : 0)
+        // Clears the released cluster strip so the two never overlap.
+        .padding(14).padding(.bottom, showPhotoCluster && galleryURLs.count > 1 ? 80 : 0)
     }
 
     private func vibeLabel(_ title: String, supplied: Bool) -> some View {
@@ -12293,9 +12299,22 @@ private struct NativeVenueDetailView: View {
             provenance: venue.photoProvenance, details: details)
     }
 
+    /// The hero is one full photograph. Additional media stays behind the
+    /// cluster control until the reader asks for it.
+    private var heroPhotoURL: URL? {
+        guard !galleryURLs.isEmpty else { return nil }
+        return galleryURLs[min(heroPhotoIndex, galleryURLs.count - 1)]
+    }
+
     private var placeHero: some View {
         Group {
-            if galleryURLs.isEmpty {
+            if let url = heroPhotoURL {
+                heroPhoto(url)
+                    .accessibilityLabel("Photo of \(venue.name)")
+                    .accessibilityIdentifier("native-m2-hero-photo")
+                    .overlay(alignment: .topTrailing) { photoClusterControl }
+                    .overlay(alignment: .bottom) { photoClusterStrip }
+            } else {
                 ZStack {
                     Color.white.opacity(0.06)
                     VStack(spacing: 8) {
@@ -12308,30 +12327,86 @@ private struct NativeVenueDetailView: View {
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("native-m2-hero-empty")
-            } else {
-                TabView {
-                    ForEach(galleryURLs, id: \.self) { url in
-                        GeometryReader { proxy in
-                            AsyncImage(url: url, transaction: Transaction(animation: nil)) { phase in
-                                if let image = phase.image {
-                                    image.resizable().scaledToFill()
-                                        .frame(width: proxy.size.width, height: proxy.size.height).clipped()
-                                } else {
-                                    ZStack {
-                                        Color.white.opacity(0.06)
-                                        Label("Photo unavailable", systemImage: "photo").font(.subheadline)
-                                    }
-                                }
-                            }
-                        }
-                        .accessibilityLabel("Photo of \(venue.name)")
-                    }
-                }.tabViewStyle(.page(indexDisplayMode: galleryURLs.count > 1 ? .always : .never))
             }
         }
-        .frame(height: galleryURLs.isEmpty ? 220 : 336)
+        .frame(height: galleryURLs.isEmpty ? 220 : 420)
         .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).stroke(Color.white.opacity(0.14), lineWidth: 1))
+    }
+
+    private func heroPhoto(_ url: URL) -> some View {
+        GeometryReader { proxy in
+            AsyncImage(url: url, transaction: Transaction(animation: nil)) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
+                        .frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                } else {
+                    ZStack {
+                        Color.white.opacity(0.06)
+                        Label("Photo unavailable", systemImage: "photo").font(.subheadline)
+                    }
+                }
+            }
+        }
+    }
+
+    /// A stack badge carrying the exact count of supplied photographs. It only
+    /// appears when there is more than the hero to show.
+    @ViewBuilder private var photoClusterControl: some View {
+        if galleryURLs.count > 1 {
+            Button {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
+                    showPhotoCluster.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "rectangle.stack.fill").font(.subheadline.weight(.semibold))
+                    Text("\(galleryURLs.count)").font(.subheadline.weight(.semibold))
+                }
+                .padding(.horizontal, 12).frame(minWidth: 44, minHeight: 44)
+                .background(NativeVendorSurface()).clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(14)
+            .accessibilityLabel(showPhotoCluster
+                ? "Hide the other \(galleryURLs.count - 1) photographs"
+                : "Show all \(galleryURLs.count) photographs")
+            .accessibilityIdentifier("native-m2-photo-cluster")
+        }
+    }
+
+    /// Mini photographs released by the cluster. Choosing one promotes it into
+    /// the hero rather than opening a separate viewer.
+    @ViewBuilder private var photoClusterStrip: some View {
+        if showPhotoCluster && galleryURLs.count > 1 {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(Array(galleryURLs.enumerated()), id: \.element) { index, url in
+                        Button {
+                            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
+                                heroPhotoIndex = index
+                            }
+                        } label: {
+                            heroPhoto(url)
+                                .frame(width: 72, height: 56)
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(Color.white.opacity(index == heroPhotoIndex ? 0.85 : 0.18),
+                                                lineWidth: index == heroPhotoIndex ? 2 : 1)
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Photograph \(index + 1) of \(galleryURLs.count)")
+                        .accessibilityAddTraits(index == heroPhotoIndex ? [.isSelected] : [])
+                    }
+                }
+                .padding(.horizontal, 14).padding(.vertical, 12)
+            }
+            .background(.ultraThinMaterial)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .accessibilityIdentifier("native-m2-photo-cluster-strip")
+        }
     }
 
     private func transactionPanel(_ transaction: NativeDiscoverTransaction) -> some View {

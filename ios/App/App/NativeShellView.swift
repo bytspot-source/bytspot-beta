@@ -12148,23 +12148,7 @@ private struct NativeVenueDetailView: View {
                     }
                 }.padding(12)
             }
-            .overlay(alignment: .bottomLeading) {
-                if details?.vibeVideoURL != nil {
-                    Button { showVibe = true } label: {
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Recorded Vibe").font(.caption.weight(.semibold))
-                                Text("Play Vibe").font(.headline)
-                            }
-                        } icon: { Image(systemName: "play.fill").font(.title2) }
-                        .padding(.horizontal, 16).padding(.vertical, 10)
-                        .frame(minHeight: 44).background(NativeVendorSurface()).clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain).accessibilityHint("Plays venue-supplied recorded video")
-                    .accessibilityIdentifier("native-m2-play-vibe")
-                    .padding(14).padding(.bottom, galleryURLs.count > 1 ? 20 : 0)
-                }
-            }
+            .overlay(alignment: .bottomLeading) { vibeSlot }
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 12) { placeIdentity; venueUtilities }
             } else {
@@ -12197,6 +12181,10 @@ private struct NativeVenueDetailView: View {
             }
             if let description = details?.description {
                 Text(description).font(.body).foregroundColor(.white.opacity(0.80))
+            } else {
+                Text(NativeVenueSlotCopy.descriptionEmpty)
+                    .font(.body).foregroundColor(.white.opacity(0.60))
+                    .accessibilityIdentifier("native-m2-description-empty")
             }
             HStack(spacing: 8) {
                 if placePresentation.ringStyle == .dot {
@@ -12214,27 +12202,83 @@ private struct NativeVenueDetailView: View {
         }
     }
 
+    /// The vibe slot is permanent: a recorded walkthrough plays when supplied,
+    /// and states its absence when not, rather than leaving the frame bare.
+    @ViewBuilder private var vibeSlot: some View {
+        Group {
+            if let url = details?.vibeVideoURL {
+                Button { showVibe = true } label: { vibeLabel("Play Vibe", supplied: true) }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Plays venue-supplied recorded video")
+                    .accessibilityIdentifier("native-m2-play-vibe")
+                    .id(url)
+            } else {
+                vibeLabel(NativeVenueSlotCopy.vibeEmptyTitle, supplied: false)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(NativeVenueSlotCopy.vibeEmptyDetail)
+                    .accessibilityIdentifier("native-m2-play-vibe-empty")
+            }
+        }
+        .padding(14).padding(.bottom, galleryURLs.count > 1 ? 20 : 0)
+    }
+
+    private func vibeLabel(_ title: String, supplied: Bool) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Recorded Vibe").font(.caption.weight(.semibold))
+                Text(title).font(.headline)
+            }
+        } icon: {
+            Image(systemName: supplied ? "play.fill" : "play.slash").font(.title2)
+        }
+        .foregroundColor(.white.opacity(supplied ? 1 : 0.45))
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .frame(minHeight: 44).background(NativeVendorSurface()).clipShape(Capsule())
+    }
+
+    /// Call / Menu / Site hold their positions whether or not the place has
+    /// supplied a number, a menu or a site, so supply fills the same control.
     private var venueUtilities: some View {
         VStack(alignment: .trailing, spacing: 8) {
-            if let url = details?.phoneURL { utility("Call", icon: "phone", url: url) }
-            if let url = details?.menuURL { utility("Menu", icon: "menucard", url: url) }
-            if let url = details?.websiteURL { utility("Site ↗", icon: "globe", url: url) }
+            utility("Call", icon: "phone", url: details?.phoneURL)
+            utility("Menu", icon: "menucard", url: details?.menuURL)
+            utility("Site", icon: "globe", url: details?.websiteURL)
         }
         .accessibilityIdentifier("native-m2-venue-utilities")
     }
 
-    private func utility(_ title: String, icon: String, url: URL) -> some View {
-        Button { handoffURL(url) { accepted in
-            if !accepted { statusMessage = "Could not open \(title). Please try again." }
-        } } label: {
-            VStack(spacing: 6) {
-                Image(systemName: icon).font(.title3.weight(.semibold))
-                Text(title).font(.subheadline.weight(.semibold))
+    @ViewBuilder private func utility(_ title: String, icon: String, url: URL?) -> some View {
+        if let url {
+            Button { handoffURL(url) { accepted in
+                if !accepted { statusMessage = "Could not open \(title). Please try again." }
+            } } label: {
+                utilityLabel(title == "Site" ? "Site ↗" : title, icon: icon, supplied: true)
             }
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(12).frame(minWidth: 64, minHeight: 64)
-            .background(NativeVendorSurface()).clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        }.buttonStyle(.plain)
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-m2-utility-\(title.lowercased())")
+        } else {
+            utilityLabel(title, icon: icon, supplied: false)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(NativeVenueSlotCopy.utilityEmpty(title))
+                .accessibilityIdentifier("native-m2-utility-\(title.lowercased())-empty")
+        }
+    }
+
+    private func utilityLabel(_ title: String, icon: String, supplied: Bool) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon).font(.title3.weight(.semibold))
+            Text(title).font(.subheadline.weight(.semibold))
+        }
+        .foregroundColor(.white.opacity(supplied ? 1 : 0.45))
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(12).frame(minWidth: 64, minHeight: 64)
+        .background(NativeVendorSurface()).clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            if !supplied {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.white.opacity(0.14), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            }
+        }
     }
 
     private func heroControl(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
@@ -12245,10 +12289,8 @@ private struct NativeVenueDetailView: View {
     }
 
     private var galleryURLs: [URL] {
-        var urls: [URL] = []
-        if let url = venue.imageUrl { urls.append(url) }
-        for url in details?.photoURLs ?? [] where !urls.contains(url) { urls.append(url) }
-        return urls
+        NativeVenueHeroMedia.heroURLs(venueImage: venue.imageUrl,
+            provenance: venue.photoProvenance, details: details)
     }
 
     private var placeHero: some View {
@@ -12256,8 +12298,16 @@ private struct NativeVenueDetailView: View {
             if galleryURLs.isEmpty {
                 ZStack {
                     Color.white.opacity(0.06)
-                    Label("Venue photos not provided", systemImage: "photo").font(.subheadline)
+                    VStack(spacing: 8) {
+                        Image(systemName: "photo").font(.title2)
+                        Text(NativeVenueSlotCopy.heroEmptyTitle).font(.subheadline.weight(.semibold))
+                        Text(NativeVenueSlotCopy.heroEmptyDetail)
+                            .font(.footnote).foregroundColor(.white.opacity(0.72))
+                            .multilineTextAlignment(.center).padding(.horizontal, 24)
+                    }
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("native-m2-hero-empty")
             } else {
                 TabView {
                     ForEach(galleryURLs, id: \.self) { url in
@@ -12279,7 +12329,7 @@ private struct NativeVenueDetailView: View {
                 }.tabViewStyle(.page(indexDisplayMode: galleryURLs.count > 1 ? .always : .never))
             }
         }
-        .frame(height: galleryURLs.isEmpty ? 200 : 336)
+        .frame(height: galleryURLs.isEmpty ? 220 : 336)
         .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).stroke(Color.white.opacity(0.14), lineWidth: 1))
     }
@@ -12326,7 +12376,13 @@ private struct NativeVenueDetailView: View {
             if let accessibility = details?.accessibility { suppliedFacts("Accessibility", values: accessibility) }
             if let rules = details?.rules { suppliedFacts("Requirements & rules", values: rules) }
             if let cancellation = details?.cancellationPolicy { suppliedFacts("Cancellation terms", values: [cancellation]) }
-            if let price = details?.price { suppliedFacts("Supplied pricing · not a quote", values: [price]) }
+            if let price = details?.price {
+                suppliedFacts("Supplied pricing · not a quote", values: [price])
+            } else {
+                Label(NativeVenueSlotCopy.priceEmpty, systemImage: "tag")
+                    .foregroundColor(.white.opacity(0.60))
+                    .accessibilityIdentifier("native-m2-price-empty")
+            }
         }
         .font(.body).frame(maxWidth: .infinity, alignment: .leading)
         .padding(16).background(Color.white.opacity(0.06))

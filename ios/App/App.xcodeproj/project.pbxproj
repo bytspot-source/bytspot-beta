@@ -42,6 +42,7 @@
 		A13F03172C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03162C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift */; };
 			A13F0C012D0000000000C001 /* NativeShellDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0C002D0000000000C000 /* NativeShellDesignSystem.swift */; };
 			A13F0C032D0000000000C003 /* NativeVendorExperience.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0C022D0000000000C002 /* NativeVendorExperience.swift */; };
+			A13F0C052D0000000000C005 /* NativeStorefrontGrantPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0C042D0000000000C004 /* NativeStorefrontGrantPreview.swift */; };
 			A13F0D012D0000000000D001 /* NativeHostStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0D002D0000000000D000 /* NativeHostStudioView.swift */; };
 			A13F0D0B2D0000000000D011 /* BytspotDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0D0A2D0000000000D010 /* BytspotDiagnostics.swift */; };
 			A13F0E012D0000000000E001 /* NativePartyArrival.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0E002D0000000000E000 /* NativePartyArrival.swift */; };
@@ -135,6 +136,7 @@
 		A13F03162C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePatchSpecialFlowSelfTests.swift; sourceTree = "<group>"; };
 			A13F0C002D0000000000C000 /* NativeShellDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeShellDesignSystem.swift; sourceTree = "<group>"; };
 			A13F0C022D0000000000C002 /* NativeVendorExperience.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeVendorExperience.swift; sourceTree = "<group>"; };
+			A13F0C042D0000000000C004 /* NativeStorefrontGrantPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeStorefrontGrantPreview.swift; sourceTree = "<group>"; };
 			A13F0D002D0000000000D000 /* NativeHostStudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHostStudioView.swift; sourceTree = "<group>"; };
 			A13F0D0A2D0000000000D010 /* BytspotDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotDiagnostics.swift; sourceTree = "<group>"; };
 			A13F0E002D0000000000E000 /* NativePartyArrival.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyArrival.swift; sourceTree = "<group>"; };
@@ -231,6 +233,7 @@
 				A13F00002C0FF00100000001 /* NativeShellView.swift */,
 				A13F0C002D0000000000C000 /* NativeShellDesignSystem.swift */,
 				A13F0C022D0000000000C002 /* NativeVendorExperience.swift */,
+				A13F0C042D0000000000C004 /* NativeStorefrontGrantPreview.swift */,
 					A13F0D002D0000000000D000 /* NativeHostStudioView.swift */,
 					A13F0D0A2D0000000000D010 /* BytspotDiagnostics.swift */,
 				A13F0E002D0000000000E000 /* NativePartyArrival.swift */,
@@ -462,6 +465,7 @@
 				A13F03172C0FF00100000067 /* NativePatchSpecialFlowSelfTests.swift in Sources */,
 				A13F0C012D0000000000C001 /* NativeShellDesignSystem.swift in Sources */,
 				A13F0C032D0000000000C003 /* NativeVendorExperience.swift in Sources */,
+				A13F0C052D0000000000C005 /* NativeStorefrontGrantPreview.swift in Sources */,
 					A13F0D012D0000000000D001 /* NativeHostStudioView.swift in Sources */,
 					A13F0D0B2D0000000000D011 /* BytspotDiagnostics.swift in Sources */,
 				A13F0E012D0000000000E001 /* NativePartyArrival.swift in Sources */,

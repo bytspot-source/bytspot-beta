@@ -5899,8 +5899,8 @@ enum NativeLocationAwareUIContent {
         return snapshot.discoverCards.filter { $0.type == type }
     }
 
-    static func unresolvedVenue(id: String, name: String, category: String, address: String, distance: String, imageURL: URL?) -> NativeVenueSummary {
-        NativeVenueSummary(id: "suggestion-\(id)", name: name, category: category, address: address, distance: distance, rating: nil, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby", isKnown: false), verifiedPatchId: nil, imageUrl: imageURL)
+    static func unresolvedVenue(id: String, name: String, category: String, address: String, distance: String, imageURL: URL?, sourceCategory: String? = nil) -> NativeVenueSummary {
+        NativeVenueSummary(id: "suggestion-\(id)", name: name, category: category, address: address, distance: distance, rating: nil, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby", isKnown: false), verifiedPatchId: nil, imageUrl: imageURL, sourceCategory: sourceCategory)
     }
 
     static func hasKnownCoordinates(_ venue: NativeVenueSummary) -> Bool {
@@ -7134,7 +7134,7 @@ private struct NativeHomeDashboardView: View {
     private func venueForAIPick(_ card: NativeDiscoverSummary) -> NativeVenueSummary {
         let venues = NativeLocationAwareUIContent.venues(in: regionalSnapshot)
         if let direct = venues.first(where: { $0.id == card.id || "venue-\($0.id)" == card.id || $0.name.caseInsensitiveCompare(card.title) == .orderedSame }) { return direct }
-        return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, imageURL: card.imageUrl)
+        return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, imageURL: card.imageUrl, sourceCategory: card.categoryLabel)
     }
 
     private func routeToAIPick(_ venue: NativeVenueSummary) {
@@ -11563,7 +11563,7 @@ private struct NativeDiscoverView: View {
     fileprivate static func venueForDetail(_ card: DiscoverCardSpec, venues candidates: [NativeVenueSummary]) -> NativeVenueSummary {
         // Never turn a marketing subtitle into an address or join places by title.
         if let direct = NativeDiscoverRouteResolver.routeVenue(cardID: card.id, title: card.title, subtitle: card.address ?? "", type: card.type, distance: card.distance, imageURL: card.imageUrl, latitude: card.latitude, longitude: card.longitude, venues: candidates.filter { $0.id == card.id || "venue-\($0.id)" == card.id }) { return direct }
-        return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.address ?? "", distance: card.distance, imageURL: card.imageUrl)
+        return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.address ?? "", distance: card.distance, imageURL: card.imageUrl, sourceCategory: card.categoryLabel)
     }
 
     fileprivate static func routeVenue(for card: DiscoverCardSpec, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
@@ -12172,7 +12172,7 @@ private struct NativeVenueDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(venue.name).font(.largeTitle.weight(.bold))
                 .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
-            Text(NativeDiscoverBrowsePolicy.categoryLabel(NativeDiscoverBookablePresentation.referenceRail(type: venue.discoverType, sourceCategory: venue.category) ?? venue.discoverType))
+            Text(NativeDiscoverBrowsePolicy.categoryLabel(NativeDiscoverBookablePresentation.referenceRail(type: venue.discoverType, sourceCategory: venue.sourceCategory ?? venue.category) ?? venue.discoverType))
                 .font(.subheadline.weight(.semibold)).foregroundColor(.white.opacity(0.80))
             Text(NativeM5DetailPolicy.address(for: venue)).font(.body).foregroundColor(.white.opacity(0.80))
             if let distance = NativeM5DetailPolicy.distance(to: venue, location: locationStore.lastLocation,

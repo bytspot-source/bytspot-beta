@@ -34,6 +34,18 @@ test('a category files onto its rail by exact alias, never by keyword', () => {
   assert.equal(railForCategory('the dining room bar & grill'), null);
 });
 
+test('every category the live catalogue actually serves is claimed by a rail', () => {
+  // Observed from production venues.list. These are not hypothetical: when the
+  // contract was first written, `market` and `park` fell through to Explore,
+  // which quietly buried Ponce City Market, Krog Street Market, Colony Square
+  // and Piedmont Park — four of the twelve live venues. Add a category here
+  // when the catalogue starts serving it, and the gate will demand a rail.
+  const served = ['market', 'bar', 'restaurant', 'park', 'club'];
+  assert.deepEqual(unmappedCategories(served), []);
+  assert.equal(resolveRail('market'), 'eat_drink');
+  assert.equal(resolveRail('park'), 'experience');
+});
+
 test('a rail label or token is accepted as itself', () => {
   assert.equal(railForCategory('Eat & Drink'), 'eat_drink');
   assert.equal(railForCategory('nightlife'), 'nightlife');

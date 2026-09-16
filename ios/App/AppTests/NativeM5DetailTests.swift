@@ -58,17 +58,19 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertEqual(NativeDiscoverBrowsePolicy.categoryLabel(detailRail!), "Eat & Drink")
     }
 
-    func testListedPartnerProfileStaysVisibleWithoutResolvedLocation() {
-        // Declining location must not hide a partner that claims no distance.
-        let ids = NativeTabContentSnapshot.unresolved.discoverCards.map(\.id)
-        XCTAssertTrue(ids.contains("broni-home-taste"))
-        // Priced, gated, and placed supply stays location scoped.
-        XCTAssertFalse(ids.contains("gh-akwaaba-pass"))
-        XCTAssertFalse(ids.contains("service-valet-ride"))
-        XCTAssertFalse(ids.contains("group-transport"))
+    /// A partner is a place. Omitting coordinates from its card does not make
+    /// it location independent, so an unresolved viewer must not be shown an
+    /// Atlanta restaurant — partner visibility is earned with a real address,
+    /// never by exempting supply from location scoping.
+    func testLocationBoundPartnerStaysHiddenUntilLocationResolves() {
+        let ids = Set(NativeTabContentSnapshot.unresolved.discoverCards.map(\.id))
+        XCTAssertTrue(ids.isDisjoint(with: Set(NativeTabContentSnapshot.specialDiscoverCards.map(\.id))))
+        XCTAssertFalse(ids.contains("broni-home-taste"))
         XCTAssertFalse(ids.contains("midtown-boutique-suite"))
         XCTAssertTrue(NativeTabContentSnapshot.unresolved.venues.isEmpty)
         XCTAssertTrue(NativeTabContentSnapshot.unresolved.events.isEmpty)
+        // Resolved-location browsing is where the partner legitimately appears.
+        XCTAssertTrue(NativeTabContentSnapshot.fallback.discoverCards.contains { $0.id == "broni-home-taste" })
     }
 
     // MARK: Four-surface authority contract

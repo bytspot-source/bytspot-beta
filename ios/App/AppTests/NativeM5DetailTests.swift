@@ -648,6 +648,52 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(detail.contains("@State private var showPhotoCluster = false"))
     }
 
+    /// Arrival's ride rows only mount for a destination they can name, so a
+    /// card that knew where it was must not arrive at the detail as (0, 0).
+    /// This broke Uber and Lyft on every place opened from Discover: the
+    /// providers were correct and their tests passed, but no venue ever
+    /// reached them with coordinates.
+    func testACardWithCoordinatesReachesTheDetailWithThem() throws {
+        let located = NativeLocationAwareUIContent.unresolvedVenue(
+            id: "ponce", name: "Ponce City Market", category: "market",
+            address: "675 Ponce De Leon Ave NE", distance: "0.8 mi", imageURL: nil,
+            sourceCategory: "Market", latitude: 33.7726, longitude: -84.3654)
+        XCTAssertTrue(located.hasKnownCoordinates)
+
+        let destination = NativeM2RouteDestination(venue: located)
+        for provider in NativeM2RideProvider.allCases {
+            XCTAssertNotNil(destination.rideURL(for: provider),
+                            "\(provider.title) must mount for a venue with coordinates.")
+        }
+
+        // A genuinely location-less suggestion still reads as coordinate-free
+        // rather than as a venue sitting in the Gulf of Guinea.
+        let unlocated = venue()
+        XCTAssertFalse(unlocated.hasKnownCoordinates)
+        for provider in NativeM2RideProvider.allCases {
+            XCTAssertNil(NativeM2RouteDestination(venue: unlocated).rideURL(for: provider))
+        }
+    }
+
+    /// The two conversions that build a detail from a card must both forward
+    /// the coordinates the card carried. Source-level, because both are
+    /// private to their views.
+    func testBothCardToDetailConversionsForwardCoordinates() throws {
+        let source = try shellSource()
+        for conversion in ["venueForAIPick", "venueForDetail"] {
+            let body = try XCTUnwrap(source.range(of: "func \(conversion)").map {
+                String(source[$0.lowerBound...].prefix(1200))
+            })
+            let call = try XCTUnwrap(body.range(of: "unresolvedVenue(").map {
+                String(body[$0.lowerBound...].prefix(400))
+            })
+            XCTAssertTrue(call.contains("latitude: card.latitude"),
+                          "\(conversion) must forward the card's latitude, or Arrival loses its ride providers.")
+            XCTAssertTrue(call.contains("longitude: card.longitude"),
+                          "\(conversion) must forward the card's longitude, or Arrival loses its ride providers.")
+        }
+    }
+
     func testDetailRideOffersUberAndLyftOnly() throws {
         let arrival = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("App/NativeM2RouteSheet.swift"), encoding: .utf8)

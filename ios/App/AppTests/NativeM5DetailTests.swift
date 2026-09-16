@@ -589,6 +589,37 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(NativeM5DetailPolicy.primaryAction(for: ordering).isUnavailable)
     }
 
+    /// The premium presentation is earned by supply. A rail never selects it.
+    func testChassisIsEarnedBySupplyAndNeverByRail() {
+        XCTAssertEqual(NativeDiscoverBookableCapability.book.chassis, .premium)
+        XCTAssertEqual(NativeDiscoverBookableCapability.order.chassis, .premium)
+        XCTAssertEqual(NativeDiscoverBookableCapability.request.chassis, .premium)
+        // Bytspot did not earn that hero — the provider did.
+        XCTAssertEqual(NativeDiscoverBookableCapability.redirect.chassis, .plain)
+        XCTAssertEqual(NativeDiscoverBookableCapability.details.chassis, .plain)
+
+        // Same capability, different rails — identical chassis.
+        for rail in ["nightlife", "stay", "eat_drink", "celebrate"] {
+            let presentation = NativeDiscoverBookablePresentation(offering: offering("request", kind: .coffeeSpot, category: rail))
+            XCTAssertEqual(NativeDiscoverChassisPolicy.chassis(for: presentation, offering: nil), .premium, rail)
+        }
+    }
+
+    /// A published party is supply, and carries `details` only because it runs
+    /// on the RSVP/ticket path. If this fails because someone folded the party
+    /// override back into the plain capability switch, every host has been
+    /// silently demoted to the plain chassis — restore the override.
+    func testPublishedPartyKeepsPremiumDespiteCarryingDetails() {
+        let party = offering("details", kind: .party, category: "party")
+        let presentation = NativeDiscoverBookablePresentation(offering: party)
+        XCTAssertEqual(presentation.capability, .details)
+        XCTAssertEqual(presentation.capability.chassis, .plain)
+        XCTAssertEqual(NativeDiscoverChassisPolicy.chassis(for: presentation, offering: party), .premium,
+                       "A published party must keep the premium chassis; the host supplied admission and capacity.")
+        XCTAssertEqual(NativeDiscoverChassisPolicy.chassis(for: .details, isPublishedParty: true), .premium)
+        XCTAssertEqual(NativeDiscoverChassisPolicy.chassis(for: .details, isPublishedParty: false), .plain)
+    }
+
     func testStarfieldCarriesSeventyTwoStars() throws {
         let design = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("App/NativeShellDesignSystem.swift"), encoding: .utf8)

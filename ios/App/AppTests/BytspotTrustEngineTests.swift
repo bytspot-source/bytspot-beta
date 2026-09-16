@@ -3804,17 +3804,21 @@ final class NativeProfileDataAPITests: XCTestCase {
 
     func testPlanCapabilityLabelDoesNotPromoteAReference() {
         // A `details` item exists because Bytspot cannot settle it. The chip
-        // must say Reference, never Book, or a Plan row would promise
-        // fulfilment the app is structurally unable to deliver. Unknown
-        // server values coerce to Reference too, so a future "reserve" or
-        // "book_now" cannot render as a settlement chip until this client
-        // learns to honour it.
-        XCTAssertEqual(NativePlanDisplay.capabilityLabel("details"), "Reference")
+        // must say Listed, never Book, or a Plan row would promise fulfilment
+        // the app is structurally unable to deliver. Unknown server values
+        // coerce to Listed too, so a future "reserve" or "book_now" cannot
+        // render as a settlement chip until this client learns to honour it.
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel("details"), "Listed")
         XCTAssertEqual(NativePlanDisplay.capabilityLabel("book"), "Book")
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel("order"), "Order")
         XCTAssertEqual(NativePlanDisplay.capabilityLabel("request"), "Request")
-        XCTAssertEqual(NativePlanDisplay.capabilityLabel("reserve"), "Reference")
-        XCTAssertEqual(NativePlanDisplay.capabilityLabel("book_now"), "Reference")
-        XCTAssertEqual(NativePlanDisplay.capabilityLabel(""), "Reference")
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel("reserve"), "Listed")
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel("book_now"), "Listed")
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel(""), "Listed")
+        // The plan row may not keep a private vocabulary.
+        for capability in NativeDiscoverBookableCapability.displayOrder where capability != .redirect {
+            XCTAssertEqual(NativePlanDisplay.capabilityLabel(capability.rawValue), capability.statusLabel)
+        }
     }
 
     func testPlanNeedRoutesOnlyToSurfacesThatCanFillIt() {

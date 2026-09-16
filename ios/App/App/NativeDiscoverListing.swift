@@ -280,6 +280,42 @@ enum NativeDiscoverBookableCapability: String, Equatable, CaseIterable {
     }
 }
 
+/// Which presentation a place has earned. Mirrors contracts/discovery-taxonomy.json.
+enum NativeDiscoverChassis: String, Equatable {
+    case premium, plain
+}
+
+extension NativeDiscoverBookableCapability {
+    /// The premium presentation is earned by supply, never granted by a rail:
+    /// Nightlife and Stay render identically. A vendor who asserted inventory,
+    /// a menu or a request path earns it; a bare listing and a provider handoff
+    /// do not, because Bytspot did not earn that hero — the provider did.
+    var chassis: NativeDiscoverChassis {
+        switch self {
+        case .book, .order, .request: return .premium
+        case .redirect, .details: return .plain
+        }
+    }
+}
+
+enum NativeDiscoverChassisPolicy {
+    /// A published party is supply: the host asserted admission and capacity,
+    /// and the Party Pass flow really executes. Parties carry the internal
+    /// `details` capability only because they run on the RSVP/ticket path
+    /// instead of the bookable one. Without this override every host would be
+    /// silently demoted to the plain chassis. Do not remove it to "simplify"
+    /// the capability switch.
+    static func chassis(for capability: NativeDiscoverBookableCapability,
+                        isPublishedParty: Bool) -> NativeDiscoverChassis {
+        isPublishedParty ? .premium : capability.chassis
+    }
+
+    static func chassis(for presentation: NativeDiscoverBookablePresentation,
+                        offering: NativePlanBookableOffering?) -> NativeDiscoverChassis {
+        chassis(for: presentation.capability, isPublishedParty: offering?.sourceKind == .party)
+    }
+}
+
 enum NativeDiscoverBookableRingStyle: String, Equatable {
     case solid, segmented, dashed, dot
 

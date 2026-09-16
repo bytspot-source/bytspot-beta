@@ -45,6 +45,32 @@ final class NativeM5DetailTests: XCTestCase {
     }
     #endif
 
+    func testDetailShowsTheSameBrowseCategoryAsItsCard() {
+        // A partner appearing as Eat & Drink on the card and Services on the
+        // detail reads as two different places.
+        let card = NativeTabContentSnapshot.canonicalServiceCards.first { $0.id == "broni-home-taste" }!
+        let venue = NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type,
+            address: "", distance: card.distance, imageURL: card.imageUrl, sourceCategory: card.categoryLabel)
+        let cardRail = NativeDiscoverBookablePresentation.referenceRail(type: card.type, sourceCategory: card.categoryLabel)
+        let detailRail = NativeDiscoverBookablePresentation.referenceRail(type: venue.discoverType, sourceCategory: venue.sourceCategory ?? venue.category)
+        XCTAssertEqual(cardRail, "eat_drink")
+        XCTAssertEqual(detailRail, cardRail)
+        XCTAssertEqual(NativeDiscoverBrowsePolicy.categoryLabel(detailRail!), "Eat & Drink")
+    }
+
+    func testListedPartnerProfileStaysVisibleWithoutResolvedLocation() {
+        // Declining location must not hide a partner that claims no distance.
+        let ids = NativeTabContentSnapshot.unresolved.discoverCards.map(\.id)
+        XCTAssertTrue(ids.contains("broni-home-taste"))
+        // Priced, gated, and placed supply stays location scoped.
+        XCTAssertFalse(ids.contains("gh-akwaaba-pass"))
+        XCTAssertFalse(ids.contains("service-valet-ride"))
+        XCTAssertFalse(ids.contains("group-transport"))
+        XCTAssertFalse(ids.contains("midtown-boutique-suite"))
+        XCTAssertTrue(NativeTabContentSnapshot.unresolved.venues.isEmpty)
+        XCTAssertTrue(NativeTabContentSnapshot.unresolved.events.isEmpty)
+    }
+
     func testListedDefaultsToRouteAndAddToPlanWithoutControl() {
         let listed = NativeDiscoverBookablePresentation()
         XCTAssertEqual(listed.statusLabel, "Listed")

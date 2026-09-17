@@ -90,9 +90,15 @@ const packageScripts = packageJson.scripts ?? {};
 
 const checks = [
   // Native root is unconditional.
-  ['AppDelegate launches SwiftUI native root unconditionally', /UIHostingController\s*\(\s*rootView:\s*BytspotNativeAppRoot\s*\(\s*\)\s*\)/.test(appDelegateBody)],
-  ['AppDelegate buffers launch-option deep links', appDelegateBody.includes('publishLaunchOptions(launchOptions)') && appDelegateBody.includes('launchOptions[.url]')],
-  ['AppDelegate buffers launch-option universal links', appDelegateBody.includes('launchOptions[.userActivityDictionary]') && appDelegateBody.includes('publishLaunchUserActivityValue')],
+  ['Scene delegate launches SwiftUI native root unconditionally', /UIHostingController\s*\(\s*rootView:\s*BytspotNativeAppRoot\s*\(\s*\)\s*\)/.test(appDelegateBody)],
+  // iOS 27 requires scene adoption: an app-delegate window traps before the
+  // first frame. Cold-start arrivals come from ConnectionOptions, never
+  // launchOptions, and publishing from both would route the same arrival twice.
+  ['Window is owned by a UIWindowSceneDelegate', appDelegateBody.includes('BytspotSceneDelegate: UIResponder, UIWindowSceneDelegate') && appDelegateBody.includes('UIWindow(windowScene: windowScene)')],
+  ['Scene delegate buffers cold-start arrivals from ConnectionOptions', appDelegateBody.includes('NativeLaunchRouting.publishColdStart(connectionOptions)') && appDelegateBody.includes('connectionOptions.urlContexts') && appDelegateBody.includes('connectionOptions.userActivities') && appDelegateBody.includes('connectionOptions.notificationResponse')],
+  ['didFinishLaunching publishes no route, so an arrival cannot fire twice', !/didFinishLaunchingWithOptions[\s\S]*?\n    \}/.exec(appDelegateBody)?.[0]?.includes('NativeIncomingURLCenter.publish')],
+  ['Scene delegate handles warm deep links and universal links', appDelegateBody.includes('openURLContexts URLContexts: Set<UIOpenURLContext>') && appDelegateBody.includes('scene(_ scene: UIScene, continue userActivity: NSUserActivity)')],
+  ['Google Sign-In callbacks never reach the route pipeline', appDelegateBody.includes('guard !handleExternalSignIn(url) else { continue }')],
   ['Deep links publish through NativeIncomingURLCenter', appDelegateBody.includes('NativeIncomingURLCenter.publish(url, scanSource: .deepLink)')],
   ['Universal links publish through NativeIncomingURLCenter', appDelegateBody.includes('NativeIncomingURLCenter.publish(url, scanSource: .universalLink)')],
   // Capacitor bridge is forbidden.

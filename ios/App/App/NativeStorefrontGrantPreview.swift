@@ -26,15 +26,20 @@ enum NativeStorefrontGrant: String, CaseIterable, Identifiable {
         }
     }
 
-    var statusLabel: String {
+    /// The grant a vendor asserts and the capability a card renders are the
+    /// same fact, so the preview reads the production vocabulary rather than
+    /// keeping a copy that can drift from it.
+    var capability: NativeDiscoverBookableCapability {
         switch self {
-        case .booking: return "Book"
-        case .ordering: return "Order"
-        case .requesting: return "Request"
-        case .listed: return "Listed"
-        case .external: return "External"
+        case .booking: return .book
+        case .ordering: return .order
+        case .requesting: return .request
+        case .listed: return .details
+        case .external: return .redirect
         }
     }
+
+    var statusLabel: String { capability.statusLabel }
 
     var cardCTA: String {
         switch self {
@@ -54,23 +59,9 @@ enum NativeStorefrontGrant: String, CaseIterable, Identifiable {
         }
     }
 
-    var ring: NativeDiscoverBookableRingStyle {
-        switch self {
-        case .booking, .ordering: return .solid
-        case .requesting: return .dashed
-        case .listed, .external: return .dot
-        }
-    }
+    var ring: NativeDiscoverBookableRingStyle { capability.ringStyle }
 
-    var availabilityLine: String {
-        switch self {
-        case .booking: return "Review availability before booking"
-        case .ordering: return "Menu and fulfilment are provided by the vendor"
-        case .requesting: return "Subject to vendor acceptance"
-        case .listed: return "Place discovery · Bytspot does not control availability"
-        case .external: return "Availability and confirmation are handled by the provider, not Bytspot"
-        }
-    }
+    var availabilityLine: String { capability.availabilityLine }
 
     /// The detail's secondary action never carries fulfillment.
     var detailSecondary: String { "Add to Plan" }

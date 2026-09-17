@@ -5915,8 +5915,14 @@ enum NativeLocationAwareUIContent {
         return snapshot.discoverCards.filter { $0.type == type }
     }
 
-    static func unresolvedVenue(id: String, name: String, category: String, address: String, distance: String, imageURL: URL?, sourceCategory: String? = nil) -> NativeVenueSummary {
-        NativeVenueSummary(id: "suggestion-\(id)", name: name, category: category, address: address, distance: distance, rating: nil, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby", isKnown: false), verifiedPatchId: nil, imageUrl: imageURL, sourceCategory: sourceCategory)
+    /// A place we could not match to a known venue, but whose coordinates the
+    /// card already carried. Unresolved means unmatched, not location-less:
+    /// dropping the coordinates here silently disabled Arrival's ride
+    /// providers, which only mount for a destination they can actually name.
+    /// `latitude`/`longitude` stay optional so a genuinely location-less
+    /// suggestion still reads as coordinate-free rather than as (0, 0).
+    static func unresolvedVenue(id: String, name: String, category: String, address: String, distance: String, imageURL: URL?, sourceCategory: String? = nil, latitude: Double? = nil, longitude: Double? = nil) -> NativeVenueSummary {
+        NativeVenueSummary(id: "suggestion-\(id)", name: name, category: category, address: address, distance: distance, rating: nil, latitude: latitude ?? 0, longitude: longitude ?? 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Check nearby", isKnown: false), verifiedPatchId: nil, imageUrl: imageURL, sourceCategory: sourceCategory)
     }
 
     static func hasKnownCoordinates(_ venue: NativeVenueSummary) -> Bool {
@@ -7150,7 +7156,7 @@ private struct NativeHomeDashboardView: View {
     private func venueForAIPick(_ card: NativeDiscoverSummary) -> NativeVenueSummary {
         let venues = NativeLocationAwareUIContent.venues(in: regionalSnapshot)
         if let direct = venues.first(where: { $0.id == card.id || "venue-\($0.id)" == card.id || $0.name.caseInsensitiveCompare(card.title) == .orderedSame }) { return direct }
-        return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, imageURL: card.imageUrl, sourceCategory: card.categoryLabel)
+        return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, imageURL: card.imageUrl, sourceCategory: card.categoryLabel, latitude: card.latitude, longitude: card.longitude)
     }
 
     private func routeToAIPick(_ venue: NativeVenueSummary) {
@@ -11403,7 +11409,7 @@ private struct NativeDiscoverView: View {
                             switch NativeM5DetailPolicy.primaryAction(for: card.presentation) {
                             case .route: routeVenue = venueForDetail(card)
                             case .requestCoffee: beginPlanSelection(card, requestCoffee: true)
-                            case .external, .unavailable: break // No external feed data or controlled booking target today.
+                            case .external, .unavailable: break // No external feed data, booking, or ordering target today.
                             }
                         },
                         addToPlan: { beginPlanSelection(card, requestCoffee: false) })
@@ -11579,7 +11585,7 @@ private struct NativeDiscoverView: View {
     fileprivate static func venueForDetail(_ card: DiscoverCardSpec, venues candidates: [NativeVenueSummary]) -> NativeVenueSummary {
         // Never turn a marketing subtitle into an address or join places by title.
         if let direct = NativeDiscoverRouteResolver.routeVenue(cardID: card.id, title: card.title, subtitle: card.address ?? "", type: card.type, distance: card.distance, imageURL: card.imageUrl, latitude: card.latitude, longitude: card.longitude, venues: candidates.filter { $0.id == card.id || "venue-\($0.id)" == card.id }) { return direct }
-        return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.address ?? "", distance: card.distance, imageURL: card.imageUrl, sourceCategory: card.categoryLabel)
+        return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.address ?? "", distance: card.distance, imageURL: card.imageUrl, sourceCategory: card.categoryLabel, latitude: card.latitude, longitude: card.longitude)
     }
 
     fileprivate static func routeVenue(for card: DiscoverCardSpec, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
@@ -11813,7 +11819,7 @@ private struct NativeDiscoverFeatureCard: View {
                 Circle().fill(Color.white.opacity(0.72)).frame(width: 6, height: 6)
             } else {
                 Circle().stroke(Color(hex: Int(card.presentation.actionHex ?? 0xB8B8B8)), style: StrokeStyle(lineWidth: 1.5,
-                    dash: card.presentation.ringStyle == .dashed ? [2, 2] : []))
+                    dash: card.presentation.ringStyle.dashPattern.map { CGFloat($0) }))
                     .frame(width: 10, height: 10)
             }
             Text(card.offering?.sourceKind == .party ? "Party" : card.presentation.statusLabel)
@@ -11981,6 +11987,11 @@ private struct NativeVenueDetailView: View {
     @State private var detailsFailed = false
     @State private var detailsLoading = false
     @State private var showVibe = false
+    /// The cluster stays closed until asked for, so the hero opens as one
+    /// photograph rather than a filmstrip.
+    @State private var showPhotoCluster = false
+    @State private var heroPhotoIndex = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var transactions = NativeDiscoverTransactionStore.shared
     @State private var transactionPlan: NativeDiscoverPlanDestination?
     @State private var isSaved = false
@@ -12148,23 +12159,7 @@ private struct NativeVenueDetailView: View {
                     }
                 }.padding(12)
             }
-            .overlay(alignment: .bottomLeading) {
-                if details?.vibeVideoURL != nil {
-                    Button { showVibe = true } label: {
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Recorded Vibe").font(.caption.weight(.semibold))
-                                Text("Play Vibe").font(.headline)
-                            }
-                        } icon: { Image(systemName: "play.fill").font(.title2) }
-                        .padding(.horizontal, 16).padding(.vertical, 10)
-                        .frame(minHeight: 44).background(NativeVendorSurface()).clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain).accessibilityHint("Plays venue-supplied recorded video")
-                    .accessibilityIdentifier("native-m2-play-vibe")
-                    .padding(14).padding(.bottom, galleryURLs.count > 1 ? 20 : 0)
-                }
-            }
+            .overlay(alignment: .bottomLeading) { vibeSlot }
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 12) { placeIdentity; venueUtilities }
             } else {
@@ -12197,13 +12192,17 @@ private struct NativeVenueDetailView: View {
             }
             if let description = details?.description {
                 Text(description).font(.body).foregroundColor(.white.opacity(0.80))
+            } else {
+                Text(NativeVenueSlotCopy.descriptionEmpty)
+                    .font(.body).foregroundColor(.white.opacity(0.60))
+                    .accessibilityIdentifier("native-m2-description-empty")
             }
             HStack(spacing: 8) {
                 if placePresentation.ringStyle == .dot {
                     Circle().fill(Color.white.opacity(0.72)).frame(width: 6, height: 6)
                 } else {
                     Circle().stroke(Color(hex: Int(placePresentation.actionHex ?? 0xB8B8B8)),
-                        style: StrokeStyle(lineWidth: 2, dash: placePresentation.ringStyle == .dashed ? [2, 2] : []))
+                        style: StrokeStyle(lineWidth: 2, dash: placePresentation.ringStyle.dashPattern.map { CGFloat($0) }))
                         .frame(width: 10, height: 10)
                 }
                 Text(placePresentation.statusLabel).font(.subheadline.weight(.semibold))
@@ -12214,27 +12213,84 @@ private struct NativeVenueDetailView: View {
         }
     }
 
+    /// The vibe slot is permanent: a recorded walkthrough plays when supplied,
+    /// and states its absence when not, rather than leaving the frame bare.
+    @ViewBuilder private var vibeSlot: some View {
+        Group {
+            if let url = details?.vibeVideoURL {
+                Button { showVibe = true } label: { vibeLabel("Play Vibe", supplied: true) }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Plays venue-supplied recorded video")
+                    .accessibilityIdentifier("native-m2-play-vibe")
+                    .id(url)
+            } else {
+                vibeLabel(NativeVenueSlotCopy.vibeEmptyTitle, supplied: false)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(NativeVenueSlotCopy.vibeEmptyDetail)
+                    .accessibilityIdentifier("native-m2-play-vibe-empty")
+            }
+        }
+        // Clears the released cluster strip so the two never overlap.
+        .padding(14).padding(.bottom, showPhotoCluster && galleryURLs.count > 1 ? 80 : 0)
+    }
+
+    private func vibeLabel(_ title: String, supplied: Bool) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Recorded Vibe").font(.caption.weight(.semibold))
+                Text(title).font(.headline)
+            }
+        } icon: {
+            Image(systemName: supplied ? "play.fill" : "play.slash").font(.title2)
+        }
+        .foregroundColor(.white.opacity(supplied ? 1 : 0.45))
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .frame(minHeight: 44).background(NativeVendorSurface()).clipShape(Capsule())
+    }
+
+    /// Call / Menu / Site hold their positions whether or not the place has
+    /// supplied a number, a menu or a site, so supply fills the same control.
     private var venueUtilities: some View {
         VStack(alignment: .trailing, spacing: 8) {
-            if let url = details?.phoneURL { utility("Call", icon: "phone", url: url) }
-            if let url = details?.menuURL { utility("Menu", icon: "menucard", url: url) }
-            if let url = details?.websiteURL { utility("Site ↗", icon: "globe", url: url) }
+            utility("Call", icon: "phone", url: details?.phoneURL)
+            utility("Menu", icon: "menucard", url: details?.menuURL)
+            utility("Site", icon: "globe", url: details?.websiteURL)
         }
         .accessibilityIdentifier("native-m2-venue-utilities")
     }
 
-    private func utility(_ title: String, icon: String, url: URL) -> some View {
-        Button { handoffURL(url) { accepted in
-            if !accepted { statusMessage = "Could not open \(title). Please try again." }
-        } } label: {
-            VStack(spacing: 6) {
-                Image(systemName: icon).font(.title3.weight(.semibold))
-                Text(title).font(.subheadline.weight(.semibold))
+    @ViewBuilder private func utility(_ title: String, icon: String, url: URL?) -> some View {
+        if let url {
+            Button { handoffURL(url) { accepted in
+                if !accepted { statusMessage = "Could not open \(title). Please try again." }
+            } } label: {
+                utilityLabel(title == "Site" ? "Site ↗" : title, icon: icon, supplied: true)
             }
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(12).frame(minWidth: 64, minHeight: 64)
-            .background(NativeVendorSurface()).clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        }.buttonStyle(.plain)
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-m2-utility-\(title.lowercased())")
+        } else {
+            utilityLabel(title, icon: icon, supplied: false)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(NativeVenueSlotCopy.utilityEmpty(title))
+                .accessibilityIdentifier("native-m2-utility-\(title.lowercased())-empty")
+        }
+    }
+
+    private func utilityLabel(_ title: String, icon: String, supplied: Bool) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon).font(.title3.weight(.semibold))
+            Text(title).font(.subheadline.weight(.semibold))
+        }
+        .foregroundColor(.white.opacity(supplied ? 1 : 0.45))
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(12).frame(minWidth: 64, minHeight: 64)
+        .background(NativeVendorSurface()).clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            if !supplied {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.white.opacity(0.14), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            }
+        }
     }
 
     private func heroControl(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
@@ -12245,43 +12301,118 @@ private struct NativeVenueDetailView: View {
     }
 
     private var galleryURLs: [URL] {
-        var urls: [URL] = []
-        if let url = venue.imageUrl { urls.append(url) }
-        for url in details?.photoURLs ?? [] where !urls.contains(url) { urls.append(url) }
-        return urls
+        NativeVenueHeroMedia.heroURLs(venueImage: venue.imageUrl,
+            provenance: venue.photoProvenance, details: details)
+    }
+
+    /// The hero is one full photograph. Additional media stays behind the
+    /// cluster control until the reader asks for it.
+    private var heroPhotoURL: URL? {
+        guard !galleryURLs.isEmpty else { return nil }
+        return galleryURLs[min(heroPhotoIndex, galleryURLs.count - 1)]
     }
 
     private var placeHero: some View {
         Group {
-            if galleryURLs.isEmpty {
+            if let url = heroPhotoURL {
+                heroPhoto(url)
+                    .accessibilityLabel("Photo of \(venue.name)")
+                    .accessibilityIdentifier("native-m2-hero-photo")
+                    .overlay(alignment: .topTrailing) { photoClusterControl }
+                    .overlay(alignment: .bottom) { photoClusterStrip }
+            } else {
                 ZStack {
                     Color.white.opacity(0.06)
-                    Label("Venue photos not provided", systemImage: "photo").font(.subheadline)
-                }
-            } else {
-                TabView {
-                    ForEach(galleryURLs, id: \.self) { url in
-                        GeometryReader { proxy in
-                            AsyncImage(url: url, transaction: Transaction(animation: nil)) { phase in
-                                if let image = phase.image {
-                                    image.resizable().scaledToFill()
-                                        .frame(width: proxy.size.width, height: proxy.size.height).clipped()
-                                } else {
-                                    ZStack {
-                                        Color.white.opacity(0.06)
-                                        Label("Photo unavailable", systemImage: "photo").font(.subheadline)
-                                    }
-                                }
-                            }
-                        }
-                        .accessibilityLabel("Photo of \(venue.name)")
+                    VStack(spacing: 8) {
+                        Image(systemName: "photo").font(.title2)
+                        Text(NativeVenueSlotCopy.heroEmptyTitle).font(.subheadline.weight(.semibold))
+                        Text(NativeVenueSlotCopy.heroEmptyDetail)
+                            .font(.footnote).foregroundColor(.white.opacity(0.72))
+                            .multilineTextAlignment(.center).padding(.horizontal, 24)
                     }
-                }.tabViewStyle(.page(indexDisplayMode: galleryURLs.count > 1 ? .always : .never))
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("native-m2-hero-empty")
             }
         }
-        .frame(height: galleryURLs.isEmpty ? 200 : 336)
+        .frame(height: galleryURLs.isEmpty ? 220 : 420)
         .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).stroke(Color.white.opacity(0.14), lineWidth: 1))
+    }
+
+    private func heroPhoto(_ url: URL) -> some View {
+        GeometryReader { proxy in
+            AsyncImage(url: url, transaction: Transaction(animation: nil)) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
+                        .frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                } else {
+                    ZStack {
+                        Color.white.opacity(0.06)
+                        Label("Photo unavailable", systemImage: "photo").font(.subheadline)
+                    }
+                }
+            }
+        }
+    }
+
+    /// A stack badge carrying the exact count of supplied photographs. It only
+    /// appears when there is more than the hero to show.
+    @ViewBuilder private var photoClusterControl: some View {
+        if galleryURLs.count > 1 {
+            Button {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
+                    showPhotoCluster.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "rectangle.stack.fill").font(.subheadline.weight(.semibold))
+                    Text("\(galleryURLs.count)").font(.subheadline.weight(.semibold))
+                }
+                .padding(.horizontal, 12).frame(minWidth: 44, minHeight: 44)
+                .background(NativeVendorSurface()).clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(14)
+            .accessibilityLabel(showPhotoCluster
+                ? "Hide the other \(galleryURLs.count - 1) photographs"
+                : "Show all \(galleryURLs.count) photographs")
+            .accessibilityIdentifier("native-m2-photo-cluster")
+        }
+    }
+
+    /// Mini photographs released by the cluster. Choosing one promotes it into
+    /// the hero rather than opening a separate viewer.
+    @ViewBuilder private var photoClusterStrip: some View {
+        if showPhotoCluster && galleryURLs.count > 1 {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(Array(galleryURLs.enumerated()), id: \.element) { index, url in
+                        Button {
+                            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
+                                heroPhotoIndex = index
+                            }
+                        } label: {
+                            heroPhoto(url)
+                                .frame(width: 72, height: 56)
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(Color.white.opacity(index == heroPhotoIndex ? 0.85 : 0.18),
+                                                lineWidth: index == heroPhotoIndex ? 2 : 1)
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Photograph \(index + 1) of \(galleryURLs.count)")
+                        .accessibilityAddTraits(index == heroPhotoIndex ? [.isSelected] : [])
+                    }
+                }
+                .padding(.horizontal, 14).padding(.vertical, 12)
+            }
+            .background(.ultraThinMaterial)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .accessibilityIdentifier("native-m2-photo-cluster-strip")
+        }
     }
 
     private func transactionPanel(_ transaction: NativeDiscoverTransaction) -> some View {
@@ -12326,7 +12457,13 @@ private struct NativeVenueDetailView: View {
             if let accessibility = details?.accessibility { suppliedFacts("Accessibility", values: accessibility) }
             if let rules = details?.rules { suppliedFacts("Requirements & rules", values: rules) }
             if let cancellation = details?.cancellationPolicy { suppliedFacts("Cancellation terms", values: [cancellation]) }
-            if let price = details?.price { suppliedFacts("Supplied pricing · not a quote", values: [price]) }
+            if let price = details?.price {
+                suppliedFacts("Supplied pricing · not a quote", values: [price])
+            } else {
+                Label(NativeVenueSlotCopy.priceEmpty, systemImage: "tag")
+                    .foregroundColor(.white.opacity(0.60))
+                    .accessibilityIdentifier("native-m2-price-empty")
+            }
         }
         .font(.body).frame(maxWidth: .infinity, alignment: .leading)
         .padding(16).background(Color.white.opacity(0.06))
@@ -12384,7 +12521,7 @@ private struct NativeVenueDetailView: View {
         placeButton(currentTransaction?.primaryTitle ?? NativeM5DetailPolicy.primaryTitle(for: placePresentation),
             icon: placePresentation.capability == .request ? "paperplane" : "arrow.up.right",
             supported: placePresentation.capability == .request) { performPlacePrimaryAction() }
-            .disabled(NativeM5DetailPolicy.primaryAction(for: placePresentation) == .unavailable ||
+            .disabled(NativeM5DetailPolicy.primaryAction(for: placePresentation).isUnavailable ||
                       (placePresentation.capability == .request && !requestStatusReady))
             .accessibilityIdentifier("native-m2-primary-action")
         placeButton(NativeM5DetailPolicy.addToPlanTitle, icon: "plus") {
@@ -12420,7 +12557,10 @@ private struct NativeVenueDetailView: View {
             handoffURL(url) { accepted in
                 if !accepted { statusMessage = "Could not open the provider. Please try again." }
             }
-        case .unavailable: statusMessage = "Controlled booking is not available yet."
+        case .unavailable(let intent):
+            statusMessage = intent == .order
+                ? "Ordering is not available yet."
+                : "Controlled booking is not available yet."
         }
     }
 
@@ -19187,6 +19327,10 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeDiscoverView.venueForDetail(coffeeCard, venues: []).discoverType == "coffee", "NativeDiscoverParitySelfTests: Coffee card must resolve to a coffee detail venue.")
         precondition(NativeDiscoverView.curatedCards.allSatisfy { $0.offering == nil && $0.presentation.primaryActionTitle == nil && $0.presentation.actionHex == nil }, "NativeDiscoverParitySelfTests: reference text and control never grant booking capability.")
         precondition(coffeeCard.presentation.statusLabel == "Listed" && coffeeCard.presentation.availabilityLine == "Place discovery · Bytspot does not control availability", "NativeDiscoverParitySelfTests: references cannot claim verified availability.")
+        // The card vocabulary is exactly these five words, each with its own ring.
+        precondition(NativeDiscoverBookableCapability.displayOrder.map(\.statusLabel) == ["Book", "Order", "Request", "External", "Listed"], "NativeDiscoverParitySelfTests: discover card capability vocabulary drifted.")
+        precondition(Set(NativeDiscoverBookableCapability.displayOrder.map(\.ringStyle)).count == 4, "NativeDiscoverParitySelfTests: every capability needs a distinguishable ring.")
+        precondition(NativeDiscoverBookableCapability.displayOrder.count == NativeDiscoverBookableCapability.allCases.count, "NativeDiscoverParitySelfTests: a capability exists with no indicator.")
         let foodSearch = NativeSearchRouter.suggestions(query: "food", snapshot: .fallback, limit: 3)
         precondition(foodSearch.contains { suggestion in
             if case .discoverFilter(let category) = suggestion.route {

@@ -262,6 +262,11 @@ struct NativeM2RouteTests {
         }
     }
 
+    /// Ride is Uber and Lyft only. No unbacked provider row may reappear.
+    @Test func rideOffersOnlyTheTwoConnectedProviders() {
+        #expect(NativeM2RideProvider.allCases.map(\.id) == ["uber", "lyft"])
+    }
+
     @MainActor
     private final class EstimatorStub {
         struct Request {

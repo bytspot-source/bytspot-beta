@@ -23,6 +23,54 @@ enum NativeVenueSavedState {
     private static func key(_ userID: String) -> String { "bytspot.native.place-saves.\(userID)" }
 }
 
+/// A photograph is an endorsement. Only media Bytspot owns, or media a host
+/// uploaded to their own Party, may fill a detail hero; anything borrowed from
+/// a listing provider stays routing data and never enters the frame. A
+/// provenance that cannot be read is borrowed, so the hero fails closed.
+enum NativeVenuePhotoProvenance: String, Equatable {
+    case bytspotOwned = "bytspot_owned"
+    case partyMedia = "party_media"
+    case borrowed
+
+    static func parse(_ value: Any?) -> NativeVenuePhotoProvenance {
+        guard let raw = value as? String,
+              let parsed = NativeVenuePhotoProvenance(
+                rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        else { return .borrowed }
+        return parsed
+    }
+
+    var earnsHero: Bool { self == .bytspotOwned || self == .partyMedia }
+}
+
+/// Every slot on a place detail is permanent. A slot with nothing behind it
+/// states what was not supplied instead of disappearing, so supply fills the
+/// same element later without the screen changing shape.
+enum NativeVenueSlotCopy {
+    static let heroEmptyTitle = "No photograph supplied"
+    static let heroEmptyDetail = "A photograph appears here when this place or a host supplies one."
+    static let vibeEmptyTitle = "No vibe recorded"
+    static let vibeEmptyDetail = "A recorded walkthrough appears here when this place supplies one."
+    static let descriptionEmpty = "No description provided by this place."
+    static let priceEmpty = "Pricing not provided"
+
+    static func utilityEmpty(_ title: String) -> String { "\(title) not provided" }
+}
+
+/// Borrowed listing imagery never reaches the hero, so a place that has not
+/// supplied media keeps the empty frame until it does.
+enum NativeVenueHeroMedia {
+    static func heroURLs(venueImage: URL?, provenance: NativeVenuePhotoProvenance,
+                         details: NativeVenueRichDetails?) -> [URL] {
+        var urls: [URL] = []
+        if provenance.earnsHero, let venueImage { urls.append(venueImage) }
+        if let details, details.photoProvenance.earnsHero {
+            for url in details.photoURLs ?? [] where !urls.contains(url) { urls.append(url) }
+        }
+        return urls
+    }
+}
+
 struct NativeVenueDetailAction: Identifiable, Equatable {
     let id: String
     let title: String
@@ -267,11 +315,28 @@ struct NativeVenueDetailSection: Equatable {
 
 /// Shared card/detail routing contract. There is deliberately no checkout route:
 /// no controlled-inventory booking backend is registered. Do not substitute payments.
+/// Which unmounted path a card named, so the refusal says the right word.
+enum NativeM5UnavailableIntent: String, Equatable {
+    case book, order
+
+    var unavailableTitle: String {
+        switch self {
+        case .book: return "Booking unavailable"
+        case .order: return "Ordering unavailable"
+        }
+    }
+}
+
 enum NativeM5PrimaryAction: Equatable {
     case route
     case requestCoffee
     case external(URL)
-    case unavailable
+    case unavailable(NativeM5UnavailableIntent)
+
+    var isUnavailable: Bool {
+        if case .unavailable = self { return true }
+        return false
+    }
 }
 
 enum NativeM5DetailPolicy {
@@ -305,7 +370,10 @@ enum NativeM5DetailPolicy {
         case .details: return .route
         case .request: return .requestCoffee
         case .redirect: return presentation.externalURL.map(NativeM5PrimaryAction.external) ?? .route
-        case .book: return .unavailable
+        // Neither generic booking nor ordering is mounted. The card still
+        // states which one it would be, and the detail refuses to run it.
+        case .book: return .unavailable(.book)
+        case .order: return .unavailable(.order)
         }
     }
 
@@ -314,7 +382,7 @@ enum NativeM5DetailPolicy {
         case .route: return "Route"
         case .requestCoffee: return "Request"
         case .external: return presentation.primaryActionTitle ?? "Route"
-        case .unavailable: return "Booking unavailable"
+        case .unavailable(let intent): return intent.unavailableTitle
         }
     }
 

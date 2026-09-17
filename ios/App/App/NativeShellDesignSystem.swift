@@ -23,7 +23,7 @@ extension EnvironmentValues {
     /// Set by the shell once it draws the ground behind the whole window,
     /// including under the floating tab bar. Screens keep their own ground for
     /// when they are presented in a sheet, but must not double it inside the
-    /// shell: two grounds means 140 stars and twice the nebula.
+    /// shell: two grounds means 144 stars and twice the nebula.
     var nativeDeepSpaceGroundDrawn: Bool {
         get { self[NativeDeepSpaceGroundDrawnKey.self] }
         set { self[NativeDeepSpaceGroundDrawnKey.self] = newValue }
@@ -47,7 +47,7 @@ struct NativeDeepSpaceGround: View {
             seed = seed &* 6364136223846793005 &+ 1442695040888963407
             return Double((seed >> 11) & 0xFFFFF) / Double(0xFFFFF)
         }
-        return (0..<70).map { _ in
+        return (0..<72).map { _ in
             (x: unit(), y: unit(), radius: 0.5 + unit() * 1.3, phase: unit() * 2 * .pi, peak: 0.35 + unit() * 0.5)
         }
     }()

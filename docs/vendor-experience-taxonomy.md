@@ -109,4 +109,4 @@ Validation results and any unverified device behavior will be recorded in the fi
 - [Discover card recommendation model](discover-card-recommendation-model.md)
 - [Vendor experience adapters](../src/utils/vendorExperienceCards.ts)
 - [Native vendor experience policy](../ios/App/App/NativeVendorExperience.swift)
-- [Premium venue design direction](https://cosmos.augmentcode.com/files/broni-premium-venue-design-direction-2bd670a2848c46b7a95e9a069506a28b)
+- [Premium venue design direction](https://cosmos.augmentcode.com/files/premium-venue-design-direction-fb4040b465c84c6eabf2a00416e913be)

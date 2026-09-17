@@ -7,80 +7,90 @@ import UserNotifications
 @MainActor
 class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
 
+    /// Process-wide setup only. The window belongs to the scene: under the
+    /// scene lifecycle iOS routes cold-start URLs, activities and notification
+    /// taps through `UIScene.ConnectionOptions`, not `launchOptions`, so
+    /// nothing here may publish a route or the arrival fires twice.
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        NativePushService.shared.configure(delegate: self)
+        BytspotDiagnostics.shared.start()
+        return true
+    }
+
+}
+
+// MARK: - Scene lifecycle
+
+/// Owns the single window. iOS 27 requires scene adoption at runtime for apps
+/// linked against its SDK: an app-delegate window trapped on launch with
+/// "UIScene life cycle is required for apps built with this SDK" before the
+/// first frame, so the app could not open at all on that runtime.
+@MainActor
+final class BytspotSceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
 
-    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        let appWindow = UIWindow(frame: UIScreen.main.bounds)
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        guard let windowScene = scene as? UIWindowScene else { return }
+        let appWindow = UIWindow(windowScene: windowScene)
         // App Store release invariant: the app is pure native SwiftUI — no
         // Capacitor/React webview. The SwiftUI shell is the unconditional root.
         appWindow.rootViewController = UIHostingController(rootView: BytspotNativeAppRoot())
         appWindow.makeKeyAndVisible()
         window = appWindow
-        NativePushService.shared.configure(delegate: self)
-        BytspotDiagnostics.shared.start()
-        publishLaunchOptions(launchOptions)
-        return true
+        // Cold start: the launch URL, universal link or notification tap that
+        // opened the app arrives here, and is buffered by the URL center until
+        // the SwiftUI coordinator is listening.
+        NativeLaunchRouting.publishColdStart(connectionOptions)
     }
 
-    private func publishLaunchOptions(_ launchOptions: [UIApplication.LaunchOptionsKey: Any]?) {
-        guard let launchOptions else { return }
-        if let url = launchOptions[.url] as? URL {
+    /// Custom-scheme deep links (bytspot://…) while already running.
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        NativeLaunchRouting.publish(openedURLs: URLContexts.map(\.url))
+    }
+
+    /// Universal Links (https://bytspot.app/…) while already running.
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        NativeLaunchRouting.publish(userActivities: [userActivity])
+    }
+}
+
+// MARK: - Launch routing
+
+/// One place where every arrival — deep link, universal link, notification tap,
+/// cold or warm — becomes a published route. Values rather than
+/// `UIScene.ConnectionOptions` so each entry point is directly testable;
+/// `ConnectionOptions` cannot be constructed outside UIKit.
+@MainActor
+enum NativeLaunchRouting {
+    /// Google Sign-In consumes its own callback URL and it must never reach the
+    /// route pipeline. Injectable so tests can prove that without a configured
+    /// client.
+    static var handleExternalSignIn: (URL) -> Bool = { GIDSignIn.sharedInstance.handle($0) }
+
+    static func publishColdStart(_ connectionOptions: UIScene.ConnectionOptions) {
+        publish(openedURLs: connectionOptions.urlContexts.map(\.url),
+                userActivities: Array(connectionOptions.userActivities),
+                notificationPayload: connectionOptions.notificationResponse?.notification.request.content.userInfo)
+    }
+
+    static func publish(openedURLs: [URL] = [], userActivities: [NSUserActivity] = [],
+                        notificationPayload: [AnyHashable: Any]? = nil) {
+        for url in openedURLs {
+            guard !handleExternalSignIn(url) else { continue }
+            // Deep links route through the native incoming-URL pipeline
+            // consumed by the SwiftUI navigation coordinator.
             NativeIncomingURLCenter.publish(url, scanSource: .deepLink)
         }
-        if let activityDictionary = launchOptions[.userActivityDictionary] as? [AnyHashable: Any] {
-            for value in activityDictionary.values { publishLaunchUserActivityValue(value) }
-        }
-        if let payload = launchOptions[.remoteNotification] as? [AnyHashable: Any] {
-            NativePushService.publishRoute(from: payload)
-        }
-    }
-
-    private func publishLaunchUserActivityValue(_ value: Any) {
-        if let activity = value as? NSUserActivity, let url = activity.webpageURL {
+        for activity in userActivities {
+            guard let url = activity.webpageURL else { continue }
+            // Universal links route through the same pipeline as deep links
+            // and in-app patch scans.
             NativeIncomingURLCenter.publish(url, scanSource: .universalLink)
-        } else if let activities = value as? [NSUserActivity] {
-            for activity in activities { if let url = activity.webpageURL { NativeIncomingURLCenter.publish(url, scanSource: .universalLink) } }
+        }
+        if let notificationPayload {
+            NativePushService.publishRoute(from: notificationPayload)
         }
     }
-
-    func applicationWillResignActive(_ application: UIApplication) {
-        // Sent when the application is about to move from active to inactive state. This can occur for certain types of temporary interruptions (such as an incoming phone call or SMS message) or when the user quits the application and it begins the transition to the background state.
-        // Use this method to pause ongoing tasks, disable timers, and invalidate graphics rendering callbacks. Games should use this method to pause the game.
-    }
-
-    func applicationDidEnterBackground(_ application: UIApplication) {
-        // Use this method to release shared resources, save user data, invalidate timers, and store enough application state information to restore your application to its current state in case it is terminated later.
-        // If your application supports background execution, this method is called instead of applicationWillTerminate: when the user quits.
-    }
-
-    func applicationWillEnterForeground(_ application: UIApplication) {
-        // Called as part of the transition from the background to the active state; here you can undo many of the changes made on entering the background.
-    }
-
-    func applicationDidBecomeActive(_ application: UIApplication) {
-        // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
-    }
-
-    func applicationWillTerminate(_ application: UIApplication) {
-        // Called when the application is about to terminate. Save data if appropriate. See also applicationDidEnterBackground:.
-    }
-
-    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        if GIDSignIn.sharedInstance.handle(url) { return true }
-        // Custom-scheme deep links (bytspot://…) route through the native
-        // incoming-URL pipeline consumed by the SwiftUI navigation coordinator.
-        NativeIncomingURLCenter.publish(url, scanSource: .deepLink)
-        return true
-    }
-
-    func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
-        // Universal Links (https://bytspot.app/…) route through the same native
-        // incoming-URL pipeline as deep links and in-app patch scans.
-        guard let url = userActivity.webpageURL else { return false }
-        NativeIncomingURLCenter.publish(url, scanSource: .universalLink)
-        return true
-    }
-
 }
 
 // MARK: - Native APNs push

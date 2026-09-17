@@ -3599,12 +3599,19 @@ final class NativeProfileDataAPITests: XCTestCase {
     }
 
     @MainActor
-    func testPartyShareTopPresenterWalksToDeepestPresentedController() {
+    func testPartyShareTopPresenterWalksToDeepestPresentedController() throws {
         // The share sheet must present from the topmost presented controller;
         // presenting from the window root fails silently when Host Studio is
         // already shown inside a sheet.
+        //
+        // The window must be built against a live window scene: under the
+        // explicit scene manifest a `UIWindow(frame:)` has no `windowScene`,
+        // so it never appears in `scene.windows` and `topPresenter()` cannot
+        // reach it.
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let root = UIViewController()
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 320, height: 480)
         window.rootViewController = root
         window.makeKeyAndVisible()
         let sheet = UIViewController()
@@ -6284,5 +6291,96 @@ final class NativeVenueRichDetailsTests: XCTestCase {
         XCTAssertEqual(preserved.richDetails?.source, .venue)
         XCTAssertEqual(preserved.richDetails?.supplementarySource, .googlePlaces(placeID: placeID))
         XCTAssertEqual(preserved.richDetails?.hasGoogleFacts, true)
+    }
+}
+
+/// Every way the app can be opened. iOS 27 moved cold-start arrivals from
+/// `launchOptions` to `UIScene.ConnectionOptions`; these pin each entry point
+/// so the migration cannot silently drop a Party link, a universal link or a
+/// notification tap.
+@MainActor
+final class NativeLaunchRoutingTests: XCTestCase {
+    private var restoreSignIn: ((URL) -> Bool)!
+
+    override func setUp() {
+        super.setUp()
+        restoreSignIn = NativeLaunchRouting.handleExternalSignIn
+        // No Google client is configured under test; claim nothing by default.
+        NativeLaunchRouting.handleExternalSignIn = { _ in false }
+        _ = NativeIncomingURLCenter.drain()
+    }
+
+    override func tearDown() {
+        NativeLaunchRouting.handleExternalSignIn = restoreSignIn
+        _ = NativeIncomingURLCenter.drain()
+        super.tearDown()
+    }
+
+    private func url(_ value: String) -> URL { URL(string: value)! }
+
+    private func activity(_ value: String) -> NSUserActivity {
+        let activity = NSUserActivity(activityType: NSUserActivityTypeBrowsingWeb)
+        activity.webpageURL = url(value)
+        return activity
+    }
+
+    func testWarmDeepLinkPublishesAsDeepLink() {
+        NativeLaunchRouting.publish(openedURLs: [url("bytspot://party/abc")])
+        let drained = NativeIncomingURLCenter.drain()
+        XCTAssertEqual(drained.count, 1)
+        XCTAssertEqual(drained.first?.0.absoluteString, "bytspot://party/abc")
+        XCTAssertEqual(drained.first?.1, .deepLink)
+    }
+
+    func testWarmUniversalLinkPublishesAsUniversalLink() {
+        NativeLaunchRouting.publish(userActivities: [activity("https://bytspot.app/p/GREEN-1")])
+        let drained = NativeIncomingURLCenter.drain()
+        XCTAssertEqual(drained.count, 1)
+        XCTAssertEqual(drained.first?.1, .universalLink)
+    }
+
+    func testNotificationTapPublishesItsRoute() {
+        NativeLaunchRouting.publish(notificationPayload: ["deepLink": "bytspot://party/xyz"])
+        let drained = NativeIncomingURLCenter.drain()
+        XCTAssertEqual(drained.count, 1)
+        XCTAssertEqual(drained.first?.1, .deepLink)
+    }
+
+    /// The push URL policy still gates notification routes after the migration.
+    func testNotificationTapToAForeignHostPublishesNothing() {
+        NativeLaunchRouting.publish(notificationPayload: ["deepLink": "https://evil.example.com/party/1"])
+        XCTAssertTrue(NativeIncomingURLCenter.drain().isEmpty)
+    }
+
+    /// A Google Sign-In callback is consumed by the SDK and must never be
+    /// mistaken for a route.
+    func testSignInCallbackIsConsumedAndNeverPublished() {
+        var handed: URL?
+        NativeLaunchRouting.handleExternalSignIn = { handed = $0; return true }
+        NativeLaunchRouting.publish(openedURLs: [url("com.googleusercontent.apps.123:/oauth2redirect")])
+        XCTAssertEqual(handed?.scheme, "com.googleusercontent.apps.123")
+        XCTAssertTrue(NativeIncomingURLCenter.drain().isEmpty)
+    }
+
+    /// Cold start can deliver more than one kind of arrival at once.
+    func testColdStartPublishesEveryArrivalItWasGiven() {
+        NativeLaunchRouting.publish(openedURLs: [url("bytspot://map")],
+                                    userActivities: [activity("https://bytspot.app/v/ponce-city-market")],
+                                    notificationPayload: ["deepLink": "bytspot://discover"])
+        let drained = NativeIncomingURLCenter.drain()
+        XCTAssertEqual(drained.count, 3)
+        XCTAssertEqual(drained.map(\.1), [.deepLink, .universalLink, .deepLink])
+    }
+
+    func testActivityWithoutAWebPageURLIsIgnored() {
+        NativeLaunchRouting.publish(userActivities: [NSUserActivity(activityType: NSUserActivityTypeBrowsingWeb)])
+        XCTAssertTrue(NativeIncomingURLCenter.drain().isEmpty)
+    }
+
+    /// Nothing is published when nothing arrived, so an ordinary launch does
+    /// not navigate away from Home.
+    func testAnOrdinaryLaunchPublishesNothing() {
+        NativeLaunchRouting.publish()
+        XCTAssertTrue(NativeIncomingURLCenter.drain().isEmpty)
     }
 }

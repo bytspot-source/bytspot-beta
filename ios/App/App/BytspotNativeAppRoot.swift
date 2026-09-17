@@ -69,10 +69,8 @@ enum NativeAppearanceMode: String, CaseIterable, Identifiable {
                 window.overrideUserInterfaceStyle = mode.uiUserInterfaceStyle
             }
         }
-        // UIKit auto-adopts the AppDelegate window into the implicitly created
-        // scene, so the loop above does reach it and this line is redundant. It
-        // stays as a guard for the case where it has not been adopted yet.
-        (UIApplication.shared.delegate as? AppDelegate)?.window?.overrideUserInterfaceStyle = mode.uiUserInterfaceStyle
+        // The scene loop above is exhaustive: BytspotSceneDelegate owns the
+        // only window and it is a member of its scene's `windows`.
     }
 
     /// The system appearance, read from a source the app does not itself

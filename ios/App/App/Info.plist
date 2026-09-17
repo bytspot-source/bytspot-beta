@@ -101,6 +101,26 @@
     <string>Bytspot sends you alerts when your saved spots are packed or when events near you are starting.</string>
     <key>NSContactsUsageDescription</key>
     <string>Bytspot matches your contacts on-device using salted hashes to find friends already on Bytspot. Your address book is never uploaded or stored.</string>
+    <!-- Scene lifecycle: iOS 27 requires scene adoption at runtime for
+         anything linked against its SDK, and an app-delegate window traps
+         before the first frame. One scene only, since Bytspot has one window. -->
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+      <key>UIApplicationSupportsMultipleScenes</key>
+      <false />
+      <key>UISceneConfigurations</key>
+      <dict>
+        <key>UIWindowSceneSessionRoleApplication</key>
+        <array>
+          <dict>
+            <key>UISceneConfigurationName</key>
+            <string>Default Configuration</string>
+            <key>UISceneDelegateClassName</key>
+            <string>$(PRODUCT_MODULE_NAME).BytspotSceneDelegate</string>
+          </dict>
+        </array>
+      </dict>
+    </dict>
     <!-- â”€â”€ App Transport Security â”€â”€ -->
     <key>NSAppTransportSecurity</key>
     <dict>

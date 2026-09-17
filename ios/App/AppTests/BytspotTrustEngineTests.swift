@@ -3599,12 +3599,19 @@ final class NativeProfileDataAPITests: XCTestCase {
     }
 
     @MainActor
-    func testPartyShareTopPresenterWalksToDeepestPresentedController() {
+    func testPartyShareTopPresenterWalksToDeepestPresentedController() throws {
         // The share sheet must present from the topmost presented controller;
         // presenting from the window root fails silently when Host Studio is
         // already shown inside a sheet.
+        //
+        // The window must be built against a live window scene: under the
+        // explicit scene manifest a `UIWindow(frame:)` has no `windowScene`,
+        // so it never appears in `scene.windows` and `topPresenter()` cannot
+        // reach it.
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let root = UIViewController()
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 320, height: 480)
         window.rootViewController = root
         window.makeKeyAndVisible()
         let sheet = UIViewController()

@@ -1,8 +1,8 @@
-# Broni vendor experience: native Discover and capability taxonomy
+# Vendor experience: native Discover and capability taxonomy
 
 ## Scope
 
-Refactor the native Discover → Venue → Book → Arrival experience using the Broni premium preview's visual hierarchy. Broni Home Taste Restaurant is the first restaurant partner designated by the product owner; that identity alone does not establish technical fulfillment readiness, verified restaurant facts, or rights to sample media.
+Refactor the native Discover → Venue → Book → Arrival experience using the premium venue preview's visual hierarchy. Broni Home Taste Restaurant is the first restaurant partner designated by the product owner; that identity alone does not establish technical fulfillment readiness, verified restaurant facts, or rights to sample media.
 
 This change is not a backend launch. It adds no booking/order endpoint, payment integration, inventory allocation, migration, or new dependency. The earlier 14-rail/HOST PR is not a prerequisite and is not included wholesale.
 
@@ -11,12 +11,12 @@ This change is not a backend launch. It adds no booking/order endpoint, payment 
 | Previous name | New name | Responsibility |
 |---|---|---|
 | `src/utils/vendorServiceCards.ts` | `src/utils/vendorExperienceCards.ts` | Existing vendor recommendation adapters and provenance-preserving source normalization |
-| `src/utils/__tests__/vendorServiceCards.test.ts` | `src/utils/__tests__/vendorExperienceCards.test.ts` | Adapter regression tests, including Broni sample identity isolation |
+| `src/utils/__tests__/vendorServiceCards.test.ts` | `src/utils/__tests__/vendorExperienceCards.test.ts` | Adapter regression tests, including sample restaurant identity isolation |
 | `ios/App/App/NativeVenueDetailPresentation.swift` | `ios/App/App/NativeVendorExperience.swift` | Shared native place/action policies and Booking/Ordering/Requesting taxonomy |
 
 The TypeScript module keeps its existing function exports. Runtime and type-only imports are updated; no compatibility shim or parallel old implementation is needed. The reference module is not embedded in the native application. The native implementation continues using Swift value models and existing API contracts. Existing public Swift policy names can remain stable inside the renamed file.
 
-The standalone `BroniPremiumVenuePreview`/`bronipreviewvenue` artifact is a design reference, not a production route. Its stage selector, local confirmations, generated media and fixture inventory must not be imported into the release application.
+The standalone premium venue preview artifact is a design reference, not a production route. Its stage selector, local confirmations, generated media and fixture inventory must not be imported into the release application.
 
 ## Five independent concepts
 
@@ -84,16 +84,16 @@ External provider actions identify the destination and remain handoffs. A handof
 - Respect Reduce Motion and Reduce Transparency. Use immediate restrained press feedback rather than perpetual glow or bouncing acquisition controls.
 - Use system sheet/scroll interaction and explicit dismissal ownership to avoid competing global headers or multiple sheets.
 
-## Broni data boundary
+## Restaurant partner data boundary
 
-The premium preview's generated still/film, sample prices, opening times, parking options and local confirmation state are excluded from release. Broni's display name is not used as an authorization predicate. Production enrichment must identify the exact backend venue/vendor and supply each fact with its applicable provenance. If that integration is absent, preserve the complete visual hierarchy with honest unknown/unavailable states.
+The premium preview's generated still/film, sample prices, opening times, parking options and local confirmation state are excluded from release. The partner restaurant's display name is not used as an authorization predicate. Production enrichment must identify the exact backend venue/vendor and supply each fact with its applicable provenance. If that integration is absent, preserve the complete visual hierarchy with honest unknown/unavailable states.
 
 ## Verification
 
 Required regression coverage:
 
 - Booking/Ordering/Requesting are distinct; unknown or missing supply never becomes executable.
-- Broni name, partner context, curated flags and category labels cannot promote authority.
+- Restaurant name, partner context, curated flags and category labels cannot promote authority.
 - Existing coffee requests and party admission remain separate from generic restaurant fulfillment.
 - Add to Plan never means booked, ordered, requested or admitted.
 - No dummy host/category coverage cards are added to Discover.
@@ -109,4 +109,4 @@ Validation results and any unverified device behavior will be recorded in the fi
 - [Discover card recommendation model](discover-card-recommendation-model.md)
 - [Vendor experience adapters](../src/utils/vendorExperienceCards.ts)
 - [Native vendor experience policy](../ios/App/App/NativeVendorExperience.swift)
-- [Broni premium design direction](https://cosmos.augmentcode.com/files/broni-premium-venue-design-direction-2bd670a2848c46b7a95e9a069506a28b)
+- [Premium venue design direction](https://cosmos.augmentcode.com/files/broni-premium-venue-design-direction-2bd670a2848c46b7a95e9a069506a28b)

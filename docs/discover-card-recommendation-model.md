@@ -8,7 +8,7 @@ Bytspot Discover should not feel like a Google/Yelp directory. It should feel li
 
 ## Native vendor-experience refinement
 
-The native implementation follows [Broni vendor experience and capability taxonomy](broni-vendor-experience-taxonomy.md). The adapter formerly named `src/utils/vendorServiceCards.ts` is now `src/utils/vendorExperienceCards.ts`; this is a module rename, not a new booking or ordering integration.
+The native implementation follows [Vendor experience and capability taxonomy](vendor-experience-taxonomy.md). The adapter formerly named `src/utils/vendorServiceCards.ts` is now `src/utils/vendorExperienceCards.ts`; this is a module rename, not a new booking or ordering integration.
 
 **Category, intent, verification, executable capability, and transaction state are separate.** A partner name, patch badge, sample offering, or category never grants fulfillment. Demo-only host rails are not inventory and must not populate production Discover. Actual Host Studio and party access remain separate features.
 
@@ -269,7 +269,7 @@ type DetailAction =
   | 'scan_patch';
 ```
 
-### Broni detail actions
+### Restaurant partner detail actions
 
 ```text
 View Menu

@@ -231,12 +231,102 @@ enum NativeDiscoverListing {
 /// Book stays dormant: booking.createCheckout is not registered and generic
 /// payments.checkout cannot establish controlled inventory. Party is a preview,
 /// never a Book action. Only the exact Coffee request route is executable today.
-enum NativeDiscoverBookableCapability: String, Equatable {
-    case book, request, redirect, details
+/// The one indicator vocabulary. Every surface — discover card, detail, grant
+/// and arrival — reads its word, ring and colour from here, so a place cannot
+/// describe itself differently depending on which screen you are looking at.
+enum NativeDiscoverBookableCapability: String, Equatable, CaseIterable {
+    case book, order, request, redirect, details
+
+    /// Strongest promise first. This is also the legend order.
+    static let displayOrder: [Self] = [.book, .order, .request, .redirect, .details]
+
+    var statusLabel: String {
+        switch self {
+        case .book: return "Book"
+        case .order: return "Order"
+        case .request: return "Request"
+        case .redirect: return "External"
+        case .details: return "Listed"
+        }
+    }
+
+    /// Blue belongs only to a supported Bytspot action, never an external link.
+    var actionHex: UInt? {
+        switch self {
+        case .book, .order, .request: return 0x00BFFF
+        case .redirect, .details: return nil
+        }
+    }
+
+    /// Ring geometry separates the two settling actions from the one that waits
+    /// on a person and the two Bytspot does not control.
+    var ringStyle: NativeDiscoverBookableRingStyle {
+        switch self {
+        case .book: return .solid
+        case .order: return .segmented
+        case .request: return .dashed
+        case .redirect, .details: return .dot
+        }
+    }
+
+    var availabilityLine: String {
+        switch self {
+        case .book: return "Review availability before booking"
+        case .order: return "Items and fulfillment are confirmed by the order result"
+        case .request: return "Subject to host acceptance"
+        case .redirect: return "Availability and confirmation are handled by the provider, not Bytspot"
+        case .details: return "Place discovery · Bytspot does not control availability"
+        }
+    }
+}
+
+/// Which presentation a place has earned. Mirrors contracts/discovery-taxonomy.json.
+enum NativeDiscoverChassis: String, Equatable {
+    case premium, plain
+}
+
+extension NativeDiscoverBookableCapability {
+    /// The premium presentation is earned by supply, never granted by a rail:
+    /// Nightlife and Stay render identically. A vendor who asserted inventory,
+    /// a menu or a request path earns it; a bare listing and a provider handoff
+    /// do not, because Bytspot did not earn that hero — the provider did.
+    var chassis: NativeDiscoverChassis {
+        switch self {
+        case .book, .order, .request: return .premium
+        case .redirect, .details: return .plain
+        }
+    }
+}
+
+enum NativeDiscoverChassisPolicy {
+    /// A published party is supply: the host asserted admission and capacity,
+    /// and the Party Pass flow really executes. Parties carry the internal
+    /// `details` capability only because they run on the RSVP/ticket path
+    /// instead of the bookable one. Without this override every host would be
+    /// silently demoted to the plain chassis. Do not remove it to "simplify"
+    /// the capability switch.
+    static func chassis(for capability: NativeDiscoverBookableCapability,
+                        isPublishedParty: Bool) -> NativeDiscoverChassis {
+        isPublishedParty ? .premium : capability.chassis
+    }
+
+    static func chassis(for presentation: NativeDiscoverBookablePresentation,
+                        offering: NativePlanBookableOffering?) -> NativeDiscoverChassis {
+        chassis(for: presentation.capability, isPublishedParty: offering?.sourceKind == .party)
+    }
 }
 
 enum NativeDiscoverBookableRingStyle: String, Equatable {
-    case solid, dashed, dot
+    case solid, segmented, dashed, dot
+
+    /// One dash pattern per ring so every surface draws the same indicator.
+    var dashPattern: [Double] {
+        switch self {
+        case .solid, .dot: return []
+        case .segmented: return [4, 2]
+        case .dashed: return [2, 2]
+        }
+    }
 }
 
 /// Pass an offering only from plans.bookables, never one synthesized from a
@@ -262,6 +352,9 @@ struct NativeDiscoverBookablePresentation: Equatable {
                 switch (offering.sourceKind, offering.capability) {
                 case (.coffeeSpot, "request"): resolved = .request
                 case (.party, _): resolved = .details
+                // Ordering is only ever the server's own assertion. No menu,
+                // category, or fulfillment hint may promote a card to Order.
+                case (_, "order"): resolved = .order
                 case (_, "redirect"): resolved = .redirect
                 default: resolved = .details
                 }
@@ -289,45 +382,17 @@ struct NativeDiscoverBookablePresentation: Equatable {
     var primaryActionTitle: String? {
         switch capability {
         case .book: return "Book"
+        case .order: return "Order"
         case .request: return "Request"
-        case .redirect: return externalProvider.map { "Book on \($0) ↗" }
+        case .redirect: return externalProvider.map { "Open \($0) ↗" }
         case .details: return nil
         }
     }
 
-    var statusLabel: String {
-        switch capability {
-        case .book: return "Book"
-        case .request: return "Request"
-        case .redirect: return "External"
-        case .details: return "Listed"
-        }
-    }
-
-    /// Blue belongs only to a supported Bytspot action, never an external link.
-    var actionHex: UInt? {
-        switch capability {
-        case .book, .request: return 0x00BFFF
-        case .redirect, .details: return nil
-        }
-    }
-
-    var ringStyle: NativeDiscoverBookableRingStyle {
-        switch capability {
-        case .book: return .solid
-        case .request: return .dashed
-        case .redirect, .details: return .dot
-        }
-    }
-
-    var availabilityLine: String {
-        switch capability {
-        case .book: return "Review availability before booking"
-        case .request: return "Subject to host acceptance"
-        case .redirect: return "Availability and confirmation are handled by the provider, not Bytspot"
-        case .details: return "Place discovery · Bytspot does not control availability"
-        }
-    }
+    var statusLabel: String { capability.statusLabel }
+    var actionHex: UInt? { capability.actionHex }
+    var ringStyle: NativeDiscoverBookableRingStyle { capability.ringStyle }
+    var availabilityLine: String { capability.availabilityLine }
 
     /// Opaque source IDs may be UUIDs or server keys. Do not repair malformed
     /// identity strings, or mistake a display title/URL for a canonical key.
@@ -352,29 +417,65 @@ struct NativeDiscoverBookablePresentation: Equatable {
         }
     }
 
-    /// M5's All + ten rails, in the same order, with emoji-free labels.
+    /// Consumer browse taxonomy only. Host remains a separate tab/workbench;
+    /// no pill grants inventory, publication, payment or request authority.
     static let railLabels = [
-        "All", "Boutique Stay", "Mobility", "Nightlife", "Dining", "Coffee",
-        "Shopping", "Events", "Services", "Fitness", "Parking"
+        "Explore", "Eat & Drink", "Shop & Style", "Experience", "Social", "Events",
+        "Wellness", "Create & Learn", "Nightlife", "Stay", "Move", "Celebrate", "Services"
     ]
     static let railTokens = [
-        "all", "boutique_apartment", "mobility", "nightlife", "dining", "coffee",
-        "shopping", "entertainment", "service", "fitness", "parking"
+        "explore", "eat_drink", "shop_style", "experience", "social", "events",
+        "wellness", "create_learn", "nightlife", "stay", "move", "celebrate", "services"
     ]
 
-    /// Domain-to-rail metadata only; this never participates in capability.
-    /// automotive/stall/wellness/green are the actual bookable catalog domains.
-    /// transport is the explicit transport category; unknown aliases stay nil.
+    /// Exact source category aliases, never title/marketing keyword matching.
+    /// Retain legacy type IDs and catalog domains so old Home handoffs and
+    /// plans.bookables categories select the same grouped consumer rail.
     static func rail(category: String) -> String? {
         let normalized = category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let index = railLabels.firstIndex(where: { $0.lowercased() == normalized }) {
+            return railTokens[index]
+        }
         switch normalized {
-        case "events": return "entertainment"
-        case "stay": return "boutique_apartment"
-        case "automotive", "transport": return "mobility"
-        case "stall": return "parking"
-        case "wellness", "green": return "service"
+        case "all": return "explore"
+        // "market" files under Eat & Drink because every market in the live
+        // catalogue is a food hall (Ponce City, Krog Street, Colony Square).
+        // If a produce or flea market is ever onboarded, split the alias
+        // rather than moving this one.
+        case "dining", "coffee", "restaurant", "cafe", "café", "food-drink", "catering", "market": return "eat_drink"
+        case "shopping", "retail", "fashion", "styling": return "shop_style"
+        case "culture", "outdoor", "sports", "museum", "attraction", "tour", "park": return "experience"
+        case "community", "meetup", "fan-meetup": return "social"
+        case "entertainment", "event", "event pass", "music": return "events"
+        case "fitness", "spa", "gym", "recovery": return "wellness"
+        case "class", "workshop", "tutoring", "studio", "education": return "create_learn"
+        case "bar", "club", "night_club": return "nightlife"
+        case "boutique_apartment", "boutique stay", "hotel", "lodging": return "stay"
+        case "mobility", "automotive", "transport", "parking", "stall": return "move"
+        case "party", "private-party", "celebration", "wedding", "birthday": return "celebrate"
+        case "service", "green", "local-service": return "services"
         default: return railTokens.contains(normalized) ? normalized : nil
         }
+    }
+
+    /// A supplied category can refine a broad legacy type (e.g. service/spa).
+    /// Unknown source categories fall back to the original type, not a guess.
+    static func referenceRail(type: String, sourceCategory: String? = nil) -> String? {
+        let normalizedType = type.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let typeRail = rail(category: type)
+        if typeRail == nil || ["venue", "service", "green", "entertainment"].contains(normalizedType) {
+            if let sourceCategory, let sourceRail = rail(category: sourceCategory), sourceRail != "explore" {
+                return sourceRail
+            }
+        }
+        return typeRail
+    }
+
+    static func matchesCategory(_ category: String, filter: String?, sourceCategory: String? = nil) -> Bool {
+        guard let filter else { return true }
+        guard let selectedRail = rail(category: filter) else { return false }
+        if selectedRail == "explore" { return true }
+        return referenceRail(type: category, sourceCategory: sourceCategory) == selectedRail
     }
 }
 

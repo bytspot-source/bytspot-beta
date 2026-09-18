@@ -2249,6 +2249,9 @@ struct NativeVenueRichDetails: Equatable {
     var supplementarySource: Source? = nil
     var description: String? = nil
     var photoURLs: [URL]? = nil
+    /// Travels with `photoURLs`, so borrowed imagery can never be mistaken for
+    /// supplied media once details are merged.
+    var photoProvenance: NativeVenuePhotoProvenance = .borrowed
     var vibeVideoURL: URL? = nil
     var phone: String? = nil
     var menuURL: URL? = nil
@@ -2275,6 +2278,7 @@ struct NativeVenueRichDetails: Equatable {
         result.supplementarySource = extra.source
         result.description = description ?? extra.description
         result.photoURLs = photoURLs ?? extra.photoURLs
+        result.photoProvenance = photoURLs == nil ? extra.photoProvenance : photoProvenance
         result.phone = phone ?? extra.phone
         result.websiteURL = websiteURL ?? extra.websiteURL
         result.hours = hours ?? extra.hours
@@ -2338,6 +2342,7 @@ enum NativeVenueDetailsDTO {
         var details = NativeVenueRichDetails()
         details.description = text(item["description"])
         details.photoURLs = photos(item["photoUrls"])
+        details.photoProvenance = NativeVenuePhotoProvenance.parse(item["photoProvenance"] ?? item["photo_provenance"])
         details.vibeVideoURL = safeHTTPSURL(item["vibeVideoUrl"] as? String)
         details.phone = safePhoneURL(item["phone"] as? String) == nil ? nil : text(item["phone"])
         details.menuURL = safeHTTPSURL(item["menuUrl"] as? String)
@@ -2435,9 +2440,15 @@ struct NativeVenueSummary: Identifiable, Equatable {
     /// Exact source binding, not the display ID or a name-based match.
     var googlePlaceID: String? = nil
     var richDetails: NativeVenueRichDetails? = nil
+    /// The category the supply itself asserted, kept alongside the normalized
+    /// type so a detail screen resolves the same browse rail as its card.
+    var sourceCategory: String? = nil
+    /// Supplied by the venues contract. Absent reads as borrowed, which keeps
+    /// `imageUrl` out of the hero until provenance is actually asserted.
+    var photoProvenance: NativeVenuePhotoProvenance = .borrowed
 
     func withDistance(_ distance: String) -> NativeVenueSummary {
-        NativeVenueSummary(id: id, name: name, category: category, address: address, distance: distance, rating: rating, latitude: latitude, longitude: longitude, crowd: crowd, parking: parking, verifiedPatchId: verifiedPatchId, imageUrl: imageUrl, checkInVenueID: checkInVenueID, googlePlaceID: googlePlaceID, richDetails: richDetails)
+        NativeVenueSummary(id: id, name: name, category: category, address: address, distance: distance, rating: rating, latitude: latitude, longitude: longitude, crowd: crowd, parking: parking, verifiedPatchId: verifiedPatchId, imageUrl: imageUrl, checkInVenueID: checkInVenueID, googlePlaceID: googlePlaceID, richDetails: richDetails, sourceCategory: sourceCategory, photoProvenance: photoProvenance)
     }
 
     var discoverType: String {
@@ -2482,6 +2493,7 @@ struct NativeDiscoverSummary: Identifiable, Equatable {
     /// A source-provided address, never inferred from marketing subtitle text.
     let address: String?
 
+
     init(id: String, type: String, title: String, subtitle: String, distance: String, rating: String, icon: String, verified: Bool, entryType: String, cta: String, imageUrl: URL?, categoryLabel: String, badgeText: String, metadataLine: String, features: [String], vibeScore: Int, availability: String, membershipRequired: Bool, control: String = NativeDiscoverCardControl.local, latitude: Double? = nil, longitude: Double? = nil, address: String? = nil) {
         self.id = id
         self.type = type
@@ -2522,8 +2534,9 @@ enum NativeDiscoverCardControl {
     static let local = "local"
     static let vendor = "vendor"
 
-    /// Canonical Bytspot-controlled listings shipped in the binary.
-    static let controlledCardIDs: Set<String> = ["broni-home-taste", "gh-akwaaba-pass", "service-valet-ride", "group-transport", "broni"]
+    /// Legacy controlled listings. Broni's sample partner identity is not
+    /// connected supply; only real supplied authorization may grant control.
+    static let controlledCardIDs: Set<String> = ["gh-akwaaba-pass", "service-valet-ride", "group-transport"]
 
     static func isControlled(cardID: String) -> Bool { controlledCardIDs.contains(cardID) }
 
@@ -3823,7 +3836,8 @@ final class NativeTabContentStore: ObservableObject {
             verifiedPatchId: patch,
             imageUrl: url(item, ["imageUrl", "image_url", "photoUrl", "image", "heroImage"]),
             googlePlaceID: NativeVenueDetailsDTO.exactGooglePlaceID(item["googlePlaceId"]),
-            richDetails: NativeVenueDetailsDTO.venueDetails(from: item)
+            richDetails: NativeVenueDetailsDTO.venueDetails(from: item),
+            photoProvenance: NativeVenuePhotoProvenance.parse(item["photoProvenance"] ?? item["photo_provenance"])
         )
     }
 
@@ -3924,7 +3938,7 @@ extension NativeTabContentSnapshot {
     ]
 
     static let canonicalServiceCards = [
-        NativeDiscoverSummary(id: "broni-home-taste", type: "service", title: "Broni Home Taste", subtitle: "Ghanaian comfort food, ready for pickup or delivery.", distance: "Service", rating: "4.9", icon: "fork.knife", verified: true, entryType: "paid", cta: "View Menu", imageUrl: URL(string: "https://images.unsplash.com/photo-1604329760661-e71dc83f8f26?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Dining", badgeText: "Dining", metadataLine: "From $21 • Available now", features: ["Jollof + chicken", "Banku + tilapia", "Family-style portions"], vibeScore: 9, availability: "Available now", membershipRequired: true, control: NativeDiscoverCardControl.vendor),
+        NativeDiscoverSummary(id: "broni-home-taste", type: "service", title: "Broni Home Taste", subtitle: "First restaurant partner profile. Current menu and fulfillment details have not been supplied.", distance: "Service", rating: "New", icon: "fork.knife", verified: false, entryType: "free", cta: "Details", imageUrl: nil, categoryLabel: "Dining", badgeText: "Dining", metadataLine: "Partner profile · fulfillment not connected", features: [], vibeScore: 0, availability: "Details only", membershipRequired: false, control: NativeDiscoverCardControl.local),
         NativeDiscoverSummary(id: "gh-akwaaba-pass", type: "service", title: "GH Akwaaba Pass", subtitle: "Ghana matchday access, ready on your phone.", distance: "Pass", rating: "4.9", icon: "ticket.fill", verified: true, entryType: "paid", cta: "View Pass", imageUrl: URL(string: "https://images.unsplash.com/photo-1522778119026-d647f0596c20?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Event Pass", badgeText: "Event Pass", metadataLine: "$50 • Digital pass ready", features: ["Fast-track entry", "VIP lounge access", "Digital pass delivery"], vibeScore: 9, availability: "Digital pass ready", membershipRequired: true, control: NativeDiscoverCardControl.vendor)
     ]
 

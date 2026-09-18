@@ -1,6 +1,7 @@
 import type { DiscoverCard } from './mockData';
 import type { UserPreferences, CulturalContext } from './personalization';
-import type { VendorDiscoveryService } from './vendorServiceCards';
+import type { VendorDiscoveryService } from './vendorExperienceCards';
+import { resolveRail, resolveRailFromList, unmappedCategories as findUnmappedCategories, type DiscoveryRailToken } from './discoveryRails.ts';
 
 export type BytspotProviderSource = 'google_places' | 'yelp_fusion' | 'bytspot_vendor' | 'bytspot_discover' | 'bytspot_curated';
 export type BytspotMediaKind = 'image' | 'video' | 'thumbnail';
@@ -38,6 +39,12 @@ export interface BytspotVendorMatchDocument {
   name: string;
   description?: string;
   categories: string[];
+  /** The consumer browse rail this document files under. Resolved from the
+   *  contract at the boundary, never inferred downstream from a title. */
+  rail: DiscoveryRailToken;
+  /** Categories the document named that no rail claims. The document still
+   *  files under the fallback rail; this is what the parity gate reports. */
+  unmappedCategories?: string[];
   tags: string[];
   address?: string;
   latitude?: number;
@@ -256,6 +263,9 @@ export function adaptGooglePlaceToMatchDocument(place: GooglePlacesCandidate): B
     name,
     description: place.formattedAddress ?? place.vicinity,
     categories: place.types ?? [],
+    // Google's type vocabulary is not ours, so an unclaimed type is not a gap
+    // in our contract and is not reported. It simply files under the fallback.
+    rail: resolveRailFromList(place.types ?? []),
     tags: uniqueTokens([name, ...(place.types ?? [])]),
     address: place.formattedAddress ?? place.vicinity,
     latitude: place.location?.latitude ?? place.location?.lat,
@@ -292,6 +302,7 @@ export function adaptYelpBusinessToMatchDocument(business: YelpFusionCandidate):
     name: business.name,
     description: [address, business.transactions?.join(' · ')].filter(Boolean).join(' · ') || undefined,
     categories,
+    rail: resolveRailFromList(categories),
     tags: uniqueTokens([business.name, ...categories, ...(business.transactions ?? [])]),
     address,
     latitude: business.coordinates?.latitude,
@@ -324,6 +335,9 @@ export function adaptVendorServiceToMatchDocument(service: VendorDiscoveryServic
     service.patch?.label,
   ];
   const categories = stableCompact([service.category, service.vendor.displayName, service.patch?.label, marketplaceTrust]);
+  // Only the vendor's own category may pick a rail. A display name, a patch
+  // label or a trust string is not a taxonomy and must never file a place.
+  const unmapped = findUnmappedCategories([service.category]);
   return {
     id: `vendor:${providerId}`,
     source: 'bytspot_vendor',
@@ -333,6 +347,8 @@ export function adaptVendorServiceToMatchDocument(service: VendorDiscoveryServic
     name: service.title,
     description: service.subtitle ?? service.description ?? undefined,
     categories,
+    rail: resolveRail(service.category),
+    ...(unmapped.length ? { unmappedCategories: unmapped } : {}),
     tags: uniqueTokens([
       service.id,
       service.vendor.id,
@@ -365,8 +381,14 @@ export function adaptDiscoverCardToMatchDocument(card: DiscoverCard): BytspotVen
   const providerId = card.vendorServiceId ?? card.placeId ?? String(card.id);
   const vendorId = card.vendorId;
   const categories = stableCompact([card.type, card.serviceCategory, card.location, ...(card.features ?? [])]);
+  // A card's own type and service category file it. A location or a feature
+  // string is not a taxonomy and must never pick a rail.
+  const cardCategories = [card.type, card.serviceCategory];
+  const unmapped = findUnmappedCategories(cardCategories);
   return {
     id: `discover:${providerId}`,
+    rail: resolveRailFromList(cardCategories),
+    ...(unmapped.length ? { unmappedCategories: unmapped } : {}),
     source,
     providerId,
     vendorServiceId: card.vendorServiceId,

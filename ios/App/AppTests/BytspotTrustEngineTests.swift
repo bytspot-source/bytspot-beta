@@ -10,26 +10,84 @@ final class NativeDiscoverM6BrowseTests: XCTestCase {
                                   category: category, title: title, subtitle: nil, capability: capability)
     }
 
-    func testDiscoverKeepsAllAndTenEmojiFreeCategoryRails() {
-        XCTAssertEqual(NativeDiscoverBookablePresentation.railLabels,
-                       ["All", "Boutique Stay", "Mobility", "Nightlife", "Dining", "Coffee", "Shopping", "Events", "Services", "Fitness", "Parking"])
-        XCTAssertEqual(NativeDiscoverBookablePresentation.railTokens.count, 11)
+    func testDiscoverKeepsExactlyThirteenEmojiFreePillsWithoutHost() {
+        XCTAssertEqual(NativeDiscoverBookablePresentation.railLabels, [
+            "Explore", "Eat & Drink", "Shop & Style", "Experience", "Social", "Events",
+            "Wellness", "Create & Learn", "Nightlife", "Stay", "Move", "Celebrate", "Services"
+        ])
+        XCTAssertEqual(NativeDiscoverBookablePresentation.railTokens, [
+            "explore", "eat_drink", "shop_style", "experience", "social", "events",
+            "wellness", "create_learn", "nightlife", "stay", "move", "celebrate", "services"
+        ])
+        XCTAssertEqual(Set(NativeDiscoverBookablePresentation.railTokens).count, 13)
+        XCTAssertNil(NativeDiscoverBookablePresentation.rail(category: "host"))
+        XCTAssertFalse(NativeDiscoverBookablePresentation.railLabels.contains("Host"))
         for (rail, label) in zip(NativeDiscoverBookablePresentation.railTokens, NativeDiscoverBookablePresentation.railLabels) {
             XCTAssertEqual(NativeDiscoverBrowsePolicy.categoryLabel(rail), label)
+            XCTAssertEqual(NativeDiscoverBookablePresentation.rail(category: label), rail)
+        }
+        // Removing a browse pill must not remove or move the actual Host tab.
+        XCTAssertEqual(BytspotNativeTab.barTabs, [.home, .host, .plan, .discover, .concierge])
+        XCTAssertTrue(BytspotNativeTab.host.requiresAuthentication)
+    }
+
+    func testCatalogAndLegacyCategoriesActuallyFilterIntoTheNewPills() {
+        let groups: [(String, [String])] = [
+            ("eat_drink", ["dining", "coffee"]), ("shop_style", ["shopping"]),
+            ("experience", ["culture", "outdoor", "sports"]), ("social", ["social", "community"]),
+            ("events", ["events", "entertainment"]), ("wellness", ["wellness", "fitness"]),
+            ("create_learn", ["class", "workshop", "tutoring"]), ("nightlife", ["nightlife"]),
+            ("stay", ["stay", "boutique_apartment"]),
+            ("move", ["mobility", "automotive", "transport", "parking", "stall"]),
+            ("celebrate", ["party", "private-party", "celebration"]), ("services", ["service", "green"])
+        ]
+        for (expected, categories) in groups {
+            for category in categories {
+                let row = offering(kind: .party, category: category, capability: "book")
+                XCTAssertEqual(NativeDiscoverBookablePresentation.rail(category: category), expected)
+                for selected in NativeDiscoverBookablePresentation.railTokens {
+                    let matches = selected == "explore" || selected == expected
+                    XCTAssertEqual(NativeDiscoverBrowsePolicy.matchesCategory(row, filter: selected), matches, "\(category) → \(selected)")
+                    XCTAssertEqual(NativeDiscoverBookablePresentation.matchesCategory(category, filter: selected), matches)
+                }
+                XCTAssertTrue(NativeDiscoverBrowsePolicy.matchesCategory(row, filter: nil))
+                XCTAssertTrue(NativeDiscoverBrowsePolicy.matchesCategory(row, filter: "all"))
+                XCTAssertTrue(NativeDiscoverBrowsePolicy.matchesCategory(row, filter: category), "Legacy handoffs must select the grouped rail")
+                XCTAssertEqual(NativeDiscoverBrowsePolicy.presentation(offering: row).capability, .details)
+                XCTAssertNil(NativeDiscoverBrowsePolicy.executableActionTitle(offering: row))
+            }
+        }
+        XCTAssertFalse(NativeDiscoverBrowsePolicy.matchesCategory(offering(category: "unknown-domain"), filter: "eat_drink"))
+        XCTAssertFalse(NativeDiscoverBrowsePolicy.matchesCategory(offering(), filter: "host"))
+        XCTAssertTrue(NativeDiscoverBookablePresentation.matchesCategory("unknown-domain", filter: "explore"))
+    }
+
+    func testSuppliedCategoriesRefineReferencesWithoutInventingSupply() {
+        XCTAssertTrue(NativeDiscoverBookablePresentation.matchesCategory("service", filter: "wellness", sourceCategory: "Spa"))
+        XCTAssertTrue(NativeDiscoverBookablePresentation.matchesCategory("service", filter: "eat_drink", sourceCategory: "Catering"))
+        XCTAssertTrue(NativeDiscoverBookablePresentation.matchesCategory("venue", filter: "create_learn", sourceCategory: "Workshop"))
+        XCTAssertTrue(NativeDiscoverBookablePresentation.matchesCategory("service", filter: "services", sourceCategory: "Unspecified"))
+        XCTAssertTrue(NativeDiscoverBookablePresentation.matchesCategory("service", filter: "events", sourceCategory: "Event Pass"))
+        XCTAssertTrue(NativeDiscoverBookablePresentation.matchesCategory("dining", filter: "eat_drink", sourceCategory: "Services"), "A specific source type wins over a generic label")
+        XCTAssertNil(NativeDiscoverBookablePresentation.referenceRail(type: "venue", sourceCategory: "Book now"))
+        for rail in NativeDiscoverBookablePresentation.railTokens {
+            let coffee = offering(category: rail)
+            XCTAssertEqual(NativeDiscoverBrowsePolicy.presentation(offering: coffee).capability, .request)
+            XCTAssertEqual(NativeDiscoverBrowsePolicy.presentation(offering: offering(category: rail, capability: "book")).capability, .details)
         }
     }
 
-    func testCatalogDomainMappingDoesNotCollapseEveryPublicPartyIntoEvents() {
-        for (domain, rail) in [("events", "entertainment"), ("stay", "boutique_apartment"),
-                               ("automotive", "mobility"), ("transport", "mobility"), ("stall", "parking"),
-                               ("wellness", "service"), ("green", "service"), ("dining", "dining")] {
-            let row = offering(kind: .party, category: domain, capability: "book")
-            XCTAssertTrue(NativeDiscoverBrowsePolicy.matchesCategory(row, filter: rail))
-            XCTAssertTrue(NativeDiscoverBrowsePolicy.matchesCategory(row, filter: nil))
-            XCTAssertTrue(NativeDiscoverBrowsePolicy.matchesCategory(row, filter: "all"))
-            if rail != "entertainment" { XCTAssertFalse(NativeDiscoverBrowsePolicy.matchesCategory(row, filter: "entertainment")) }
+    @MainActor
+    func testRetainedServiceCardsUseTheirSuppliedCategoriesNotTheirTitles() throws {
+        let broni = try XCTUnwrap(NativeTabContentSnapshot.canonicalServiceCards.first { $0.title == "Broni Home Taste" })
+        XCTAssertTrue(NativeDiscoverBookablePresentation.matchesCategory(broni.type, filter: "eat_drink", sourceCategory: broni.categoryLabel))
+        XCTAssertFalse(NativeDiscoverBookablePresentation.matchesCategory(broni.type, filter: "services", sourceCategory: broni.categoryLabel))
+        XCTAssertEqual(NativeDiscoverBrowsePolicy.referencePresentation(for: broni).capability, .details)
+        XCTAssertNil(broni.imageUrl)
+        for card in NativeTabContentSnapshot.canonicalMobilityCards {
+            XCTAssertTrue(NativeDiscoverBookablePresentation.matchesCategory(card.type, filter: "move", sourceCategory: card.categoryLabel))
+            XCTAssertEqual(NativeDiscoverBrowsePolicy.referencePresentation(for: card).capability, .details)
         }
-        XCTAssertFalse(NativeDiscoverBrowsePolicy.matchesCategory(offering(category: "unknown-domain"), filter: "coffee"))
     }
 
     func testReferencesNeverClaimSupportedActionOrAvailability() {
@@ -79,6 +137,12 @@ final class NativeDiscoverM6BrowseTests: XCTestCase {
         XCTAssertTrue(browse.contains("api.bookables(category: \"events\")"))
         XCTAssertTrue(browse.contains(".background(NativeDeepSpaceGround())"))
         XCTAssertTrue(browse.contains("static let filterRowCount = 1"))
+        XCTAssertTrue(browse.contains("NativeDiscoverBookablePresentation.matchesCategory($0.type, filter: selectedFilter, sourceCategory: $0.categoryLabel)"))
+        XCTAssertTrue(browse.contains("NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot, matching: nil)"))
+        XCTAssertTrue(browse.contains("NativeVendorExperience.isDiscoveryReference(id: $0.id)"))
+        XCTAssertTrue(browse.contains(".background(NativeVendorSurface())"))
+        XCTAssertFalse(browse.contains("capabilitySummary"))
+        XCTAssertFalse(browse.contains("vendorReview"))
         XCTAssertFalse(browse.contains(".frame(height: Self.cardHeight)"))
         XCTAssertFalse(browse.contains(".frame(height: Self.bodyHeight"))
     }
@@ -911,8 +975,9 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     func testDiscoverControlGateOnlyControlsCanonicalVendorsAndRealPatches() {
-        // Canonical vendor IDs are controlled.
-        XCTAssertTrue(NativeDiscoverCardControl.isControlled(cardID: "broni-home-taste"))
+        // A sample partner identity is not fulfillment authority.
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: "broni-home-taste"))
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: "broni"))
         XCTAssertTrue(NativeDiscoverCardControl.isControlled(cardID: "gh-akwaaba-pass"))
         // Local dining/coverage/Google-shaped IDs are not.
         XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: "dinner-vibe"))
@@ -947,7 +1012,9 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     func testCanonicalDiscoverCardsCarryVendorControlAndClonesStayLocal() {
-        XCTAssertTrue(NativeTabContentSnapshot.canonicalServiceCards.allSatisfy { $0.control == NativeDiscoverCardControl.vendor })
+        XCTAssertTrue(NativeTabContentSnapshot.canonicalServiceCards.allSatisfy {
+            $0.control == ($0.id == "broni-home-taste" ? NativeDiscoverCardControl.local : NativeDiscoverCardControl.vendor)
+        })
         XCTAssertTrue(NativeTabContentSnapshot.canonicalMobilityCards.allSatisfy { $0.control == NativeDiscoverCardControl.vendor })
         XCTAssertTrue(NativeTabContentSnapshot.fallbackDiscoverCards.allSatisfy { $0.control == NativeDiscoverCardControl.local }, "Curated fallback cards must stay local.")
     }
@@ -3737,17 +3804,21 @@ final class NativeProfileDataAPITests: XCTestCase {
 
     func testPlanCapabilityLabelDoesNotPromoteAReference() {
         // A `details` item exists because Bytspot cannot settle it. The chip
-        // must say Reference, never Book, or a Plan row would promise
-        // fulfilment the app is structurally unable to deliver. Unknown
-        // server values coerce to Reference too, so a future "reserve" or
-        // "book_now" cannot render as a settlement chip until this client
-        // learns to honour it.
-        XCTAssertEqual(NativePlanDisplay.capabilityLabel("details"), "Reference")
+        // must say Listed, never Book, or a Plan row would promise fulfilment
+        // the app is structurally unable to deliver. Unknown server values
+        // coerce to Listed too, so a future "reserve" or "book_now" cannot
+        // render as a settlement chip until this client learns to honour it.
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel("details"), "Listed")
         XCTAssertEqual(NativePlanDisplay.capabilityLabel("book"), "Book")
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel("order"), "Order")
         XCTAssertEqual(NativePlanDisplay.capabilityLabel("request"), "Request")
-        XCTAssertEqual(NativePlanDisplay.capabilityLabel("reserve"), "Reference")
-        XCTAssertEqual(NativePlanDisplay.capabilityLabel("book_now"), "Reference")
-        XCTAssertEqual(NativePlanDisplay.capabilityLabel(""), "Reference")
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel("reserve"), "Listed")
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel("book_now"), "Listed")
+        XCTAssertEqual(NativePlanDisplay.capabilityLabel(""), "Listed")
+        // The plan row may not keep a private vocabulary.
+        for capability in NativeDiscoverBookableCapability.displayOrder where capability != .redirect {
+            XCTAssertEqual(NativePlanDisplay.capabilityLabel(capability.rawValue), capability.statusLabel)
+        }
     }
 
     func testPlanNeedRoutesOnlyToSurfacesThatCanFillIt() {

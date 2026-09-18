@@ -28,6 +28,134 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(header.contains("openNativeProfile(panel: nil)"))
     }
 
+    #if DEBUG
+    func testHomeStartupAssertionsAcceptListedPartnerWithoutGrantingControl() {
+        // Exercise the actual opt-in launch assertions, not just the detail
+        // projection. A passing UI policy suite previously missed this trap.
+        NativeHomeParitySelfTests.runIfRequested()
+    }
+
+    func testMapStartupAssertionsKeepUnverifiedHoursUnknown() {
+        NativeMapParitySelfTests.runIfRequested()
+    }
+
+    func testAllDebugStartupAssertionsMatchCurrentAppContracts() {
+        // This is the same complete ordered guard list called by the app root.
+        NativeStartupSelfTests.run()
+    }
+    #endif
+
+    func testDetailShowsTheSameBrowseCategoryAsItsCard() {
+        // A partner appearing as Eat & Drink on the card and Services on the
+        // detail reads as two different places.
+        let card = NativeTabContentSnapshot.canonicalServiceCards.first { $0.id == "broni-home-taste" }!
+        let venue = NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type,
+            address: "", distance: card.distance, imageURL: card.imageUrl, sourceCategory: card.categoryLabel)
+        let cardRail = NativeDiscoverBookablePresentation.referenceRail(type: card.type, sourceCategory: card.categoryLabel)
+        let detailRail = NativeDiscoverBookablePresentation.referenceRail(type: venue.discoverType, sourceCategory: venue.sourceCategory ?? venue.category)
+        XCTAssertEqual(cardRail, "eat_drink")
+        XCTAssertEqual(detailRail, cardRail)
+        XCTAssertEqual(NativeDiscoverBrowsePolicy.categoryLabel(detailRail!), "Eat & Drink")
+    }
+
+    /// A partner is a place. Omitting coordinates from its card does not make
+    /// it location independent, so an unresolved viewer must not be shown an
+    /// Atlanta restaurant — partner visibility is earned with a real address,
+    /// never by exempting supply from location scoping.
+    func testLocationBoundPartnerStaysHiddenUntilLocationResolves() {
+        let ids = Set(NativeTabContentSnapshot.unresolved.discoverCards.map(\.id))
+        XCTAssertTrue(ids.isDisjoint(with: Set(NativeTabContentSnapshot.specialDiscoverCards.map(\.id))))
+        XCTAssertFalse(ids.contains("broni-home-taste"))
+        XCTAssertFalse(ids.contains("midtown-boutique-suite"))
+        XCTAssertTrue(NativeTabContentSnapshot.unresolved.venues.isEmpty)
+        XCTAssertTrue(NativeTabContentSnapshot.unresolved.events.isEmpty)
+        // Resolved-location browsing is where the partner legitimately appears.
+        XCTAssertTrue(NativeTabContentSnapshot.fallback.discoverCards.contains { $0.id == "broni-home-taste" })
+    }
+
+    // MARK: Four-surface authority contract
+
+    /// Discover, Venue detail, Review and Arrival must read one capability from
+    /// supply. A surface that re-derives it can upgrade authority by rendering.
+    func testAllFourSurfacesResolveOneCapabilityFromSupply() {
+        let cases: [(String, NativePlanBookableSelection.SourceKind, NativeDiscoverBookableCapability)] = [
+            ("request", .coffeeSpot, .request),
+            ("book", .coffeeSpot, .details),
+            ("order", .coffeeSpot, .order),
+            ("book", .party, .details),
+            ("redirect", .party, .details)
+        ]
+        for (capability, kind, expected) in cases {
+            let supply = NativeDiscoverBookablePresentation(offering: offering(capability, kind: kind, category: "dining"))
+            XCTAssertEqual(supply.capability, expected, "\(kind) \(capability) resolved the wrong capability")
+
+            // Surface 1 — Discover card.
+            XCTAssertEqual(NativeDiscoverBrowsePolicy.presentation(offering: offering(capability, kind: kind, category: "dining")).capability, expected)
+            // Surface 2 — Venue detail.
+            let detailAction: NativeM5PrimaryAction = expected == .request ? .requestCoffee
+                : (expected == .order ? .unavailable(.order) : .route)
+            XCTAssertEqual(NativeM5DetailPolicy.primaryAction(for: supply), detailAction)
+            XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: supply), expected == .request ? "Request"
+                : (expected == .order ? "Ordering unavailable" : "Route"))
+            // Surface 3 — Review. Only the mounted route may execute.
+            let rows = NativeVendorCapabilityTable.rows(for: supply)
+            XCTAssertEqual(rows.map(\.intent), NativeVendorCapabilityIntent.allCases)
+            XCTAssertEqual(rows.filter(\.isExecutable).map(\.intent), expected == .request ? [.requesting] : [])
+            XCTAssertTrue(rows.allSatisfy { $0.isExecutable || $0.actionTitle == nil })
+            // Surface 4 — Arrival never carries fulfillment, whatever the capability.
+            XCTAssertEqual(NativeM5DetailPolicy.addToPlanTitle, "Add to Plan")
+            XCTAssertTrue(NativeM5DetailPolicy.planDisclaimer.contains("does not book or request"))
+        }
+    }
+
+    /// Booking and Ordering are intent vocabulary only: no supply currently
+    /// mounts them, so no surface may render an executable row for them.
+    func testBookingAndOrderingIntentsNeverExecuteOnAnySurface() {
+        let partnerCard = NativeTabContentSnapshot.canonicalServiceCards.first { $0.id == "broni-home-taste" }!
+        let supplies = [
+            NativeDiscoverBookablePresentation(),
+            NativeDiscoverBookablePresentation(offering: offering("request", kind: .coffeeSpot, category: "coffee")),
+            NativeDiscoverBookablePresentation(offering: offering("book", kind: .party)),
+            NativeDiscoverBookablePresentation(offering: offering("order", kind: .coffeeSpot, category: "dining")),
+            NativeDiscoverBrowsePolicy.referencePresentation(for: partnerCard)
+        ]
+        for supply in supplies {
+            let rows = NativeVendorCapabilityTable.rows(for: supply)
+            for intent in [NativeVendorCapabilityIntent.booking, .ordering] {
+                let row = rows.first { $0.intent == intent }!
+                XCTAssertFalse(row.isExecutable, "\(intent) must stay unmounted")
+                XCTAssertNil(row.actionTitle)
+                XCTAssertEqual(row.availabilityTitle, "Not available")
+            }
+            XCTAssertTrue(NativeVendorCapabilityTable.reviewDisclaimer.contains("does not book, order or send a request"))
+        }
+        // Intent vocabulary stays stable and carries no permission wording.
+        XCTAssertEqual(NativeVendorCapabilityTable.stableTokens, ["booking", "ordering", "requesting"])
+    }
+
+    /// Category name, partner badge, verified flag and curated placement are
+    /// presentation. None of them may move capability on any surface.
+    func testCategoryBadgeAndPlacementNeverGrantAuthorityOnAnySurface() {
+        let listed = NativeDiscoverBookablePresentation()
+        for rail in NativeDiscoverBookablePresentation.railTokens {
+            let dressed = NativeDiscoverBookablePresentation(offering: offering("book", kind: .party, category: rail))
+            XCTAssertEqual(dressed.capability, listed.capability)
+            XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: dressed), NativeM5DetailPolicy.primaryTitle(for: listed))
+            XCTAssertEqual(NativeVendorCapabilityTable.rows(for: dressed).filter(\.isExecutable).count, 0)
+        }
+        // Exactly thirteen pills, and no guest rail is introduced alongside them.
+        // The pill rail itself is NativeDiscoverView.categoryLabels, which is
+        // private to the app target; the startup guard asserts it equals these.
+        XCTAssertEqual(NativeDiscoverBookablePresentation.railLabels, [
+            "Explore", "Eat & Drink", "Shop & Style", "Experience", "Social", "Events",
+            "Wellness", "Create & Learn", "Nightlife", "Stay", "Move", "Celebrate", "Services"
+        ])
+        XCTAssertEqual(NativeDiscoverBookablePresentation.railTokens.count, 13)
+        for absent in ["host", "guest", "partner", "featured", "sponsored", "broni"] {
+            XCTAssertNil(NativeDiscoverBookablePresentation.rail(category: absent), "\(absent) must not be a rail")
+        }
+    }
+
     func testListedDefaultsToRouteAndAddToPlanWithoutControl() {
         let listed = NativeDiscoverBookablePresentation()
         XCTAssertEqual(listed.statusLabel, "Listed")
@@ -74,12 +202,66 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertEqual(NativeDiscoverBrowsePolicy.executableActionTitle(offering: coffee), "Request")
     }
 
+    func testVendorCapabilityTaxonomyIsStableAndFailClosed() throws {
+        XCTAssertEqual(NativeVendorCapabilityTable.stableTokens, ["booking", "ordering", "requesting"])
+        XCTAssertEqual(NativeVendorCapabilityIntent.allCases.map(\.title), ["Booking", "Ordering", "Requesting"])
+        XCTAssertEqual(NativeVendorCapabilityIntent.allCases.map(\.requirement), [
+            "Bookable: time and capacity", "Orderable: purchase and fulfillment",
+            "Requestable: provider-mediated request"
+        ])
+        XCTAssertEqual(NativeVendorCapabilityTable.reviewDisclaimer,
+            "Opening this review does not book, order or send a request.",
+            "The review must not deny an existing request or booking")
+
+        let listedRows = NativeVendorCapabilityTable.rows(for: NativeDiscoverBookablePresentation())
+        XCTAssertEqual(listedRows.map(\.intent), [.booking, .ordering, .requesting])
+        XCTAssertTrue(listedRows.allSatisfy { $0.route == .unavailable && !$0.isExecutable })
+
+        let request = NativeDiscoverBookablePresentation(
+            offering: offering("request", kind: .coffeeSpot, category: "coffee"))
+        let requestRows = NativeVendorCapabilityTable.rows(for: request)
+        XCTAssertEqual(requestRows.first(where: { $0.intent == .booking })?.route, .unavailable)
+        XCTAssertEqual(requestRows.first(where: { $0.intent == .ordering })?.route, .unavailable)
+        XCTAssertEqual(requestRows.first(where: { $0.intent == .requesting })?.route, .requestCoffee)
+
+        let url = try XCTUnwrap(URL(string: "https://provider.example.com/booking/1"))
+        let external = NativeDiscoverBookablePresentation(externalURL: url, externalProvider: "Provider")
+        XCTAssertTrue(NativeVendorCapabilityTable.rows(for: external).allSatisfy { !$0.isExecutable },
+            "An external destination alone does not establish a booking or ordering intent")
+        XCTAssertEqual(NativeM5DetailPolicy.primaryAction(for: external), .external(url))
+        XCTAssertTrue(listedRows.allSatisfy { $0.availabilityTitle == "Not available" })
+        XCTAssertEqual(requestRows.last?.accessibilityTitle, "Requesting: Available")
+    }
+
+    func testBroniPartnerProfileDoesNotInventAuthorityOrMedia() throws {
+        let card = try XCTUnwrap(NativeTabContentSnapshot.canonicalServiceCards.first)
+        XCTAssertEqual(card.title, "Broni Home Taste")
+        XCTAssertNil(card.imageUrl)
+        XCTAssertEqual(card.cta, "Details")
+        XCTAssertEqual(card.features, [])
+        XCTAssertFalse(card.verified)
+        XCTAssertEqual(card.control, NativeDiscoverCardControl.local)
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: card.id))
+        let presentation = NativeDiscoverBrowsePolicy.referencePresentation(for: card)
+        XCTAssertEqual(presentation.capability, .details)
+        XCTAssertTrue(NativeVendorCapabilityTable.rows(for: presentation).allSatisfy { !$0.isExecutable })
+    }
+
+    func testSyntheticCategoryFillersAreExcludedWithoutPromotingOtherReferences() {
+        for id in ["coverage-dining-1-broni", "starter-coffee-1", "companion-parking-venue-1"] {
+            XCTAssertFalse(NativeVendorExperience.isDiscoveryReference(id: id))
+        }
+        XCTAssertTrue(NativeVendorExperience.isDiscoveryReference(id: "venue-real-1"))
+        XCTAssertTrue(NativeVendorExperience.isDiscoveryReference(id: "party:party-1"))
+        XCTAssertEqual(NativeVendorCapabilityTable.rows(for: .init()).filter(\.isExecutable).count, 0)
+    }
+
     func testExternalRequiresExplicitNamedValidatedHandoff() throws {
         let url = try XCTUnwrap(URL(string: "https://provider.example.com/booking/1"))
         let external = NativeDiscoverBookablePresentation(externalURL: url, externalProvider: "Example Provider")
         XCTAssertEqual(external.statusLabel, "External")
         XCTAssertEqual(NativeM5DetailPolicy.primaryAction(for: external), .external(url))
-        XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: external), "Book on Example Provider ↗")
+        XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: external), "Open Example Provider ↗")
         XCTAssertNil(external.actionHex)
         XCTAssertTrue(external.availabilityLine.contains("not Bytspot"))
         let unnamed = NativeDiscoverBookablePresentation(externalURL: url)
@@ -207,12 +389,26 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(detail.contains("var offering: NativePlanBookableOffering? = nil"))
         XCTAssertTrue(detail.contains("var externalURL: URL? = nil"))
         XCTAssertTrue(detail.contains("safeAreaInset(edge: .bottom"))
+        for removed in ["NativeVendorCapabilityTable", "native-vendor-capability-table", "vendorReview", "pendingVendorContinuation", "NativeVendorReviewSheet"] {
+            XCTAssertFalse(detail.contains(removed), "The venue must not render a capability table or review sheet")
+        }
+        XCTAssertTrue(detail.contains("requestStatusReady && currentTransaction == nil"))
+        XCTAssertTrue(detail.contains("case .requestCoffee: beginDetailPlanSelection(requestCoffee: true)"))
+        let card = try region(in: shell, from: "private struct NativeDiscoverFeatureCard: View {", to: "private struct NativeSpecialDiscoverCard: View {")
+        XCTAssertFalse(card.contains("NativeVendorCapabilityTable"))
+        XCTAssertFalse(card.contains("capabilitySummary"))
+        XCTAssertTrue(card.contains("NativeVenueCheckInChip"))
+        XCTAssertTrue(card.contains(".background(NativeVendorSurface())"))
+        XCTAssertFalse(discover.contains("DEMO"))
     }
 
     func testRenderedDetailUsesActualMediaAndSafeDynamicTypeSurface() throws {
         let shell = try shellSource()
         let surface = try region(in: shell, from: "    private var placeHeader: some View {", to: "    private func performPlacePrimaryAction() {")
-        XCTAssertTrue(surface.contains("if let url = venue.imageUrl"))
+        // The hero still shows the venue's own media, but only once provenance
+        // has earned it; `venue.imageUrl` may no longer reach the frame raw.
+        XCTAssertTrue(surface.contains("NativeVenueHeroMedia.heroURLs(venueImage: venue.imageUrl"))
+        XCTAssertFalse(surface.contains("if let url = venue.imageUrl"))
         XCTAssertTrue(surface.contains("NativeM5DetailPolicy.address(for: venue)"))
         XCTAssertTrue(surface.contains("NativeM5DetailPolicy.hoursUnknown"))
         XCTAssertTrue(surface.contains("NativeM5DetailPolicy.activity(for: venue)"))
@@ -291,6 +487,231 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertFalse(shell.contains(".task(id: detailUserID) { await refreshDetailTransactions() }"))
         let credentialChange = try region(in: shell, from: ".onChange(of: sessionStore.token ?? \"\")", to: ".onChange(of: sessionStore.authenticatedUserID)")
         XCTAssertTrue(credentialChange.contains("synchronizePlaceAccount(forceReset: true)"))
+    }
+
+    func testHeroAcceptsOnlyOwnedMediaAndFailsClosedOnUnknownProvenance() {
+        let owned = URL(string: "https://cdn.bytspot.com/owned.jpg")!
+        let borrowed = URL(string: "https://places.example/borrowed.jpg")!
+
+        XCTAssertEqual(NativeVenuePhotoProvenance.parse("bytspot_owned"), .bytspotOwned)
+        XCTAssertEqual(NativeVenuePhotoProvenance.parse("party_media"), .partyMedia)
+        for unknown: Any? in [nil, "", "google", "owned", 7, ["bytspot_owned"]] {
+            XCTAssertEqual(NativeVenuePhotoProvenance.parse(unknown), .borrowed)
+        }
+
+        XCTAssertTrue(NativeVenueHeroMedia.heroURLs(venueImage: borrowed,
+            provenance: .borrowed, details: nil).isEmpty)
+        XCTAssertEqual(NativeVenueHeroMedia.heroURLs(venueImage: owned,
+            provenance: .bytspotOwned, details: nil), [owned])
+        XCTAssertEqual(NativeVenueHeroMedia.heroURLs(venueImage: owned,
+            provenance: .partyMedia, details: nil), [owned])
+
+        var borrowedDetails = NativeVenueRichDetails()
+        borrowedDetails.photoURLs = [borrowed]
+        borrowedDetails.photoProvenance = .borrowed
+        XCTAssertTrue(NativeVenueHeroMedia.heroURLs(venueImage: nil,
+            provenance: .borrowed, details: borrowedDetails).isEmpty)
+
+        var ownedDetails = NativeVenueRichDetails()
+        ownedDetails.photoURLs = [owned]
+        ownedDetails.photoProvenance = .partyMedia
+        XCTAssertEqual(NativeVenueHeroMedia.heroURLs(venueImage: nil,
+            provenance: .borrowed, details: ownedDetails), [owned])
+    }
+
+    func testGooglePhotosStayBorrowedWhenTheyFillAVenueWithNoMedia() {
+        let borrowed = URL(string: "https://places.example/borrowed.jpg")!
+        var google = NativeVenueRichDetails(source: .googlePlaces(placeID: "abc"))
+        google.photoURLs = [borrowed]
+        XCTAssertEqual(google.photoProvenance, .borrowed)
+
+        let supplemented = NativeVenueRichDetails().supplementing(with: google)
+        XCTAssertEqual(supplemented.photoURLs, [borrowed])
+        XCTAssertEqual(supplemented.photoProvenance, .borrowed)
+        XCTAssertTrue(NativeVenueHeroMedia.heroURLs(venueImage: nil,
+            provenance: .borrowed, details: supplemented).isEmpty)
+
+        var owned = NativeVenueRichDetails()
+        owned.photoURLs = [URL(string: "https://cdn.bytspot.com/owned.jpg")!]
+        owned.photoProvenance = .bytspotOwned
+        XCTAssertEqual(owned.supplementing(with: google).photoProvenance, .bytspotOwned)
+    }
+
+    func testEveryDetailSlotStaysPresentWhenNothingIsSupplied() throws {
+        let shell = try shellSource()
+        let detail = try region(in: shell, from: "private struct NativeVenueDetailView: View {",
+                                to: "private struct NativeEventRideBookingSheet: View {")
+        for identifier in ["native-m2-hero-empty", "native-m2-play-vibe-empty",
+                           "native-m2-description-empty", "native-m2-price-empty"] {
+            XCTAssertTrue(detail.contains(identifier), identifier)
+        }
+        // The three utility slots share one interpolated identifier, so the
+        // empty state is proven at its single source rather than per title.
+        XCTAssertTrue(detail.contains("native-m2-utility-\\(title.lowercased())-empty"))
+        let utilities = try region(in: detail, from: "    private var venueUtilities: some View {",
+                                   to: "    private func utilityLabel(")
+        for slot in ["utility(\"Call\"", "utility(\"Menu\"", "utility(\"Site\""] {
+            XCTAssertTrue(utilities.contains(slot), slot)
+        }
+        XCTAssertFalse(utilities.contains("if let url = details?"))
+        XCTAssertTrue(detail.contains("NativeVenueHeroMedia.heroURLs(venueImage: venue.imageUrl"))
+    }
+
+    /// Book, Order, Request, External and Listed each own one word, one ring and
+    /// one colour, defined once and read by every surface.
+    func testCardIndicatorVocabularyIsSingleSourcedAndDistinguishable() {
+        let all = NativeDiscoverBookableCapability.displayOrder
+        XCTAssertEqual(all.map(\.statusLabel), ["Book", "Order", "Request", "External", "Listed"])
+        XCTAssertEqual(all.count, NativeDiscoverBookableCapability.allCases.count)
+        XCTAssertEqual(all.map(\.ringStyle), [.solid, .segmented, .dashed, .dot, .dot])
+        // Blue marks a Bytspot action; an external link or a listing never earns it.
+        XCTAssertEqual(all.map(\.actionHex), [0x00BFFF, 0x00BFFF, 0x00BFFF, nil, nil])
+        XCTAssertEqual(NativeDiscoverBookableRingStyle.solid.dashPattern, [])
+        XCTAssertEqual(NativeDiscoverBookableRingStyle.segmented.dashPattern, [4, 2])
+        XCTAssertEqual(NativeDiscoverBookableRingStyle.dashed.dashPattern, [2, 2])
+        XCTAssertTrue(all.allSatisfy { !$0.availabilityLine.isEmpty })
+        // The presentation may not restate the vocabulary, only forward it.
+        let listed = NativeDiscoverBookablePresentation()
+        XCTAssertEqual(listed.statusLabel, listed.capability.statusLabel)
+        XCTAssertEqual(listed.ringStyle, listed.capability.ringStyle)
+        XCTAssertEqual(listed.availabilityLine, listed.capability.availabilityLine)
+    }
+
+    /// Ordering is not mounted, so it may only arrive as a server assertion and
+    /// the detail must refuse it by name rather than offering booking wording.
+    func testOrderIsOnlyEverAServerAssertionAndStaysUnmounted() {
+        XCTAssertNotEqual(NativeDiscoverBookablePresentation().capability, .order)
+        let ordering = NativeDiscoverBookablePresentation(offering: offering("order", kind: .coffeeSpot, category: "dining"))
+        XCTAssertEqual(ordering.capability, .order)
+        XCTAssertEqual(ordering.statusLabel, "Order")
+        XCTAssertEqual(NativeM5DetailPolicy.primaryAction(for: ordering), .unavailable(.order))
+        XCTAssertEqual(NativeM5DetailPolicy.primaryTitle(for: ordering), "Ordering unavailable")
+        XCTAssertTrue(NativeM5DetailPolicy.primaryAction(for: ordering).isUnavailable)
+    }
+
+    /// The premium presentation is earned by supply. A rail never selects it.
+    func testChassisIsEarnedBySupplyAndNeverByRail() {
+        XCTAssertEqual(NativeDiscoverBookableCapability.book.chassis, .premium)
+        XCTAssertEqual(NativeDiscoverBookableCapability.order.chassis, .premium)
+        XCTAssertEqual(NativeDiscoverBookableCapability.request.chassis, .premium)
+        // Bytspot did not earn that hero — the provider did.
+        XCTAssertEqual(NativeDiscoverBookableCapability.redirect.chassis, .plain)
+        XCTAssertEqual(NativeDiscoverBookableCapability.details.chassis, .plain)
+
+        // Same capability, different rails — identical chassis.
+        for rail in ["nightlife", "stay", "eat_drink", "celebrate"] {
+            let presentation = NativeDiscoverBookablePresentation(offering: offering("request", kind: .coffeeSpot, category: rail))
+            XCTAssertEqual(NativeDiscoverChassisPolicy.chassis(for: presentation, offering: nil), .premium, rail)
+        }
+    }
+
+    /// A published party is supply, and carries `details` only because it runs
+    /// on the RSVP/ticket path. If this fails because someone folded the party
+    /// override back into the plain capability switch, every host has been
+    /// silently demoted to the plain chassis — restore the override.
+    func testPublishedPartyKeepsPremiumDespiteCarryingDetails() {
+        let party = offering("details", kind: .party, category: "party")
+        let presentation = NativeDiscoverBookablePresentation(offering: party)
+        XCTAssertEqual(presentation.capability, .details)
+        XCTAssertEqual(presentation.capability.chassis, .plain)
+        XCTAssertEqual(NativeDiscoverChassisPolicy.chassis(for: presentation, offering: party), .premium,
+                       "A published party must keep the premium chassis; the host supplied admission and capacity.")
+        XCTAssertEqual(NativeDiscoverChassisPolicy.chassis(for: .details, isPublishedParty: true), .premium)
+        XCTAssertEqual(NativeDiscoverChassisPolicy.chassis(for: .details, isPublishedParty: false), .plain)
+    }
+
+    func testStarfieldCarriesSeventyTwoStars() throws {
+        let design = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("App/NativeShellDesignSystem.swift"), encoding: .utf8)
+        XCTAssertTrue(design.contains("(0..<72).map"))
+        XCTAssertTrue(design.contains("144 stars"))
+    }
+
+    func testHeroIsOneFullPhotoAndExtraMediaHidesBehindTheCluster() throws {
+        let shell = try shellSource()
+        let detail = try region(in: shell, from: "private struct NativeVenueDetailView: View {",
+                                to: "private struct NativeEventRideBookingSheet: View {")
+        let hero = try region(in: detail, from: "    private var placeHero: some View {",
+                              to: "    private func transactionPanel(")
+        // One photograph, not a paging filmstrip.
+        XCTAssertFalse(hero.contains("TabView"))
+        XCTAssertFalse(hero.contains("tabViewStyle"))
+        XCTAssertTrue(hero.contains("native-m2-hero-photo"))
+        XCTAssertTrue(hero.contains("native-m2-photo-cluster"))
+        XCTAssertTrue(hero.contains("native-m2-photo-cluster-strip"))
+        // The cluster and its strip only exist when there is more than the hero.
+        XCTAssertEqual(hero.components(separatedBy: "galleryURLs.count > 1").count - 1, 2)
+        XCTAssertTrue(hero.contains("showPhotoCluster.toggle()"))
+        XCTAssertTrue(hero.contains("ScrollView(.horizontal, showsIndicators: false)"))
+        XCTAssertTrue(hero.contains("heroPhotoIndex = index"))
+        XCTAssertTrue(hero.contains("reduceMotion ? nil :"))
+        XCTAssertTrue(detail.contains("@State private var showPhotoCluster = false"))
+    }
+
+    /// Arrival's ride rows only mount for a destination they can name, so a
+    /// card that knew where it was must not arrive at the detail as (0, 0).
+    /// This broke Uber and Lyft on every place opened from Discover: the
+    /// providers were correct and their tests passed, but no venue ever
+    /// reached them with coordinates.
+    func testACardWithCoordinatesReachesTheDetailWithThem() throws {
+        let located = NativeLocationAwareUIContent.unresolvedVenue(
+            id: "ponce", name: "Ponce City Market", category: "market",
+            address: "675 Ponce De Leon Ave NE", distance: "0.8 mi", imageURL: nil,
+            sourceCategory: "Market", latitude: 33.7726, longitude: -84.3654)
+        XCTAssertTrue(located.hasKnownCoordinates)
+
+        let destination = NativeM2RouteDestination(venue: located)
+        for provider in NativeM2RideProvider.allCases {
+            XCTAssertNotNil(destination.rideURL(for: provider),
+                            "\(provider.title) must mount for a venue with coordinates.")
+        }
+
+        // A genuinely location-less suggestion still reads as coordinate-free
+        // rather than as a venue sitting in the Gulf of Guinea.
+        let unlocated = venue()
+        XCTAssertFalse(unlocated.hasKnownCoordinates)
+        for provider in NativeM2RideProvider.allCases {
+            XCTAssertNil(NativeM2RouteDestination(venue: unlocated).rideURL(for: provider))
+        }
+    }
+
+    /// Every conversion that builds a detail from a card must forward the
+    /// coordinates the card carried. Scans all call sites rather than named
+    /// functions: the names are ambiguous (there are three `venueForDetail`
+    /// overloads, one a thin wrapper) and a future call site would otherwise
+    /// be added without this guard noticing.
+    func testEveryCardToDetailConversionForwardsCoordinates() throws {
+        let source = try shellSource()
+        var searchStart = source.startIndex
+        var checked = 0
+
+        while let found = source.range(of: "unresolvedVenue(", range: searchStart..<source.endIndex) {
+            searchStart = found.upperBound
+            // Skip the declaration itself; we only care about callers.
+            let prefix = source[..<found.lowerBound].suffix(20)
+            if prefix.contains("func ") { continue }
+
+            let call = String(source[found.upperBound...].prefix(600))
+            let arguments = String(call.prefix(upTo: call.firstIndex(of: "\n") ?? call.endIndex))
+            guard arguments.contains("card.") else { continue }
+
+            checked += 1
+            XCTAssertTrue(arguments.contains("latitude: card.latitude"),
+                          "A card→detail conversion drops the card's latitude, so Arrival loses its ride providers: \(arguments)")
+            XCTAssertTrue(arguments.contains("longitude: card.longitude"),
+                          "A card→detail conversion drops the card's longitude, so Arrival loses its ride providers: \(arguments)")
+        }
+
+        XCTAssertEqual(checked, 2, "Expected exactly two card→detail conversions; if this changed, the new one needs the same guard.")
+    }
+
+    func testDetailRideOffersUberAndLyftOnly() throws {
+        let arrival = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("App/NativeM2RouteSheet.swift"), encoding: .utf8)
+        XCTAssertTrue(arrival.contains("case uber, lyft\n"))
+        for removed in ["privateCar", "elite", "Elite", "unconnectedDetail"] {
+            XCTAssertFalse(arrival.contains(removed), removed)
+        }
     }
 
     private func shellSource() throws -> String {

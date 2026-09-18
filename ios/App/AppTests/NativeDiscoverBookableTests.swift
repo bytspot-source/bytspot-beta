@@ -45,7 +45,7 @@ final class NativeDiscoverBookablePolicyTests: XCTestCase {
         let url = try XCTUnwrap(URL(string: "https://tickets.example.com/event/1"))
         let card = NativeDiscoverBookablePresentation(externalURL: url, externalProvider: "Example Tickets")
         XCTAssertEqual(card.capability, .redirect)
-        XCTAssertEqual(card.primaryActionTitle, "Book on Example Tickets ↗")
+        XCTAssertEqual(card.primaryActionTitle, "Open Example Tickets ↗")
         XCTAssertEqual(card.externalURL, url)
         XCTAssertEqual(card.statusLabel, "External")
         XCTAssertEqual(card.ringStyle, .dot)

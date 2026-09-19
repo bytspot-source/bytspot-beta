@@ -290,7 +290,7 @@ struct NativePlanOffersSheet: View {
     @State private var refusal: String?
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(ask.offers.count == 1 ? "One venue answered" : "\(ask.offers.count) venues answered")
@@ -327,6 +327,10 @@ struct NativePlanOffersSheet: View {
                 }
             }
         }
+        // NavigationView, not NavigationStack: the app still ships to iOS 15,
+        // and the shell navigates the same way. Stack style because a sheet
+        // must not become a split view on iPad.
+        .navigationViewStyle(.stack)
         .accessibilityIdentifier("native-plan-offers-sheet")
     }
 

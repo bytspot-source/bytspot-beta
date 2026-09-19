@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import SwiftUI
 
 /// Asking venues to fill a gap in a Plan.
@@ -319,8 +320,17 @@ struct NativePlanOffersSheet: View {
     /// refusal is shown here rather than behind the sheet, because a slot taken
     /// a second earlier is answerable: the other offers are still on screen.
     let accept: (NativePlanDemandOffer) async -> String?
-    /// Injected so the lapsed-hold state is testable without waiting an hour.
+    /// The clock this sheet reads. Injected so the lapsed-hold state is
+    /// testable without waiting an hour; left alone it is the real one, and
+    /// `tick` moves it while the sheet is open.
     var now: Date = Date()
+
+    /// A hold runs out while the guest is deciding, so the sheet cannot read
+    /// the clock once and keep the answer. Without this the countdown freezes
+    /// at whatever it said when the sheet opened and Accept stays lit on a
+    /// table the server has already let go.
+    @State private var tick: Date?
+    private var clock: Date { tick ?? now }
 
     @Environment(\.dismiss) private var dismiss
     @State private var accepting: String?
@@ -363,6 +373,9 @@ struct NativePlanOffersSheet: View {
                     Button("Close") { dismiss() }.foregroundColor(NativeTheme.textSecondary)
                 }
             }
+            // Every second, not every minute: the label only changes by the
+            // minute, but Accept has to go the moment the hold does.
+            .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { tick = $0 }
         }
         // NavigationView, not NavigationStack: the app still ships to iOS 15,
         // and the shell navigates the same way. Stack style because a sheet
@@ -372,7 +385,7 @@ struct NativePlanOffersSheet: View {
     }
 
     @ViewBuilder private func offerCard(_ offer: NativePlanDemandOffer) -> some View {
-        let live = offer.isLive(now: now)
+        let live = offer.isLive(now: clock)
         VStack(alignment: .leading, spacing: 8) {
             Text(offer.where)
                 .font(.system(size: 17, weight: .bold))
@@ -397,7 +410,7 @@ struct NativePlanOffersSheet: View {
             }
 
             HStack(spacing: 10) {
-                Text(offer.hold(now: now))
+                Text(offer.hold(now: clock))
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(live ? NativeTheme.textTertiary : NativeTheme.orange)
                 Spacer()

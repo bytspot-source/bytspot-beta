@@ -1578,6 +1578,8 @@ struct NativePlanDetailSheet: View {
     @State private var primePathNeeds: [NativePrimePathNeed] = []
     /// Asking venues to fill the gaps this Plan still has.
     @State private var demandState = NativePlanDemandState()
+    /// The ask whose offers are open, if any.
+    @State private var showingOffers: NativePlanDemandAsk?
 
     private var isCreator: Bool { plan?.creatorUserId == sessionStore.authenticatedUserID }
 
@@ -1626,6 +1628,9 @@ struct NativePlanDetailSheet: View {
                 onInviteByText: { if let plan { inviteByText(for: plan) } }
             )
             .id(sessionStore.authenticatedUserID)
+        }
+        .sheet(item: $showingOffers) { ask in
+            NativePlanOffersSheet(ask: ask, accept: { offer in await take(offer, from: ask) })
         }
     }
 
@@ -1770,15 +1775,40 @@ struct NativePlanDetailSheet: View {
     @ViewBuilder private func askRow(plan: NativePlan, need: String) -> some View {
         if let ask = demandState.asks[need] {
             HStack(spacing: 8) {
-                Text(ask.status)
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(ask.offers.isEmpty ? NativeTheme.textSecondary : NativeTheme.cyan)
-                Spacer()
-                Button("Cancel ask") { Task { await withdrawAsk(ask, need: need) } }
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(NativeTheme.textTertiary)
+                // Offers are the whole point of having asked, so the count is
+                // the way into them. With none yet there is nothing to open, and
+                // a button leading to an empty list would be a false promise.
+                if let booked = ask.booked {
+                    // A table they hold. Green, and not a button: there is
+                    // nothing left to choose, and the row must not invite a tap
+                    // that would re-open a decision already made.
+                    Text("\(booked.where) · \(ask.status)")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(NativeTheme.emerald)
+                        .accessibilityIdentifier("native-plan-ask-booked-\(need)")
+                } else if ask.offers.isEmpty {
+                    Text(ask.status)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(NativeTheme.textSecondary)
+                } else {
+                    Button(action: { showingOffers = ask }) {
+                        HStack(spacing: 4) {
+                            Text(ask.status).font(.system(size: 11, weight: .bold))
+                            Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+                        }
+                        .foregroundColor(NativeTheme.cyan)
+                    }
                     .buttonStyle(.plain)
-                    .disabled(busy)
+                    .accessibilityIdentifier("native-plan-ask-offers-\(need)")
+                }
+                Spacer()
+                if ask.booked == nil {
+                    Button("Cancel ask") { Task { await withdrawAsk(ask, need: need) } }
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(NativeTheme.textTertiary)
+                        .buttonStyle(.plain)
+                        .disabled(busy)
+                }
             }
             .padding(.leading, 12)
             .accessibilityIdentifier("native-plan-ask-state-\(need)")
@@ -1981,6 +2011,35 @@ struct NativePlanDetailSheet: View {
             // fix, so they are shown as sent rather than replaced with a
             // generic failure that teaches nothing.
             demandState.refuse(NativePlanDemandFailure.message(for: error), for: need)
+        }
+    }
+
+    /// Accepting is the point the rail stops being a search and becomes a
+    /// booking, so the Plan is reloaded rather than patched locally: what the
+    /// guest now holds should come from the server that committed it.
+    private func take(_ offer: NativePlanDemandOffer, from ask: NativePlanDemandAsk) async -> String? {
+        do {
+            _ = try await demandAPI().accept(offerID: offer.id)
+            showingOffers = nil
+            // Re-read rather than patching locally: what the guest now holds
+            // should come from the server that committed it. The ask stays on
+            // the row, as a booking rather than an open question.
+            await loadAsks()
+            onChanged()
+            await reload()
+            return nil
+        } catch {
+            // A slot taken a moment ago is the common case and the server says
+            // so plainly. Refresh so the offer that has gone stops being shown.
+            await loadAsks()
+            // Only refresh a sheet the guest still has open. Re-presenting one
+            // they closed while the request was in flight would reopen a
+            // decision they walked away from.
+            guard showingOffers?.id == ask.id else { return NativePlanDemandFailure.message(for: error) }
+            if let refreshed = demandState.asks.values.first(where: { $0.id == ask.id }) {
+                showingOffers = refreshed
+            }
+            return NativePlanDemandFailure.message(for: error)
         }
     }
 

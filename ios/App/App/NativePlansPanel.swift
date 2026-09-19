@@ -1207,42 +1207,6 @@ private struct NativePlanBookablesPickerSheet: View {
         NativePlanAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token }))
     }
 
-    private func demandAPI() -> NativePlanDemandAsking {
-        NativePlanDemandAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token }))
-    }
-
-    /// Ask, and say plainly whatever comes back.
-    private func ask(plan: NativePlan, need: String) async {
-        guard sessionStore.canAttachBearerToken else { return }
-        demandState.asking = need
-        do {
-            let raised = try await demandAPI().ask(planID: plan.id, needKind: need)
-            demandState.record(raised, for: need)
-        } catch {
-            // The server's refusals are written for the guest and name what to
-            // fix, so they are shown as sent rather than replaced with a
-            // generic failure that teaches nothing.
-            demandState.refuse(NativePlanDemandFailure.message(for: error), for: need)
-        }
-    }
-
-    private func withdrawAsk(_ ask: NativePlanDemandAsk, need: String) async {
-        guard sessionStore.canAttachBearerToken else { return }
-        do {
-            try await demandAPI().withdraw(demandID: ask.id)
-            demandState.asks[need] = nil
-        } catch {
-            demandState.refuse("Couldn't cancel that. Try again.", for: need)
-        }
-    }
-
-    /// Asks survive closing the sheet, so they are read back with the Plan.
-    private func loadAsks() async {
-        guard sessionStore.canAttachBearerToken, let plan else { return }
-        guard let mine = try? await demandAPI().mine() else { return }
-        demandState.adopt(mine, planID: plan.id, needs: plan.needs)
-    }
-
     private func loadCategory() async {
         let requestedCategory = category
         let generation = catalog.begin()
@@ -1999,6 +1963,42 @@ struct NativePlanDetailSheet: View {
 
     private func api() -> NativePlanAPI {
         NativePlanAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token }))
+    }
+
+    private func demandAPI() -> NativePlanDemandAsking {
+        NativePlanDemandAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token }))
+    }
+
+    /// Ask, and say plainly whatever comes back.
+    private func ask(plan: NativePlan, need: String) async {
+        guard sessionStore.canAttachBearerToken else { return }
+        demandState.asking = need
+        do {
+            let raised = try await demandAPI().ask(planID: plan.id, needKind: need)
+            demandState.record(raised, for: need)
+        } catch {
+            // The server's refusals are written for the guest and name what to
+            // fix, so they are shown as sent rather than replaced with a
+            // generic failure that teaches nothing.
+            demandState.refuse(NativePlanDemandFailure.message(for: error), for: need)
+        }
+    }
+
+    private func withdrawAsk(_ ask: NativePlanDemandAsk, need: String) async {
+        guard sessionStore.canAttachBearerToken else { return }
+        do {
+            try await demandAPI().withdraw(demandID: ask.id)
+            demandState.asks[need] = nil
+        } catch {
+            demandState.refuse("Couldn't cancel that. Try again.", for: need)
+        }
+    }
+
+    /// Asks survive closing the sheet, so they are read back with the Plan.
+    private func loadAsks() async {
+        guard sessionStore.canAttachBearerToken, let plan else { return }
+        guard let mine = try? await demandAPI().mine() else { return }
+        demandState.adopt(mine, planID: plan.id, needs: plan.needs)
     }
 
     private func run(_ operation: @escaping () async throws -> Void) async {

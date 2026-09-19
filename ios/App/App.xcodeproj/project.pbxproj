@@ -8,7 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		D52000112026091000000001 /* NativeM2RouteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D52000122026091000000001 /* NativeM2RouteSheet.swift */; };
+		D52000112026091900000009 /* NativePlanDemand.swift in Sources */ = {isa = PBXBuildFile; fileRef = D52000122026091900000009 /* NativePlanDemand.swift */; };
 		D52000112026091000000002 /* NativeM2RouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D52000122026091000000002 /* NativeM2RouteTests.swift */; };
+		D5200011202609190000000A /* NativePlanDemandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5200012202609190000000A /* NativePlanDemandTests.swift */; };
 		D52000112026091000000003 /* NativeM5DetailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D52000122026091000000003 /* NativeM5DetailTests.swift */; };
 		D6B000012026091000000001 /* NativeDiscoverBookableTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6B000022026091000000001 /* NativeDiscoverBookableTests.swift */; };
 		D6B000012026091000000002 /* NativeDiscoverAddToPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6B000022026091000000002 /* NativeDiscoverAddToPlanTests.swift */; };
@@ -100,7 +102,9 @@
 
 /* Begin PBXFileReference section */
 		D52000122026091000000001 /* NativeM2RouteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeM2RouteSheet.swift; sourceTree = "<group>"; };
+		D52000122026091900000009 /* NativePlanDemand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePlanDemand.swift; sourceTree = "<group>"; };
 		D52000122026091000000002 /* NativeM2RouteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeM2RouteTests.swift; sourceTree = "<group>"; };
+		D5200012202609190000000A /* NativePlanDemandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePlanDemandTests.swift; sourceTree = "<group>"; };
 		D52000122026091000000003 /* NativeM5DetailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeM5DetailTests.swift; sourceTree = "<group>"; };
 		D6B000022026091000000001 /* NativeDiscoverBookableTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiscoverBookableTests.swift; sourceTree = "<group>"; };
 		D6B000022026091000000002 /* NativeDiscoverAddToPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiscoverAddToPlanTests.swift; sourceTree = "<group>"; };
@@ -195,6 +199,7 @@
 				9A1129492FA586137FE60C71 /* BytspotTrustEngineTests.swift */,
 				D6B000022026091000000001 /* NativeDiscoverBookableTests.swift */,
 				D52000122026091000000002 /* NativeM2RouteTests.swift */,
+				D5200012202609190000000A /* NativePlanDemandTests.swift */,
 				D52000122026091000000003 /* NativeM5DetailTests.swift */,
 				D6B000022026091000000002 /* NativeDiscoverAddToPlanTests.swift */,
 				A13F0F002D0000000000F000 /* NativePartyArrivalTests.swift */,
@@ -249,6 +254,7 @@
 				A13F13002D00000000001300 /* BookableTemplates.swift */,
 				A13F14002D00000000001400 /* NativeDiscoverListing.swift */,
 				D52000122026091000000001 /* NativeM2RouteSheet.swift */,
+				D52000122026091900000009 /* NativePlanDemand.swift */,
 				A13F13042D00000000001304 /* bookable-templates.json */,
 				A13F03042C0FF00100000055 /* BytspotNativeAppRoot.swift */,
 				A13F03002C0FF00100000051 /* NativeMigrationCore.swift */,
@@ -481,6 +487,7 @@
 				A13F13012D00000000001301 /* BookableTemplates.swift in Sources */,
 				A13F14012D00000000001401 /* NativeDiscoverListing.swift in Sources */,
 				D52000112026091000000001 /* NativeM2RouteSheet.swift in Sources */,
+				D52000112026091900000009 /* NativePlanDemand.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -491,6 +498,7 @@
 				B3D8A6E7D100EEDA96C20BD3 /* BytspotTrustEngineTests.swift in Sources */,
 				D6B000012026091000000001 /* NativeDiscoverBookableTests.swift in Sources */,
 				D52000112026091000000002 /* NativeM2RouteTests.swift in Sources */,
+				D5200011202609190000000A /* NativePlanDemandTests.swift in Sources */,
 				D52000112026091000000003 /* NativeM5DetailTests.swift in Sources */,
 				D6B000012026091000000002 /* NativeDiscoverAddToPlanTests.swift in Sources */,
 				A13F0F012D0000000000F001 /* NativePartyArrivalTests.swift in Sources */,

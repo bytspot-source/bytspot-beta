@@ -1576,6 +1576,8 @@ struct NativePlanDetailSheet: View {
     /// C3: Prime Path ranked candidates, loaded after the Plan to avoid
     /// blocking the initial render.
     @State private var primePathNeeds: [NativePrimePathNeed] = []
+    /// Asking venues to fill the gaps this Plan still has.
+    @State private var demandState = NativePlanDemandState()
 
     private var isCreator: Bool { plan?.creatorUserId == sessionStore.authenticatedUserID }
 
@@ -1661,7 +1663,12 @@ struct NativePlanDetailSheet: View {
             sectionHeader("Still open")
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(plan.openNeeds, id: \.self) { need in
-                    openNeedRow(need)
+                    VStack(alignment: .leading, spacing: 4) {
+                        openNeedRow(need)
+                        // Only the creator may ask: the request is raised in
+                        // their name and counts against their open limit.
+                        if isCreator { askRow(plan: plan, need: need) }
+                    }
                 }
                 // Without this the list reads as outstanding arrangements
                 // Bytspot is working on. Only coffee has an attach path, and
@@ -1754,6 +1761,54 @@ struct NativePlanDetailSheet: View {
     // would rename their choice on the next screen. A routable need becomes a
     // one-tap shortcut to the surface that can fill it; the hint names where
     // it goes so the row is not read as an arrangement Bytspot made.
+    /// Ask venues to fill this gap, and what came back.
+    ///
+    /// The button is offered for every open need rather than only the ones the
+    /// server can express. The vendor vocabulary is the server's to own, and a
+    /// second copy here would drift; a refusal is shown in full instead, which
+    /// also tells the guest what to add when the Plan itself is the problem.
+    @ViewBuilder private func askRow(plan: NativePlan, need: String) -> some View {
+        if let ask = demandState.asks[need] {
+            HStack(spacing: 8) {
+                Text(ask.status)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(ask.offers.isEmpty ? NativeTheme.textSecondary : NativeTheme.cyan)
+                Spacer()
+                Button("Cancel ask") { Task { await withdrawAsk(ask, need: need) } }
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(NativeTheme.textTertiary)
+                    .buttonStyle(.plain)
+                    .disabled(busy)
+            }
+            .padding(.leading, 12)
+            .accessibilityIdentifier("native-plan-ask-state-\(need)")
+        } else {
+            HStack(spacing: 8) {
+                Button(action: { Task { await ask(plan: plan, need: need) } }) {
+                    HStack(spacing: 5) {
+                        if demandState.asking == need {
+                            ProgressView().controlSize(.mini).tint(NativeTheme.textSecondary)
+                        }
+                        Text("Ask venues").font(.system(size: 11, weight: .bold))
+                    }
+                    .foregroundColor(NativeTheme.cyan)
+                }
+                .buttonStyle(.plain)
+                .disabled(busy || demandState.asking != nil)
+                .accessibilityIdentifier("native-plan-ask-\(need)")
+
+                if let refusal = demandState.refusal[need] {
+                    Text(refusal)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(NativeTheme.orange)
+                        .accessibilityIdentifier("native-plan-ask-refusal-\(need)")
+                }
+                Spacer()
+            }
+            .padding(.leading, 12)
+        }
+    }
+
     @ViewBuilder private func openNeedRow(_ need: String) -> some View {
         if let onOpenNeed, let hint = NativePlanDisplay.needDestinationHint(need) {
             Button(action: { dismiss(); onOpenNeed(need) }) {
@@ -1910,6 +1965,42 @@ struct NativePlanDetailSheet: View {
         NativePlanAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token }))
     }
 
+    private func demandAPI() -> NativePlanDemandAsking {
+        NativePlanDemandAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token }))
+    }
+
+    /// Ask, and say plainly whatever comes back.
+    private func ask(plan: NativePlan, need: String) async {
+        guard sessionStore.canAttachBearerToken else { return }
+        demandState.asking = need
+        do {
+            let raised = try await demandAPI().ask(planID: plan.id, needKind: need)
+            demandState.record(raised, for: need)
+        } catch {
+            // The server's refusals are written for the guest and name what to
+            // fix, so they are shown as sent rather than replaced with a
+            // generic failure that teaches nothing.
+            demandState.refuse(NativePlanDemandFailure.message(for: error), for: need)
+        }
+    }
+
+    private func withdrawAsk(_ ask: NativePlanDemandAsk, need: String) async {
+        guard sessionStore.canAttachBearerToken else { return }
+        do {
+            try await demandAPI().withdraw(demandID: ask.id)
+            demandState.asks[need] = nil
+        } catch {
+            demandState.refuse("Couldn't cancel that. Try again.", for: need)
+        }
+    }
+
+    /// Asks survive closing the sheet, so they are read back with the Plan.
+    private func loadAsks() async {
+        guard sessionStore.canAttachBearerToken, let plan else { return }
+        guard let mine = try? await demandAPI().mine() else { return }
+        demandState.adopt(mine, planID: plan.id, needs: plan.needs)
+    }
+
     private func run(_ operation: @escaping () async throws -> Void) async {
         // Same auth guard as the outer panel: a session dropped mid-sheet
         // must never issue an authenticated tRPC call with a nil token.
@@ -1922,6 +2013,7 @@ struct NativePlanDetailSheet: View {
         guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to see this Plan."; return }
         do { plan = try await api().get(planID); errorMessage = nil } catch { errorMessage = "Couldn't load this Plan." }
         await loadPrimePath()
+        await loadAsks()
     }
 
     /// C3: Load Prime Path candidates after the Plan itself. A failure is

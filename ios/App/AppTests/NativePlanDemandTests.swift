@@ -142,3 +142,80 @@ final class NativePlanDemandTests: XCTestCase {
         )
     }
 }
+
+// MARK: - Offers
+
+/// An offer is a held table with a price and a deadline. Everything below is
+/// about not overstating any of those three.
+final class NativePlanOfferTests: XCTestCase {
+    private func offer(
+        id: String = "offer-1",
+        priceCents: Int = 5000,
+        holdExpiresAt: String,
+        accepted: Bool = false
+    ) -> NativePlanDemandOffer {
+        NativePlanDemandOffer(
+            id: id, where: "Broni Home Taste", startsAt: "2026-09-20T23:30:00.000Z", durationMins: 90,
+            priceCents: priceCents, terms: nil, holdExpiresAt: holdExpiresAt, accepted: accepted
+        )
+    }
+
+    private let now = ISO8601DateFormatter().date(from: "2026-09-19T20:00:00Z")!
+
+    func testAHoldThatHasLapsedIsNotLiveAndSaysSo() {
+        let lapsed = offer(holdExpiresAt: "2026-09-19T19:59:00.000Z")
+        XCTAssertFalse(lapsed.isLive(now: now), "an expired hold must not present an Accept button")
+        XCTAssertEqual(lapsed.hold(now: now), "Hold expired")
+
+        // Exactly at the boundary is gone, not nearly gone: the server would
+        // refuse it, so the button must not be offered.
+        let boundary = offer(holdExpiresAt: "2026-09-19T20:00:00.000Z")
+        XCTAssertFalse(boundary.isLive(now: now))
+    }
+
+    func testHoldCountsInTheUnitTheGuestNeeds() {
+        XCTAssertEqual(offer(holdExpiresAt: "2026-09-19T20:25:00.000Z").hold(now: now), "Held for 25 min")
+        XCTAssertEqual(offer(holdExpiresAt: "2026-09-19T21:00:00.000Z").hold(now: now), "Held for 1 hr")
+        XCTAssertEqual(offer(holdExpiresAt: "2026-09-19T23:00:00.000Z").hold(now: now), "Held for 3 hrs")
+        // Never a countdown that keeps ticking below a minute.
+        XCTAssertEqual(offer(holdExpiresAt: "2026-09-19T20:00:30.000Z").hold(now: now), "Held for under a minute")
+    }
+
+    func testPriceReadsAsAPriceNotAForm() {
+        XCTAssertEqual(offer(priceCents: 5000, holdExpiresAt: "2026-09-19T21:00:00.000Z").price, "$50")
+        XCTAssertEqual(offer(priceCents: 4250, holdExpiresAt: "2026-09-19T21:00:00.000Z").price, "$42.50")
+        XCTAssertEqual(offer(priceCents: 0, holdExpiresAt: "2026-09-19T21:00:00.000Z").price, "$0")
+    }
+
+    func testAnUnreadableTimeIsAdmittedRatherThanInvented() {
+        let broken = NativePlanDemandOffer(
+            id: "x", where: "Somewhere", startsAt: "not a date", durationMins: 60,
+            priceCents: 1000, terms: nil, holdExpiresAt: "also not a date"
+        )
+        XCTAssertEqual(broken.when, "Time to confirm")
+        XCTAssertEqual(broken.hold(now: now), "Hold time unknown")
+        // A hold that cannot be read is not treated as valid.
+        XCTAssertFalse(broken.isLive(now: now))
+    }
+
+    private func ask(offers: [NativePlanDemandOffer], state: String = "OFFERED") -> NativePlanDemandAsk {
+        NativePlanDemandAsk(id: "demand-1", state: state, category: "dining", partySize: 2,
+                            planId: "plan-1", expiresAt: "2026-09-20T00:00:00.000Z", offers: offers)
+    }
+
+    func testTakenTableReadsAsBookedRatherThanAsAnotherOffer() {
+        let waiting = ask(offers: [offer(holdExpiresAt: "2026-09-19T21:00:00.000Z")])
+        XCTAssertEqual(waiting.status, "1 offer")
+        XCTAssertNil(waiting.booked)
+
+        let held = ask(offers: [offer(holdExpiresAt: "2026-09-19T21:00:00.000Z", accepted: true)], state: "BOOKED")
+        XCTAssertNotNil(held.booked, "the offer the guest took must be identifiable")
+        XCTAssertTrue(held.status.hasPrefix("Booked"), "a held table must not read as an offer still to weigh")
+    }
+
+    func testVenuesSeeingAnAskIsNotProgressTowardABooking() {
+        // MATCHED means a venue could answer, not that anyone intends to.
+        XCTAssertEqual(ask(offers: [], state: "MATCHED").status, "Venues can see this")
+        XCTAssertEqual(ask(offers: [], state: "OPEN").status, "Waiting")
+    }
+}

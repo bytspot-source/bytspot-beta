@@ -22,7 +22,44 @@ struct NativePlanDemandOffer: Codable, Identifiable, Equatable {
     let holdExpiresAt: String
     /// True once this is the offer the guest took. Sent by the server rather
     /// than inferred, so a held table is never mistaken for a choosable one.
+    ///
+    /// A default on the property is not a decoding default: the synthesized
+    /// initialiser still requires the key and throws when a server that predates
+    /// the field omits it. `mine()` is read through `try?`, so that would have
+    /// silently emptied the guest's asks rather than failing loudly. Decoded
+    /// explicitly, and absent means not accepted — the safe direction, because
+    /// it shows a table as choosable rather than claiming one is held.
     var accepted: Bool = false
+
+    private enum CodingKeys: String, CodingKey {
+        case id, `where`, startsAt, durationMins, priceCents, terms, holdExpiresAt, accepted
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        `where` = try container.decode(String.self, forKey: .where)
+        startsAt = try container.decode(String.self, forKey: .startsAt)
+        durationMins = try container.decode(Int.self, forKey: .durationMins)
+        priceCents = try container.decode(Int.self, forKey: .priceCents)
+        terms = try container.decodeIfPresent(String.self, forKey: .terms)
+        holdExpiresAt = try container.decode(String.self, forKey: .holdExpiresAt)
+        accepted = try container.decodeIfPresent(Bool.self, forKey: .accepted) ?? false
+    }
+
+    init(
+        id: String, where: String, startsAt: String, durationMins: Int,
+        priceCents: Int, terms: String?, holdExpiresAt: String, accepted: Bool = false
+    ) {
+        self.id = id
+        self.where = `where`
+        self.startsAt = startsAt
+        self.durationMins = durationMins
+        self.priceCents = priceCents
+        self.terms = terms
+        self.holdExpiresAt = holdExpiresAt
+        self.accepted = accepted
+    }
 
     /// Where and when, in the order a guest reads it.
     var when: String { NativePlanDemandFormat.when(startsAt) }

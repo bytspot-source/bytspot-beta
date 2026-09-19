@@ -2032,6 +2032,10 @@ struct NativePlanDetailSheet: View {
             // A slot taken a moment ago is the common case and the server says
             // so plainly. Refresh so the offer that has gone stops being shown.
             await loadAsks()
+            // Only refresh a sheet the guest still has open. Re-presenting one
+            // they closed while the request was in flight would reopen a
+            // decision they walked away from.
+            guard showingOffers?.id == ask.id else { return NativePlanDemandFailure.message(for: error) }
             if let refreshed = demandState.asks.values.first(where: { $0.id == ask.id }) {
                 showingOffers = refreshed
             }

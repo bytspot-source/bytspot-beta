@@ -219,3 +219,46 @@ final class NativePlanOfferTests: XCTestCase {
         XCTAssertEqual(ask(offers: [], state: "OPEN").status, "Waiting")
     }
 }
+
+/// Decoding against a server that has not shipped the field yet.
+final class NativePlanOfferDecodingTests: XCTestCase {
+    /// The iOS app and the API deploy separately, so the client must read a
+    /// response written before `accepted` existed. A property default does not
+    /// do this: the synthesized decoder would throw, and `mine()` reads through
+    /// `try?`, so the guest would lose every ask without being told why.
+    func testAnOfferFromAServerWithoutTheAcceptedFieldStillDecodes() throws {
+        let json = """
+        {"id":"offer-1","where":"Broni Home Taste","startsAt":"2026-09-20T23:30:00.000Z",
+         "durationMins":90,"priceCents":5000,"holdExpiresAt":"2026-09-19T21:00:00.000Z"}
+        """.data(using: .utf8)!
+
+        let offer = try JSONDecoder().decode(NativePlanDemandOffer.self, from: json)
+        XCTAssertEqual(offer.id, "offer-1")
+        XCTAssertNil(offer.terms)
+        // Absent must mean not accepted: showing a table as choosable is
+        // recoverable, claiming one is held is not.
+        XCTAssertFalse(offer.accepted)
+    }
+
+    func testAWholeAskDecodesWhenNoOfferCarriesTheField() throws {
+        let json = """
+        {"id":"demand-1","state":"OFFERED","category":"dining","partySize":2,"planId":"plan-1",
+         "expiresAt":"2026-09-20T00:00:00.000Z",
+         "offers":[{"id":"o1","where":"A","startsAt":"2026-09-20T23:30:00.000Z","durationMins":60,
+                    "priceCents":1000,"holdExpiresAt":"2026-09-19T21:00:00.000Z"}]}
+        """.data(using: .utf8)!
+
+        let ask = try JSONDecoder().decode(NativePlanDemandAsk.self, from: json)
+        XCTAssertEqual(ask.offers.count, 1)
+        XCTAssertNil(ask.booked, "nothing is booked when the server never said so")
+        XCTAssertEqual(ask.status, "1 offer")
+    }
+
+    func testAcceptedIsReadWhenTheServerSendsIt() throws {
+        let json = """
+        {"id":"o1","where":"A","startsAt":"2026-09-20T23:30:00.000Z","durationMins":60,
+         "priceCents":1000,"holdExpiresAt":"2026-09-19T21:00:00.000Z","accepted":true}
+        """.data(using: .utf8)!
+        XCTAssertTrue(try JSONDecoder().decode(NativePlanDemandOffer.self, from: json).accepted)
+    }
+}

@@ -6468,7 +6468,8 @@ private struct NativeHomeDashboardView: View {
     }
 
     /// Empty-state copy stays for cities with no live inventory and no Typical Plan.
-    /// Atlanta / Midtown fallback may show a Typical card without claiming Live.
+    /// Measured Atlanta may show a Typical card without claiming Live; an
+    /// unresolved location falls through to the empty state instead.
     private var shouldShowHomeEmptyState: Bool {
         shouldShowLocalEmptyState && typicalHomePlan == nil
     }

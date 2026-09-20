@@ -995,8 +995,9 @@ struct NativeHostStudioView: View {
         .task(id: venueName) { await loadVenuePlaceSuggestions() }
     }
 
-    /// Silent on failure, like the registered-venue lookup beside it: a host who
-    /// typed a venue by hand must never be blocked by a catalog fetch.
+    /// A public catalog lookup, so it needs no bearer token, and silent on
+    /// failure like the registered-venue lookup beside it: a host who typed a
+    /// venue by hand must never be blocked by a catalog fetch.
     @MainActor private func loadVenuePlaceSuggestions() async {
         let typed = venueName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard typed.count >= 3,
@@ -1009,7 +1010,7 @@ struct NativeHostStudioView: View {
         try? await Task.sleep(nanoseconds: 450_000_000)
         guard !Task.isCancelled else { return }
         do {
-            venuePlaceSuggestions = try await NativeLiveDiscoveryAPI(client: BytspotAPIClient(tokenProvider: { token })).placesTextSearchAnywhere(query: typed)
+            venuePlaceSuggestions = try await NativeLiveDiscoveryAPI(client: BytspotAPIClient()).placesTextSearchAnywhere(query: typed)
         } catch {
             venuePlaceSuggestions = []
         }

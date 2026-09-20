@@ -681,6 +681,12 @@ struct NativePartyDraftInput: Equatable {
     /// itinerary beat (+60m), or leave it null when there are no beats.
     let endsAt: Date?
     let venueName: String
+    /// Resolved when the host picked a place, never geocoded from the venue
+    /// name above. Nil means Bytspot does not know where this Party is, so it
+    /// reaches no geographic surface. Both or neither — the API refuses half
+    /// a coordinate, and 0/0 is an unresolved placeholder, not a venue.
+    let latitude: Double?
+    let longitude: Double?
     let locationDisclosure: NativePartyLocationDisclosure
     let capacity: Int
     let accessMode: NativePartyAccessMode
@@ -694,13 +700,15 @@ struct NativePartyDraftInput: Equatable {
     /// Host Spark tags only. Never a new printer or a Live occupancy source.
     let taxonomy: NativeHostTaxonomySelection?
 
-    init(templateID: NativePartyTemplateID, title: String, tagline: String, startsAt: Date, endsAt: Date? = nil, venueName: String, locationDisclosure: NativePartyLocationDisclosure = .public, capacity: Int, accessMode: NativePartyAccessMode, requiredMembershipTier: BytspotTier, hostDestinations: NativePartyHostDestinations = .empty, audienceCircleIDs: [String], itinerary: [NativePartyItineraryItem], ticketTiers: [NativePartyTicketTier], cohosts: [NativePartyHostAssignment], templateConfiguration: NativePartyTemplateConfiguration, taxonomy: NativeHostTaxonomySelection? = nil) {
+    init(templateID: NativePartyTemplateID, title: String, tagline: String, startsAt: Date, endsAt: Date? = nil, venueName: String, latitude: Double? = nil, longitude: Double? = nil, locationDisclosure: NativePartyLocationDisclosure = .public, capacity: Int, accessMode: NativePartyAccessMode, requiredMembershipTier: BytspotTier, hostDestinations: NativePartyHostDestinations = .empty, audienceCircleIDs: [String], itinerary: [NativePartyItineraryItem], ticketTiers: [NativePartyTicketTier], cohosts: [NativePartyHostAssignment], templateConfiguration: NativePartyTemplateConfiguration, taxonomy: NativeHostTaxonomySelection? = nil) {
         self.templateID = templateID
         self.title = title
         self.tagline = tagline
         self.startsAt = startsAt
         self.endsAt = endsAt
         self.venueName = venueName
+        self.latitude = latitude
+        self.longitude = longitude
         self.locationDisclosure = locationDisclosure
         self.capacity = capacity
         self.accessMode = accessMode
@@ -752,6 +760,15 @@ struct NativePartyDraftInput: Equatable {
             "source": "host-studio"
         ]
         if let endsAt { input["endsAt"] = ISO8601DateFormatter().string(from: endsAt) }
+        // Sent only as a pair, and never as the 0/0 placeholder: the API and
+        // the database both refuse those, and a refused publish would read to
+        // the host as the whole Party being wrong.
+        if let latitude, let longitude, latitude.isFinite, longitude.isFinite,
+           (-90...90).contains(latitude), (-180...180).contains(longitude),
+           !(latitude == 0 && longitude == 0) {
+            input["lat"] = latitude
+            input["lng"] = longitude
+        }
         // Legacy per-party destinations only ride when present; new drafts
         // rely on the publish-time Official Host identity snapshot.
         if !hostDestinations.isEmpty { input["hostDestinations"] = hostDestinations.rpcInput }
@@ -2778,6 +2795,22 @@ struct NativeLiveDiscoveryAPI {
             updatedAt: updatedAt,
             source: .live
         )
+    }
+
+    /// Venue lookup for Host Studio, which is not a proximity question: a host
+    /// naming their own venue may be planning a party in another city, so the
+    /// 30-mile locality ring `placesTextSearch` applies would silently return
+    /// nothing. Coordinates are still sanity-checked — off-Earth values and the
+    /// 0/0 placeholder are dropped rather than carried into a published Party.
+    func placesTextSearchAnywhere(query: String, maxResults: Int = 5) async throws -> [NativePlaceSearchResult] {
+        let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.placesTextSearchRoute, input: ["query": query, "maxResults": maxResults])
+        return Self.placeRows(from: payload).enumerated().compactMap(Self.placeResult).filter { place in
+            guard let latitude = place.latitude, let longitude = place.longitude,
+                  latitude.isFinite, longitude.isFinite,
+                  (-90...90).contains(latitude), (-180...180).contains(longitude),
+                  !(latitude == 0 && longitude == 0) else { return false }
+            return true
+        }
     }
 
     func placesTextSearch(query: String, lat: Double = 33.7866, lng: Double = -84.3833, maxResults: Int = 10) async throws -> [NativePlaceSearchResult] {

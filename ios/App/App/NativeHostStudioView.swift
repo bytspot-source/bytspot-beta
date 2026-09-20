@@ -136,6 +136,19 @@ enum NativeHostStudioPresentation {
         templateID == .releaseParty
     }
 
+    /// A coordinate belongs to a place the host picked, not to whatever text is
+    /// in the field. Once the name is edited away from the picked place the
+    /// coordinate is no longer about this venue, so it is dropped rather than
+    /// shipped alongside a name it does not describe. Trailing whitespace and
+    /// capitalisation are not edits.
+    static func retainedVenueCoordinate(typed: String, pickedName: String?, picked: NativeLocationCoordinate?) -> NativeLocationCoordinate? {
+        guard let pickedName, let picked else { return nil }
+        let left = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        let right = pickedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !left.isEmpty, left.compare(right, options: .caseInsensitive) == .orderedSame else { return nil }
+        return picked
+    }
+
     static func animation(reduceMotion: Bool) -> Animation? {
         reduceMotion ? nil : .interpolatingSpring(mass: 0.8, stiffness: 320, damping: 30, initialVelocity: 0)
     }
@@ -168,6 +181,11 @@ struct NativeHostStudioView: View {
     @State private var hostSetsEnd = false
     @State private var endsAt = Self.defaultStart.addingTimeInterval(3 * 60 * 60)
     @State private var venueName = ""
+    /// The place the host picked, and the name it carried. Kept together so an
+    /// edit to the field can drop a coordinate that no longer describes it.
+    @State private var pickedVenueName: String?
+    @State private var pickedVenueCoordinate: NativeLocationCoordinate?
+    @State private var venuePlaceSuggestions: [NativePlaceSearchResult] = []
     @State private var capacity = "\(NativeHostTaxonomySelection.recommendedCapacity)"
     @State private var accessMode: NativePartyAccessMode = .privateApproval
     @State private var requiredTier: BytspotTier = .green
@@ -393,6 +411,7 @@ struct NativeHostStudioView: View {
                         .accessibilityLabel("Party date and time")
                 }
                 field("Party venue", text: $venueName, icon: "mappin.and.ellipse", prompt: "Venue or secret location")
+                venuePlaceSuggestionList
                 registeredVenueSuggestions
                 locationDisclosureEditor
                 // Release title is validated by the printer; never bury it in
@@ -933,6 +952,69 @@ struct NativeHostStudioView: View {
     /// venue Bytspot already knows. Tapping one only rewrites the venue name —
     /// binding still happens after publish, against the same exact-match rule,
     /// so a suggestion can never attach an address the host did not confirm.
+    /// Picking a place is what gives the Party a location. Typing a name is
+    /// not: the free text is never geocoded, so a Party whose host skips this
+    /// simply reaches no geographic surface rather than landing on a guess.
+    @ViewBuilder private var venuePlaceSuggestionList: some View {
+        let resolved = NativeHostStudioPresentation.retainedVenueCoordinate(typed: venueName, pickedName: pickedVenueName, picked: pickedVenueCoordinate)
+        VStack(alignment: .leading, spacing: 8) {
+            if resolved != nil {
+                HStack(spacing: 8) {
+                    Image(systemName: "mappin.circle.fill").foregroundColor(NativeTheme.emerald)
+                    Text("Guests can find this Party near you.")
+                        .font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                    Spacer()
+                }.frame(minHeight: 44)
+            } else if !venuePlaceSuggestions.isEmpty {
+                Text("Pick the place").studioLabel()
+                Text("Pick your venue so guests nearby can find this Party. Skip it and the Party still works — it just won't appear on Discover.")
+                    .font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                ForEach(venuePlaceSuggestions) { place in
+                    Button(action: {
+                        venueName = place.name
+                        pickedVenueName = place.name
+                        pickedVenueCoordinate = place.latitude.flatMap { latitude in
+                            place.longitude.map { NativeLocationCoordinate(latitude: latitude, longitude: $0, isFallback: false) }
+                        }
+                        venuePlaceSuggestions = []
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "mappin.and.ellipse").foregroundColor(NativeTheme.cyan)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(place.name).font(.subheadline.weight(.semibold)).foregroundColor(NativeTheme.textPrimary)
+                                Text(place.address).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                            }
+                            Spacer()
+                        }.frame(minHeight: 44).padding(16).studioSurface()
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Use \(place.name), \(place.address)")
+                }
+            }
+        }
+        .task(id: venueName) { await loadVenuePlaceSuggestions() }
+    }
+
+    /// Silent on failure, like the registered-venue lookup beside it: a host who
+    /// typed a venue by hand must never be blocked by a catalog fetch.
+    @MainActor private func loadVenuePlaceSuggestions() async {
+        let typed = venueName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard typed.count >= 3,
+              NativeHostStudioPresentation.retainedVenueCoordinate(typed: venueName, pickedName: pickedVenueName, picked: pickedVenueCoordinate) == nil else {
+            venuePlaceSuggestions = []
+            return
+        }
+        // The field is typed into a character at a time; searching every
+        // keystroke would bill a Places request per letter.
+        try? await Task.sleep(nanoseconds: 450_000_000)
+        guard !Task.isCancelled else { return }
+        do {
+            venuePlaceSuggestions = try await NativeLiveDiscoveryAPI(client: BytspotAPIClient(tokenProvider: { token })).placesTextSearchAnywhere(query: typed)
+        } catch {
+            venuePlaceSuggestions = []
+        }
+    }
+
     @ViewBuilder private var registeredVenueSuggestions: some View {
         let suggestions = NativePartyArrivalAPI.suggestedRegisteredVenues(registeredVenues, matching: venueName)
         if !suggestions.isEmpty {
@@ -977,7 +1059,8 @@ struct NativeHostStudioView: View {
         let count = Int(capacity) ?? 0
         let cents = max(0, Int(((Double(ticketPrice) ?? 0) * 100).rounded()))
         let teammate = teammateEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, endsAt: hostSetsEnd ? endsAt : nil, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: currentBeatOffsets[$0.offset]) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration, taxonomy: taxonomy)
+        let venueCoordinate = NativeHostStudioPresentation.retainedVenueCoordinate(typed: venueName, pickedName: pickedVenueName, picked: pickedVenueCoordinate)
+        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, endsAt: hostSetsEnd ? endsAt : nil, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), latitude: venueCoordinate?.latitude, longitude: venueCoordinate?.longitude, locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: currentBeatOffsets[$0.offset]) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration, taxonomy: taxonomy)
     }
 
     private var templateConfiguration: NativePartyTemplateConfiguration {

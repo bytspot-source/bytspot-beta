@@ -119,10 +119,11 @@ enum NativeAtlantaCorridor {
     static func kitPlans() -> [NativeCollapsePlan] { midtown.map { plan(for: $0) } }
     static func catalogPlans() -> [NativeCollapsePlan] { atlanta.map { plan(for: $0) } }
 
-    /// Midtown GPS, or the app's Midtown fallback when the phone has no fix.
-    /// A measured city outside Atlanta must not receive this catalog.
+    /// Measured Atlanta GPS only. A fallback coordinate means the phone has no
+    /// fix, not that the caller is in Midtown, so it earns no catalog: a
+    /// traveller with a cold fix would otherwise be handed Atlanta as theirs.
     static func canOfferTypicalHomePlan(at location: NativeLocationCoordinate) -> Bool {
-        NativeHomeRegionPresentation.isAtlanta(location) || location.isFallback
+        NativeHomeRegionPresentation.isAtlanta(location)
     }
 
     /// Day-part first, then closest hang. Host-capable rooms stay in the catalog

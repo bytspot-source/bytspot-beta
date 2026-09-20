@@ -5373,14 +5373,16 @@ final class NativeMenuCheckoutTests: XCTestCase {
         XCTAssertEqual(Set(NativeAtlantaCorridor.atlanta.map(\.id)).count, NativeAtlantaCorridor.atlanta.count)
     }
 
-    func testTypicalHomePlanIsOfferedOnAtlantaOrFallbackAndNeverOnSeattle() {
-        XCTAssertNotNil(NativeAtlantaCorridor.homePlan(at: .midtown, hour: 19))
+    func testTypicalHomePlanIsOfferedOnMeasuredAtlantaAndNeverOnFallbackOrSeattle() {
+        // A fallback coordinate is an unknown location, not Midtown.
+        XCTAssertNil(NativeAtlantaCorridor.homePlan(at: .midtown, hour: 19))
+        XCTAssertFalse(NativeAtlantaCorridor.canOfferTypicalHomePlan(at: .midtown))
         XCTAssertNotNil(NativeAtlantaCorridor.homePlan(at: .verifiedMidtown, hour: 9))
+        XCTAssertTrue(NativeAtlantaCorridor.canOfferTypicalHomePlan(at: .verifiedMidtown))
         let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
         XCTAssertNil(NativeAtlantaCorridor.homePlan(at: seattle, hour: 19))
         XCTAssertFalse(NativeAtlantaCorridor.canOfferTypicalHomePlan(at: seattle))
-        XCTAssertTrue(NativeAtlantaCorridor.canOfferTypicalHomePlan(at: .midtown))
-        let evening = NativeAtlantaCorridor.homePlan(at: .midtown, hour: 20)
+        let evening = NativeAtlantaCorridor.homePlan(at: .verifiedMidtown, hour: 20)
         XCTAssertNotEqual(evening?.hang.id.hasPrefix("door-host-"), true)
         XCTAssertEqual(evening?.occupancy.kind, .typical)
     }

@@ -2840,6 +2840,42 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(shut.closedAt, "2026-08-17T06:00:00.000Z")
     }
 
+    func testPartyVenueCoordinateBelongsToThePickedPlaceNotTheTypedText() {
+        let picked = NativeLocationCoordinate(latitude: 33.7866, longitude: -84.3833, isFallback: false)
+
+        // The picked place's own name keeps its coordinate, and neither
+        // trailing whitespace nor capitalisation counts as an edit.
+        XCTAssertEqual(NativeHostStudioPresentation.retainedVenueCoordinate(typed: "Aster Room", pickedName: "Aster Room", picked: picked), picked)
+        XCTAssertEqual(NativeHostStudioPresentation.retainedVenueCoordinate(typed: "  aster room ", pickedName: "Aster Room", picked: picked), picked)
+
+        // Editing the name away from the picked place drops the coordinate:
+        // it no longer describes the venue being published.
+        XCTAssertNil(NativeHostStudioPresentation.retainedVenueCoordinate(typed: "Aster Rooftop", pickedName: "Aster Room", picked: picked))
+        XCTAssertNil(NativeHostStudioPresentation.retainedVenueCoordinate(typed: "", pickedName: "Aster Room", picked: picked))
+
+        // Typed text alone is never geocoded into a location.
+        XCTAssertNil(NativeHostStudioPresentation.retainedVenueCoordinate(typed: "Aster Room", pickedName: nil, picked: nil))
+    }
+
+    func testPartyDraftShipsCoordinatesOnlyAsAValidPair() {
+        // No pick, no location: the Party publishes and simply reaches no
+        // geographic surface.
+        XCTAssertNil(partyDraft().rpcInput["lat"])
+        XCTAssertNil(partyDraft().rpcInput["lng"])
+
+        let located = partyDraft(latitude: 33.7866, longitude: -84.3833)
+        XCTAssertEqual(located.rpcInput["lat"] as? Double, 33.7866)
+        XCTAssertEqual(located.rpcInput["lng"] as? Double, -84.3833)
+
+        // Half a coordinate, the 0/0 placeholder, and off-Earth values are
+        // withheld rather than sent for the API to refuse.
+        XCTAssertNil(partyDraft(latitude: 33.7866, longitude: nil).rpcInput["lat"])
+        XCTAssertNil(partyDraft(latitude: nil, longitude: -84.3833).rpcInput["lng"])
+        XCTAssertNil(partyDraft(latitude: 0, longitude: 0).rpcInput["lat"])
+        XCTAssertNil(partyDraft(latitude: 91, longitude: 0.5).rpcInput["lat"])
+        XCTAssertNil(partyDraft(latitude: 33.7866, longitude: 181).rpcInput["lng"])
+    }
+
     func testNativeHostStudioRolesAreCapabilityScoped() {
         XCTAssertTrue(NativePartyRoleContract.can(.owner, .payouts))
         XCTAssertTrue(NativePartyRoleContract.can(.cohost, .invite))
@@ -4354,9 +4390,9 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(try guest.makeRequest(path: "/health").value(forHTTPHeaderField: "Authorization"))
     }
 
-    private func partyDraft(priceCents: Int = 3_500) -> NativePartyDraftInput {
+    private func partyDraft(priceCents: Int = 3_500, latitude: Double? = nil, longitude: Double? = nil) -> NativePartyDraftInput {
         NativePartyDraftInput(
-            templateID: .comedyNight, title: "No Cameras Comedy", tagline: "One room. One inside joke.", startsAt: Date(timeIntervalSince1970: 1_800_000_000), venueName: "Aster Room", capacity: 80, accessMode: .paidTicket, requiredMembershipTier: .platinum, hostDestinations: NativePartyHostDestinations(musicURL: "", merchURL: "", websiteURL: "", primarySocialPlatform: .instagram, primarySocialURL: "https://instagram.com/host"), audienceCircleIDs: ["circle-1"],
+            templateID: .comedyNight, title: "No Cameras Comedy", tagline: "One room. One inside joke.", startsAt: Date(timeIntervalSince1970: 1_800_000_000), venueName: "Aster Room", latitude: latitude, longitude: longitude, capacity: 80, accessMode: .paidTicket, requiredMembershipTier: .platinum, hostDestinations: NativePartyHostDestinations(musicURL: "", merchURL: "", websiteURL: "", primarySocialPlatform: .instagram, primarySocialURL: "https://instagram.com/host"), audienceCircleIDs: ["circle-1"],
             itinerary: [NativePartyItineraryItem(title: "Doors open", offsetMinutes: 0), NativePartyItineraryItem(title: "Warm-up set", offsetMinutes: 60), NativePartyItineraryItem(title: "Headliner", offsetMinutes: 120)],
             ticketTiers: [NativePartyTicketTier(name: "First Drop", priceCents: priceCents, quantity: 80, requiredMembershipTier: .platinum)],
             cohosts: [NativePartyHostAssignment(email: "door@example.com", role: .door)], templateConfiguration: .standard

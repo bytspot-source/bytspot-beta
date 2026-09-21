@@ -3488,7 +3488,9 @@ final class NativeTabContentStore: ObservableObject {
         }
     }
 
-    static func partyTimeLabel(_ startsAt: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+    // Formats its arguments and reads no store state, so the browse card can
+    // name an hour without hopping to the main actor.
+    nonisolated static func partyTimeLabel(_ startsAt: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
         let time = DateFormatter()
         time.locale = .current
         time.dateFormat = "h:mm a"

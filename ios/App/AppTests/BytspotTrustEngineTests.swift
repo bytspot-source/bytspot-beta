@@ -14,13 +14,22 @@ final class NativeDiscoverM6BrowseTests: XCTestCase {
 
     /// availabilityLine is the only line on the browse card that speaks for
     /// the offering, so it is the line that must carry the time and the seats.
-    func testPartyBrowseLineStatesTimeAndSeatsAndStillNamesTheDoor() {
+    func testPartyBrowseLineStatesTimeAndSeatsAndStillNamesTheDoor() throws {
         let soon = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3600))
         let line = NativeDiscoverBrowsePolicy.availabilityLine(
             offering: offering("party-1", kind: .party, category: "events", capability: "book",
                                startsAt: soon, spacesRemaining: 12))
         XCTAssertTrue(line.contains("12 left"), line)
         XCTAssertTrue(line.contains("Party admission is separate"), "the door is never dropped for the seat count")
+
+        // The hour is stated, and stated first. Asserting only the seats and
+        // the door would stay green if the time silently vanished or the
+        // parts came out reversed, which is the half a guest reads first.
+        let hour = NativeTabContentStore.partyTimeLabel(try XCTUnwrap(NativeAccountDeletionFormat.date(fromISO: soon)))
+        XCTAssertTrue(line.hasPrefix(hour), "expected the line to lead with \(hour): \(line)")
+        let seats = try XCTUnwrap(line.range(of: "12 left"))
+        let door = try XCTUnwrap(line.range(of: "Party admission is separate"))
+        XCTAssertTrue(seats.lowerBound < door.lowerBound, "seats precede the admission note: \(line)")
 
         // Full is a fact about the room, not a reason to hide it.
         XCTAssertTrue(NativeDiscoverBrowsePolicy.availabilityLine(

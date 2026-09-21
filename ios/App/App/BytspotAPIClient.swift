@@ -3513,7 +3513,10 @@ final class NativeTabContentStore: ObservableObject {
                 title: venue.name,
                 subtitle: venue.address.isEmpty ? "Live venue from bytspot-api" : venue.address,
                 distance: venue.distance,
-                rating: venue.rating.map { String(format: "%.1f", $0) } ?? "4.5",
+                // An unrated venue is unrated. Inventing 4.5 parks a number
+                // nobody measured in a numeric slot, waiting for the day a
+                // rating row is drawn.
+                rating: venue.rating.map { String(format: "%.1f", $0) } ?? "",
                 icon: icon(for: type),
                 verified: venue.verifiedPatchId != nil,
                 entryType: "free",
@@ -3555,7 +3558,7 @@ final class NativeTabContentStore: ObservableObject {
             }
             let cardType = type == "venue" ? "parking" : type
             let meta = venue.parking.totalAvailable > 0 ? "\(venue.parking.totalAvailable) parking spots nearby" : (venue.crowd?.label ?? "Live API venue")
-            return NativeDiscoverSummary(id: "companion-\(cardType)-\(venue.id)", type: cardType, title: "\(prefix): \(venue.name)", subtitle: venue.address.isEmpty ? "Live API venue" : venue.address, distance: venue.distance, rating: venue.rating.map { String(format: "%.1f", $0) } ?? "Live", icon: icon(for: cardType), verified: venue.verifiedPatchId != nil, entryType: cardType == "parking" ? "paid" : "free", cta: cta, imageUrl: venue.imageUrl, categoryLabel: label(for: cardType), badgeText: "LIVE API", metadataLine: meta, features: [label(for: cardType), meta, "API powered"], vibeScore: max(5, min(10, (venue.crowd?.level ?? 2) * 2 + 2)), availability: venue.crowd?.label ?? "Open", membershipRequired: false, latitude: venue.latitude, longitude: venue.longitude)
+            return NativeDiscoverSummary(id: "companion-\(cardType)-\(venue.id)", type: cardType, title: "\(prefix): \(venue.name)", subtitle: venue.address.isEmpty ? "Live API venue" : venue.address, distance: venue.distance, rating: venue.rating.map { String(format: "%.1f", $0) } ?? "", icon: icon(for: cardType), verified: venue.verifiedPatchId != nil, entryType: cardType == "parking" ? "paid" : "free", cta: cta, imageUrl: venue.imageUrl, categoryLabel: label(for: cardType), badgeText: "LIVE API", metadataLine: meta, features: [label(for: cardType), meta, "API powered"], vibeScore: max(5, min(10, (venue.crowd?.level ?? 2) * 2 + 2)), availability: venue.crowd?.label ?? "Open", membershipRequired: false, latitude: venue.latitude, longitude: venue.longitude)
         }
     }
 

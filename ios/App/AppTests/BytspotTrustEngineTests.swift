@@ -9,9 +9,7 @@ final class NativeDiscoverM6BrowseTests: XCTestCase {
                           startsAt: String? = nil, spacesRemaining: Int? = nil) -> NativePlanBookableOffering {
         NativePlanBookableOffering(id: "catalog-\(sourceID)", sourceKind: kind, sourceId: sourceID,
                                   category: category, title: title, subtitle: nil, capability: capability,
-                                  startsAt: startsAt, endsAt: nil, capacity: nil, spacesRemaining: spacesRemaining,
-                                  requiredMembershipTier: nil, venueName: nil,
-                                  latitude: nil, longitude: nil)
+                                  startsAt: startsAt, spacesRemaining: spacesRemaining)
     }
 
     /// availabilityLine is the only line on the browse card that speaks for

@@ -94,6 +94,28 @@ struct NativePlanBookableOffering: Codable, Equatable, Identifiable {
     let venueName: String?
     let latitude: Double?
     let longitude: Double?
+
+    init(id: String, sourceKind: NativePlanBookableSelection.SourceKind, sourceId: String,
+         category: String, title: String, subtitle: String?, capability: String,
+         startsAt: String? = nil, endsAt: String? = nil, capacity: Int? = nil,
+         spacesRemaining: Int? = nil, requiredMembershipTier: String? = nil,
+         venueName: String? = nil, latitude: Double? = nil, longitude: Double? = nil) {
+        self.id = id
+        self.sourceKind = sourceKind
+        self.sourceId = sourceId
+        self.category = category
+        self.title = title
+        self.subtitle = subtitle
+        self.capability = capability
+        self.startsAt = startsAt
+        self.endsAt = endsAt
+        self.capacity = capacity
+        self.spacesRemaining = spacesRemaining
+        self.requiredMembershipTier = requiredMembershipTier
+        self.venueName = venueName
+        self.latitude = latitude
+        self.longitude = longitude
+    }
     var selection: NativePlanBookableSelection { .init(sourceKind: sourceKind, sourceId: sourceId) }
 }
 

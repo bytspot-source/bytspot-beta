@@ -3164,11 +3164,11 @@ final class NativeTabContentStore: ObservableObject {
     /// caller may see; nothing here re-decides that.
     private func fetchNearbyParties(client: BytspotAPIClient, location: NativeLocationCoordinate) async throws -> [NativeDiscoverSummary] {
         let payload = try await client.trpcQueryPayload(
-            path: BytspotAPIClient.partiesNearbyRoute,
+            path: NativeLiveContentV2Contract.partiesNearbyRoute,
             input: ["lat": location.latitude, "lng": location.longitude, "radiusMiles": 10, "limit": 20]
         )
         guard let rows = Self.findArray(named: "parties", in: payload) else { return [] }
-        return rows.compactMap { value in
+        return rows.compactMap { value -> NativeDiscoverSummary? in
             guard let item = value as? [String: Any] else { return nil }
             return Self.partyDiscoverCard(from: item)
         }

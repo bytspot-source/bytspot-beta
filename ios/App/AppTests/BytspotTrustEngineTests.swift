@@ -1183,7 +1183,6 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     @MainActor
-    @MainActor
     func testNearbyPartyProjectsIntoADiscoverCardWithTheServersOwnCapability() {
         let startsAt = Date().addingTimeInterval(3 * 60 * 60)
         let card = NativeTabContentStore.partyDiscoverCard(from: [

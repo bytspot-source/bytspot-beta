@@ -82,6 +82,18 @@ struct NativePlanBookableOffering: Codable, Equatable, Identifiable {
     let title: String
     let subtitle: String?
     let capability: String
+    /// Supplied only by supply that is actually placed in time and space. A
+    /// room that does not know where or when it is says nothing rather than
+    /// having a plausible value invented for it, and older API builds that
+    /// omit these decode to nil instead of failing.
+    let startsAt: String?
+    let endsAt: String?
+    let capacity: Int?
+    let spacesRemaining: Int?
+    let requiredMembershipTier: String?
+    let venueName: String?
+    let latitude: Double?
+    let longitude: Double?
     var selection: NativePlanBookableSelection { .init(sourceKind: sourceKind, sourceId: sourceId) }
 }
 

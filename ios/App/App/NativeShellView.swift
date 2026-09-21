@@ -11021,6 +11021,30 @@ enum NativeDiscoverBrowsePolicy {
         return NativeDiscoverBookablePresentation.railLabels[index]
     }
 
+    /// When it starts and how many seats are left, or nothing. A room that
+    /// does not state its seats is not described as having room, and a full
+    /// one says so instead of disappearing.
+    static func metadataLine(offering: NativePlanBookableOffering) -> String {
+        var parts: [String] = []
+        if let startsAt = offering.startsAt, let date = NativeAccountDeletionFormat.date(fromISO: startsAt) {
+            parts.append(NativeTabContentStore.partyTimeLabel(date))
+        }
+        if let left = offering.spacesRemaining {
+            parts.append(left == 0 ? "Full" : "\(left) left")
+        }
+        return parts.joined(separator: " • ")
+    }
+
+    /// Straight-line distance, and only from a measured position to a room
+    /// that published one. A fallback coordinate measures nothing.
+    static func distanceLabel(offering: NativePlanBookableOffering, location: NativeLocationCoordinate) -> String {
+        guard !location.isFallback, let lat = offering.latitude, let lng = offering.longitude else { return "" }
+        let miles = CLLocation(latitude: location.latitude, longitude: location.longitude)
+            .distance(from: CLLocation(latitude: lat, longitude: lng)) / 1609.344
+        return String(format: "%.1f mi", miles)
+    }
+
+
     static func matchesCategory(_ offering: NativePlanBookableOffering, filter: String?) -> Bool {
         NativeDiscoverBookablePresentation.matchesCategory(offering.category, filter: filter)
     }
@@ -11447,7 +11471,7 @@ private struct NativeDiscoverView: View {
             .map(Self.spec(from:))
         let offerings = catalog.rows(for: catalogUserID).filter {
             NativeDiscoverBrowsePolicy.matchesCategory($0, filter: selectedFilter)
-        }.map(Self.spec(offering:))
+        }.map { Self.spec(offering: $0, location: locationStore.coordinate) }
         return (references + offerings).sorted { first, second in
             NativeDiscoverBrowsePolicy.precedes(
                 supported: first.presentation.primaryActionTitle != nil, relevance: searchScore(for: first), id: first.browseID,
@@ -11461,14 +11485,18 @@ private struct NativeDiscoverView: View {
             metadataLine: "", features: [], verified: false, premium: false, vibeScore: 0)
     }
 
-    private static func spec(offering: NativePlanBookableOffering) -> DiscoverCardSpec {
+    static func spec(offering: NativePlanBookableOffering, location: NativeLocationCoordinate = .midtown) -> DiscoverCardSpec {
         let rail = NativeDiscoverBookablePresentation.rail(category: offering.category) ?? offering.category
         return DiscoverCardSpec(id: offering.selection.id, type: offering.category, title: offering.title,
-            subtitle: offering.subtitle ?? "", distance: "", rating: "", icon: "square.grid.2x2",
+            subtitle: offering.venueName ?? offering.subtitle ?? "",
+            distance: NativeDiscoverBrowsePolicy.distanceLabel(offering: offering, location: location),
+            rating: "", icon: "square.grid.2x2",
             verified: false, entryType: "", cta: "Add to Plan", imageUrl: nil,
-            categoryLabel: NativeDiscoverBrowsePolicy.categoryLabel(rail), badgeText: "", metadataLine: "",
-            features: [], vibeScore: 0, availability: "", membershipRequired: false,
-            latitude: nil, longitude: nil, offering: offering)
+            categoryLabel: NativeDiscoverBrowsePolicy.categoryLabel(rail), badgeText: "",
+            metadataLine: NativeDiscoverBrowsePolicy.metadataLine(offering: offering),
+            features: [], vibeScore: 0, availability: "",
+            membershipRequired: (offering.requiredMembershipTier?.isEmpty == false),
+            latitude: offering.latitude, longitude: offering.longitude, offering: offering)
     }
 
     private static var previewFilter: String? {

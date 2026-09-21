@@ -5,9 +5,44 @@ import UIKit
 
 final class NativeDiscoverM6BrowseTests: XCTestCase {
     private func offering(_ sourceID: String = "spot-a", kind: NativePlanBookableSelection.SourceKind = .coffeeSpot,
-                          category: String = "coffee", capability: String = "request", title: String = "Same title") -> NativePlanBookableOffering {
+                          category: String = "coffee", capability: String = "request", title: String = "Same title",
+                          startsAt: String? = nil, spacesRemaining: Int? = nil,
+                          latitude: Double? = nil, longitude: Double? = nil) -> NativePlanBookableOffering {
         NativePlanBookableOffering(id: "catalog-\(sourceID)", sourceKind: kind, sourceId: sourceID,
-                                  category: category, title: title, subtitle: nil, capability: capability)
+                                  category: category, title: title, subtitle: nil, capability: capability,
+                                  startsAt: startsAt, endsAt: nil, capacity: nil, spacesRemaining: spacesRemaining,
+                                  requiredMembershipTier: nil, venueName: nil,
+                                  latitude: latitude, longitude: longitude)
+    }
+
+    /// The browse card is the one a guest actually sees, so it is the one
+    /// that must state when the room is and whether there is room left.
+    func testBrowseCardStatesTimeAndSeatsAndSaysNothingWhenUnsupplied() {
+        let soon = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3600))
+        let placed = offering("party-1", kind: .party, category: "events", capability: "book",
+                              startsAt: soon, spacesRemaining: 12)
+        let line = NativeDiscoverBrowsePolicy.metadataLine(offering: placed)
+        XCTAssertTrue(line.contains("12 left"), line)
+        XCTAssertFalse(line.hasPrefix(" •"), "a missing half must not leave a dangling separator")
+
+        // Full is a fact about the room, not a reason to hide it.
+        XCTAssertTrue(NativeDiscoverBrowsePolicy.metadataLine(
+            offering: offering("party-2", kind: .party, startsAt: soon, spacesRemaining: 0)).contains("Full"))
+
+        // Unsupplied stays silent rather than implying room or a time.
+        XCTAssertEqual(NativeDiscoverBrowsePolicy.metadataLine(offering: offering()), "")
+    }
+
+    /// Distance is measured or it is not claimed.
+    func testBrowseCardMeasuresDistanceOnlyFromAMeasuredPositionToAPlacedRoom() {
+        let placed = offering("party-1", kind: .party, latitude: 33.7726, longitude: -84.3654)
+        XCTAssertEqual(NativeDiscoverBrowsePolicy.distanceLabel(offering: placed, location: .verifiedMidtown), "1.4 mi")
+
+        // A fallback position measures nothing, and an unplaced room offers
+        // nothing to measure to.
+        XCTAssertEqual(NativeDiscoverBrowsePolicy.distanceLabel(offering: placed, location: .midtown), "")
+        XCTAssertEqual(NativeDiscoverBrowsePolicy.distanceLabel(
+            offering: offering("party-2", kind: .party), location: .verifiedMidtown), "")
     }
 
     func testDiscoverKeepsExactlyThirteenEmojiFreePillsWithoutHost() {

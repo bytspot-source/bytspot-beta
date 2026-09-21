@@ -203,8 +203,14 @@ enum NativeVenueDetailContract {
 enum NativeVendorExperience {
     /// IDs minted by category filler are presentation clones, not offerings.
     /// This filter never grants identity or fulfillment to surviving references.
+    ///
+    /// `party-` rows are excluded for the opposite reason: they are supply the
+    /// bookable catalog already owns. Admitted here they render a second time
+    /// as a listed place — a host's own room described as somewhere Bytspot
+    /// does not control, offering Route instead of the door. The catalog row
+    /// (`party:`) is the offering and stays.
     static func isDiscoveryReference(id: String) -> Bool {
-        !["coverage-", "starter-", "companion-"].contains { id.hasPrefix($0) }
+        !["coverage-", "starter-", "companion-", "party-"].contains { id.hasPrefix($0) }
     }
 
     /// Mirrors the server fence so the copy can be honest before the round

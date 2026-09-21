@@ -367,6 +367,11 @@ struct NativePlanAPI: NativeDiscoverPlanAdding {
         let payload = try await client.trpcQueryPayload(path: "/trpc/plans.primePath", input: ["planId": planID])
         return try JSONDecoder().decode(NativePrimePathResponse.self, from: JSONSerialization.data(withJSONObject: payload))
     }
+
+    func feasibility(_ planID: String) async throws -> NativePlanFeasibility {
+        let payload = try await client.trpcQueryPayload(path: "/trpc/plans.feasibility", input: ["planId": planID])
+        return try JSONDecoder().decode(NativePlanFeasibility.self, from: JSONSerialization.data(withJSONObject: payload))
+    }
 }
 
 /// The wire shape of a Plan write, kept in its own namespace so a test can pin
@@ -1578,6 +1583,10 @@ struct NativePlanDetailSheet: View {
     @State private var primePathNeeds: [NativePrimePathNeed] = []
     /// Asking venues to fill the gaps this Plan still has.
     @State private var demandState = NativePlanDemandState()
+    /// Whether the Plan actually works. Nil until the answer arrives, and nil
+    /// again if it cannot be fetched — an unanswered question shows nothing
+    /// rather than a reassuring blank.
+    @State private var feasibility: NativePlanFeasibility?
     /// The ask whose offers are open, if any.
     @State private var showingOffers: NativePlanDemandAsk?
 
@@ -1662,6 +1671,13 @@ struct NativePlanDetailSheet: View {
                 ctaLabel("Invite Bytspot connections", background: planRowBackground, foreground: NativeTheme.textPrimary)
             }
             .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-invite")
+        }
+
+        // Above the item list: whether the evening holds together is the
+        // question the list itself cannot answer.
+        if let feasibility {
+            sectionHeader("Does this work?")
+            NativePlanFeasibilityView(feasibility: feasibility)
         }
 
         if !plan.openNeeds.isEmpty {
@@ -2072,7 +2088,19 @@ struct NativePlanDetailSheet: View {
         guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to see this Plan."; return }
         do { plan = try await api().get(planID); errorMessage = nil } catch { errorMessage = "Couldn't load this Plan." }
         await loadPrimePath()
+        await loadFeasibility()
         await loadAsks()
+    }
+
+    /// Loaded after the Plan, like Prime Path. A failure is silent: the
+    /// section disappears rather than claiming the Plan is fine.
+    private func loadFeasibility() async {
+        guard sessionStore.canAttachBearerToken else { feasibility = nil; return }
+        guard let plan, plan.lifecycle != "cancelled", plan.state != "expired", plan.state != "completed" else {
+            feasibility = nil
+            return
+        }
+        feasibility = try? await api().feasibility(planID)
     }
 
     /// C3: Load Prime Path candidates after the Plan itself. A failure is

@@ -148,6 +148,38 @@ for (const token of expectedTokens) {
   }
 }
 
+// ── Supply reaches a rail ───────────────────────────────────────────────────
+// The checks above only prove the two platforms agree with each other. They
+// stay green when supply names a category no rail claims: the place still
+// renders, silently, on the fallback shelf. A guest looking for valet on Move
+// would never find it, and nothing would fail. Bind the catalog a vendor
+// actually publishes from to the rails a guest actually browses.
+const CATALOG = path.join(root, 'contracts/bookable-templates.json');
+const catalog = JSON.parse(fs.readFileSync(CATALOG, 'utf8'));
+const labelToToken = new Map(contract.rails.map((rail) => [rail.label.toLowerCase(), rail.token]));
+
+/** Mirrors railForCategory: a label, an alias, or a rail token naming itself. */
+const railFor = (category) => {
+  const normalized = String(category ?? '').trim().toLowerCase();
+  if (!normalized) return null;
+  return labelToToken.get(normalized)
+    ?? contract.aliases[normalized]
+    ?? (expectedTokens.includes(normalized) ? normalized : null);
+};
+
+for (const category of catalog.discoverCategories ?? []) {
+  if (!railFor(category.id)) {
+    fail(`discover category "${category.id}" (${category.label}) reaches no rail, so every SKU under it files onto ${contract.fallbackRail} — add an alias`);
+  }
+}
+
+const categoryIds = new Set((catalog.discoverCategories ?? []).map((category) => category.id));
+for (const template of catalog.templates ?? []) {
+  if (!categoryIds.has(template.discoverType)) {
+    fail(`template "${template.id}" surfaces in "${template.discoverType}", which the catalog does not define`);
+  }
+}
+
 // ── Report ──────────────────────────────────────────────────────────────────
 if (failures.length) {
   console.error('[discovery-taxonomy] FAIL');
@@ -157,4 +189,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log(`[discovery-taxonomy] PASS: ${expectedTokens.length} rails, ${Object.keys(contract.aliases).length} category aliases, ${order.length} capabilities, ${contract.chassis.premium.length} premium / ${contract.chassis.plain.length} plain.`);
+console.log(`[discovery-taxonomy] PASS: ${expectedTokens.length} rails, ${Object.keys(contract.aliases).length} category aliases, ${order.length} capabilities, ${contract.chassis.premium.length} premium / ${contract.chassis.plain.length} plain, ${(catalog.discoverCategories ?? []).length} supply categories all reaching a rail.`);

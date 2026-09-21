@@ -451,7 +451,7 @@ struct NativeDiscoverBookablePresentation: Equatable {
         case "class", "workshop", "tutoring", "studio", "education": return "create_learn"
         case "bar", "club", "night_club": return "nightlife"
         case "boutique_apartment", "boutique stay", "hotel", "lodging": return "stay"
-        case "mobility", "automotive", "transport", "parking", "stall": return "move"
+        case "mobility", "automotive", "transport", "parking", "stall", "valet": return "move"
         case "party", "private-party", "celebration", "wedding", "birthday": return "celebrate"
         case "service", "green", "local-service": return "services"
         default: return railTokens.contains(normalized) ? normalized : nil

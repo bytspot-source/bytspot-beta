@@ -3456,7 +3456,10 @@ final class NativeTabContentStore: ObservableObject {
             // The host's own words for where it is. Never a guess.
             subtitle: venueName.isEmpty ? "Hosted gathering" : venueName,
             distance: (item["distanceMiles"] as? Double).map { String(format: "%.1f mi", $0) } ?? "",
-            rating: "Live",
+            // A gathering has no rating. The slot stays empty rather than
+            // holding a word where a number is expected, the day something
+            // draws this row.
+            rating: "",
             icon: "person.3.fill",
             verified: true,
             entryType: accessMode == "paid-ticket" ? "paid" : "free",

@@ -11021,29 +11021,6 @@ enum NativeDiscoverBrowsePolicy {
         return NativeDiscoverBookablePresentation.railLabels[index]
     }
 
-    /// When it starts and how many seats are left, or nothing. A room that
-    /// does not state its seats is not described as having room, and a full
-    /// one says so instead of disappearing.
-    static func metadataLine(offering: NativePlanBookableOffering) -> String {
-        var parts: [String] = []
-        if let startsAt = offering.startsAt, let date = NativeAccountDeletionFormat.date(fromISO: startsAt) {
-            parts.append(NativeTabContentStore.partyTimeLabel(date))
-        }
-        if let left = offering.spacesRemaining {
-            parts.append(left == 0 ? "Full" : "\(left) left")
-        }
-        return parts.joined(separator: " • ")
-    }
-
-    /// Straight-line distance, and only from a measured position to a room
-    /// that published one. A fallback coordinate measures nothing.
-    static func distanceLabel(offering: NativePlanBookableOffering, location: NativeLocationCoordinate) -> String {
-        guard !location.isFallback, let lat = offering.latitude, let lng = offering.longitude else { return "" }
-        let miles = CLLocation(latitude: location.latitude, longitude: location.longitude)
-            .distance(from: CLLocation(latitude: lat, longitude: lng)) / 1609.344
-        return String(format: "%.1f mi", miles)
-    }
-
 
     static func matchesCategory(_ offering: NativePlanBookableOffering, filter: String?) -> Bool {
         NativeDiscoverBookablePresentation.matchesCategory(offering.category, filter: filter)
@@ -11054,11 +11031,25 @@ enum NativeDiscoverBrowsePolicy {
         return offering.sourceKind == .coffeeSpot ? "Coffee catalog selection" : "Public party catalog selection"
     }
 
+    /// The only line on the browse card that speaks for the offering, so it
+    /// is where a gathering states when it is and whether there is room. Each
+    /// part appears only when supplied: an unstated seat count is never
+    /// described as room, and a full one says Full rather than vanishing. The
+    /// admission note always ends the line, because the door is the fact a
+    /// guest most needs before travelling.
     static func availabilityLine(offering: NativePlanBookableOffering?) -> String {
-        if offering?.sourceKind == .party {
-            return "Party admission is separate · open party details for access information"
+        guard let offering, offering.sourceKind == .party else {
+            return presentation(offering: offering).availabilityLine
         }
-        return presentation(offering: offering).availabilityLine
+        var parts: [String] = []
+        if let startsAt = offering.startsAt, let date = NativeAccountDeletionFormat.date(fromISO: startsAt) {
+            parts.append(NativeTabContentStore.partyTimeLabel(date))
+        }
+        if let left = offering.spacesRemaining {
+            parts.append(left == 0 ? "Full" : "\(left) left")
+        }
+        parts.append("Party admission is separate · open party details for access information")
+        return parts.joined(separator: " · ")
     }
 
     static func referenceSubtitle(_ text: String) -> String? {
@@ -11471,7 +11462,7 @@ private struct NativeDiscoverView: View {
             .map(Self.spec(from:))
         let offerings = catalog.rows(for: catalogUserID).filter {
             NativeDiscoverBrowsePolicy.matchesCategory($0, filter: selectedFilter)
-        }.map { Self.spec(offering: $0, location: locationStore.coordinate) }
+        }.map(Self.spec(offering:))
         return (references + offerings).sorted { first, second in
             NativeDiscoverBrowsePolicy.precedes(
                 supported: first.presentation.primaryActionTitle != nil, relevance: searchScore(for: first), id: first.browseID,
@@ -11485,15 +11476,15 @@ private struct NativeDiscoverView: View {
             metadataLine: "", features: [], verified: false, premium: false, vibeScore: 0)
     }
 
-    static func spec(offering: NativePlanBookableOffering, location: NativeLocationCoordinate = .midtown) -> DiscoverCardSpec {
+    private static func spec(offering: NativePlanBookableOffering) -> DiscoverCardSpec {
         let rail = NativeDiscoverBookablePresentation.rail(category: offering.category) ?? offering.category
+        // The card measures its own distance from these coordinates against a
+        // fresh, authorized position, so a placed room earns a distance and an
+        // unplaced one silently earns none.
         return DiscoverCardSpec(id: offering.selection.id, type: offering.category, title: offering.title,
-            subtitle: offering.venueName ?? offering.subtitle ?? "",
-            distance: NativeDiscoverBrowsePolicy.distanceLabel(offering: offering, location: location),
-            rating: "", icon: "square.grid.2x2",
+            subtitle: offering.venueName ?? offering.subtitle ?? "", distance: "", rating: "", icon: "square.grid.2x2",
             verified: false, entryType: "", cta: "Add to Plan", imageUrl: nil,
-            categoryLabel: NativeDiscoverBrowsePolicy.categoryLabel(rail), badgeText: "",
-            metadataLine: NativeDiscoverBrowsePolicy.metadataLine(offering: offering),
+            categoryLabel: NativeDiscoverBrowsePolicy.categoryLabel(rail), badgeText: "", metadataLine: "",
             features: [], vibeScore: 0, availability: "",
             membershipRequired: (offering.requiredMembershipTier?.isEmpty == false),
             latitude: offering.latitude, longitude: offering.longitude, offering: offering)

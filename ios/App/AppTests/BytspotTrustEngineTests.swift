@@ -6,43 +6,35 @@ import UIKit
 final class NativeDiscoverM6BrowseTests: XCTestCase {
     private func offering(_ sourceID: String = "spot-a", kind: NativePlanBookableSelection.SourceKind = .coffeeSpot,
                           category: String = "coffee", capability: String = "request", title: String = "Same title",
-                          startsAt: String? = nil, spacesRemaining: Int? = nil,
-                          latitude: Double? = nil, longitude: Double? = nil) -> NativePlanBookableOffering {
+                          startsAt: String? = nil, spacesRemaining: Int? = nil) -> NativePlanBookableOffering {
         NativePlanBookableOffering(id: "catalog-\(sourceID)", sourceKind: kind, sourceId: sourceID,
                                   category: category, title: title, subtitle: nil, capability: capability,
                                   startsAt: startsAt, endsAt: nil, capacity: nil, spacesRemaining: spacesRemaining,
                                   requiredMembershipTier: nil, venueName: nil,
-                                  latitude: latitude, longitude: longitude)
+                                  latitude: nil, longitude: nil)
     }
 
-    /// The browse card is the one a guest actually sees, so it is the one
-    /// that must state when the room is and whether there is room left.
-    func testBrowseCardStatesTimeAndSeatsAndSaysNothingWhenUnsupplied() {
+    /// availabilityLine is the only line on the browse card that speaks for
+    /// the offering, so it is the line that must carry the time and the seats.
+    func testPartyBrowseLineStatesTimeAndSeatsAndStillNamesTheDoor() {
         let soon = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3600))
-        let placed = offering("party-1", kind: .party, category: "events", capability: "book",
-                              startsAt: soon, spacesRemaining: 12)
-        let line = NativeDiscoverBrowsePolicy.metadataLine(offering: placed)
+        let line = NativeDiscoverBrowsePolicy.availabilityLine(
+            offering: offering("party-1", kind: .party, category: "events", capability: "book",
+                               startsAt: soon, spacesRemaining: 12))
         XCTAssertTrue(line.contains("12 left"), line)
-        XCTAssertFalse(line.hasPrefix(" •"), "a missing half must not leave a dangling separator")
+        XCTAssertTrue(line.contains("Party admission is separate"), "the door is never dropped for the seat count")
 
         // Full is a fact about the room, not a reason to hide it.
-        XCTAssertTrue(NativeDiscoverBrowsePolicy.metadataLine(
+        XCTAssertTrue(NativeDiscoverBrowsePolicy.availabilityLine(
             offering: offering("party-2", kind: .party, startsAt: soon, spacesRemaining: 0)).contains("Full"))
 
-        // Unsupplied stays silent rather than implying room or a time.
-        XCTAssertEqual(NativeDiscoverBrowsePolicy.metadataLine(offering: offering()), "")
-    }
+        // Unsupplied says nothing rather than implying room or a time, and
+        // leaves no dangling separator behind.
+        let bare = NativeDiscoverBrowsePolicy.availabilityLine(offering: offering("party-3", kind: .party))
+        XCTAssertEqual(bare, "Party admission is separate · open party details for access information")
 
-    /// Distance is measured or it is not claimed.
-    func testBrowseCardMeasuresDistanceOnlyFromAMeasuredPositionToAPlacedRoom() {
-        let placed = offering("party-1", kind: .party, latitude: 33.7726, longitude: -84.3654)
-        XCTAssertEqual(NativeDiscoverBrowsePolicy.distanceLabel(offering: placed, location: .verifiedMidtown), "1.4 mi")
-
-        // A fallback position measures nothing, and an unplaced room offers
-        // nothing to measure to.
-        XCTAssertEqual(NativeDiscoverBrowsePolicy.distanceLabel(offering: placed, location: .midtown), "")
-        XCTAssertEqual(NativeDiscoverBrowsePolicy.distanceLabel(
-            offering: offering("party-2", kind: .party), location: .verifiedMidtown), "")
+        // Nothing here changes what non-party supply says.
+        XCTAssertFalse(NativeDiscoverBrowsePolicy.availabilityLine(offering: offering()).contains("Party admission"))
     }
 
     func testDiscoverKeepsExactlyThirteenEmojiFreePillsWithoutHost() {

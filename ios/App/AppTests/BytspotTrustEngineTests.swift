@@ -1192,12 +1192,12 @@ final class BytspotTrustEngineTests: XCTestCase {
             "spacesRemaining": 12, "distanceMiles": 1.4, "latitude": 33.7729, "longitude": -84.3654,
         ])
         XCTAssertEqual(card?.id, "party-party-7")
-        XCTAssertEqual(card?.type, "party")
+        XCTAssertEqual(card?.type, "event")
         XCTAssertEqual(card?.title, "Rooftop Listening Session")
         XCTAssertEqual(card?.subtitle, "Ponce Rooftop")
         XCTAssertEqual(card?.distance, "1.4 mi")
         XCTAssertEqual(card?.cta, NativeDiscoverBookableCapability.book.statusLabel)
-        XCTAssertEqual(card?.badgeText, "PARTY")
+        XCTAssertEqual(card?.badgeText, "OPEN DOOR")
         XCTAssertTrue(card?.metadataLine.contains("12 left") == true)
         XCTAssertEqual(card?.membershipRequired, true)
         XCTAssertEqual(card?.control, NativeDiscoverCardControl.vendor)
@@ -1216,6 +1216,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         ])
         XCTAssertNotNil(card)
         XCTAssertEqual(card?.badgeText, "FULL")
+        XCTAssertEqual(card?.categoryLabel, "Open door")
         XCTAssertEqual(card?.cta, "Full")
         XCTAssertEqual(card?.entryType, "paid")
         XCTAssertEqual(card?.membershipRequired, false)
@@ -1241,10 +1242,35 @@ final class BytspotTrustEngineTests: XCTestCase {
         let withParty = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: venues, parties: [party!], location: .verifiedMidtown)
         XCTAssertEqual(withParty.first?.title, "Courtyard Session")
 
-        // No parties tonight must not leave a shelf behind claiming supply.
+        // No gatherings tonight must not leave a shelf behind claiming supply.
         let withoutParty = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: venues, parties: [], location: .verifiedMidtown)
-        XCTAssertFalse(withoutParty.contains { $0.type == "party" })
-        XCTAssertFalse(withoutParty.contains { $0.categoryLabel == "Parties" })
+        XCTAssertFalse(withoutParty.contains { $0.categoryLabel == "Open door" })
+    }
+
+    /// The card must not advertise a category the server gate can never fill.
+    /// Every approval-only host type is excluded from discovery, so naming the
+    /// channel "party" would promise house, rooftop, pool and birthday and
+    /// then show none of them.
+    @MainActor
+    func testTheChannelDoesNotNameItselfAfterTheCategoryItCanNeverShow() {
+        let partyTypes = NativeHostType.catalog.filter { $0.category == .party }
+        XCTAssertFalse(partyTypes.isEmpty)
+        for type in partyTypes {
+            XCTAssertEqual(type.door, .approvalOnly, "\(type.id) would change what this channel can show.")
+            XCTAssertEqual(type.door.allowedDoors, [.privateApproval])
+        }
+
+        let card = NativeTabContentStore.partyDiscoverCard(from: [
+            "id": "party-11", "title": "Neighborhood Market", "venueName": "Krog Street",
+            "startsAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(3600)),
+            "accessMode": "free-rsvp", "capability": "book", "requiredMembershipTier": "green",
+            "capacity": 50, "spacesRemaining": 20, "distanceMiles": 1.0,
+        ])
+        XCTAssertEqual(card?.categoryLabel, "Open door")
+        XCTAssertEqual(card?.badgeText, "OPEN DOOR")
+        XCTAssertEqual(card?.features.first, "Open door")
+        XCTAssertFalse(card?.categoryLabel.localizedCaseInsensitiveContains("part") == true)
+        XCTAssertFalse(card?.badgeText.localizedCaseInsensitiveContains("part") == true)
     }
 
     @MainActor
@@ -1257,6 +1283,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         ])
         let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [], parties: [party!], location: .midtown)
         XCTAssertFalse(cards.contains { $0.title == "Should Never Show" })
+        XCTAssertFalse(cards.contains { $0.categoryLabel == "Open door" })
     }
 
     @MainActor

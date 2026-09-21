@@ -3321,10 +3321,11 @@ final class NativeTabContentStore: ObservableObject {
             return locationAwareCards(NativeTabContentSnapshot.unresolved.discoverCards, sourceVenues: [], location: location)
         }
         var merged: [NativeDiscoverSummary] = []
-        // Parties lead on scarcity, not preference: a venue is still there
-        // tomorrow, a party has finite seats and ends tonight. They are merged
-        // rather than railed, so a night with none is simply a shorter deck
-        // instead of an empty shelf claiming supply that does not exist.
+        // Open-door gatherings lead on scarcity, not preference: a venue is
+        // still there tomorrow, a gathering has finite seats and ends tonight.
+        // They are merged rather than railed, so a night with none is simply a
+        // shorter deck instead of an empty shelf claiming supply that does not
+        // exist.
         appendUnique(parties, to: &merged)
         appendUnique(placeCards, to: &merged)
         appendUnique(apiCards, to: &merged)
@@ -3423,10 +3424,15 @@ final class NativeTabContentStore: ObservableObject {
         return merged
     }
 
-    /// A party is the one thing in the deck a named host committed to, with
-    /// finite seats, that stops existing after tonight. A full one still shows
-    /// and says it is full: being full is a fact about the party, not a reason
-    /// to imply it does not exist.
+    /// A gathering is the one thing in the deck a named host committed to,
+    /// with finite seats, that stops existing after tonight. A full one still
+    /// shows and says it is full: being full is a fact about the gathering,
+    /// not a reason to imply it does not exist.
+    ///
+    /// The record is a Party, but only the open-door ones can ever reach here:
+    /// every approval-only type is excluded by the server gate. So the card
+    /// says "open door" rather than "party", which would promise a whole
+    /// category — house, rooftop, pool, birthday — this channel can never show.
     static func partyDiscoverCard(from item: [String: Any]) -> NativeDiscoverSummary? {
         guard let id = item["id"] as? String, !id.isEmpty,
               let title = item["title"] as? String, !title.isEmpty,
@@ -3442,23 +3448,26 @@ final class NativeTabContentStore: ObservableObject {
         let seatsLabel = spacesRemaining.map { $0 == 0 ? "Full" : "\($0) left" }
         return NativeDiscoverSummary(
             id: "party-\(id)",
-            type: "party",
+            // These are time-bound, seated, host-supplied events. Filing them
+            // under Celebrate would claim the private-party category the
+            // server gate makes unreachable.
+            type: "event",
             title: title,
             // The host's own words for where it is. Never a guess.
-            subtitle: venueName.isEmpty ? "Hosted party" : venueName,
+            subtitle: venueName.isEmpty ? "Hosted gathering" : venueName,
             distance: (item["distanceMiles"] as? Double).map { String(format: "%.1f mi", $0) } ?? "",
             rating: "Live",
-            icon: "party.popper.fill",
+            icon: "person.3.fill",
             verified: true,
             entryType: accessMode == "paid-ticket" ? "paid" : "free",
             // The capability word is the server's assertion, spoken in the
             // shared vocabulary so it cannot drift from the rest of Discover.
             cta: isFull ? "Full" : partyCapabilityLabel(capability),
             imageUrl: nil,
-            categoryLabel: "Parties",
-            badgeText: isFull ? "FULL" : "PARTY",
+            categoryLabel: "Open door",
+            badgeText: isFull ? "FULL" : "OPEN DOOR",
             metadataLine: [timeLabel, seatsLabel].compactMap { $0 }.joined(separator: " \u{2022} "),
-            features: (["Parties"] + (tier.isEmpty ? [] : ["\(tier.capitalized) members"])),
+            features: (["Open door"] + (tier.isEmpty ? [] : ["\(tier.capitalized) members"])),
             vibeScore: 8,
             availability: timeLabel,
             membershipRequired: !tier.isEmpty,

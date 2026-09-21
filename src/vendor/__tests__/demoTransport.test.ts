@@ -15,6 +15,7 @@ test('the stub and the real transport cannot drift apart', () => {
     'VENDOR_DEMO_MODE',
     'demoAuthTransport',
     'demoDemandTransport',
+    'demoMediaTransport',
     'demoSetupTransport',
   ]);
   assert.equal(stub.VENDOR_DEMO_MODE, false);
@@ -22,6 +23,7 @@ test('the stub and the real transport cannot drift apart', () => {
   assert.throws(() => stub.demoAuthTransport(), /not part of this build/);
   assert.throws(() => stub.demoSetupTransport(), /not part of this build/);
   assert.throws(() => stub.demoDemandTransport(), /not part of this build/);
+  assert.throws(() => stub.demoMediaTransport(), /not part of this build/);
 
   // Under the node test runner no vite env exists, so the real module reports
   // false as well: the flag is opt-in, never opt-out.
@@ -46,15 +48,16 @@ test('the bypass is chosen at build time and never at runtime', () => {
   for (const banned of [/catch/, /navigator\.onLine/, /VENDOR_DEMO_MODE\s*\|\|/, /!VENDOR_DEMO_MODE/]) {
     assert.doesNotMatch(code, banned, `${banned} would make the bypass reachable at runtime`);
   }
-  // Five uses and no more: the import, one choice per transport, and the banner
+  // Six uses and no more: the import, one choice per transport, and the banner
   // that makes a demo build impossible to mistake for a real one.
-  assert.equal(code.match(/VENDOR_DEMO_MODE/g)?.length, 5);
+  assert.equal(code.match(/VENDOR_DEMO_MODE/g)?.length, 6);
   assert.match(code, /vendor-eyebrow[\s\S]{0,80}VENDOR_DEMO_MODE/);
 
   // Both transports are chosen the same way. A write path that reached the live
   // API from a demo build would post a vendor's real details into it.
   assert.match(code, /VENDOR_DEMO_MODE \? demoSetupTransport\([a-zA-Z.]*\) : httpSetupTransport\(/);
   assert.match(code, /VENDOR_DEMO_MODE \? demoDemandTransport\([a-zA-Z.]*\) : httpDemandTransport\(/);
+  assert.match(code, /VENDOR_DEMO_MODE \? demoMediaTransport\(\) : httpMediaTransport\(/);
 });
 
 test('the demo console opens, and still refuses what production would refuse', async () => {

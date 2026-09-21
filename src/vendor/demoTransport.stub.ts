@@ -1,6 +1,7 @@
 import type { AuthTransport } from './auth.ts';
 import type { Seller } from './seller.ts';
 import type { DemandTransport } from './demandTransport.ts';
+import type { MediaTransport } from './mediaTransport.ts';
 import type { SetupTransport } from './setupTransport.ts';
 
 /**
@@ -24,5 +25,9 @@ export function demoSetupTransport(_opened?: Seller): SetupTransport {
 }
 
 export function demoDemandTransport(_opened?: Seller): DemandTransport {
+  throw new Error('the demo transport is not part of this build');
+}
+
+export function demoMediaTransport(): MediaTransport {
   throw new Error('the demo transport is not part of this build');
 }

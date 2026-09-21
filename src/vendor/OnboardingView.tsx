@@ -1,7 +1,5 @@
 import { useMemo, useState } from 'react';
-import { getBookableLocations, getLocationKind } from '../utils/bookableTemplates.ts';
 import type { BookableLocationKindId } from '../utils/bookableTemplates.ts';
-import type { VendorLocation } from './locations.ts';
 import {
   canAdvanceOnboarding,
   nextOnboardingItem,
@@ -15,8 +13,11 @@ import {
 } from './onboarding.ts';
 import type { GeocodeCandidate } from './geocoding.ts';
 import { LocationForm } from './LocationForm.tsx';
+import { MediaPicker } from './MediaPicker.tsx';
+import type { MediaTransport } from './mediaTransport.ts';
 import { payoutIsUsable, type ProfileEdit, type VendorProfile } from './profile.ts';
 import type { VendorSession } from './seller.ts';
+import type { AuthorizedFetch } from './setupTransport.ts';
 import { staffRoleLabel } from './vendorConsole.ts';
 
 export interface OnboardingViewProps {
@@ -29,6 +30,8 @@ export interface OnboardingViewProps {
   onMove: (operation: 'SUBMIT_SELLER' | 'WITHDRAW_SELLER') => void;
   blockers: string[];
   busy: boolean;
+  media: MediaTransport;
+  authorizedFetch?: AuthorizedFetch;
 }
 
 /**
@@ -45,6 +48,8 @@ export function OnboardingView({
   onMove,
   blockers,
   busy,
+  media,
+  authorizedFetch,
 }: OnboardingViewProps) {
   const { seller } = session;
   const items = useMemo(() => onboardingItems(seller), [seller]);
@@ -96,6 +101,8 @@ export function OnboardingView({
               onEdit={onEdit}
               onStartPayout={onStartPayout}
               onGeocode={onGeocode}
+              media={media}
+              authorizedFetch={authorizedFetch}
             />
           ))}
         </ul>
@@ -164,6 +171,8 @@ function ChecklistRow({
   onEdit,
   onStartPayout,
   onGeocode,
+  media,
+  authorizedFetch,
 }: {
   item: OnboardingItem;
   session: VendorSession;
@@ -173,6 +182,8 @@ function ChecklistRow({
   onEdit: (edit: ProfileEdit) => void;
   onStartPayout: () => void;
   onGeocode: OnboardingViewProps['onGeocode'];
+  media: MediaTransport;
+  authorizedFetch?: AuthorizedFetch;
 }) {
   const { step } = item;
 
@@ -201,6 +212,19 @@ function ChecklistRow({
       ) : (
         <TextField field={step.field} kind={step.kind} busy={busy} onEdit={onEdit} />
       )}
+
+      {step.kind === 'location'
+        ? profile.locations.map((location) => (
+            <MediaPicker
+              key={location.id}
+              session={session}
+              transport={media}
+              parent="location"
+              parentId={location.id}
+              authorizedFetch={authorizedFetch}
+            />
+          ))
+        : null}
     </li>
   );
 }

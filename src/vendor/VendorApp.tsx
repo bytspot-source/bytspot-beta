@@ -20,8 +20,15 @@ import { SeatsView } from './SeatsView';
 import { WebhooksView } from './WebhooksView';
 import { AuthGate } from './AuthGate';
 import { httpAuthTransport } from './authTransport';
-import { demoAuthTransport, demoDemandTransport, demoSetupTransport, VENDOR_DEMO_MODE } from '@vendor-demo';
+import {
+  demoAuthTransport,
+  demoDemandTransport,
+  demoMediaTransport,
+  demoSetupTransport,
+  VENDOR_DEMO_MODE,
+} from '@vendor-demo';
 import { httpDemandTransport, type DemandTransport } from './demandTransport';
+import { httpMediaTransport, type MediaTransport } from './mediaTransport';
 import { useVendorDemand } from './useVendorDemand';
 import { OnboardingView } from './OnboardingView';
 import { gateReplacesConsole, shouldShowOnboarding } from './onboarding';
@@ -161,6 +168,10 @@ function VendorConsole({
     [authorizedFetch, opened.seller],
   );
   const feed = useVendorDemand(demandTransport);
+  const media = useMemo<MediaTransport>(
+    () => (VENDOR_DEMO_MODE ? demoMediaTransport() : httpMediaTransport(authorizedFetch)),
+    [authorizedFetch],
+  );
 
   /**
    * The state a vendor can move themselves, kept beside the reconciled seller.
@@ -189,6 +200,8 @@ function VendorConsole({
             onStartPayout={() => void setup.startPayout()}
             onGeocode={setup.geocode}
             onMove={(operation) => setMovedTo(operation === 'SUBMIT_SELLER' ? 'PENDING' : 'DRAFT')}
+            media={media}
+            authorizedFetch={authorizedFetch}
           />
         ) : null
       }
@@ -207,6 +220,8 @@ function VendorConsole({
           onEdit={(edit) => void setup.edit(edit)}
           onMove={(id, operation) => void setup.move(id, operation)}
           onGeocode={setup.geocode}
+          media={media}
+          authorizedFetch={authorizedFetch}
         />
       }
       demand={
@@ -218,6 +233,8 @@ function VendorConsole({
           busy={feed.busy}
           loading={feed.loading}
           onRespond={(demandId, bookableId, operation) => void feed.respond(demandId, bookableId, operation)}
+          media={media}
+          authorizedFetch={authorizedFetch}
         />
       }
     />

@@ -9,8 +9,11 @@ import {
 import type { GeocodeCandidate } from './geocoding';
 import { LocationForm } from './LocationForm';
 import { fulfillmentFor, locationPublishBlockers, type VendorLocation } from './locations';
+import { MediaPicker } from './MediaPicker';
+import type { MediaTransport } from './mediaTransport';
 import type { ProfileEdit } from './profile';
 import { authorizeLocation, canSeeLocation, publishBlockers, sessionCan, type VendorSession } from './seller';
+import type { AuthorizedFetch } from './setupTransport';
 import { locationStateCopy } from './vendorConsole';
 
 export interface LocationsViewProps {
@@ -21,6 +24,8 @@ export interface LocationsViewProps {
   onEdit: (edit: ProfileEdit) => void;
   onMove: (id: string, operation: BookableLocationOperationId) => void;
   onGeocode: (query: string, kind: string) => Promise<GeocodeCandidate[]>;
+  media: MediaTransport;
+  authorizedFetch?: AuthorizedFetch;
 }
 
 /**
@@ -39,6 +44,8 @@ export function LocationsView({
   onEdit,
   onMove,
   onGeocode,
+  media,
+  authorizedFetch,
 }: LocationsViewProps) {
   const [domain, setDomain] = useState<BookableDomainId>('dining');
   const [adding, setAdding] = useState(false);
@@ -168,6 +175,14 @@ export function LocationsView({
                   ))}
                 </div>
               )}
+
+              <MediaPicker
+                session={session}
+                transport={media}
+                parent="location"
+                parentId={location.id}
+                authorizedFetch={authorizedFetch}
+              />
             </li>
           );
         })}

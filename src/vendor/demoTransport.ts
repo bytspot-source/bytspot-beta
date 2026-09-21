@@ -9,6 +9,8 @@ import type { PayoutAccount, VendorProfile } from './profile.ts';
 import type { Seat, Seller } from './seller.ts';
 import type { SetupTransport } from './setupTransport.ts';
 
+export { demoMediaTransport } from './mediaTransport.ts';
+
 /**
  * Compile-time only. The demo transport exists so the console can be opened and
  * driven before the API ships, and it is gated on a build flag rather than on

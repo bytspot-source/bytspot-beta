@@ -1518,6 +1518,7 @@ enum NativeLiveContentV2Contract {
     static let partyRoleAssignRoute = "/trpc/events.roles.assign"
     static let partyAudienceAttachRoute = "/trpc/events.audiences.attach"
     static let partyControlHostedRoute = "/trpc/events.control.hosted"
+    static let partiesNearbyRoute = "/trpc/events.nearby"
     static let ticketmasterProvider = "ticketmaster"
     static let placesTextSearchRoute = "/trpc/places.textSearch"
     static let placesNearbySearchRoute = "/trpc/places.nearbySearch"
@@ -3068,15 +3069,17 @@ final class NativeTabContentStore: ObservableObject {
                 async let liveEvents = fetchEvents(client: client, location: location)
                 async let vendorServices = fetchVendorServices(client: client)
                 async let placeDiscoveryCards = fetchPlaceDiscoveryCards(client: client, location: location)
+                async let nearbyParties = fetchNearbyParties(client: client, location: location)
                 let valueOptions = Self.localValueOptions((try? await fetchBestValue(client: client, location: location)) ?? [])
                 let localized = Self.locationAwareSnapshot(bootstrapSnapshot, location: location)
                 let nearbyEvents = (try? await liveEvents) ?? []
                 let events = nearbyEvents.isEmpty ? localized.trustworthyLiveEvents : nearbyEvents
                 let services = (try? await vendorServices) ?? []
                 let places = (try? await placeDiscoveryCards) ?? []
+                let parties = (try? await nearbyParties) ?? []
                 let trustedVenues = localized.trustworthyLiveVenues
-                let cards = Self.liveDiscoverCards(apiCards: localized.discoverCards, venues: trustedVenues, events: events, services: services, placeCards: places, valueOptions: valueOptions, location: location)
-                let hasLiveInputs = localized.source != .fallback || !events.isEmpty || !services.isEmpty || !places.isEmpty || !valueOptions.isEmpty
+                let cards = Self.liveDiscoverCards(apiCards: localized.discoverCards, venues: trustedVenues, events: events, services: services, placeCards: places, parties: parties, valueOptions: valueOptions, location: location)
+                let hasLiveInputs = localized.source != .fallback || !events.isEmpty || !services.isEmpty || !places.isEmpty || !parties.isEmpty || !valueOptions.isEmpty
                 guard generation == refreshGeneration else { return }
                 snapshotOrigin = location
                 bestValueOrigin = valueOptions.isEmpty ? nil : location
@@ -3089,12 +3092,14 @@ final class NativeTabContentStore: ObservableObject {
             async let vendorServices = fetchVendorServices(client: client)
             async let placeDiscoveryCards = fetchPlaceDiscoveryCards(client: client, location: location)
             async let bestValue = fetchBestValue(client: client, location: location)
+            async let nearbyParties = fetchNearbyParties(client: client, location: location)
             let liveVenues = Self.locationAwareVenues(try await venues, location: location).filter { !NativeTabContentSnapshot.isFallbackVenueFixture($0) }
             let liveServices = (try? await vendorServices) ?? []
             let livePlaceCards = (try? await placeDiscoveryCards) ?? []
             let liveEvents = (try? await events) ?? []
+            let liveParties = (try? await nearbyParties) ?? []
             let valueOptions = Self.localValueOptions((try? await bestValue) ?? [])
-            let cards = Self.liveDiscoverCards(apiCards: [], venues: liveVenues, events: liveEvents, services: liveServices, placeCards: livePlaceCards, valueOptions: valueOptions, location: location)
+            let cards = Self.liveDiscoverCards(apiCards: [], venues: liveVenues, events: liveEvents, services: liveServices, placeCards: livePlaceCards, parties: liveParties, valueOptions: valueOptions, location: location)
             guard generation == refreshGeneration else { return }
             snapshotOrigin = location
             bestValueOrigin = valueOptions.isEmpty ? nil : location
@@ -3102,7 +3107,7 @@ final class NativeTabContentStore: ObservableObject {
                 venues: liveVenues,
                 discoverCards: cards,
                 events: Self.visibleEvents(liveEvents, location: location),
-                source: Self.source(forVisibleDeck: cards, hasLiveInputs: !liveVenues.isEmpty || !liveServices.isEmpty || !livePlaceCards.isEmpty || !liveEvents.isEmpty || !valueOptions.isEmpty),
+                source: Self.source(forVisibleDeck: cards, hasLiveInputs: !liveVenues.isEmpty || !liveServices.isEmpty || !livePlaceCards.isEmpty || !liveEvents.isEmpty || !liveParties.isEmpty || !valueOptions.isEmpty),
                 lastUpdated: Date(),
                 errorMessage: nil,
                 bestValueOptions: valueOptions,
@@ -3152,6 +3157,21 @@ final class NativeTabContentStore: ObservableObject {
             hasLiveVenueInventory: hasExplicitLiveVenueInventory && source != .fallback && !venues.isEmpty,
             hasLiveEventInventory: hasExplicitLiveEventInventory && source != .fallback && !events.isEmpty
         )
+    }
+
+    /// Parties a guest can browse to. The endpoint is membership-gated and
+    /// measures distance itself, so what comes back is already the set this
+    /// caller may see; nothing here re-decides that.
+    private func fetchNearbyParties(client: BytspotAPIClient, location: NativeLocationCoordinate) async throws -> [NativeDiscoverSummary] {
+        let payload = try await client.trpcQueryPayload(
+            path: BytspotAPIClient.partiesNearbyRoute,
+            input: ["lat": location.latitude, "lng": location.longitude, "radiusMiles": 10, "limit": 20]
+        )
+        guard let rows = Self.findArray(named: "parties", in: payload) else { return [] }
+        return rows.compactMap { value in
+            guard let item = value as? [String: Any] else { return nil }
+            return Self.partyDiscoverCard(from: item)
+        }
     }
 
     private func fetchVendorServices(client: BytspotAPIClient) async throws -> [NativeDiscoverSummary] {
@@ -3296,11 +3316,16 @@ final class NativeTabContentStore: ObservableObject {
         return cards
     }
 
-    static func liveDiscoverCards(apiCards: [NativeDiscoverSummary], venues: [NativeVenueSummary], events: [NativeEventSummary] = [], services: [NativeDiscoverSummary] = [], placeCards: [NativeDiscoverSummary] = [], valueOptions: [NativeLiveValueOption] = [], location: NativeLocationCoordinate = .midtown) -> [NativeDiscoverSummary] {
+    static func liveDiscoverCards(apiCards: [NativeDiscoverSummary], venues: [NativeVenueSummary], events: [NativeEventSummary] = [], services: [NativeDiscoverSummary] = [], placeCards: [NativeDiscoverSummary] = [], parties: [NativeDiscoverSummary] = [], valueOptions: [NativeLiveValueOption] = [], location: NativeLocationCoordinate = .midtown) -> [NativeDiscoverSummary] {
         guard !location.isFallback else {
             return locationAwareCards(NativeTabContentSnapshot.unresolved.discoverCards, sourceVenues: [], location: location)
         }
         var merged: [NativeDiscoverSummary] = []
+        // Parties lead on scarcity, not preference: a venue is still there
+        // tomorrow, a party has finite seats and ends tonight. They are merged
+        // rather than railed, so a night with none is simply a shorter deck
+        // instead of an empty shelf claiming supply that does not exist.
+        appendUnique(parties, to: &merged)
         appendUnique(placeCards, to: &merged)
         appendUnique(apiCards, to: &merged)
         appendUnique(venueDiscoverCards(from: venues), to: &merged)
@@ -3396,6 +3421,72 @@ final class NativeTabContentStore: ObservableObject {
             merged.append(event)
         }
         return merged
+    }
+
+    /// A party is the one thing in the deck a named host committed to, with
+    /// finite seats, that stops existing after tonight. A full one still shows
+    /// and says it is full: being full is a fact about the party, not a reason
+    /// to imply it does not exist.
+    static func partyDiscoverCard(from item: [String: Any]) -> NativeDiscoverSummary? {
+        guard let id = item["id"] as? String, !id.isEmpty,
+              let title = item["title"] as? String, !title.isEmpty,
+              let startsAtRaw = item["startsAt"] as? String,
+              let startsAt = NativeAccountDeletionFormat.date(fromISO: startsAtRaw) else { return nil }
+        let capability = item["capability"] as? String ?? "details"
+        let accessMode = item["accessMode"] as? String ?? ""
+        let tier = (item["requiredMembershipTier"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let venueName = (item["venueName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let spacesRemaining = item["spacesRemaining"] as? Int
+        let isFull = spacesRemaining == 0
+        let timeLabel = partyTimeLabel(startsAt)
+        let seatsLabel = spacesRemaining.map { $0 == 0 ? "Full" : "\($0) left" }
+        return NativeDiscoverSummary(
+            id: "party-\(id)",
+            type: "party",
+            title: title,
+            // The host's own words for where it is. Never a guess.
+            subtitle: venueName.isEmpty ? "Hosted party" : venueName,
+            distance: (item["distanceMiles"] as? Double).map { String(format: "%.1f mi", $0) } ?? "",
+            rating: "Live",
+            icon: "party.popper.fill",
+            verified: true,
+            entryType: accessMode == "paid-ticket" ? "paid" : "free",
+            // The capability word is the server's assertion, spoken in the
+            // shared vocabulary so it cannot drift from the rest of Discover.
+            cta: isFull ? "Full" : partyCapabilityLabel(capability),
+            imageUrl: nil,
+            categoryLabel: "Parties",
+            badgeText: isFull ? "FULL" : "PARTY",
+            metadataLine: [timeLabel, seatsLabel].compactMap { $0 }.joined(separator: " \u{2022} "),
+            features: (["Parties"] + (tier.isEmpty ? [] : ["\(tier.capitalized) members"])),
+            vibeScore: 8,
+            availability: timeLabel,
+            membershipRequired: !tier.isEmpty,
+            control: capability == "details" ? NativeDiscoverCardControl.local : NativeDiscoverCardControl.vendor,
+            latitude: item["latitude"] as? Double,
+            longitude: item["longitude"] as? Double
+        )
+    }
+
+    static func partyCapabilityLabel(_ capability: String) -> String {
+        switch capability {
+        case "book": return NativeDiscoverBookableCapability.book.statusLabel
+        case "request": return NativeDiscoverBookableCapability.request.statusLabel
+        default: return NativeDiscoverBookableCapability.details.statusLabel
+        }
+    }
+
+    static func partyTimeLabel(_ startsAt: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        let time = DateFormatter()
+        time.locale = .current
+        time.dateFormat = "h:mm a"
+        let clock = time.string(from: startsAt)
+        if calendar.isDateInToday(startsAt) { return "Tonight \(clock)" }
+        if calendar.isDateInTomorrow(startsAt) { return "Tomorrow \(clock)" }
+        let day = DateFormatter()
+        day.locale = .current
+        day.dateFormat = "EEE d MMM"
+        return "\(day.string(from: startsAt)) \(clock)"
     }
 
     private static func venueDiscoverCards(from venues: [NativeVenueSummary]) -> [NativeDiscoverSummary] {

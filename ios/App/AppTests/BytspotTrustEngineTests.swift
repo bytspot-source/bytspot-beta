@@ -1183,6 +1183,98 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     @MainActor
+    @MainActor
+    func testNearbyPartyProjectsIntoADiscoverCardWithTheServersOwnCapability() {
+        let startsAt = Date().addingTimeInterval(3 * 60 * 60)
+        let card = NativeTabContentStore.partyDiscoverCard(from: [
+            "id": "party-7", "title": "Rooftop Listening Session", "venueName": "Ponce Rooftop",
+            "startsAt": ISO8601DateFormatter().string(from: startsAt), "accessMode": "free-rsvp",
+            "capability": "book", "requiredMembershipTier": "green", "capacity": 40,
+            "spacesRemaining": 12, "distanceMiles": 1.4, "latitude": 33.7729, "longitude": -84.3654,
+        ])
+        XCTAssertEqual(card?.id, "party-party-7")
+        XCTAssertEqual(card?.type, "party")
+        XCTAssertEqual(card?.title, "Rooftop Listening Session")
+        XCTAssertEqual(card?.subtitle, "Ponce Rooftop")
+        XCTAssertEqual(card?.distance, "1.4 mi")
+        XCTAssertEqual(card?.cta, NativeDiscoverBookableCapability.book.statusLabel)
+        XCTAssertEqual(card?.badgeText, "PARTY")
+        XCTAssertTrue(card?.metadataLine.contains("12 left") == true)
+        XCTAssertEqual(card?.membershipRequired, true)
+        XCTAssertEqual(card?.control, NativeDiscoverCardControl.vendor)
+        XCTAssertEqual(card?.latitude, 33.7729)
+    }
+
+    @MainActor
+    func testAFullPartyStillAppearsAndSaysSo() {
+        // Being full is a fact about the party, not a reason to imply it does
+        // not exist. The card must show and must not offer to book it.
+        let card = NativeTabContentStore.partyDiscoverCard(from: [
+            "id": "party-8", "title": "Sold Out Warehouse", "venueName": "Westside",
+            "startsAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(7200)),
+            "accessMode": "paid-ticket", "capability": "book", "requiredMembershipTier": "",
+            "capacity": 30, "spacesRemaining": 0, "distanceMiles": 2.0,
+        ])
+        XCTAssertNotNil(card)
+        XCTAssertEqual(card?.badgeText, "FULL")
+        XCTAssertEqual(card?.cta, "Full")
+        XCTAssertEqual(card?.entryType, "paid")
+        XCTAssertEqual(card?.membershipRequired, false)
+    }
+
+    @MainActor
+    func testAPartyWithoutIdentityOrStartTimeIsNotInvented() {
+        XCTAssertNil(NativeTabContentStore.partyDiscoverCard(from: ["title": "No id", "startsAt": "2026-09-21T02:00:00Z"]))
+        XCTAssertNil(NativeTabContentStore.partyDiscoverCard(from: ["id": "p", "startsAt": "2026-09-21T02:00:00Z"]))
+        XCTAssertNil(NativeTabContentStore.partyDiscoverCard(from: ["id": "p", "title": "No start"]))
+        XCTAssertNil(NativeTabContentStore.partyDiscoverCard(from: ["id": "p", "title": "Bad start", "startsAt": "not-a-date"]))
+    }
+
+    @MainActor
+    func testPartiesLeadTheDeckAndAnEmptyNightIsSimplyAShorterDeck() {
+        let party = NativeTabContentStore.partyDiscoverCard(from: [
+            "id": "party-9", "title": "Courtyard Session", "venueName": "Old Fourth Ward",
+            "startsAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(5400)),
+            "accessMode": "free-rsvp", "capability": "book", "requiredMembershipTier": "",
+            "capacity": 20, "spacesRemaining": 5, "distanceMiles": 0.6,
+        ])
+        let venues = [venue(name: "Tongue & Groove", category: "club", address: "Venue row")]
+        let withParty = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: venues, parties: [party!], location: .verifiedMidtown)
+        XCTAssertEqual(withParty.first?.title, "Courtyard Session")
+
+        // No parties tonight must not leave a shelf behind claiming supply.
+        let withoutParty = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: venues, parties: [], location: .verifiedMidtown)
+        XCTAssertFalse(withoutParty.contains { $0.type == "party" })
+        XCTAssertFalse(withoutParty.contains { $0.categoryLabel == "Parties" })
+    }
+
+    @MainActor
+    func testAnUnresolvedLocationShowsNoPartiesEvenWhenSomeWereFetched() {
+        let party = NativeTabContentStore.partyDiscoverCard(from: [
+            "id": "party-10", "title": "Should Never Show", "venueName": "Somewhere",
+            "startsAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(3600)),
+            "accessMode": "free-rsvp", "capability": "book", "requiredMembershipTier": "",
+            "capacity": 10, "spacesRemaining": 3, "distanceMiles": 0.2,
+        ])
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [], parties: [party!], location: .midtown)
+        XCTAssertFalse(cards.contains { $0.title == "Should Never Show" })
+    }
+
+    @MainActor
+    func testPartyTimeLabelNamesTonightAndTomorrowRatherThanADate() {
+        let calendar = Calendar.current
+        let now = calendar.date(bySettingHour: 18, minute: 0, second: 0, of: Date())!
+        let tonight = calendar.date(byAdding: .hour, value: 3, to: now)!
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: now)!
+        XCTAssertTrue(NativeTabContentStore.partyTimeLabel(tonight, now: now).hasPrefix("Tonight "))
+        XCTAssertTrue(NativeTabContentStore.partyTimeLabel(tomorrow, now: now).hasPrefix("Tomorrow "))
+        let nextWeek = calendar.date(byAdding: .day, value: 6, to: now)!
+        let label = NativeTabContentStore.partyTimeLabel(nextWeek, now: now)
+        XCTAssertFalse(label.hasPrefix("Tonight"))
+        XCTAssertFalse(label.hasPrefix("Tomorrow"))
+    }
+
+    @MainActor
     func testLiveDiscoverCardsExpandBootstrapWithVenueAndEventRows() {
         let apiCard = NativeDiscoverSummary(id: "api-fado", type: "nightlife", title: "Fado Irish Pub", subtitle: "Live API bootstrap", distance: "0.4 mi", rating: "4.6", icon: "music.note", verified: true, entryType: "paid", cta: "Open details", imageUrl: nil, categoryLabel: "Nightlife", badgeText: "LIVE API", metadataLine: "Busy tonight", features: ["Nightlife"], vibeScore: 8, availability: "Busy", membershipRequired: false)
         let venues = [

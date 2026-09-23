@@ -12263,12 +12263,20 @@ private struct NativeVenueDetailView: View {
             // One line. The mark already says media, and the eyebrow said
             // Recorded Vibe directly above Play Vibe, which is the same fact
             // twice in a control 44pt tall.
-            Text(title).font(.system(size: 15, weight: .semibold))
+            //
+            // 17pt because this word now stands alone: at 15pt it was still
+            // sized as the lower half of a two-line stack and read a step
+            // under the address and description it sits among, which are
+            // .body. It also puts intrinsic height near 40pt, so the 44pt
+            // frame is a floor the content nearly meets rather than padding
+            // holding a short label apart.
+            Text(title).font(.system(size: 17, weight: .semibold))
         } icon: {
             // At .title2 the glyph out-weighed the words it labels and the
-            // control read as a player rather than an action.
+            // control read as a player rather than an action. It tracks the
+            // text so it lands near cap height instead of turning timid.
             Image(systemName: supplied ? "play.fill" : "play.slash")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
         }
         .foregroundColor(.white.opacity(supplied ? 1 : 0.45))
         .padding(.horizontal, 16).padding(.vertical, 10)

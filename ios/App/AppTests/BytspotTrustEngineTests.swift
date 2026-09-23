@@ -2714,6 +2714,14 @@ final class NativeProfileDataAPITests: XCTestCase {
         for tab in [BytspotNativeTab.home, .plan, .discover, .concierge, .profile] {
             XCTAssertTrue(BytspotNativeShellView.showsGlobalHeaderControls(for: tab))
         }
+        // The avatar is the entry to Profile, so it is not drawn on Profile.
+        // The row itself stays for the Map shortcut, which nothing replaces.
+        XCTAssertFalse(BytspotNativeShellView.showsGlobalProfileAvatar(for: .profile))
+        for tab in [BytspotNativeTab.home, .plan, .discover, .concierge] {
+            XCTAssertTrue(BytspotNativeShellView.showsGlobalProfileAvatar(for: tab), "\(tab.title) must keep the way into Profile.")
+        }
+        XCTAssertFalse(BytspotNativeShellView.showsGlobalProfileAvatar(for: .host))
+        XCTAssertFalse(BytspotNativeShellView.showsGlobalProfileAvatar(for: .map))
         XCTAssertTrue(NativeHostCategory.allCases.allSatisfy { $0.bandHex > 0 && $0.bandHex <= 0xFFFFFF })
         XCTAssertEqual(NativeHostCategory.allCases.map(\.illustrationAsset), NativeHostCategory.allCases.map { "HostEditions/\($0.rawValue)" })
         XCTAssertTrue(NativeHostCategory.allCases.allSatisfy { UIImage(named: $0.illustrationAsset) != nil })

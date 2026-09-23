@@ -822,12 +822,17 @@ struct BytspotNativeShellView: View {
                     .accessibilityIdentifier("native-global-map-button")
                 }
                 Spacer(minLength: NativeNavigationLayout.contentGap)
-                Button(action: { openNativeProfile(panel: nil) }) {
-                    NativeRoundButton(symbol: "person.crop.circle.fill", tint: NativeTheme.textPrimary, size: NativeNavigationLayout.controlSize)
+                // The avatar is the way into Profile, so on Profile it is a
+                // control that goes where you already are. Map stays: it is a
+                // top-right destination and is in no bottom bar.
+                if Self.showsGlobalProfileAvatar(for: selectedTab) {
+                    Button(action: { openNativeProfile(panel: nil) }) {
+                        NativeRoundButton(symbol: "person.crop.circle.fill", tint: NativeTheme.textPrimary, size: NativeNavigationLayout.controlSize)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Profile")
+                    .accessibilityIdentifier("native-global-profile-avatar")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Profile")
-                .accessibilityIdentifier("native-global-profile-avatar")
             }
             .frame(height: NativeNavigationLayout.controlSize)
             .padding(.horizontal, NativeNavigationLayout.horizontalInset)
@@ -839,6 +844,12 @@ struct BytspotNativeShellView: View {
 
     static func showsGlobalHeaderControls(for tab: BytspotNativeTab) -> Bool {
         tab != .host && tab != .map
+    }
+
+    /// Profile keeps the row for its Map shortcut but drops the avatar, which
+    /// would only reopen the surface the caller is standing on.
+    static func showsGlobalProfileAvatar(for tab: BytspotNativeTab) -> Bool {
+        showsGlobalHeaderControls(for: tab) && tab != .profile
     }
 
     static func tabBarIsVisible(for tab: BytspotNativeTab) -> Bool {
@@ -12723,15 +12734,19 @@ private struct NativeVenueDetailView: View {
         NativeVenueDetailMediaItem(id: id, kind: kind, url: url.flatMap(URL.init(string:)), fallbackEmoji: emoji, accessibilityLabel: label)
     }
 
+    /// A 62pt disc with a black glyph read as a video player's main control
+    /// and sat on top of the name and the line beneath it. It only has to say
+    /// this frame moves, so it is sized as a marker rather than a button and
+    /// the photograph keeps the centre of the hero.
     private var videoPlayOverlay: some View {
         Image(systemName: "play.fill")
-            .font(.system(size: 24, weight: .black))
+            .font(.system(size: 13, weight: .semibold))
             .foregroundColor(.white)
-            .frame(width: 62, height: 62)
-            .background(Color.black.opacity(0.52))
-            .overlay(Circle().stroke(Color.white.opacity(0.28), lineWidth: 1.2))
+            .frame(width: 34, height: 34)
+            .background(Color.black.opacity(0.42))
+            .overlay(Circle().stroke(Color.white.opacity(0.22), lineWidth: 0.8))
             .clipShape(Circle())
-            .shadow(color: Color.black.opacity(0.32), radius: 12, x: 0, y: 6)
+            .shadow(color: Color.black.opacity(0.24), radius: 6, x: 0, y: 2)
     }
 
     private func mediaPageDots(count: Int) -> some View {

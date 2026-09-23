@@ -7,7 +7,10 @@ import {
   type Demand,
   type DemandSupply,
 } from './demand';
+import { MediaPicker } from './MediaPicker';
+import type { MediaTransport } from './mediaTransport';
 import { authorizeDemand, visibleByBookable, type VendorSession } from './seller';
+import type { AuthorizedFetch } from './setupTransport';
 
 export interface DemandFeedProps {
   session: VendorSession;
@@ -17,9 +20,21 @@ export interface DemandFeedProps {
   busy: boolean;
   loading: boolean;
   onRespond: (demandId: string, bookableId: string, operation: 'OFFER' | 'DECLINE') => void;
+  media: MediaTransport;
+  authorizedFetch?: AuthorizedFetch;
 }
 
-export function DemandFeed({ session, demands, owned, blockers, busy, loading, onRespond }: DemandFeedProps) {
+export function DemandFeed({
+  session,
+  demands,
+  owned,
+  blockers,
+  busy,
+  loading,
+  onRespond,
+  media,
+  authorizedFetch,
+}: DemandFeedProps) {
   const now = useMemo(() => new Date(), []);
 
   // Demand is only answerable from capacity this seat can actually see.
@@ -115,6 +130,30 @@ export function DemandFeed({ session, demands, owned, blockers, busy, loading, o
           </ul>
         )}
       </section>
+
+      {supply.length > 0 ? (
+        <section>
+          <h2 className="vendor-section-title">Photos on what you offer</h2>
+          <p className="vendor-muted">A cover on the window, not the place. Guests see this when they are choosing you.</p>
+          <ul className="vendor-demand-list">
+            {supply.map((item) => (
+              <li key={item.bookableId} className="vendor-card">
+                <div className="vendor-card-top">
+                  <strong>{item.title}</strong>
+                  <span className="vendor-muted">{item.location.label}</span>
+                </div>
+                <MediaPicker
+                  session={session}
+                  transport={media}
+                  parent="bookable"
+                  parentId={item.bookableId}
+                  authorizedFetch={authorizedFetch}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section>
         <h2 className="vendor-section-title">Could not answer ({unmet.length})</h2>

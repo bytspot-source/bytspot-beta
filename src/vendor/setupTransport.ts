@@ -145,3 +145,127 @@ export function httpSetupTransport(authorized: AuthorizedFetch): SetupTransport 
       send('/vendor/geocode', write({ query, kind }), (json) => reviveCandidates(json.candidates)),
   };
 }
+
+/* ── Windows: the real bookable ────────────────────────────────────────── */
+
+/** A template sold from one place on a weekly shape. The console calls it a bookable. */
+export interface VendorWindow {
+  id: string;
+  skuTemplateId: string;
+  title: string;
+  domain: string;
+  locationId: string;
+  /** 0 = Sunday. */
+  weekdays: number[];
+  openMins: number;
+  closeMins: number;
+  quantity: number;
+  priceCents: number;
+  maxGuests: number;
+  intent: string;
+  published: boolean;
+  coverUrl?: string;
+}
+
+export interface WindowDraft {
+  skuTemplateId: string;
+  locationId: string;
+  weekdays: number[];
+  openMins: number;
+  closeMins: number;
+  quantity: number;
+}
+
+export interface WindowsTransport {
+  list: () => Promise<SetupResult<VendorWindow[]>>;
+  /** Always lands as a draft; nothing a guest can see until it is published. */
+  create: (draft: WindowDraft) => Promise<SetupResult<VendorWindow>>;
+  setPublished: (id: string, published: boolean) => Promise<SetupResult<VendorWindow>>;
+}
+
+/** The refusals the API would give, checked before the round-trip. */
+export function windowDraftProblems(draft: WindowDraft): string[] {
+  const problems: string[] = [];
+  if (!draft.locationId) problems.push('Choose one of your places');
+  if (!draft.weekdays.length) problems.push('Pick at least one day');
+  if (draft.closeMins <= draft.openMins) problems.push('Closing has to come after opening');
+  if (!Number.isInteger(draft.quantity) || draft.quantity < 1) problems.push('Sell at least one per slot');
+  return problems;
+}
+
+function reviveWindow(raw: unknown): VendorWindow {
+  const json = (raw ?? {}) as Record<string, unknown>;
+  return {
+    id: String(json.id ?? ''),
+    skuTemplateId: String(json.skuTemplateId ?? ''),
+    title: String(json.title ?? json.skuTemplateId ?? ''),
+    domain: String(json.domain ?? ''),
+    locationId: String(json.locationId ?? ''),
+    weekdays: Array.isArray(json.weekdays) ? json.weekdays.map(Number).filter(Number.isInteger) : [],
+    openMins: Number(json.openMins ?? 0),
+    closeMins: Number(json.closeMins ?? 0),
+    quantity: Number(json.quantity ?? 0),
+    priceCents: Number(json.priceCents ?? 0),
+    maxGuests: Number(json.maxGuests ?? 0),
+    intent: String(json.intent ?? 'request'),
+    // Only an explicit true is published: a missing flag must read as a draft.
+    published: json.published === true,
+    coverUrl: typeof json.coverUrl === 'string' ? json.coverUrl : undefined,
+  };
+}
+
+export function httpWindowsTransport(authorized: AuthorizedFetch): WindowsTransport {
+  const send = async <T,>(path: string, init: RequestInit, map: (json: Record<string, unknown>) => T) => {
+    const response = await authorized(path, init);
+    const json = await readJson(response);
+    if (!response.ok) return { status: response.status, blockers: blockersFrom(json) } as SetupResult<T>;
+    return { status: response.status, value: map(json) } as SetupResult<T>;
+  };
+  const post = (body: unknown) => ({
+    method: 'POST' as const,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  return {
+    list: () =>
+      send('/vendor/windows', { method: 'GET' }, (json) =>
+        (Array.isArray(json.windows) ? json.windows : []).map(reviveWindow),
+      ),
+    create: (draft) => send('/vendor/windows', post(draft), reviveWindow),
+    setPublished: (id, published) =>
+      send(`/vendor/windows/${encodeURIComponent(id)}/${published ? 'publish' : 'unpublish'}`, post({}), reviveWindow),
+  };
+}
+
+/** In memory, for the demo build only. Publishing is always allowed here. */
+export function demoWindowsTransport(): WindowsTransport {
+  const rows: VendorWindow[] = [];
+  let issued = 0;
+  return {
+    list: async () => ({ status: 200, value: rows.map((row) => ({ ...row })) }),
+    create: async (draft) => {
+      const problems = windowDraftProblems(draft);
+      if (problems.length) return { status: 422, blockers: problems };
+      issued += 1;
+      const row: VendorWindow = {
+        ...draft,
+        id: `demo_window_${issued}`,
+        title: draft.skuTemplateId,
+        domain: draft.skuTemplateId.split('.')[0] ?? '',
+        priceCents: 0,
+        maxGuests: 1,
+        intent: 'request',
+        published: false,
+      };
+      rows.push(row);
+      return { status: 201, value: { ...row } };
+    },
+    setPublished: async (id, published) => {
+      const row = rows.find((entry) => entry.id === id);
+      if (!row) return { status: 404, blockers: ['No such offering'] };
+      row.published = published;
+      return { status: 200, value: { ...row } };
+    },
+  };
+}

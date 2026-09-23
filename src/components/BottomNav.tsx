@@ -1,11 +1,12 @@
-import { motion } from 'motion/react';
-import { Home, Compass, Map, Sparkles } from 'lucide-react';
+import { motion, MotionConfig, useReducedMotion } from 'motion/react';
+import { Home, Compass, Map, Sparkles, CalendarDays } from 'lucide-react';
+import type { Tab } from '../App';
 import { memo } from 'react';
 import { impactLight } from '../utils/haptics';
 
 interface BottomNavProps {
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
+  activeTab: Tab;
+  setActiveTab: (tab: Tab) => void;
   isDarkMode: boolean;
   onMapButtonClick?: () => void;
   isVisible?: boolean;
@@ -20,7 +21,8 @@ export const BottomNav = memo(function BottomNav({
   isVisible = true
 }: BottomNavProps) {
 
-  const handleNavClick = (itemId: string) => {
+  const reduceMotion = useReducedMotion();
+  const handleNavClick = (itemId: Tab) => {
     impactLight();
     if (itemId === 'map') {
       if (activeTab === 'map' && onMapButtonClick) {
@@ -39,12 +41,14 @@ export const BottomNav = memo(function BottomNav({
 
   const navItems = [
     { id: 'home', label: 'Home', icon: Home },
+    { id: 'plan', label: 'Plan', icon: CalendarDays },
     { id: 'discover', label: 'Discover', icon: Compass },
     { id: 'map', label: 'Map', icon: Map },
     { id: 'concierge', label: 'Concierge', icon: Sparkles },
-  ];
+  ] as const;
 
   return (
+    <MotionConfig reducedMotion="user">
     <motion.nav
       className="absolute bottom-0 left-0 right-0 pt-2"
       style={{ paddingBottom: 'max(2rem, var(--safe-area-bottom, 0px))' }}
@@ -82,7 +86,7 @@ export const BottomNav = memo(function BottomNav({
                 key={item.id}
                 onClick={() => handleNavClick(item.id)}
                 className="flex flex-col items-center gap-1 py-2 flex-1 relative tap-target min-h-[44px]"
-                whileTap={{ scale: 0.9 }}
+                whileTap={reduceMotion ? undefined : { scale: 0.95 }}
                 transition={{
                   type: "spring" as const,
                   stiffness: 320,
@@ -112,7 +116,7 @@ export const BottomNav = memo(function BottomNav({
                 {/* Icon */}
                 <motion.div
                   className="relative"
-                  animate={{ scale: isActive ? 1 : 0.9 }}
+                  animate={{ scale: reduceMotion || isActive ? 1 : 0.9 }}
                   transition={{ type: "spring" as const, stiffness: 320, damping: 30, mass: 0.8 }}
                 >
                   <Icon
@@ -148,5 +152,6 @@ export const BottomNav = memo(function BottomNav({
         </div>
       </motion.div>
     </motion.nav>
+    </MotionConfig>
   );
 });

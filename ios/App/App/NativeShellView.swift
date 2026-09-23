@@ -822,12 +822,17 @@ struct BytspotNativeShellView: View {
                     .accessibilityIdentifier("native-global-map-button")
                 }
                 Spacer(minLength: NativeNavigationLayout.contentGap)
-                Button(action: { openNativeProfile(panel: nil) }) {
-                    NativeRoundButton(symbol: "person.crop.circle.fill", tint: NativeTheme.textPrimary, size: NativeNavigationLayout.controlSize)
+                // The avatar is the way into Profile, so on Profile it is a
+                // control that goes where you already are. Map stays: it is a
+                // top-right destination and is in no bottom bar.
+                if Self.showsGlobalProfileAvatar(for: selectedTab) {
+                    Button(action: { openNativeProfile(panel: nil) }) {
+                        NativeRoundButton(symbol: "person.crop.circle.fill", tint: NativeTheme.textPrimary, size: NativeNavigationLayout.controlSize)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Profile")
+                    .accessibilityIdentifier("native-global-profile-avatar")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Profile")
-                .accessibilityIdentifier("native-global-profile-avatar")
             }
             .frame(height: NativeNavigationLayout.controlSize)
             .padding(.horizontal, NativeNavigationLayout.horizontalInset)
@@ -839,6 +844,12 @@ struct BytspotNativeShellView: View {
 
     static func showsGlobalHeaderControls(for tab: BytspotNativeTab) -> Bool {
         tab != .host && tab != .map
+    }
+
+    /// Profile keeps the row for its Map shortcut but drops the avatar, which
+    /// would only reopen the surface the caller is standing on.
+    static func showsGlobalProfileAvatar(for tab: BytspotNativeTab) -> Bool {
+        showsGlobalHeaderControls(for: tab) && tab != .profile
     }
 
     static func tabBarIsVisible(for tab: BytspotNativeTab) -> Bool {
@@ -4023,6 +4034,10 @@ enum NativeNetworkSegment: String, CaseIterable, Identifiable {
     case circles = "Social Circles"
     case invitations = "Invitations"
     case peopleMet = "People You Met"
+    /// Last, because the first four are what a guest came here for and their
+    /// order is already learned. Hosting is a segment at all because it used
+    /// to sit above the control and render on every one of them.
+    case hosting = "Hosting"
     var id: String { rawValue }
     var icon: String {
         switch self {
@@ -4030,6 +4045,7 @@ enum NativeNetworkSegment: String, CaseIterable, Identifiable {
         case .circles: return "person.3.fill"
         case .invitations: return "envelope.fill"
         case .peopleMet: return "person.2.wave.2.fill"
+        case .hosting: return "sparkles"
         }
     }
 }
@@ -4108,14 +4124,13 @@ private struct NativeNetworkHubView: View {
             segmentControl.padding(.horizontal, 20).padding(.bottom, 12)
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 16) {
-                    hostStudioCard
-                    hostedRooms
                     Group {
                         switch segment {
                         case .people: peopleContent
                         case .circles: circlesContent
                         case .invitations: invitationsContent
                         case .peopleMet: peopleMetContent
+                        case .hosting: hostingContent
                         }
                     }
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
@@ -4189,6 +4204,14 @@ private struct NativeNetworkHubView: View {
             self.id = roomID
             self.route = route
         }
+    }
+
+    /// Everything the host needs and nothing a guest browsing People has to
+    /// scroll past. These two used to render above the segment control, so a
+    /// segmented view was teaching that its own tabs did not govern it.
+    @ViewBuilder private var hostingContent: some View {
+        hostStudioCard
+        hostedRooms
     }
 
     @ViewBuilder private var hostedRooms: some View {
@@ -12256,14 +12279,25 @@ private struct NativeVenueDetailView: View {
 
     private func vibeLabel(_ title: String, supplied: Bool) -> some View {
         Label {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Recorded Vibe").font(.caption.weight(.semibold))
-                Text(title).font(.headline)
-            }
+            // One line. The mark already says media, and the eyebrow said
+            // Recorded Vibe directly above Play Vibe, which is the same fact
+            // twice in a control 44pt tall.
+            //
+            // 17pt because this word now stands alone: at 15pt it was still
+            // sized as the lower half of a two-line stack and read a step
+            // under the address and description it sits among, which are
+            // .body. It also puts intrinsic height near 40pt, so the 44pt
+            // frame is a floor the content nearly meets rather than padding
+            // holding a short label apart.
+            Text(title).font(.system(size: 17, weight: .semibold))
         } icon: {
-            Image(systemName: supplied ? "play.fill" : "play.slash").font(.title2)
+            // At .title2 the glyph out-weighed the words it labels and the
+            // control read as a player rather than an action. It tracks the
+            // text so it lands near cap height instead of turning timid.
+            Image(systemName: supplied ? "play.fill" : "play.slash")
+                .font(.system(size: 15, weight: .semibold))
         }
-        .foregroundColor(.white.opacity(supplied ? 1 : 0.45))
+        .foregroundColor(.white.opacity(supplied ? 1 : NativeVenueSlotCopy.unsuppliedOpacity))
         .padding(.horizontal, 16).padding(.vertical, 10)
         .frame(minHeight: 44).background(NativeVendorSurface()).clipShape(Capsule())
     }
@@ -12301,7 +12335,7 @@ private struct NativeVenueDetailView: View {
             Image(systemName: icon).font(.title3.weight(.semibold))
             Text(title).font(.subheadline.weight(.semibold))
         }
-        .foregroundColor(.white.opacity(supplied ? 1 : 0.45))
+        .foregroundColor(.white.opacity(supplied ? 1 : NativeVenueSlotCopy.unsuppliedOpacity))
         .fixedSize(horizontal: false, vertical: true)
         .padding(12).frame(minWidth: 64, minHeight: 64)
         .background(NativeVendorSurface()).clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -12730,15 +12764,19 @@ private struct NativeVenueDetailView: View {
         NativeVenueDetailMediaItem(id: id, kind: kind, url: url.flatMap(URL.init(string:)), fallbackEmoji: emoji, accessibilityLabel: label)
     }
 
+    /// A 62pt disc with a black glyph read as a video player's main control
+    /// and sat on top of the name and the line beneath it. It only has to say
+    /// this frame moves, so it is sized as a marker rather than a button and
+    /// the photograph keeps the centre of the hero.
     private var videoPlayOverlay: some View {
         Image(systemName: "play.fill")
-            .font(.system(size: 24, weight: .black))
+            .font(.system(size: 13, weight: .semibold))
             .foregroundColor(.white)
-            .frame(width: 62, height: 62)
-            .background(Color.black.opacity(0.52))
-            .overlay(Circle().stroke(Color.white.opacity(0.28), lineWidth: 1.2))
+            .frame(width: 34, height: 34)
+            .background(Color.black.opacity(0.42))
+            .overlay(Circle().stroke(Color.white.opacity(0.22), lineWidth: 0.8))
             .clipShape(Circle())
-            .shadow(color: Color.black.opacity(0.32), radius: 12, x: 0, y: 6)
+            .shadow(color: Color.black.opacity(0.24), radius: 6, x: 0, y: 2)
     }
 
     private func mediaPageDots(count: Int) -> some View {
@@ -19281,7 +19319,8 @@ enum NativeAccountParitySelfTests {
         precondition(NativeBoutiqueStayBookingContract.storageKey == "bytspot_native_boutique_stays", "NativeAccountParitySelfTests: Boutique Stay wallet storage key drifted.")
         precondition(NativeBoutiqueStayBookingContract.paymentMethods == ["Apple Pay", "Credit / Debit Card"], "NativeAccountParitySelfTests: Boutique Stay payment methods must stay explicit.")
         precondition(NativeBoutiqueStayBookingContract.awaitingHostApproval == "Awaiting Host Approval", "NativeAccountParitySelfTests: Boutique Stay wallet pending status must stay professional and specific.")
-        precondition(NativeNetworkSegment.allCases.map(\.rawValue) == ["People", "Social Circles", "Invitations", "People You Met"], "NativeAccountParitySelfTests: Network must expose exactly People, Social Circles, Invitations, and People You Met.")
+        precondition(NativeNetworkSegment.allCases.map(\.rawValue) == ["People", "Social Circles", "Invitations", "People You Met", "Hosting"], "NativeAccountParitySelfTests: Network must expose exactly People, Social Circles, Invitations, People You Met, and Hosting.")
+        precondition(NativeNetworkSegment.allCases.first == .people && NativeNetworkSegment.allCases.last == .hosting, "NativeAccountParitySelfTests: Network must open on People, with Hosting last.")
         precondition(NativeProfilePanel.p2SocialActivityPanels == [.savedSpots, .placesVisited], "NativeAccountParitySelfTests: Profile must not reintroduce a redundant Friends panel.")
         precondition(NativeSavedPlacesBoardContract.accessibilityID == "native-saved-places-board", "NativeAccountParitySelfTests: Saved Places must use the Saved Places Board, not generic stat cards.")
         precondition(NativeSavedPlacesBoardContract.summary.contains("venue and access details"), "NativeAccountParitySelfTests: Saved Places details-only copy drifted.")
@@ -19302,7 +19341,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfilePreferenceSourceContract.locationControls == ["Primary Location Permission", "Enhanced Indoor Accuracy", "Background Location", "Location for Offers & Promotions", "Venue Recommendations"], "NativeAccountParitySelfTests: Location Settings controls drifted from React.")
         precondition(NativeProfileP3Contract.notificationKeys == ["bytspot_notify_push_reservations", "bytspot_notify_push_promotions", "bytspot_notify_push_reminders", "bytspot_notify_push_insider", "bytspot_notify_push_nearby", "bytspot_notify_email_reservations", "bytspot_notify_email_promotions", "bytspot_notify_email_newsletter", "bytspot_notify_email_receipts", "bytspot_notify_sms_reservations", "bytspot_notify_sms_reminders", "bytspot_notify_sms_emergencies"], "NativeAccountParitySelfTests: notification storage keys drifted.")
         precondition(NativeProfileP3Contract.privacyKeys == ["bytspot_location_enhanced_indoor_accuracy", "bytspot_location_background", "bytspot_location_offers", "bytspot_venue_recommendations_enabled"], "NativeAccountParitySelfTests: privacy storage keys drifted.")
-        precondition(NativeProfileWireframeGuard.networkSegments == ["People", "Social Circles", "Invitations", "People You Met"], "NativeAccountParitySelfTests: Network segment copy drifted.")
+        precondition(NativeProfileWireframeGuard.networkSegments == ["People", "Social Circles", "Invitations", "People You Met", "Hosting"], "NativeAccountParitySelfTests: Network segment copy drifted.")
 
         precondition(NativeMigrationConfig.previewSessionEnvironmentKey == "BYT_NATIVE_PREVIEW_SESSION", "NativeAccountParitySelfTests: preview session env key drifted.")
         precondition(NativeMigrationConfig.previewTokenEnvironmentKey == "BYT_NATIVE_PREVIEW_TOKEN", "NativeAccountParitySelfTests: preview token env key drifted.")

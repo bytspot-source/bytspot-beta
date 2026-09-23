@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		D52000112026091000000001 /* NativeM2RouteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D52000122026091000000001 /* NativeM2RouteSheet.swift */; };
 		D52000112026091900000009 /* NativePlanDemand.swift in Sources */ = {isa = PBXBuildFile; fileRef = D52000122026091900000009 /* NativePlanDemand.swift */; };
+		D52000112026092100000011 /* NativePlanFeasibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = D52000122026092100000011 /* NativePlanFeasibility.swift */; };
 		D52000112026091000000002 /* NativeM2RouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D52000122026091000000002 /* NativeM2RouteTests.swift */; };
 		D5200011202609190000000A /* NativePlanDemandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5200012202609190000000A /* NativePlanDemandTests.swift */; };
 		D52000112026091000000003 /* NativeM5DetailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D52000122026091000000003 /* NativeM5DetailTests.swift */; };
@@ -103,6 +104,7 @@
 /* Begin PBXFileReference section */
 		D52000122026091000000001 /* NativeM2RouteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeM2RouteSheet.swift; sourceTree = "<group>"; };
 		D52000122026091900000009 /* NativePlanDemand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePlanDemand.swift; sourceTree = "<group>"; };
+		D52000122026092100000011 /* NativePlanFeasibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePlanFeasibility.swift; sourceTree = "<group>"; };
 		D52000122026091000000002 /* NativeM2RouteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeM2RouteTests.swift; sourceTree = "<group>"; };
 		D5200012202609190000000A /* NativePlanDemandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePlanDemandTests.swift; sourceTree = "<group>"; };
 		D52000122026091000000003 /* NativeM5DetailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeM5DetailTests.swift; sourceTree = "<group>"; };
@@ -255,6 +257,7 @@
 				A13F14002D00000000001400 /* NativeDiscoverListing.swift */,
 				D52000122026091000000001 /* NativeM2RouteSheet.swift */,
 				D52000122026091900000009 /* NativePlanDemand.swift */,
+				D52000122026092100000011 /* NativePlanFeasibility.swift */,
 				A13F13042D00000000001304 /* bookable-templates.json */,
 				A13F03042C0FF00100000055 /* BytspotNativeAppRoot.swift */,
 				A13F03002C0FF00100000051 /* NativeMigrationCore.swift */,
@@ -488,6 +491,7 @@
 				A13F14012D00000000001401 /* NativeDiscoverListing.swift in Sources */,
 				D52000112026091000000001 /* NativeM2RouteSheet.swift in Sources */,
 				D52000112026091900000009 /* NativePlanDemand.swift in Sources */,
+				D52000112026092100000011 /* NativePlanFeasibility.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

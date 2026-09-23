@@ -243,6 +243,21 @@ export function useVenues(): UseVenuesResult {
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
+  const fetchVendorInventoryCards = async (): Promise<DiscoverCard[]> => {
+    if (APP_STORE_CONSUMER_ONLY_COMPILE_TIME) return [];
+    try {
+      const { vendorInventoryToCard } = await import('../vendorExperienceCards');
+      const center = userCoordsRef.current ?? ATLANTA_HUB_COORDS;
+      const items = await trpc.inventory.list.query({ lat: center.lat, lng: center.lng });
+      return (Array.isArray(items) ? items : [])
+        .map((item, index) => vendorInventoryToCard(item, index))
+        .filter((card): card is DiscoverCard => card !== null);
+    } catch (err: any) {
+      console.warn('[useVenues] Vendor inventory unavailable:', err?.message);
+      return [];
+    }
+  };
+
   const fetchVendorServiceCards = async (): Promise<DiscoverCard[]> => {
     if (APP_STORE_CONSUMER_ONLY_COMPILE_TIME) return [];
     let savedRequestCards: DiscoverCard[] = [];
@@ -297,16 +312,20 @@ export function useVenues(): UseVenuesResult {
     setError(null);
 
     try {
-      const [venuesResult, vendorCardsResult] = await Promise.allSettled([
+      const [venuesResult, vendorCardsResult, inventoryCardsResult] = await Promise.allSettled([
         trpc.venues.list.query(),
         fetchVendorServiceCards(),
+        fetchVendorInventoryCards(),
       ]);
 
       if (!isMountedRef.current || requestId !== latestRequestIdRef.current) {
         return;
       }
 
-      const vendorCards = vendorCardsResult.status === 'fulfilled' ? vendorCardsResult.value : [];
+      const vendorCards = [
+        ...(inventoryCardsResult.status === 'fulfilled' ? inventoryCardsResult.value : []),
+        ...(vendorCardsResult.status === 'fulfilled' ? vendorCardsResult.value : []),
+      ];
       vendorServiceCardsRef.current = vendorCards;
 
       if (venuesResult.status !== 'fulfilled') {

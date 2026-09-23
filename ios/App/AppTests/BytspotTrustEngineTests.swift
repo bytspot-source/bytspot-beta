@@ -2764,13 +2764,25 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertFalse(NativeProfileWireframeGuard.offersMembershipUpgrade)
     }
 
-    func testNativeNetworkHasExactlyPeopleCirclesInvitationsAndPeopleMet() {
+    func testNativeNetworkHasExactlyPeopleCirclesInvitationsPeopleMetAndHosting() {
         // Places & Activity is folded into Saved in Phase 1; the landing
         // now surfaces Account, Preferences, App Settings, and Safety & Legal.
         XCTAssertEqual(NativeProfileWireframeGuard.menuSectionTitles, ["Account", "Preferences", "App Settings", "Safety & Legal"])
-        XCTAssertEqual(NativeProfileWireframeGuard.networkSegments, ["People", "Social Circles", "Invitations", "People You Met"])
+        XCTAssertEqual(NativeProfileWireframeGuard.networkSegments, ["People", "Social Circles", "Invitations", "People You Met", "Hosting"])
+        // Hosting earned a segment because it was already on this screen,
+        // rendering above the control on all four. Plans did not and still
+        // does not: it lives in its own tab and would be a second home.
         XCTAssertFalse(NativeProfileWireframeGuard.networkSegments.contains("Plans"))
         XCTAssertEqual(NativeProfilePanel.allCases.count, Set(NativeProfilePanel.allCases.map(\.rawValue)).count)
+    }
+
+    func testNetworkOpensOnPeopleRatherThanHosting() {
+        // The default segment is the social one. A guest opening their network
+        // to find a hosting storefront is the layout this change removed.
+        XCTAssertEqual(NativeNetworkSegment.allCases.first, .people)
+        XCTAssertEqual(NativeNetworkSegment.allCases.last, .hosting)
+        XCTAssertEqual(NativeNetworkSegment.hosting.rawValue, "Hosting")
+        XCTAssertEqual(NativeNetworkSegment.hosting.icon, "sparkles")
     }
 
     func testHostStudioPresentationRenamesButDoesNotReorderTheFlow() {
@@ -2854,6 +2866,14 @@ final class NativeProfileDataAPITests: XCTestCase {
         for tab in [BytspotNativeTab.home, .plan, .discover, .concierge, .profile] {
             XCTAssertTrue(BytspotNativeShellView.showsGlobalHeaderControls(for: tab))
         }
+        // The avatar is the entry to Profile, so it is not drawn on Profile.
+        // The row itself stays for the Map shortcut, which nothing replaces.
+        XCTAssertFalse(BytspotNativeShellView.showsGlobalProfileAvatar(for: .profile))
+        for tab in [BytspotNativeTab.home, .plan, .discover, .concierge] {
+            XCTAssertTrue(BytspotNativeShellView.showsGlobalProfileAvatar(for: tab), "\(tab.title) must keep the way into Profile.")
+        }
+        XCTAssertFalse(BytspotNativeShellView.showsGlobalProfileAvatar(for: .host))
+        XCTAssertFalse(BytspotNativeShellView.showsGlobalProfileAvatar(for: .map))
         XCTAssertTrue(NativeHostCategory.allCases.allSatisfy { $0.bandHex > 0 && $0.bandHex <= 0xFFFFFF })
         XCTAssertEqual(NativeHostCategory.allCases.map(\.illustrationAsset), NativeHostCategory.allCases.map { "HostEditions/\($0.rawValue)" })
         XCTAssertTrue(NativeHostCategory.allCases.allSatisfy { UIImage(named: $0.illustrationAsset) != nil })

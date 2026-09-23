@@ -459,6 +459,84 @@ fieldset.vendor-field {
   color: var(--vendor-text);
 }
 
+.vendor-media {
+  margin-top: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.vendor-media-kind {
+  display: grid;
+  gap: 8px;
+}
+
+.vendor-media-label {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--vendor-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.vendor-media-row {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.vendor-media-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 112px;
+}
+
+.vendor-media-thumb {
+  display: block;
+  width: 112px;
+  height: 112px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid var(--vendor-line);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.vendor-media-file {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 112px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px dashed var(--vendor-line);
+  color: var(--vendor-text);
+  text-align: center;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.vendor-media .vendor-chip {
+  min-height: 44px;
+}
+
+.vendor-chip:active,
+.vendor-button:active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .vendor-chip,
+  .vendor-button {
+    transition: transform 100ms ease-out;
+  }
+}
+
 /* Shown once and never again, so it has to be selectable and unambiguous. */
 .vendor-secret {
   display: block;

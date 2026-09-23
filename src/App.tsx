@@ -1,4 +1,6 @@
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
+import { DeepSpaceGround, DeepSpaceGroundContext } from './components/DeepSpaceGround';
+import { createPlanApi } from './utils/planRpc';
 import { Search, MapPin, Star, Navigation, Sparkles, Sun, Mic, Menu, Heart, Wind, CheckCircle2, XCircle, ReceiptText } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { BrandLogo } from './components/BrandLogo';
@@ -37,6 +39,10 @@ const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONS
 function AppStoreUnavailable() {
   return null;
 }
+
+const PlanSection = lazy(() => import('./components/PlanSection').then(m => ({ default: m.PlanSection })));
+const planApi = createPlanApi(trpc);
+export type Tab = 'home' | 'plan' | 'discover' | 'map' | 'profile' | 'concierge';
 
 const DiscoverSection = lazy(() => import('./components/DiscoverSection').then(m => ({ default: m.DiscoverSection })));
 const MapSection = lazy(() => import('./components/MapSection').then(m => ({ default: m.MapSection })));
@@ -201,6 +207,13 @@ function hasAuthenticatedConsumerSession(): boolean {
   return Boolean(token && token !== 'guest_session' && user);
 }
 
+function getPlanViewerId(): string | undefined {
+  try {
+    const user = JSON.parse(localStorage.getItem('bytspot_user') ?? 'null');
+    return typeof user?.id === 'string' ? user.id : typeof user?.userId === 'string' ? user.userId : undefined;
+  } catch { return undefined; }
+}
+
 function getHomeServiceFocusId(card: DiscoverCard): string {
   return card.vendorServiceId ?? String(card.id);
 }
@@ -354,7 +367,8 @@ export default function App() {
   const initialPatchDeepLink = typeof window !== 'undefined' ? extractPatchDeepLink(window.location.href) : null;
   const hasAuthToken = !!localStorage.getItem('bytspot_auth_token');
   const [currentScreen, setCurrentScreen] = useState<AppScreen>(hasAuthToken || initialPatchDeepLink ? 'main' : 'splash');
-  const [activeTab, setActiveTab] = useState('home');
+  const [activeTab, setActiveTab] = useState<Tab>('home');
+  const reduceMotion = useReducedMotion();
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const themeParam = new URLSearchParams(window.location.search).get('theme');
     if (themeParam === 'light') return false;
@@ -728,9 +742,9 @@ export default function App() {
           // bytspot://venue/<id> → open venue details via discover tab
           setCurrentScreen('main');
           setActiveTab('discover');
-        } else if (path === 'map') {
+        } else if (path === 'map' || path === 'plan') {
           setCurrentScreen('main');
-          setActiveTab('map');
+          setActiveTab(path);
         } else if (path === 'profile') {
           openProfileMain();
         }
@@ -739,13 +753,13 @@ export default function App() {
 
     const applyNativeTabRoute = (tab?: string | null, focus?: string | null) => {
       const normalized = tab === 'access' ? 'profile' : tab;
-      if (!normalized || !['home', 'discover', 'map', 'profile', 'concierge'].includes(normalized)) return;
+      if (!normalized || !['home', 'plan', 'discover', 'map', 'profile', 'concierge'].includes(normalized)) return;
       if (normalized === 'profile') {
         if (focus) localStorage.setItem('bytspot_profile_focus', focus);
         else localStorage.removeItem('bytspot_profile_focus');
       }
       setCurrentScreen('main');
-      setActiveTab(normalized);
+      setActiveTab(normalized as Tab);
     };
 
     const handleNativeTab = (event: Event) => {
@@ -1481,25 +1495,11 @@ export default function App() {
 
   // Main app with tabs
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#000000]">
-      {/* Background gradients - Brand Colors */}
-      <div className="absolute inset-0">
-        <div className="absolute inset-0 bg-[#000000]" />
-        <div className="absolute inset-0 opacity-30 pointer-events-none">
-          {/* Purple (AI) - Top center */}
-          <div className="absolute top-[10%] left-1/2 -translate-x-1/2 w-[500px] h-[500px]" 
-               style={{ background: 'radial-gradient(circle, rgba(168, 85, 247, 0.20) 0%, transparent 70%)' }} />
-          {/* Cyan (Parking) - Bottom right */}
-          <div className="absolute bottom-[20%] right-[10%] w-[400px] h-[400px]" 
-               style={{ background: 'radial-gradient(circle, rgba(0, 191, 255, 0.18) 0%, transparent 70%)' }} />
-          {/* Magenta (Venues) - Middle left */}
-          <div className="absolute top-[40%] left-[5%] w-[350px] h-[350px]" 
-               style={{ background: 'radial-gradient(circle, rgba(255, 0, 255, 0.15) 0%, transparent 70%)' }} />
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="relative max-w-[393px] mx-auto min-h-screen flex flex-col">
+    <div className="relative min-h-screen overflow-hidden bg-[#000000]" style={{ isolation: 'isolate' }}>
+      <DeepSpaceGround />
+      <DeepSpaceGroundContext.Provider value={true}>
+      {/* The shell owns the ground; tabs inherit it without painting twice. */}
+      <div className="relative max-w-[393px] mx-auto flex flex-col" style={{ height: '100dvh', minHeight: 0 }}>
         {/* Status Bar Space — respects iOS notch / Dynamic Island */}
         <div style={{ height: 'max(3rem, var(--safe-area-top, 0px))' }} />
 
@@ -2204,6 +2204,39 @@ export default function App() {
               </motion.div>
             )}
 
+            {activeTab === 'plan' && (
+              <motion.div
+                key="plan"
+                initial={{ opacity: 0, x: reduceMotion ? 0 : -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: reduceMotion ? 0 : 20 }}
+                transition={{ duration: reduceMotion ? 0 : 0.2, ease: [0.16, 1, 0.3, 1] }}
+                className="absolute inset-0"
+                style={{ bottom: 'calc(6rem + var(--safe-area-bottom, 0px))' }}
+              >
+                <ErrorBoundary onReset={() => setActiveTab('home')} showHomeButton>
+                  <Suspense fallback={<p className="p-4 text-white" role="status">Loading Plan…</p>}>
+                    <PlanSection
+                      key={getPlanViewerId() ?? 'guest'}
+                      api={planApi}
+                      authenticated={hasAuthenticatedConsumerSession()}
+                      viewerId={getPlanViewerId()}
+                      groundDrawn
+                      onSignIn={() => setCurrentScreen('auth')}
+                      onExploreNeed={(need) => {
+                        if (need === 'parking') setActiveTab('map');
+                        else {
+                          const filters: Record<string, CardType> = { coffee: 'coffee', dining: 'dining', nightlife: 'nightlife', stay: 'boutique_apartment', ride: 'mobility' };
+                          setDiscoverFilter(filters[need]);
+                          setActiveTab('discover');
+                        }
+                      }}
+                    />
+                  </Suspense>
+                </ErrorBoundary>
+              </motion.div>
+            )}
+
             {activeTab === 'discover' && (
               <motion.div
                 key="discover"
@@ -2872,6 +2905,7 @@ export default function App() {
         </AnimatePresence>
 
       </div>
+      </DeepSpaceGroundContext.Provider>
     </div>
   );
 }

@@ -481,6 +481,11 @@ struct BytspotNativeShellView: View {
             openRootValetPreviewIfRequested()
             openRootBoutiqueStayPreviewIfRequested()
             openRootPartnerMenuPreviewIfRequested()
+            #if DEBUG
+            if NativeWindowAskPreview.mode != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { selectNativeTab(.discover) }
+            }
+            #endif
         }
         .onChange(of: selectedTab) { tab in
             if tab != .home { cancelPostAuthHomeHold() }

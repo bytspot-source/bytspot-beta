@@ -52,3 +52,16 @@ jobs:
           path: ${{ runner.temp }}/AppTests.xcresult
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Capture Ask screens
+        if: github.event_name == 'workflow_dispatch'
+        run: scripts/ci/capture-ask-screens.sh "$RUNNER_TEMP/ask-screens"
+
+      - name: Upload Ask screens
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ask-screens
+          path: ${{ runner.temp }}/ask-screens
+          if-no-files-found: ignore
+          retention-days: 14

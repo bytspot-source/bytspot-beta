@@ -596,6 +596,20 @@ struct NativeWindowAskRail: View {
         return BytspotAPIClient(tokenProvider: { store.canAttachBearerToken ? store.token : nil })
     }
 
+    private var windows: NativeWindowAsking {
+        #if DEBUG
+        if NativeWindowAskPreview.mode != nil { return NativeWindowAskPreview.Windows() }
+        #endif
+        return NativeWindowAskAPI(client: client)
+    }
+
+    private var demand: NativePlanDemandAsking {
+        #if DEBUG
+        if let mode = NativeWindowAskPreview.mode { return NativeWindowAskPreview.Demand(mode: mode) }
+        #endif
+        return NativePlanDemandAPI(client: client)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if listings.isEmpty {
@@ -623,18 +637,25 @@ struct NativeWindowAskRail: View {
         }
         .task(id: "\(coordinate.latitude),\(coordinate.longitude)") { await load() }
         .sheet(item: $asking) { listing in
-            NativeWindowAskSheet(listing: listing, windows: NativeWindowAskAPI(client: client), demand: NativePlanDemandAPI(client: client))
+            NativeWindowAskSheet(listing: listing, windows: windows, demand: demand)
         }
         .sheet(isPresented: $showRequests) {
-            NativeGuestRequestsView(demand: NativePlanDemandAPI(client: client))
+            NativeGuestRequestsView(demand: demand)
         }
         .accessibilityIdentifier("native-window-ask-rail")
     }
 
     private func load() async {
         // A rail that fails to load is absent, not an error: Discover still works.
-        guard let found = try? await NativeWindowAskAPI(client: client).listings(near: coordinate) else { return }
+        guard let found = try? await windows.listings(near: coordinate) else { return }
         listings = found.filter(\.takesAsks)
+        #if DEBUG
+        switch NativeWindowAskPreview.mode {
+        case "requests": showRequests = true
+        case "ask", "offered", "offers", "booked": asking = listings.first
+        default: break
+        }
+        #endif
     }
 
     @ViewBuilder private func card(_ listing: NativeWindowListing) -> some View {
@@ -847,6 +868,12 @@ struct NativeWindowAskSheet: View {
         if slotID == nil { slotID = listing.slots.first?.id }
         guard let mine = try? await demand.mine() else { return }
         if ask == nil, let live = NativeWindowAskRules.liveAsk(in: mine, windowID: listing.windowId) { ask = live }
+        #if DEBUG
+        if NativeWindowAskPreview.mode == "offers" { showOffers = true }
+        if NativeWindowAskPreview.mode == "booked", let offer = ask?.offers.first {
+            booked = try? await demand.accept(offerID: offer.id)
+        }
+        #endif
     }
 
     private func refresh() async {
@@ -1019,3 +1046,104 @@ struct NativeGuestRequestsView: View {
         }
     }
 }
+
+#if DEBUG
+/// Simulator preview of asking from Discover (`BYT_NATIVE_ASK_PREVIEW` =
+/// rail | ask | offered | offers | booked | requests). Sample data, no network.
+enum NativeWindowAskPreview {
+    static var mode: String? {
+        let key = "BYT_NATIVE_ASK_PREVIEW"
+        let prefix = "--byt-native-ask-preview="
+        let raw = ProcessInfo.processInfo.environment[key]
+            ?? ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix(prefix) }).map { String($0.dropFirst(prefix.count)) }
+        guard let raw = raw?.lowercased(), !raw.isEmpty else { return nil }
+        return raw
+    }
+
+    private static func iso(hoursFromNow hours: Double) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let base = Calendar.current.date(bySetting: .minute, value: 0, of: Date()) ?? Date()
+        return formatter.string(from: base.addingTimeInterval(hours * 3600))
+    }
+
+    static var listings: [NativeWindowListing] {
+        let slots = [3.0, 3.5, 4.0, 4.5, 5.0].map { NativeWindowSlot(startsAt: iso(hoursFromNow: $0), remaining: 3) }
+        return [
+            NativeWindowListing(
+                windowId: "preview-win-1", sellerName: "Peach Table Co", title: "Chef counter",
+                priceCents: 4500, maxGuests: 4, durationMins: 90, intent: "request",
+                place: NativeWindowPlace(label: "Midtown", address: "1000 Peachtree St NE", phone: "+14045550123", website: "https://example.com"),
+                distanceMiles: 0.6, coverUrl: nil, galleryUrls: [], nextSlot: slots[0], upcomingSlots: slots,
+            ),
+            NativeWindowListing(
+                windowId: "preview-win-2", sellerName: "Ponce Studio", title: "Private tasting",
+                priceCents: 6000, maxGuests: 8, durationMins: 60, intent: "request",
+                place: NativeWindowPlace(label: "Ponce City Market", address: nil, phone: nil, website: nil),
+                distanceMiles: 1.8, coverUrl: nil, galleryUrls: [], nextSlot: slots[2], upcomingSlots: Array(slots.dropFirst(2)),
+            ),
+        ]
+    }
+
+    static var offer: NativePlanDemandOffer {
+        NativePlanDemandOffer(
+            id: "preview-offer-1", where: "Midtown", startsAt: iso(hoursFromNow: 3.5), durationMins: 90,
+            priceCents: 4500, terms: "Counter seats; we hold them 15 minutes.", holdExpiresAt: iso(hoursFromNow: 0.25),
+        )
+    }
+
+    struct Windows: NativeWindowAsking {
+        func listings(near coordinate: NativeLocationCoordinate) async throws -> [NativeWindowListing] { NativeWindowAskPreview.listings }
+        func ask(windowID: String, partySize: Int, startsAt: String, note: String) async throws -> NativePlanDemandRaised {
+            NativePlanDemandRaised(id: "preview-demand-new", state: "OPEN", category: "dining", expiresAt: startsAt)
+        }
+    }
+
+    struct Demand: NativePlanDemandAsking {
+        let mode: String
+
+        func ask(planID: String, needKind: String) async throws -> NativePlanDemandAsk { throw CancellationError() }
+        func withdraw(demandID: String) async throws {}
+
+        func accept(offerID: String) async throws -> NativePlanDemandBooking {
+            let offer = NativeWindowAskPreview.offer
+            return NativePlanDemandBooking(
+                offerId: offer.id, demandId: "preview-demand-1", where: offer.where,
+                startsAt: offer.startsAt, durationMins: offer.durationMins, priceCents: offer.priceCents, terms: offer.terms,
+            )
+        }
+
+        func mine() async throws -> [NativePlanDemandAsk] {
+            let first = NativeWindowAskPreview.listings[0]
+            let offered = NativePlanDemandAsk(
+                id: "preview-demand-1", state: "OFFERED", category: "dining", partySize: 2, planId: nil,
+                expiresAt: NativeWindowAskPreview.iso(hoursFromNow: 3), offers: [NativeWindowAskPreview.offer],
+                targetWindowId: first.windowId, askedOf: NativeAskedOf(sellerName: first.sellerName, place: first.place.label),
+                earliest: NativeWindowAskPreview.iso(hoursFromNow: 3.5),
+            )
+            switch mode {
+            case "ask": return []
+            case "requests":
+                var booked = NativeWindowAskPreview.offer
+                booked.accepted = true
+                return [
+                    offered,
+                    NativePlanDemandAsk(
+                        id: "preview-demand-2", state: "OPEN", category: "dining", partySize: 6, planId: nil,
+                        expiresAt: NativeWindowAskPreview.iso(hoursFromNow: 4), offers: [],
+                        targetWindowId: "preview-win-2", askedOf: NativeAskedOf(sellerName: "Ponce Studio", place: "Ponce City Market"),
+                        earliest: NativeWindowAskPreview.iso(hoursFromNow: 4),
+                    ),
+                    NativePlanDemandAsk(
+                        id: "preview-demand-3", state: "BOOKED", category: "dining", partySize: 2, planId: nil,
+                        expiresAt: NativeWindowAskPreview.iso(hoursFromNow: -20), offers: [booked],
+                        targetWindowId: "preview-win-3", askedOf: NativeAskedOf(sellerName: "Westside Grill", place: "West Midtown"),
+                        earliest: NativeWindowAskPreview.iso(hoursFromNow: -24),
+                    ),
+                ]
+            default: return [offered]
+            }
+        }
+    }
+}
+#endif

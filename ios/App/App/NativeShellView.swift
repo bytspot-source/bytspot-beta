@@ -12265,7 +12265,11 @@ private struct NativeVenueDetailView: View {
                 Text(title).font(.headline)
             }
         } icon: {
-            Image(systemName: supplied ? "play.fill" : "play.slash").font(.title2)
+            // At .title2 the glyph out-weighed the two lines beside it in a
+            // 44pt capsule and the control read as a player. The words say
+            // what this is; the mark only has to point at it.
+            Image(systemName: supplied ? "play.fill" : "play.slash")
+                .font(.system(size: 13, weight: .semibold))
         }
         .foregroundColor(.white.opacity(supplied ? 1 : 0.45))
         .padding(.horizontal, 16).padding(.vertical, 10)

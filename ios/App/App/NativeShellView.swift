@@ -4023,6 +4023,10 @@ enum NativeNetworkSegment: String, CaseIterable, Identifiable {
     case circles = "Social Circles"
     case invitations = "Invitations"
     case peopleMet = "People You Met"
+    /// Last, because the first four are what a guest came here for and their
+    /// order is already learned. Hosting is a segment at all because it used
+    /// to sit above the control and render on every one of them.
+    case hosting = "Hosting"
     var id: String { rawValue }
     var icon: String {
         switch self {
@@ -4030,6 +4034,7 @@ enum NativeNetworkSegment: String, CaseIterable, Identifiable {
         case .circles: return "person.3.fill"
         case .invitations: return "envelope.fill"
         case .peopleMet: return "person.2.wave.2.fill"
+        case .hosting: return "sparkles"
         }
     }
 }
@@ -4108,14 +4113,13 @@ private struct NativeNetworkHubView: View {
             segmentControl.padding(.horizontal, 20).padding(.bottom, 12)
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 16) {
-                    hostStudioCard
-                    hostedRooms
                     Group {
                         switch segment {
                         case .people: peopleContent
                         case .circles: circlesContent
                         case .invitations: invitationsContent
                         case .peopleMet: peopleMetContent
+                        case .hosting: hostingContent
                         }
                     }
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
@@ -4189,6 +4193,14 @@ private struct NativeNetworkHubView: View {
             self.id = roomID
             self.route = route
         }
+    }
+
+    /// Everything the host needs and nothing a guest browsing People has to
+    /// scroll past. These two used to render above the segment control, so a
+    /// segmented view was teaching that its own tabs did not govern it.
+    @ViewBuilder private var hostingContent: some View {
+        hostStudioCard
+        hostedRooms
     }
 
     @ViewBuilder private var hostedRooms: some View {
@@ -19262,7 +19274,8 @@ enum NativeAccountParitySelfTests {
         precondition(NativeBoutiqueStayBookingContract.storageKey == "bytspot_native_boutique_stays", "NativeAccountParitySelfTests: Boutique Stay wallet storage key drifted.")
         precondition(NativeBoutiqueStayBookingContract.paymentMethods == ["Apple Pay", "Credit / Debit Card"], "NativeAccountParitySelfTests: Boutique Stay payment methods must stay explicit.")
         precondition(NativeBoutiqueStayBookingContract.awaitingHostApproval == "Awaiting Host Approval", "NativeAccountParitySelfTests: Boutique Stay wallet pending status must stay professional and specific.")
-        precondition(NativeNetworkSegment.allCases.map(\.rawValue) == ["People", "Social Circles", "Invitations", "People You Met"], "NativeAccountParitySelfTests: Network must expose exactly People, Social Circles, Invitations, and People You Met.")
+        precondition(NativeNetworkSegment.allCases.map(\.rawValue) == ["People", "Social Circles", "Invitations", "People You Met", "Hosting"], "NativeAccountParitySelfTests: Network must expose exactly People, Social Circles, Invitations, People You Met, and Hosting.")
+        precondition(NativeNetworkSegment.allCases.first == .people && NativeNetworkSegment.allCases.last == .hosting, "NativeAccountParitySelfTests: Network must open on People, with Hosting last.")
         precondition(NativeProfilePanel.p2SocialActivityPanels == [.savedSpots, .placesVisited], "NativeAccountParitySelfTests: Profile must not reintroduce a redundant Friends panel.")
         precondition(NativeSavedPlacesBoardContract.accessibilityID == "native-saved-places-board", "NativeAccountParitySelfTests: Saved Places must use the Saved Places Board, not generic stat cards.")
         precondition(NativeSavedPlacesBoardContract.summary.contains("venue and access details"), "NativeAccountParitySelfTests: Saved Places details-only copy drifted.")
@@ -19283,7 +19296,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfilePreferenceSourceContract.locationControls == ["Primary Location Permission", "Enhanced Indoor Accuracy", "Background Location", "Location for Offers & Promotions", "Venue Recommendations"], "NativeAccountParitySelfTests: Location Settings controls drifted from React.")
         precondition(NativeProfileP3Contract.notificationKeys == ["bytspot_notify_push_reservations", "bytspot_notify_push_promotions", "bytspot_notify_push_reminders", "bytspot_notify_push_insider", "bytspot_notify_push_nearby", "bytspot_notify_email_reservations", "bytspot_notify_email_promotions", "bytspot_notify_email_newsletter", "bytspot_notify_email_receipts", "bytspot_notify_sms_reservations", "bytspot_notify_sms_reminders", "bytspot_notify_sms_emergencies"], "NativeAccountParitySelfTests: notification storage keys drifted.")
         precondition(NativeProfileP3Contract.privacyKeys == ["bytspot_location_enhanced_indoor_accuracy", "bytspot_location_background", "bytspot_location_offers", "bytspot_venue_recommendations_enabled"], "NativeAccountParitySelfTests: privacy storage keys drifted.")
-        precondition(NativeProfileWireframeGuard.networkSegments == ["People", "Social Circles", "Invitations", "People You Met"], "NativeAccountParitySelfTests: Network segment copy drifted.")
+        precondition(NativeProfileWireframeGuard.networkSegments == ["People", "Social Circles", "Invitations", "People You Met", "Hosting"], "NativeAccountParitySelfTests: Network segment copy drifted.")
 
         precondition(NativeMigrationConfig.previewSessionEnvironmentKey == "BYT_NATIVE_PREVIEW_SESSION", "NativeAccountParitySelfTests: preview session env key drifted.")
         precondition(NativeMigrationConfig.previewTokenEnvironmentKey == "BYT_NATIVE_PREVIEW_TOKEN", "NativeAccountParitySelfTests: preview token env key drifted.")

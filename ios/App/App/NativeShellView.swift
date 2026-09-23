@@ -311,6 +311,7 @@ struct BytspotNativeShellView: View {
     @State private var suppressInitialTabRequestAfterLaunch = false
     @State private var postAuthHomeHoldGeneration = 0
     @State private var showValetPreviewSheet = false
+    @State private var showGuestRequests = false
     @State private var didOpenRootValetPreview = false
     @State private var showBoutiqueStayPreviewSheet = false
     @State private var didOpenBoutiqueStayPreview = false
@@ -535,6 +536,18 @@ struct BytspotNativeShellView: View {
         .sheet(isPresented: $showPartnerMenuPreviewSheet) {
             NativePartnerMenuView(menu: PartnerMenu.sample(for: Self.previewPartnerMenuVenue), tier: activeTier, isAuthenticated: sessionStore.isAuthenticated, onOpenAccess: { openNativeEquivalent(for: .access) }, onOpenAuth: { openNativeAuth(mode: .login) })
                 .preferredColorScheme(effectivePreferredColorScheme)
+        }
+        // An offer push is explicit intent, so it is honoured through the launch hold.
+        .onReceive(navigation.$requestsRequested.filter { $0 }) { _ in
+            navigation.requestsRequested = false
+            showGuestRequests = true
+        }
+        .sheet(isPresented: $showGuestRequests) {
+            NativeGuestRequestsView(demand: NativePlanDemandAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in
+                guard let sessionStore, sessionStore.canAttachBearerToken else { return nil }
+                return sessionStore.token
+            })))
+            .preferredColorScheme(effectivePreferredColorScheme)
         }
     }
 
@@ -11393,6 +11406,7 @@ private struct NativeDiscoverView: View {
 
     private var discoverDeck: some View {
         LazyVStack(spacing: 24) {
+            NativeWindowAskRail(coordinate: locationStore.coordinate, openAuth: openNativeAuth)
             if rankedCards.isEmpty {
                 Button("No options in this category yet. Explore all") { selectedFilter = nil }
                     .font(.headline).foregroundColor(.white).frame(minHeight: 44)

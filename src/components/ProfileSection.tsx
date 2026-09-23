@@ -251,7 +251,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
 
     const profileFocus = localStorage.getItem('bytspot_profile_focus');
     if (profileFocus) localStorage.removeItem('bytspot_profile_focus');
-    if (profileFocus === 'reservations' || profileFocus === 'tickets' || profileFocus === 'payment') {
+    if (profileFocus === 'reservations' || profileFocus === 'tickets' || profileFocus === 'payment' || profileFocus === 'requests') {
       setCurrentScreen(profileFocus);
     }
 

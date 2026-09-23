@@ -186,6 +186,8 @@ final class NativeNavigationCoordinator: ObservableObject {
     @Published var requestedDestination: NativeContextualDestination?
     /// Consumed once by the Map surface to centre its camera after a Clip handoff.
     @Published var requestedMapCenter: NativeLocationCoordinate?
+    /// Set by an offer push or a `/requests` link; the shell opens My Requests.
+    @Published var requestsRequested = false
     @Published private(set) var lastURL: URL?
     @Published private(set) var lastScanSource: NativePatchScanSource?
 
@@ -211,6 +213,8 @@ final class NativeNavigationCoordinator: ObservableObject {
         if path == "concierge" || path.hasPrefix("concierge/") { requestedTab = .concierge; return true }
         if path == "profile" || path.hasPrefix("profile/") { requestedTab = .home; requestedDestination = .profile; return true }
         if path == "access" { requestedTab = .home; requestedDestination = .accessWallet; return true }
+        // `plans` is where offer pushes pointed before My Requests existed; it lists the same asks.
+        if path == "requests" || path == "plans" { requestedTab = .home; requestsRequested = true; return true }
         if let partyRoute = NativePartyPassRoute(url: url) {
             // A Clip handoff that carried a public point opens the map on it, so the
             // guest lands on where they are going rather than on a card about it.

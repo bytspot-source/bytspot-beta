@@ -77,6 +77,7 @@ import {
   type NearbyLocation
 } from './utils/personalization';
 import { trpc } from './utils/trpc';
+import { askTransport, formatSlotLabel, SEEN_OFFERS_KEY, unseenOffers, type AskClient } from './utils/guestAsk';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
 import { canonicalLegalPath } from './utils/nativeHandoffGuard';
 import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
@@ -477,6 +478,55 @@ export default function App() {
     setCurrentScreen('main');
     setActiveTab('profile');
   }, []);
+
+  const openMyRequests = useCallback(() => {
+    localStorage.setItem('bytspot_profile_focus', 'requests');
+    setCurrentScreen('main');
+    setActiveTab('profile');
+  }, []);
+
+  // An offer is a hold with a deadline, so a signed-in guest hears about it on
+  // whatever screen they are on, not only on My Requests.
+  useEffect(() => {
+    if (currentScreen !== 'main') return;
+    const authToken = localStorage.getItem('bytspot_auth_token');
+    if (!authToken || authToken === 'guest_session') return;
+    const transport = askTransport(trpc as AskClient);
+    let live = true;
+    const tick = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const rows = await transport.list();
+        if (!live) return;
+        let seen: string[] = [];
+        try {
+          seen = JSON.parse(localStorage.getItem(SEEN_OFFERS_KEY) ?? '[]');
+        } catch {
+          seen = [];
+        }
+        const fresh = unseenOffers(rows, new Set(seen));
+        if (!fresh.length) return;
+        localStorage.setItem(SEEN_OFFERS_KEY, JSON.stringify([...seen, ...fresh.map(({ offer }) => offer.id)].slice(-50)));
+        for (const { offer } of fresh) {
+          toast(`${offer.where} can take you`, {
+            description: `${formatSlotLabel(offer.startsAt)} · $${(offer.priceCents / 100).toFixed(2)}. Held for a short while.`,
+            duration: 10_000,
+            action: { label: 'View', onClick: openMyRequests },
+          });
+        }
+      } catch {
+        /* signed out or offline: the next tick tries again */
+      }
+    };
+    void tick();
+    const timer = window.setInterval(() => void tick(), 30_000);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, [currentScreen, openMyRequests]);
 
   const openAccessWallet = useCallback(() => {
     localStorage.setItem('bytspot_profile_focus', 'tickets');

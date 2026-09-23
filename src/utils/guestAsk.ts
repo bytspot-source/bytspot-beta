@@ -88,6 +88,16 @@ export function askStateLabel(status: AskStatus): string {
   return 'Closed';
 }
 
+/** Offers the guest has been told about, so each one is announced once. */
+export const SEEN_OFFERS_KEY = 'bytspot_seen_offers';
+
+/** Offers on live requests that are waiting on the guest and not yet announced. */
+export function unseenOffers(rows: AskStatus[], seen: ReadonlySet<string>): { row: AskStatus; offer: AskOffer }[] {
+  return rows
+    .filter(askIsLive)
+    .flatMap((row) => row.offers.filter((offer) => !offer.accepted && !seen.has(offer.id)).map((offer) => ({ row, offer })));
+}
+
 export function askTransport(client: AskClient) {
   return {
     send: (ask: VendorAsk, draft: AskDraft) =>

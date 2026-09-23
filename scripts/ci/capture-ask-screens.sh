@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Screenshots the native Discover Ask flow on a simulator, from the Debug build
-# the test step leaves in DerivedData. Sample data via BYT_NATIVE_ASK_PREVIEW.
+# the test step leaves in DerivedData. Sample data via BYT_NATIVE_ASK_PREVIEW;
+# BYT_NATIVE_PREVIEW_TAB skips the first-run welcome flow.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -25,6 +26,7 @@ xcrun simctl location "$UDID" set 33.7866,-84.3833 || true
 
 for mode in rail ask offered offers booked requests; do
   xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
+  SIMCTL_CHILD_BYT_NATIVE_PREVIEW_TAB=discover \
   SIMCTL_CHILD_BYT_NATIVE_ASK_PREVIEW="$mode" \
   SIMCTL_CHILD_BYT_NATIVE_AUTH_AUTORUN=apple \
   SIMCTL_CHILD_BYT_NATIVE_AUTH_MOCK=success \

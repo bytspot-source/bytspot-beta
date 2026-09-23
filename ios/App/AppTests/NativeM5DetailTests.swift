@@ -542,9 +542,12 @@ final class NativeM5DetailTests: XCTestCase {
         // places, so it has to look the same in all of them. Two labels once
         // carried their own 0.45 literal, which is how they would drift.
         XCTAssertEqual(NativeVenueSlotCopy.unsuppliedOpacity, 0.55, accuracy: 0.0001)
-        // 0.52 is where white on the slot surface reaches WCAG AA at this
-        // size and weight, which cannot claim the large-text allowance.
-        XCTAssertGreaterThanOrEqual(NativeVenueSlotCopy.unsuppliedOpacity, 0.52)
+        // Measured against the material's composited fill, AA is not crossed
+        // until ~0.525 and the first round value clearing the tighter utility
+        // tile is 0.53. The floor is set there, not at the 0.52 a nominal
+        // colour suggests, so nobody trims to a value that only passes on
+        // paper.
+        XCTAssertGreaterThanOrEqual(NativeVenueSlotCopy.unsuppliedOpacity, 0.53)
         // And still unmistakably secondary beside a supplied slot.
         XCTAssertLessThan(NativeVenueSlotCopy.unsuppliedOpacity, 0.75)
 

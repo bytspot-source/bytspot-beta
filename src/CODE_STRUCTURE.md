@@ -22,6 +22,8 @@ Landing & Onboarding:
 └── SpotDiscoveryCurating.tsx     # AI spot discovery onboarding
 
 Main Tabs:
+├── PlanSection.tsx               # Idea → Details → Review; backend Plans list/create/detail
+├── DeepSpaceGround.tsx           # Single-owner OLED sky shared by shell and Plan
 ├── DiscoverSection.tsx           # Swipeable discovery cards + Stories
 ├── MapSection.tsx                # Interactive map with routing
 ├── InsiderSection.tsx            # Community social feed
@@ -199,7 +201,7 @@ type AppScreen =
   | 'valet';         // Valet Driver App
 
 // Tab navigation within 'main':
-type Tab = 'home' | 'discover' | 'map' | 'insider' | 'concierge';
+type Tab = 'home' | 'plan' | 'discover' | 'map' | 'profile' | 'concierge';
 ```
 
 ### Design System
@@ -216,6 +218,16 @@ type Tab = 'home' | 'discover' | 'map' | 'insider' | 'concierge';
 - **Page Transitions**: Slide + fade (200ms)
 - **Micro-interactions**: Scale on tap (0.95x)
 - **Auto-hide Navigation**: Scroll-based in most tabs
+
+### Web Plan integration
+
+- React bottom navigation: **Home → Plan → Discover → Map → Concierge**. Profile remains a secondary destination.
+- `PlanSection.tsx` uses `utils/planRpc.ts` for authenticated `plans.list`, `get`, `create`, `confirm`, `cancel`, and `respond`. It never substitutes mock plans for missing data. Creation keeps a stable idempotency key and payload on retry; confirmation is not a booking.
+- Progressive disclosure: Idea (title + intent), Details (needs; optional time/group), Review (explicit create). Existing plans show backend readiness, open needs, and individual booking status. Exploring a need does not attach or book anything.
+- `DeepSpaceGroundContext` is the web equivalent of `nativeDeepSpaceGroundDrawn`. The App shell owns one ground; nested `DeepSpaceSurface` instances inherit it. Standalone Plan renders its own ground, or accepts `groundDrawn` when a parent outside the context owns it.
+- `styles/plan.css` consumes the existing iOS spacing/typography tokens. Panels use an 8% white tint and 20px backdrop blur; the footer uses an 80% dark fill. Opacity is never applied to the whole panel and its text. Reduced motion, reduced transparency, and increased contrast have explicit fallbacks.
+- Motion (`motion/react`, the installed Framer Motion successor) uses the 320/30/0.8 spring for interactions; Plan's top-level AnimatePresence tab transition is a 200ms slide/fade.
+- **Deployment boundary:** `main.tsx` still serves native handoff pages for non-legal public URLs. This React integration does not reopen the legacy web app or change native SwiftUI navigation. Enabling a public web Plan experience requires a separate, explicit entry-point decision.
 
 ### Data Flow
 ```

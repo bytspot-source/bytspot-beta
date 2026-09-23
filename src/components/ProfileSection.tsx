@@ -11,6 +11,7 @@ import { ParkingPreferences } from './ParkingPreferences';
 import { LocationSettings } from './LocationSettings';
 import { VibePreferences } from './VibePreferences';
 import { SavedSpotsSection } from './SavedSpotsSection';
+import { GuestRequests } from './GuestRequests';
 import { BytspotPoints } from './BytspotPoints';
 import { getSavedSpotsStats } from '../utils/savedSpots';
 import { PrivacyPolicy } from './PrivacyPolicy';
@@ -54,7 +55,7 @@ type ProfileMenuSection = {
   items: ProfileMenuItem[];
 };
 
-type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'general-settings' | 'delete-account' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
+type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'general-settings' | 'delete-account' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'requests' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
 type SubscriptionStatus = { isPremium?: boolean; message?: string } | null;
 type AccessPassList = Parameters<typeof replaceAccessPassesFromServer>[0];
 type NativeProfilePanel = 'reservations' | 'access' | 'points';
@@ -478,6 +479,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
         { icon: <Car className="w-5 h-5" />, label: 'My Vehicles', badge: vehicleCount && vehicleCount > 0 ? String(vehicleCount) : null, screen: 'vehicles' as ProfileScreen },
         { icon: <CreditCard className="w-5 h-5" />, label: 'Payment Methods', badge: paymentMethodCount && paymentMethodCount > 0 ? String(paymentMethodCount) : null, screen: 'payment' as ProfileScreen },
         { icon: <Heart className="w-5 h-5" />, label: 'Saved Spots', badge: savedSpotsStats.total > 0 ? savedSpotsStats.total.toString() : null, screen: 'saved-spots' as ProfileScreen },
+        { icon: <Ticket className="w-5 h-5" />, label: 'My Requests', badge: null, screen: 'requests' as ProfileScreen },
         { icon: <Clock className="w-5 h-5" />, label: 'Places I\'ve Been', badge: checkinHistory.length > 0 ? checkinHistory.length.toString() : null, screen: 'checkin-history' as ProfileScreen },
         { icon: <Users className="w-5 h-5" />, label: 'Network', badge: null, screen: 'friends' as ProfileScreen },
       ],
@@ -1301,6 +1303,21 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
           </div>
           {networkStatus && <p className="text-[12px] text-cyan-300" style={{ fontWeight: 600 }}>{networkStatus}</p>}
         </div>
+      </div>
+    );
+  }
+
+  if (currentScreen === 'requests') {
+    return (
+      <div className="h-full flex flex-col">
+        <div className="px-4 pt-4 pb-2 flex items-center gap-3">
+          <motion.button onClick={() => setCurrentScreen('main')} className="flex items-center gap-2 text-white" whileTap={{ scale: 0.95 }}>
+            <ChevronRight className="w-5 h-5 rotate-180" strokeWidth={2.5} />
+            <span className="text-[17px]" style={{ fontWeight: 600 }}>Back</span>
+          </motion.button>
+          <h2 className="text-[20px] text-white ml-1" style={{ fontWeight: 700 }}>My Requests</h2>
+        </div>
+        <GuestRequests />
       </div>
     );
   }

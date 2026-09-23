@@ -30,6 +30,10 @@ export interface AskStatus {
   state: string;
   expiresAt: string;
   offers: AskOffer[];
+  partySize?: number;
+  earliest?: string;
+  targetWindowId?: string;
+  askedOf?: { sellerName: string; place: string };
 }
 
 /** The slice of the tRPC client the flow uses. */
@@ -58,12 +62,30 @@ export function askErrorMessage(error: unknown): string {
   const shaped = error as { data?: { code?: string }; message?: string } | undefined;
   if (shaped?.data?.code === 'UNAUTHORIZED') return 'Sign in to send a request';
   if (shaped?.data?.code === 'TOO_MANY_REQUESTS') return 'Too many requests. Try again in a bit';
+  // No tRPC code means the request never reached the API.
+  if (!shaped?.data?.code && /failed to fetch|network|load failed/i.test(shaped?.message ?? '')) {
+    return 'You look offline. Try again';
+  }
   return shaped?.message?.trim() || 'That did not send. Try again';
 }
 
 /** An ask is finished once it is booked, expired or withdrawn. */
 export function askIsLive(status: AskStatus | undefined): boolean {
   return !!status && ['OPEN', 'MATCHED', 'OFFERED'].includes(status.state);
+}
+
+/** The guest's open ask on this window, so reopening its card resumes it rather than asking twice. */
+export function liveAskFor(rows: AskStatus[], windowId: string): AskStatus | undefined {
+  return rows.find((row) => row.targetWindowId === windowId && askIsLive(row));
+}
+
+/** One line on where a request stands, for the guest's list. */
+export function askStateLabel(status: AskStatus): string {
+  if (status.state === 'BOOKED') return 'Booked';
+  const waiting = status.offers.filter((offer) => !offer.accepted).length;
+  if (waiting > 0) return waiting === 1 ? '1 offer to answer' : `${waiting} offers to answer`;
+  if (askIsLive(status)) return 'Waiting for an answer';
+  return 'Closed';
 }
 
 export function askTransport(client: AskClient) {
@@ -78,6 +100,8 @@ export function askTransport(client: AskClient) {
     /** Undefined once the ask has left the guest's list (expired or finished). */
     read: async (demandId: string): Promise<AskStatus | undefined> =>
       (await client.demand.mine.query()).find((row) => row.id === demandId),
+    list: () => client.demand.mine.query(),
+    resume: async (windowId: string) => liveAskFor(await client.demand.mine.query(), windowId),
     accept: (offerId: string) => client.demand.acceptOffer.mutate({ offerId }),
     withdraw: (demandId: string) => client.demand.withdraw.mutate({ demandId }),
   };

@@ -1032,7 +1032,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
               {website && (
                 <motion.button
                   onClick={handleWebsite}
-                  className="p-3 rounded-[12px] bg-gradient-to-br from-sky-500 to-indigo-500 border-2 border-white/30 flex flex-col items-center gap-1 shadow-lg"
+                  className="p-3 rounded-[12px] bg-gradient-to-br from-cyan-500 to-indigo-500 border-2 border-white/30 flex flex-col items-center gap-1 shadow-lg"
                   whileTap={{ scale: 0.95 }}
                 >
                   <Globe className="w-4 h-4 text-white" />

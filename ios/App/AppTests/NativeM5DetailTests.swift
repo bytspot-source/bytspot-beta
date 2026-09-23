@@ -537,6 +537,25 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertEqual(owned.supplementing(with: google).photoProvenance, .bytspotOwned)
     }
 
+    func testUnsuppliedSlotsDimByOneSharedNumberThatClearsContrast() throws {
+        // An unsupplied slot is a sentence the screen repeats in several
+        // places, so it has to look the same in all of them. Two labels once
+        // carried their own 0.45 literal, which is how they would drift.
+        XCTAssertEqual(NativeVenueSlotCopy.unsuppliedOpacity, 0.55, accuracy: 0.0001)
+        // 0.52 is where white on the slot surface reaches WCAG AA at this
+        // size and weight, which cannot claim the large-text allowance.
+        XCTAssertGreaterThanOrEqual(NativeVenueSlotCopy.unsuppliedOpacity, 0.52)
+        // And still unmistakably secondary beside a supplied slot.
+        XCTAssertLessThan(NativeVenueSlotCopy.unsuppliedOpacity, 0.75)
+
+        let shell = try shellSource()
+        let detail = try region(in: shell, from: "private struct NativeVenueDetailView: View {",
+                                to: "private struct NativeEventRideBookingSheet: View {")
+        XCTAssertEqual(detail.components(separatedBy: "supplied ? 1 : NativeVenueSlotCopy.unsuppliedOpacity").count - 1, 2,
+                       "Both the vibe and utility labels must dim by the shared number.")
+        XCTAssertFalse(detail.contains("supplied ? 1 : 0.45"), "A slot reintroduced its own dimming literal.")
+    }
+
     func testEveryDetailSlotStaysPresentWhenNothingIsSupplied() throws {
         let shell = try shellSource()
         let detail = try region(in: shell, from: "private struct NativeVenueDetailView: View {",

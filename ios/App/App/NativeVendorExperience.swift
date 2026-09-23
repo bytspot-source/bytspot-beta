@@ -47,6 +47,13 @@ enum NativeVenuePhotoProvenance: String, Equatable {
 /// states what was not supplied instead of disappearing, so supply fills the
 /// same element later without the screen changing shape.
 enum NativeVenueSlotCopy {
+    /// One number for every unsupplied slot, because the slots only read as a
+    /// single language if they dim identically. Measured on device, the old
+    /// 0.45 put an empty label at 3.83:1 on the slot surface, under WCAG AA's
+    /// 4.5:1, and at this size and weight it cannot claim the large-text
+    /// allowance. 0.52 reaches AA; 0.55 keeps a margin and still reads as
+    /// clearly secondary beside a supplied slot at full white.
+    static let unsuppliedOpacity = 0.55
     static let heroEmptyTitle = "No photograph supplied"
     static let heroEmptyDetail = "A photograph appears here when this place or a host supplies one."
     static let vibeEmptyTitle = "No vibe recorded"

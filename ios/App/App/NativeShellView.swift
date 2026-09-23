@@ -12278,7 +12278,7 @@ private struct NativeVenueDetailView: View {
             Image(systemName: supplied ? "play.fill" : "play.slash")
                 .font(.system(size: 15, weight: .semibold))
         }
-        .foregroundColor(.white.opacity(supplied ? 1 : 0.45))
+        .foregroundColor(.white.opacity(supplied ? 1 : NativeVenueSlotCopy.unsuppliedOpacity))
         .padding(.horizontal, 16).padding(.vertical, 10)
         .frame(minHeight: 44).background(NativeVendorSurface()).clipShape(Capsule())
     }
@@ -12316,7 +12316,7 @@ private struct NativeVenueDetailView: View {
             Image(systemName: icon).font(.title3.weight(.semibold))
             Text(title).font(.subheadline.weight(.semibold))
         }
-        .foregroundColor(.white.opacity(supplied ? 1 : 0.45))
+        .foregroundColor(.white.opacity(supplied ? 1 : NativeVenueSlotCopy.unsuppliedOpacity))
         .fixedSize(horizontal: false, vertical: true)
         .padding(12).frame(minWidth: 64, minHeight: 64)
         .background(NativeVendorSurface()).clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))

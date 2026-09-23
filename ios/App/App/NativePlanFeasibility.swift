@@ -30,11 +30,45 @@ struct NativePlanFeasibilityCheck: Codable, Equatable, Identifiable {
     let itemIds: [String]
 
     var id: String { check }
+
+    /// A check missing its name or detail is still a check, and one that has
+    /// lost its verdict has certainly not passed.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        check = (try? container.decode(String.self, forKey: .check)) ?? ""
+        verdict = (try? container.decode(NativePlanFeasibilityVerdict.self, forKey: .verdict)) ?? .unknown
+        detail = (try? container.decode(String.self, forKey: .detail)) ?? ""
+        itemIds = (try? container.decode([String].self, forKey: .itemIds)) ?? []
+    }
+
+    init(check: String, verdict: NativePlanFeasibilityVerdict, detail: String, itemIds: [String]) {
+        self.check = check; self.verdict = verdict; self.detail = detail; self.itemIds = itemIds
+    }
 }
 
 struct NativePlanFeasibility: Codable, Equatable {
     let verdict: NativePlanFeasibilityVerdict
     let checks: [NativePlanFeasibilityCheck]
+
+    /// Decoding leans the same way the verdict does: toward not knowing.
+    ///
+    /// The synthesised decoder threw on a missing verdict or a missing checks
+    /// array, and the caller turns a throw into a hidden section. That is
+    /// survivable. What is not is the shape that decodes cleanly and still
+    /// overstates: `fits` with no checks behind it renders a green pass with
+    /// no evidence under it. A pass is a claim that five checks were run, so
+    /// with nothing to show it is downgraded to unknown rather than trusted.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let stated = (try? container.decode(NativePlanFeasibilityVerdict.self, forKey: .verdict)) ?? .unknown
+        let decoded = (try? container.decode([NativePlanFeasibilityCheck].self, forKey: .checks)) ?? []
+        checks = decoded
+        verdict = (stated == .fits && decoded.isEmpty) ? .unknown : stated
+    }
+
+    init(verdict: NativePlanFeasibilityVerdict, checks: [NativePlanFeasibilityCheck]) {
+        self.verdict = verdict; self.checks = checks
+    }
 }
 
 /// Presentation rules, kept free of SwiftUI state so they can be pinned by a

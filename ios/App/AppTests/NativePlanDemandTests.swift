@@ -399,4 +399,52 @@ final class NativePlanFeasibilityTests: XCTestCase {
         // render, because its detail sentence is the useful part.
         XCTAssertEqual(NativePlanFeasibilityDisplay.title(for: "weather"), "Weather")
     }
+
+    func testAPassWithNothingBehindItIsNotAPass() throws {
+        // The one malformed shape that decodes cleanly and still overstates:
+        // a green headline with no checks under it. A pass asserts the checks
+        // were run, so with none to show it is downgraded rather than trusted.
+        let decoded = try decode(#"{"verdict":"fits","checks":[]}"#)
+        XCTAssertEqual(decoded.verdict, .unknown)
+        XCTAssertTrue(decoded.checks.isEmpty)
+    }
+
+    func testAProblemWithNoChecksIsStillAProblem() throws {
+        // The downgrade runs one way only. Refusing to believe a reported
+        // failure would be the same mistake pointed the other direction.
+        let decoded = try decode(#"{"verdict":"breaks","checks":[]}"#)
+        XCTAssertEqual(decoded.verdict, .breaks)
+    }
+
+    func testAVerdictThatNeverArrivedIsNotReadAsAPass() throws {
+        // Absent, null, and the wrong type all mean the same thing: nobody
+        // told this client the answer.
+        XCTAssertEqual(try decode(#"{"checks":[]}"#).verdict, .unknown)
+        XCTAssertEqual(try decode(#"{"verdict":null,"checks":[]}"#).verdict, .unknown)
+        XCTAssertEqual(try decode(#"{"verdict":7,"checks":[]}"#).verdict, .unknown)
+    }
+
+    func testAMissingChecksArrayDecodesRatherThanThrowingTheSectionAway() throws {
+        let decoded = try decode(#"{"verdict":"breaks"}"#)
+        XCTAssertEqual(decoded.verdict, .breaks)
+        XCTAssertTrue(decoded.checks.isEmpty)
+    }
+
+    func testACheckThatLostItsVerdictIsNotCountedAsSettled() throws {
+        // Previously any malformed member threw and took the whole section
+        // with it. It now survives, and the member that lost its verdict is
+        // unknown rather than quietly sorted in with the passes.
+        let decoded = try decode(#"""
+        {"verdict":"unknown","checks":[
+          {"check":"budget"},
+          {"check":"travel","verdict":"fits","detail":"Fine.","itemIds":[]}
+        ]}
+        """#)
+        XCTAssertEqual(decoded.checks.count, 2)
+        XCTAssertEqual(decoded.checks[0].verdict, .unknown)
+        XCTAssertEqual(decoded.checks[0].detail, "")
+        XCTAssertEqual(decoded.checks[1].verdict, .fits)
+        // And it sorts as unanswered, ahead of the settled one.
+        XCTAssertEqual(NativePlanFeasibilityDisplay.ordered(decoded.checks).map(\.check), ["budget", "travel"])
+    }
 }

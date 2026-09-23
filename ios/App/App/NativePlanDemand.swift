@@ -386,6 +386,8 @@ struct NativePlanOffersSheet: View {
         // and the shell navigates the same way. Stack style because a sheet
         // must not become a split view on iPad.
         .navigationViewStyle(.stack)
+        // A NavigationView root reads isPresented as false, so the shell's flag would hide the ground.
+        .environment(\.nativeDeepSpaceGroundDrawn, false)
         .accessibilityIdentifier("native-plan-offers-sheet")
     }
 
@@ -767,6 +769,8 @@ struct NativeWindowAskSheet: View {
             }
         }
         .navigationViewStyle(.stack)
+        // A NavigationView root reads isPresented as false, so the shell's flag would hide the ground.
+        .environment(\.nativeDeepSpaceGroundDrawn, false)
         .accessibilityIdentifier("native-window-ask-sheet")
     }
 
@@ -973,6 +977,8 @@ struct NativeGuestRequestsView: View {
             }
         }
         .navigationViewStyle(.stack)
+        // A NavigationView root reads isPresented as false, so the shell's flag would hide the ground.
+        .environment(\.nativeDeepSpaceGroundDrawn, false)
         .accessibilityIdentifier("native-guest-requests")
     }
 

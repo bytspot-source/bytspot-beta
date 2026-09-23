@@ -2,7 +2,7 @@ import type { AuthTransport } from './auth.ts';
 import type { Seller } from './seller.ts';
 import type { DemandTransport } from './demandTransport.ts';
 import type { MediaTransport } from './mediaTransport.ts';
-import type { SetupTransport } from './setupTransport.ts';
+import type { SetupTransport, WindowsTransport } from './setupTransport.ts';
 
 /**
  * What the default vendor build compiles against. The real demo transport is
@@ -29,5 +29,9 @@ export function demoDemandTransport(_opened?: Seller): DemandTransport {
 }
 
 export function demoMediaTransport(): MediaTransport {
+  throw new Error('the demo transport is not part of this build');
+}
+
+export function demoWindowsTransport(): WindowsTransport {
   throw new Error('the demo transport is not part of this build');
 }

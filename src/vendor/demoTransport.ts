@@ -10,6 +10,7 @@ import type { Seat, Seller } from './seller.ts';
 import type { SetupTransport } from './setupTransport.ts';
 
 export { demoMediaTransport } from './mediaTransport.ts';
+export { demoWindowsTransport } from './setupTransport.ts';
 
 /**
  * Compile-time only. The demo transport exists so the console can be opened and

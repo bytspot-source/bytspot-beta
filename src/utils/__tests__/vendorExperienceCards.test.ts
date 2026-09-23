@@ -231,6 +231,7 @@ test('a signed-out guest is told to sign in, not shown a raw error', () => {
   assert.equal(askErrorMessage({ data: { code: 'UNAUTHORIZED' }, message: 'Not authenticated' }), 'Sign in to send a request');
   assert.equal(askErrorMessage({ data: { code: 'CONFLICT' }, message: 'You have already asked here.' }), 'You have already asked here.');
   assert.equal(askErrorMessage(undefined), 'That did not send. Try again');
+  assert.equal(askErrorMessage(new TypeError('Failed to fetch')), 'You look offline. Try again');
 });
 
 test('the ask transport sends the window, reads back its own request, and accepts', async () => {
@@ -256,4 +257,21 @@ test('the ask transport sends the window, reads back its own request, and accept
   assert.ok(!askIsLive({ id: 'd', state: 'EXPIRED', expiresAt: 'x', offers: [] }));
   await transport.accept('off_1');
   assert.equal(calls[1], 'accept:off_1');
+});
+
+test('reopening a card resumes its live ask, and the list says where each one stands', async () => {
+  const { liveAskFor, askStateLabel } = await import('../guestAsk.ts');
+  const offer = { id: 'o', where: 'Peach Table', startsAt: 'x', durationMins: 60, priceCents: 0, holdExpiresAt: 'x', accepted: false };
+  const rows = [
+    { id: 'd0', state: 'EXPIRED', expiresAt: 'x', offers: [], targetWindowId: 'win_1' },
+    { id: 'd1', state: 'OFFERED', expiresAt: 'x', offers: [offer], targetWindowId: 'win_1' },
+    { id: 'd2', state: 'OPEN', expiresAt: 'x', offers: [], targetWindowId: 'win_2' },
+    { id: 'd3', state: 'BOOKED', expiresAt: 'x', offers: [{ ...offer, accepted: true }], targetWindowId: 'win_3' },
+  ];
+  assert.equal(liveAskFor(rows, 'win_1')?.id, 'd1');
+  assert.equal(liveAskFor(rows, 'win_3'), undefined);
+  assert.equal(askStateLabel(rows[1]), '1 offer to answer');
+  assert.equal(askStateLabel(rows[2]), 'Waiting for an answer');
+  assert.equal(askStateLabel(rows[3]), 'Booked');
+  assert.equal(askStateLabel(rows[0]), 'Closed');
 });

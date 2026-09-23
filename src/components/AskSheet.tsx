@@ -36,6 +36,24 @@ export function AskSheet({ ask, onClose }: { ask: VendorAsk; onClose: () => void
   const [booked, setBooked] = useState(false);
 
   useEffect(() => {
+    let live = true;
+    transport
+      .resume(ask.windowId)
+      .then((open) => {
+        if (live && open) {
+          setDemandId(open.id);
+          setStatus(open);
+        }
+      })
+      .catch(() => {
+        /* signed out, or offline: start a fresh ask */
+      });
+    return () => {
+      live = false;
+    };
+  }, [ask.windowId, transport]);
+
+  useEffect(() => {
     if (!demandId || booked) return;
     let live = true;
     const tick = async () => {
@@ -136,7 +154,7 @@ export function AskSheet({ ask, onClose }: { ask: VendorAsk; onClose: () => void
                   key={slot.startsAt}
                   type="button"
                   onClick={() => setStartsAt(slot.startsAt)}
-                  className={`rounded-full border px-3 py-1.5 text-[13px] ${slot.startsAt === startsAt ? 'border-cyan-300 bg-cyan-500/30' : 'border-white/25 bg-white/5'}`}
+                  className={`rounded-full border px-3 py-1.5 text-[13px] ${slot.startsAt === startsAt ? 'border-cyan-300 bg-cyan-500/30' : 'border-white/30 bg-white/5'}`}
                 >
                   {formatSlotLabel(slot.startsAt)}
                 </button>
@@ -173,7 +191,7 @@ export function AskSheet({ ask, onClose }: { ask: VendorAsk; onClose: () => void
         ) : (
           <>
             {offers.length === 0 && !finished ? (
-              <p className="mb-4 text-[14px] text-white/70">Sent. {ask.sellerName} will answer here; you can close this and come back.</p>
+              <p className="mb-4 text-[14px] text-white/70">Sent. {ask.sellerName} will answer here and in Profile → My Requests.</p>
             ) : null}
             {finished ? <p className="mb-4 text-[14px] text-white/70">This request has closed without a booking.</p> : null}
             <ul className="mb-4 flex flex-col gap-2">
@@ -189,8 +207,8 @@ export function AskSheet({ ask, onClose }: { ask: VendorAsk; onClose: () => void
                     type="button"
                     disabled={busy}
                     onClick={() => void accept(offer.id)}
-                    className="mt-2 w-full rounded-[12px] bg-emerald-500 py-2.5 text-[14px] disabled:opacity-50"
-                    style={{ fontWeight: 700 }}
+                    className="mt-2 w-full rounded-[12px] py-2.5 text-[14px] disabled:opacity-50"
+                    style={{ fontWeight: 700, background: 'linear-gradient(135deg,#10b981,#059669)' }}
                   >
                     Accept · held until {new Date(offer.holdExpiresAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                   </button>
@@ -198,14 +216,14 @@ export function AskSheet({ ask, onClose }: { ask: VendorAsk; onClose: () => void
               ))}
             </ul>
             {!finished ? (
-              <button type="button" disabled={busy} onClick={() => void withdraw()} className="w-full rounded-[12px] border border-white/25 py-2.5 text-[14px] text-white/80">
+              <button type="button" disabled={busy} onClick={() => void withdraw()} className="w-full rounded-[12px] border border-white/30 py-2.5 text-[14px] text-white/80">
                 Withdraw request
               </button>
             ) : null}
           </>
         )}
 
-        {problem ? <p className="mt-3 text-center text-[13px] text-rose-300" role="alert">{problem}</p> : null}
+        {problem ? <p className="mt-3 text-center text-[13px]" style={{ color: '#fda4af' }} role="alert">{problem}</p> : null}
       </div>
     </div>
   );

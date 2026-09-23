@@ -388,6 +388,7 @@ struct NativePlanOffersSheet: View {
         .navigationViewStyle(.stack)
         // A NavigationView root reads isPresented as false, so the shell's flag would hide the ground.
         .environment(\.nativeDeepSpaceGroundDrawn, false)
+        .preferredColorScheme(.dark)
         .accessibilityIdentifier("native-plan-offers-sheet")
     }
 
@@ -748,6 +749,7 @@ struct NativeWindowAskSheet: View {
                             .accessibilityIdentifier("native-window-ask-problem")
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(18)
             }
             .background(NativeDeepSpaceGround())
@@ -771,6 +773,7 @@ struct NativeWindowAskSheet: View {
         .navigationViewStyle(.stack)
         // A NavigationView root reads isPresented as false, so the shell's flag would hide the ground.
         .environment(\.nativeDeepSpaceGroundDrawn, false)
+        .preferredColorScheme(.dark)
         .accessibilityIdentifier("native-window-ask-sheet")
     }
 
@@ -957,6 +960,7 @@ struct NativeGuestRequestsView: View {
                             .foregroundColor(NativeTheme.orange)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(18)
             }
             .background(NativeDeepSpaceGround())
@@ -979,6 +983,7 @@ struct NativeGuestRequestsView: View {
         .navigationViewStyle(.stack)
         // A NavigationView root reads isPresented as false, so the shell's flag would hide the ground.
         .environment(\.nativeDeepSpaceGroundDrawn, false)
+        .preferredColorScheme(.dark)
         .accessibilityIdentifier("native-guest-requests")
     }
 

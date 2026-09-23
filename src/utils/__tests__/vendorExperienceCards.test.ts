@@ -275,3 +275,15 @@ test('reopening a card resumes its live ask, and the list says where each one st
   assert.equal(askStateLabel(rows[3]), 'Booked');
   assert.equal(askStateLabel(rows[0]), 'Closed');
 });
+
+test('each offer waiting on the guest is announced once', async () => {
+  const { unseenOffers } = await import('../guestAsk.ts');
+  const offer = (id: string, accepted = false) => ({ id, where: 'Peach Table', startsAt: 'x', durationMins: 60, priceCents: 0, holdExpiresAt: 'x', accepted });
+  const rows = [
+    { id: 'd1', state: 'OFFERED', expiresAt: 'x', offers: [offer('o1'), offer('o2')] },
+    { id: 'd2', state: 'BOOKED', expiresAt: 'x', offers: [offer('o3', true)] },
+    { id: 'd3', state: 'EXPIRED', expiresAt: 'x', offers: [offer('o4')] },
+  ];
+  assert.deepEqual(unseenOffers(rows, new Set(['o1'])).map(({ offer }) => offer.id), ['o2']);
+  assert.deepEqual(unseenOffers(rows, new Set(['o1', 'o2'])), []);
+});

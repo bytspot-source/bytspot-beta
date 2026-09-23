@@ -140,6 +140,11 @@ struct NativePlanDemandAsk: Codable, Identifiable, Equatable {
     let planId: String?
     let expiresAt: String
     let offers: [NativePlanDemandOffer]
+    /// Set when the ask came from one Discover card rather than a Plan.
+    var targetWindowId: String? = nil
+    /// Who a Discover ask went to, so it can be named before anyone answers.
+    var askedOf: NativeAskedOf? = nil
+    var earliest: String? = nil
 
     /// The offer the guest took, if they have taken one.
     var booked: NativePlanDemandOffer? { offers.first(where: { $0.accepted }) }
@@ -191,7 +196,7 @@ struct NativePlanDemandAPI: NativePlanDemandAsking {
 
     func mine() async throws -> [NativePlanDemandAsk] {
         let payload = try await client.trpcQueryPayload(path: "/trpc/demand.mine", input: [:])
-        let data = try JSONSerialization.data(withJSONObject: payload)
+        let data = try JSONSerialization.data(withJSONObject: NativeTRPCList.rows(payload))
         return try JSONDecoder().decode([NativePlanDemandAsk].self, from: data)
     }
 
@@ -443,5 +448,574 @@ struct NativePlanOffersSheet: View {
         refusal = nil
         refusal = await accept(offer)
         accepting = nil
+    }
+}
+
+// MARK: - Asking a vendor window from Discover
+
+/// tRPC sends a list as `{ data: [...] }`, and `unwrapTRPCData` only unwraps
+/// objects. A list is read through here so either shape decodes.
+enum NativeTRPCList {
+    static func rows(_ payload: Any) -> Any {
+        if let dictionary = payload as? [String: Any], let rows = dictionary["data"] as? [Any] { return rows }
+        return payload
+    }
+}
+
+struct NativeAskedOf: Codable, Equatable {
+    let sellerName: String
+    let place: String
+}
+
+struct NativeWindowSlot: Codable, Equatable, Identifiable {
+    let startsAt: String
+    let remaining: Int
+
+    var id: String { startsAt }
+    var when: String { NativePlanDemandFormat.when(startsAt) }
+}
+
+struct NativeWindowPlace: Codable, Equatable {
+    let label: String
+    let address: String?
+    let phone: String?
+    let website: String?
+}
+
+/// One published vendor window, as `inventory.list` sends it.
+struct NativeWindowListing: Codable, Identifiable, Equatable {
+    let windowId: String
+    let sellerName: String
+    let title: String
+    let priceCents: Int
+    let maxGuests: Int
+    let durationMins: Int?
+    let intent: String
+    let place: NativeWindowPlace
+    let distanceMiles: Double
+    let coverUrl: String?
+    let galleryUrls: [String]?
+    let nextSlot: NativeWindowSlot
+    let upcomingSlots: [NativeWindowSlot]?
+
+    var id: String { windowId }
+    var takesAsks: Bool { intent == "request" }
+    /// An older server sends only the next slot; that one is still askable.
+    var slots: [NativeWindowSlot] {
+        if let upcomingSlots, !upcomingSlots.isEmpty { return upcomingSlots }
+        return [nextSlot]
+    }
+    var imageURL: URL? { (coverUrl ?? galleryUrls?.first).flatMap { URL(string: $0) } }
+    var price: String { NativePlanDemandFormat.price(priceCents) }
+    var distance: String { distanceMiles < 0.1 ? "Nearby" : String(format: "%.1f mi", distanceMiles) }
+    var callURL: URL? {
+        guard let phone = place.phone, !phone.isEmpty else { return nil }
+        return URL(string: "tel:\(phone)")
+    }
+    var websiteURL: URL? {
+        guard let website = place.website, let url = URL(string: website),
+              ["https", "http"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+        return url
+    }
+}
+
+/// The API's rules, applied first so a request it would refuse never leaves the phone.
+enum NativeWindowAskRules {
+    static let liveStates: Set<String> = ["OPEN", "MATCHED", "OFFERED"]
+
+    static func problem(listing: NativeWindowListing, partySize: Int, slot: NativeWindowSlot?, note: String) -> String? {
+        if partySize < 1 { return "How many are coming?" }
+        if partySize > listing.maxGuests { return "This takes up to \(listing.maxGuests) guests" }
+        guard let slot else { return "Pick a time" }
+        if slot.remaining < partySize { return "Not enough room at that time" }
+        if note.trimmingCharacters(in: .whitespacesAndNewlines).count > 280 { return "Keep the note under 280 characters" }
+        return nil
+    }
+
+    static func isLive(_ ask: NativePlanDemandAsk) -> Bool { liveStates.contains(ask.state) }
+
+    /// Reopening a card resumes its open ask instead of asking twice.
+    static func liveAsk(in mine: [NativePlanDemandAsk], windowID: String) -> NativePlanDemandAsk? {
+        mine.first { $0.targetWindowId == windowID && isLive($0) }
+    }
+
+    static func name(of ask: NativePlanDemandAsk) -> String {
+        ask.askedOf?.sellerName ?? ask.offers.first?.where ?? "Your request"
+    }
+
+    static func detail(of ask: NativePlanDemandAsk) -> String {
+        var parts: [String] = []
+        if ask.partySize > 0 { parts.append("\(ask.partySize) \(ask.partySize == 1 ? "guest" : "guests")") }
+        if let earliest = ask.earliest { parts.append(NativePlanDemandFormat.when(earliest)) }
+        if let place = ask.askedOf?.place { parts.append(place) }
+        return parts.joined(separator: " · ")
+    }
+}
+
+protocol NativeWindowAsking {
+    func listings(near coordinate: NativeLocationCoordinate) async throws -> [NativeWindowListing]
+    func ask(windowID: String, partySize: Int, startsAt: String, note: String) async throws -> NativePlanDemandRaised
+}
+
+struct NativeWindowAskAPI: NativeWindowAsking {
+    let client: BytspotAPIClient
+
+    func listings(near coordinate: NativeLocationCoordinate) async throws -> [NativeWindowListing] {
+        let payload = try await client.trpcQueryPayload(
+            path: "/trpc/inventory.list",
+            input: ["lat": coordinate.latitude, "lng": coordinate.longitude],
+        )
+        let data = try JSONSerialization.data(withJSONObject: NativeTRPCList.rows(payload))
+        return try JSONDecoder().decode([NativeWindowListing].self, from: data)
+    }
+
+    func ask(windowID: String, partySize: Int, startsAt: String, note: String) async throws -> NativePlanDemandRaised {
+        var input: [String: Any] = ["windowId": windowID, "partySize": partySize, "startsAt": startsAt]
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { input["note"] = trimmed }
+        let payload = try await client.trpcPayload(path: "/trpc/demand.ask", method: "POST", input: input)
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return try JSONDecoder().decode(NativePlanDemandRaised.self, from: data)
+    }
+}
+
+/// Published vendor windows near the guest, each with an Ask.
+///
+/// Sits above the Discover deck rather than inside it: a window takes asks, not
+/// checkout, and the deck's booking policy must not treat it as a service.
+struct NativeWindowAskRail: View {
+    let coordinate: NativeLocationCoordinate
+    let openAuth: () -> Void
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @State private var listings: [NativeWindowListing] = []
+    @State private var asking: NativeWindowListing?
+    @State private var showRequests = false
+
+    private var client: BytspotAPIClient {
+        let store = sessionStore
+        return BytspotAPIClient(tokenProvider: { store.canAttachBearerToken ? store.token : nil })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if listings.isEmpty {
+                Color.clear.frame(height: 0)
+            } else {
+                HStack {
+                    Text("Ask a local business")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(NativeTheme.textPrimary)
+                    Spacer()
+                    if sessionStore.canAttachBearerToken {
+                        Button("My requests") { showRequests = true }
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(NativeTheme.cyan)
+                            .frame(minHeight: 44)
+                            .accessibilityIdentifier("native-window-ask-my-requests")
+                    }
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(listings) { listing in card(listing) }
+                    }
+                }
+            }
+        }
+        .task(id: "\(coordinate.latitude),\(coordinate.longitude)") { await load() }
+        .sheet(item: $asking) { listing in
+            NativeWindowAskSheet(listing: listing, windows: NativeWindowAskAPI(client: client), demand: NativePlanDemandAPI(client: client))
+        }
+        .sheet(isPresented: $showRequests) {
+            NativeGuestRequestsView(demand: NativePlanDemandAPI(client: client))
+        }
+        .accessibilityIdentifier("native-window-ask-rail")
+    }
+
+    private func load() async {
+        // A rail that fails to load is absent, not an error: Discover still works.
+        guard let found = try? await NativeWindowAskAPI(client: client).listings(near: coordinate) else { return }
+        listings = found.filter(\.takesAsks)
+    }
+
+    @ViewBuilder private func card(_ listing: NativeWindowListing) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            AsyncImage(url: listing.imageURL) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                Color.white.opacity(0.06)
+            }
+            .frame(width: 240, height: 140)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+            Text(listing.title)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(NativeTheme.textPrimary)
+                .lineLimit(1)
+            Text("\(listing.sellerName) · \(listing.place.label)")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(NativeTheme.textSecondary)
+                .lineLimit(1)
+            Text("\(listing.price) · Next \(listing.nextSlot.when) · \(listing.distance)")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(NativeTheme.textTertiary)
+                .lineLimit(1)
+
+            HStack(spacing: 8) {
+                Button(action: {
+                    if sessionStore.canAttachBearerToken { asking = listing } else { openAuth() }
+                }) {
+                    Text("Ask")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 9)
+                        .background(Capsule().fill(NativeTheme.cyan))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-window-ask-\(listing.windowId)")
+                if let call = listing.callURL {
+                    Link(destination: call) { Image(systemName: "phone.fill").frame(width: 36, height: 36) }
+                        .foregroundColor(NativeTheme.textPrimary)
+                        .accessibilityLabel("Call \(listing.sellerName)")
+                }
+                if let website = listing.websiteURL {
+                    Link(destination: website) { Image(systemName: "globe").frame(width: 36, height: 36) }
+                        .foregroundColor(NativeTheme.textPrimary)
+                        .accessibilityLabel("\(listing.sellerName) website")
+                }
+            }
+            .padding(.top, 2)
+        }
+        .frame(width: 240, alignment: .leading)
+    }
+}
+
+/// Party size, a time from the window's open slots and a note; then the answer.
+struct NativeWindowAskSheet: View {
+    let listing: NativeWindowListing
+    let windows: NativeWindowAsking
+    let demand: NativePlanDemandAsking
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var partySize = 2
+    @State private var slotID: String?
+    @State private var note = ""
+    @State private var problem: String?
+    @State private var sending = false
+    @State private var ask: NativePlanDemandAsk?
+    @State private var showOffers = false
+    @State private var booked: NativePlanDemandBooking?
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let booked {
+                        bookedView(booked)
+                    } else if let ask {
+                        waitingView(ask)
+                    } else {
+                        formView
+                    }
+                    if let problem {
+                        Text(problem)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(NativeTheme.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("native-window-ask-problem")
+                    }
+                }
+                .padding(18)
+            }
+            .background(NativeDeepSpaceGround())
+            .navigationTitle(ask == nil ? "Ask \(listing.sellerName)" : listing.sellerName)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }.foregroundColor(NativeTheme.textSecondary)
+                }
+            }
+            .task { await resume() }
+            .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
+                Task { await refresh() }
+            }
+            .sheet(isPresented: $showOffers) {
+                if let ask {
+                    NativePlanOffersSheet(ask: ask, accept: { offer in await take(offer) })
+                }
+            }
+        }
+        .navigationViewStyle(.stack)
+        .accessibilityIdentifier("native-window-ask-sheet")
+    }
+
+    private var formView: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(listing.title)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundColor(NativeTheme.textPrimary)
+
+            Stepper(value: $partySize, in: 1...max(1, listing.maxGuests)) {
+                Text("\(partySize) \(partySize == 1 ? "guest" : "guests") · up to \(listing.maxGuests)")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(NativeTheme.textPrimary)
+            }
+
+            Text("When")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(NativeTheme.textSecondary)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 8)], alignment: .leading, spacing: 8) {
+                ForEach(listing.slots) { slot in
+                    let chosen = slotID == slot.id
+                    Button(action: { slotID = slot.id }) {
+                        Text(slot.when)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(NativeTheme.textPrimary)
+                            .frame(maxWidth: .infinity, minHeight: 36)
+                            .background(Capsule().fill(chosen ? NativeTheme.cyan.opacity(0.3) : Color.white.opacity(0.06)))
+                            .overlay(Capsule().stroke(chosen ? NativeTheme.cyan : Color.white.opacity(0.16)))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("native-window-ask-slot-\(slot.id)")
+                }
+            }
+
+            TextField("Note (optional)", text: $note)
+                .textFieldStyle(.roundedBorder)
+
+            Button(action: { Task { await send() } }) {
+                HStack(spacing: 8) {
+                    if sending { ProgressView().controlSize(.mini).tint(.black) }
+                    Text(sending ? "Sending…" : "Send request").font(.system(size: 15, weight: .bold))
+                }
+                .foregroundColor(.black)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(NativeTheme.cyan))
+            }
+            .buttonStyle(.plain)
+            .disabled(sending)
+            .accessibilityIdentifier("native-window-ask-send")
+
+            Text("Free to ask. Nothing is booked until you accept an offer.")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(NativeTheme.textTertiary)
+        }
+    }
+
+    private func waitingView(_ ask: NativePlanDemandAsk) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(ask.status)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundColor(NativeTheme.textPrimary)
+            Text(ask.offers.isEmpty
+                 ? "Sent. \(listing.sellerName) will answer here, and you'll get a notification when they do."
+                 : "\(listing.sellerName) is holding a time for you.")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(NativeTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if ask.offers.contains(where: { !$0.accepted }) {
+                Button("See offers") { showOffers = true }
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(NativeTheme.cyan))
+                    .accessibilityIdentifier("native-window-ask-see-offers")
+            }
+            if NativeWindowAskRules.isLive(ask) {
+                Button("Withdraw request") { Task { await withdraw(ask) } }
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(NativeTheme.textSecondary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+        }
+    }
+
+    private func bookedView(_ booked: NativePlanDemandBooking) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("You're booked")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(NativeTheme.textPrimary)
+            Text(booked.confirmation)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(NativeTheme.textSecondary)
+        }
+        .accessibilityIdentifier("native-window-ask-booked")
+    }
+
+    private func resume() async {
+        partySize = min(max(1, partySize), max(1, listing.maxGuests))
+        if slotID == nil { slotID = listing.slots.first?.id }
+        guard let mine = try? await demand.mine() else { return }
+        if ask == nil, let live = NativeWindowAskRules.liveAsk(in: mine, windowID: listing.windowId) { ask = live }
+    }
+
+    private func refresh() async {
+        guard let current = ask, booked == nil else { return }
+        guard let mine = try? await demand.mine() else { return }
+        if let latest = mine.first(where: { $0.id == current.id }) { ask = latest }
+    }
+
+    private func send() async {
+        let slot = listing.slots.first { $0.id == slotID }
+        if let issue = NativeWindowAskRules.problem(listing: listing, partySize: partySize, slot: slot, note: note) {
+            problem = issue
+            return
+        }
+        guard let slot else { return }
+        sending = true
+        problem = nil
+        do {
+            let raised = try await windows.ask(windowID: listing.windowId, partySize: partySize, startsAt: slot.startsAt, note: note)
+            ask = NativePlanDemandAsk(
+                id: raised.id, state: raised.state, category: raised.category, partySize: partySize,
+                planId: nil, expiresAt: raised.expiresAt, offers: [], targetWindowId: listing.windowId,
+            )
+        } catch {
+            problem = NativePlanDemandFailure.message(for: error)
+        }
+        sending = false
+    }
+
+    private func take(_ offer: NativePlanDemandOffer) async -> String? {
+        do {
+            booked = try await demand.accept(offerID: offer.id)
+            showOffers = false
+            return nil
+        } catch {
+            return NativePlanDemandFailure.message(for: error)
+        }
+    }
+
+    private func withdraw(_ ask: NativePlanDemandAsk) async {
+        do {
+            try await demand.withdraw(demandID: ask.id)
+            dismiss()
+        } catch {
+            problem = NativePlanDemandFailure.message(for: error)
+        }
+    }
+}
+
+/// Every request the guest has open or booked. Where an offer push lands.
+struct NativeGuestRequestsView: View {
+    let demand: NativePlanDemandAsking
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var rows: [NativePlanDemandAsk]?
+    @State private var problem: String?
+    @State private var offersFor: NativePlanDemandAsk?
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let rows {
+                        if rows.isEmpty {
+                            Text("No requests. Ask a business from Discover and the answer lands here.")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(NativeTheme.textSecondary)
+                                .padding(.vertical, 40)
+                        }
+                        ForEach(rows) { row in requestCard(row) }
+                    } else if problem == nil {
+                        ProgressView().tint(.white).frame(maxWidth: .infinity).padding(.vertical, 40)
+                    }
+                    if let problem {
+                        Text(problem)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(NativeTheme.orange)
+                    }
+                }
+                .padding(18)
+            }
+            .background(NativeDeepSpaceGround())
+            .navigationTitle("My requests")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }.foregroundColor(NativeTheme.textSecondary)
+                }
+            }
+            .task { await load() }
+            .refreshable { await load() }
+            .onReceive(Timer.publish(every: 15, on: .main, in: .common).autoconnect()) { _ in
+                Task { await load() }
+            }
+            .sheet(item: $offersFor) { ask in
+                NativePlanOffersSheet(ask: ask, accept: { offer in await take(offer) })
+            }
+        }
+        .navigationViewStyle(.stack)
+        .accessibilityIdentifier("native-guest-requests")
+    }
+
+    @ViewBuilder private func requestCard(_ row: NativePlanDemandAsk) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(NativeWindowAskRules.name(of: row))
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(NativeTheme.textPrimary)
+                Spacer()
+                Text(row.status)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(NativeTheme.cyan)
+            }
+            let detail = NativeWindowAskRules.detail(of: row)
+            if !detail.isEmpty {
+                Text(detail)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(NativeTheme.textSecondary)
+            }
+            HStack(spacing: 10) {
+                if row.offers.contains(where: { !$0.accepted }) {
+                    Button("See offers") { offersFor = row }
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(NativeTheme.cyan))
+                        .accessibilityIdentifier("native-guest-request-offers-\(row.id)")
+                }
+                if NativeWindowAskRules.isLive(row) {
+                    Button("Withdraw") { Task { await withdraw(row) } }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(NativeTheme.textSecondary)
+                        .frame(minHeight: 36)
+                }
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.10)))
+        .accessibilityIdentifier("native-guest-request-\(row.id)")
+    }
+
+    private func load() async {
+        do {
+            rows = try await demand.mine()
+            problem = nil
+        } catch {
+            problem = NativePlanDemandFailure.message(for: error)
+        }
+    }
+
+    private func take(_ offer: NativePlanDemandOffer) async -> String? {
+        do {
+            _ = try await demand.accept(offerID: offer.id)
+            offersFor = nil
+            await load()
+            return nil
+        } catch {
+            return NativePlanDemandFailure.message(for: error)
+        }
+    }
+
+    private func withdraw(_ row: NativePlanDemandAsk) async {
+        do {
+            try await demand.withdraw(demandID: row.id)
+            await load()
+        } catch {
+            problem = NativePlanDemandFailure.message(for: error)
+        }
     }
 }

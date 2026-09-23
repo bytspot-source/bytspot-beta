@@ -118,7 +118,7 @@ extension AppDelegate {
 enum NativePushURLPolicy {
     private static let allowedCustomHosts: Set<String> = [
         "map", "discover", "venue", "v", "concierge", "profile", "access",
-        "party", "booking", "privacy", "terms", "disclaimer", "patch", "p", "clip"
+        "party", "booking", "privacy", "terms", "disclaimer", "patch", "p", "clip", "requests"
     ]
 
     static func routeURL(from payload: [AnyHashable: Any]) -> URL? {

@@ -448,3 +448,90 @@ final class NativePlanFeasibilityTests: XCTestCase {
         XCTAssertEqual(NativePlanFeasibilityDisplay.ordered(decoded.checks).map(\.check), ["budget", "travel"])
     }
 }
+
+/// Asking one vendor window from Discover, and finding the answer again.
+final class NativeWindowAskTests: XCTestCase {
+    private func listing(maxGuests: Int = 4, upcoming: [[String: Any]]? = nil, intent: String = "request") throws -> NativeWindowListing {
+        var json: [String: Any] = [
+            "windowId": "win_1", "sellerId": "seller_1", "sellerName": "Peach Table Co", "skuTemplateId": "dining.table",
+            "title": "Chef counter", "domain": "dining", "category": "Dining", "discoverType": "dining",
+            "priceCents": 4500, "maxGuests": maxGuests, "durationMins": 90, "intent": intent,
+            "place": ["label": "Midtown", "address": NSNull(), "lat": 33.78, "lng": -84.38, "phone": "+14045550123", "website": "javascript:alert(1)"],
+            "distanceMiles": 1.24, "coverUrl": "https://api.test/media/vendor/cov_1", "galleryUrls": [],
+            "nextSlot": ["startsAt": "2026-09-24T23:00:00.000Z", "remaining": 3],
+        ]
+        if let upcoming { json["upcomingSlots"] = upcoming }
+        return try JSONDecoder().decode(NativeWindowListing.self, from: JSONSerialization.data(withJSONObject: json))
+    }
+
+    func testAListResultDecodesWhetherOrNotItIsStillWrapped() {
+        XCTAssertEqual(NativeTRPCList.rows(["data": [1, 2]]) as? [Int], [1, 2])
+        XCTAssertEqual(NativeTRPCList.rows([3]) as? [Int], [3])
+        XCTAssertNotNil(NativeTRPCList.rows(["data": ["id": "x"]]) as? [String: Any])
+    }
+
+    func testAWindowCardDecodesWithItsTimesAndOnlyADialableLink() throws {
+        let card = try listing(upcoming: [["startsAt": "2026-09-24T23:00:00.000Z", "remaining": 3], ["startsAt": "2026-09-24T23:30:00.000Z", "remaining": 1]])
+        XCTAssertTrue(card.takesAsks)
+        XCTAssertEqual(card.slots.count, 2)
+        XCTAssertEqual(card.callURL?.absoluteString, "tel:+14045550123")
+        XCTAssertNil(card.websiteURL, "a non-web link is never opened")
+        XCTAssertEqual(card.price, "$45")
+    }
+
+    func testAnOlderServerWithoutUpcomingSlotsStillOffersTheNextOne() throws {
+        let card = try listing()
+        XCTAssertEqual(card.slots.map(\.startsAt), ["2026-09-24T23:00:00.000Z"])
+        XCTAssertFalse(try listing(intent: "none").takesAsks)
+    }
+
+    func testAnAskIsCheckedAgainstTheCardBeforeItIsSent() throws {
+        let card = try listing(maxGuests: 4)
+        let slot = card.slots[0]
+        XCTAssertNil(NativeWindowAskRules.problem(listing: card, partySize: 2, slot: slot, note: ""))
+        XCTAssertEqual(NativeWindowAskRules.problem(listing: card, partySize: 5, slot: slot, note: ""), "This takes up to 4 guests")
+        XCTAssertEqual(NativeWindowAskRules.problem(listing: card, partySize: 4, slot: slot, note: ""), "Not enough room at that time")
+        XCTAssertEqual(NativeWindowAskRules.problem(listing: card, partySize: 2, slot: nil, note: ""), "Pick a time")
+        XCTAssertEqual(NativeWindowAskRules.problem(listing: card, partySize: 0, slot: slot, note: ""), "How many are coming?")
+    }
+
+    func testReopeningACardResumesItsLiveAskRatherThanAskingTwice() {
+        func ask(_ id: String, _ state: String, _ window: String?) -> NativePlanDemandAsk {
+            NativePlanDemandAsk(id: id, state: state, category: "dining", partySize: 2, planId: nil,
+                                expiresAt: "2026-09-24T23:30:00.000Z", offers: [], targetWindowId: window)
+        }
+        let mine = [ask("d0", "EXPIRED", "win_1"), ask("d1", "OFFERED", "win_1"), ask("d2", "OPEN", "win_2"), ask("d3", "OPEN", nil)]
+        XCTAssertEqual(NativeWindowAskRules.liveAsk(in: mine, windowID: "win_1")?.id, "d1")
+        XCTAssertNil(NativeWindowAskRules.liveAsk(in: mine, windowID: "win_9"))
+    }
+
+    func testARequestIsNamedForWhoItWentToBeforeAnyoneAnswers() throws {
+        let json: [String: Any] = [
+            "id": "d1", "state": "OPEN", "category": "dining", "partySize": 2, "expiresAt": "2026-09-24T23:30:00.000Z",
+            "earliest": "2026-09-24T23:00:00.000Z", "targetWindowId": "win_1",
+            "askedOf": ["sellerName": "Peach Table Co", "place": "Midtown"], "offers": [],
+        ]
+        let row = try JSONDecoder().decode(NativePlanDemandAsk.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(NativeWindowAskRules.name(of: row), "Peach Table Co")
+        XCTAssertTrue(NativeWindowAskRules.detail(of: row).hasPrefix("2 guests · "))
+        XCTAssertTrue(NativeWindowAskRules.detail(of: row).hasSuffix(" · Midtown"))
+
+        // A Plan ask from a server that predates these fields still decodes.
+        let plan: [String: Any] = ["id": "d2", "state": "OPEN", "category": "dining", "partySize": 4, "planId": "plan-1", "expiresAt": "2026-09-24T23:30:00.000Z", "offers": []]
+        let older = try JSONDecoder().decode(NativePlanDemandAsk.self, from: JSONSerialization.data(withJSONObject: plan))
+        XCTAssertNil(older.targetWindowId)
+        XCTAssertEqual(NativeWindowAskRules.name(of: older), "Your request")
+    }
+
+    @MainActor
+    func testAnOfferPushOpensMyRequests() throws {
+        let coordinator = NativeNavigationCoordinator()
+        XCTAssertTrue(coordinator.handle(url: try XCTUnwrap(URL(string: "https://bytspot.app/requests"))))
+        XCTAssertTrue(coordinator.requestsRequested)
+        coordinator.requestsRequested = false
+        XCTAssertTrue(coordinator.handle(url: try XCTUnwrap(URL(string: "bytspot://requests"))))
+        XCTAssertTrue(coordinator.requestsRequested)
+        XCTAssertNotNil(NativePushURLPolicy.routeURL(from: ["url": "https://bytspot.app/requests"]))
+        XCTAssertNotNil(NativePushURLPolicy.routeURL(from: ["deepLink": "bytspot://requests"]))
+    }
+}

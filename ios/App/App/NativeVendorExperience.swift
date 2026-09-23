@@ -47,6 +47,19 @@ enum NativeVenuePhotoProvenance: String, Equatable {
 /// states what was not supplied instead of disappearing, so supply fills the
 /// same element later without the screen changing shape.
 enum NativeVenueSlotCopy {
+    /// One number for every unsupplied slot, because the slots only read as a
+    /// single language if they dim identically.
+    ///
+    /// Sampled from a render at 3x against the material's real composited
+    /// fill rather than a nominal colour: the old 0.45 put an empty label at
+    /// 3.74:1, under WCAG AA's 4.5:1, and at this size and weight it cannot
+    /// claim the large-text allowance, so opacity is the only lever. AA is
+    /// not crossed until about 0.525 — 0.52 still measures 4.44:1 — and the
+    /// first round value clearing both this and the tighter utility tile is
+    /// 0.53, by hundredths. 0.55 is the smallest value with real margin:
+    /// 4.77:1 here and 4.73:1 on utility, against 11.6:1 supplied, so the
+    /// secondary tier still reads at a glance. Do not trim it toward the line.
+    static let unsuppliedOpacity = 0.55
     static let heroEmptyTitle = "No photograph supplied"
     static let heroEmptyDetail = "A photograph appears here when this place or a host supplies one."
     static let vibeEmptyTitle = "No vibe recorded"

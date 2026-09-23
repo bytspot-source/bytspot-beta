@@ -262,3 +262,189 @@ final class NativePlanOfferDecodingTests: XCTestCase {
         XCTAssertTrue(try JSONDecoder().decode(NativePlanDemandOffer.self, from: json).accepted)
     }
 }
+
+/// Does this Plan work?
+///
+/// The server answers in three values and the third one, `unknown`, is the
+/// one a UI is tempted to lose. These tests exist to stop it being quietly
+/// rounded into a pass.
+final class NativePlanFeasibilityTests: XCTestCase {
+    private func check(
+        _ name: String,
+        _ verdict: NativePlanFeasibilityVerdict,
+        detail: String = "Detail.",
+        itemIds: [String] = []
+    ) -> NativePlanFeasibilityCheck {
+        NativePlanFeasibilityCheck(check: name, verdict: verdict, detail: detail, itemIds: itemIds)
+    }
+
+    private func decode(_ json: String) throws -> NativePlanFeasibility {
+        try JSONDecoder().decode(NativePlanFeasibility.self, from: Data(json.utf8))
+    }
+
+    func testUnknownIsNeverDrawnAsAPass() {
+        // The whole point. If these ever collapse, the guest is told their
+        // evening works when nothing has been established.
+        XCTAssertNotEqual(
+            NativePlanFeasibilityDisplay.tint(for: .unknown),
+            NativePlanFeasibilityDisplay.tint(for: .fits)
+        )
+        XCTAssertNotEqual(
+            NativePlanFeasibilityDisplay.symbol(for: .unknown),
+            NativePlanFeasibilityDisplay.symbol(for: .fits)
+        )
+        XCTAssertNotEqual(
+            NativePlanFeasibilityDisplay.headline(for: .unknown),
+            NativePlanFeasibilityDisplay.headline(for: .fits)
+        )
+    }
+
+    func testUnknownEarnsNoColourAndIsTheOnlyOutlinedState() {
+        // Colour is earned by a check that could actually be run.
+        XCTAssertEqual(NativePlanFeasibilityDisplay.tint(for: .unknown), NativeTheme.neutral)
+        XCTAssertTrue(NativePlanFeasibilityDisplay.isOutlined(.unknown))
+        XCTAssertFalse(NativePlanFeasibilityDisplay.isOutlined(.fits))
+        XCTAssertFalse(NativePlanFeasibilityDisplay.isOutlined(.breaks))
+    }
+
+    func testUnknownReadsAsUnknownWithoutColour() {
+        // Anyone who cannot use colour still has to be able to tell the three
+        // apart, so the symbol carries the difference on its own.
+        let symbols = Set([
+            NativePlanFeasibilityDisplay.symbol(for: .fits),
+            NativePlanFeasibilityDisplay.symbol(for: .breaks),
+            NativePlanFeasibilityDisplay.symbol(for: .unknown),
+        ])
+        XCTAssertEqual(symbols.count, 3)
+        // Filled means settled; the unanswered one must not be filled.
+        XCTAssertFalse(NativePlanFeasibilityDisplay.symbol(for: .unknown).hasSuffix(".fill"))
+        XCTAssertTrue(NativePlanFeasibilityDisplay.symbol(for: .fits).hasSuffix(".fill"))
+    }
+
+    func testTheHeadlineForUnknownDoesNotHedgeTowardFine() {
+        let headline = NativePlanFeasibilityDisplay.headline(for: .unknown)
+        XCTAssertEqual(headline, "Not enough to tell yet")
+        for reassurance in ["works", "fine", "good", "ready"] {
+            XCTAssertFalse(headline.lowercased().contains(reassurance), "headline hedges toward a pass: \(headline)")
+        }
+    }
+
+    func testProblemsComeFirstThenTheUnansweredThenTheSettled() {
+        let ordered = NativePlanFeasibilityDisplay.ordered([
+            check("window", .fits),
+            check("budget", .unknown),
+            check("capacity", .breaks),
+            check("travel", .fits),
+            check("overlap", .unknown),
+        ])
+        XCTAssertEqual(ordered.map(\.check), ["capacity", "budget", "overlap", "window", "travel"])
+    }
+
+    func testRowsDoNotShuffleBetweenRefreshes() {
+        // Equal verdicts keep the server's order, which is the contract's.
+        let checks = [check("window", .unknown), check("overlap", .unknown), check("travel", .unknown)]
+        XCTAssertEqual(NativePlanFeasibilityDisplay.ordered(checks).map(\.check), ["window", "overlap", "travel"])
+    }
+
+    func testAnUnknownCheckIsSpokenAsNotChecked() {
+        let label = NativePlanFeasibilityDisplay.accessibilityLabel(
+            for: check("budget", .unknown, detail: "No budget was set for this Plan.")
+        )
+        XCTAssertEqual(label, "Budget, not checked. No budget was set for this Plan.")
+    }
+
+    func testASettledCheckIsNotSpokenAsUnchecked() {
+        let label = NativePlanFeasibilityDisplay.accessibilityLabel(for: check("capacity", .fits, detail: "Everything here can take 4."))
+        XCTAssertEqual(label, "Room for everyone, checked and fine. Everything here can take 4.")
+    }
+
+    func testTheServersSentenceIsShownAsSentBecauseItNamesWhatIsMissing() throws {
+        // The client must not rewrite the detail into something vaguer; the
+        // server's wording is what tells the guest which fact to go supply.
+        let decoded = try decode("""
+        {"verdict":"unknown","checks":[
+          {"check":"budget","verdict":"unknown","detail":"No party size was set, so a per-person price cannot be totalled.","itemIds":[]}
+        ]}
+        """)
+        XCTAssertEqual(decoded.checks[0].detail, "No party size was set, so a per-person price cannot be totalled.")
+    }
+
+    func testAVerdictThisClientHasNotBeenTaughtReadsAsUnknown() throws {
+        // An older app meeting a newer server must not treat a word it does
+        // not recognise as a pass.
+        let decoded = try decode("""
+        {"verdict":"probably-fine","checks":[
+          {"check":"window","verdict":"someday","detail":"x","itemIds":[]}
+        ]}
+        """)
+        XCTAssertEqual(decoded.verdict, .unknown)
+        XCTAssertEqual(decoded.checks[0].verdict, .unknown)
+    }
+
+    func testTheWireShapeTheServerSendsDecodes() throws {
+        let decoded = try decode("""
+        {"verdict":"breaks","checks":[
+          {"check":"capacity","verdict":"breaks","detail":"Tiny bar (1 left) cannot take 4.","itemIds":["item-1"]},
+          {"check":"budget","verdict":"fits","detail":"$40.00 for 4 is within the $400.00 you set.","itemIds":["item-1"]}
+        ]}
+        """)
+        XCTAssertEqual(decoded.verdict, .breaks)
+        XCTAssertEqual(decoded.checks.count, 2)
+        XCTAssertEqual(decoded.checks[0].itemIds, ["item-1"])
+        XCTAssertEqual(NativePlanFeasibilityDisplay.title(for: "capacity"), "Room for everyone")
+    }
+
+    func testAnUnnamedCheckStillGetsATitleRatherThanBlank() {
+        // A check added server-side before this client knows it must still
+        // render, because its detail sentence is the useful part.
+        XCTAssertEqual(NativePlanFeasibilityDisplay.title(for: "weather"), "Weather")
+    }
+
+    func testAPassWithNothingBehindItIsNotAPass() throws {
+        // The one malformed shape that decodes cleanly and still overstates:
+        // a green headline with no checks under it. A pass asserts the checks
+        // were run, so with none to show it is downgraded rather than trusted.
+        let decoded = try decode(#"{"verdict":"fits","checks":[]}"#)
+        XCTAssertEqual(decoded.verdict, .unknown)
+        XCTAssertTrue(decoded.checks.isEmpty)
+    }
+
+    func testAProblemWithNoChecksIsStillAProblem() throws {
+        // The downgrade runs one way only. Refusing to believe a reported
+        // failure would be the same mistake pointed the other direction.
+        let decoded = try decode(#"{"verdict":"breaks","checks":[]}"#)
+        XCTAssertEqual(decoded.verdict, .breaks)
+    }
+
+    func testAVerdictThatNeverArrivedIsNotReadAsAPass() throws {
+        // Absent, null, and the wrong type all mean the same thing: nobody
+        // told this client the answer.
+        XCTAssertEqual(try decode(#"{"checks":[]}"#).verdict, .unknown)
+        XCTAssertEqual(try decode(#"{"verdict":null,"checks":[]}"#).verdict, .unknown)
+        XCTAssertEqual(try decode(#"{"verdict":7,"checks":[]}"#).verdict, .unknown)
+    }
+
+    func testAMissingChecksArrayDecodesRatherThanThrowingTheSectionAway() throws {
+        let decoded = try decode(#"{"verdict":"breaks"}"#)
+        XCTAssertEqual(decoded.verdict, .breaks)
+        XCTAssertTrue(decoded.checks.isEmpty)
+    }
+
+    func testACheckThatLostItsVerdictIsNotCountedAsSettled() throws {
+        // Previously any malformed member threw and took the whole section
+        // with it. It now survives, and the member that lost its verdict is
+        // unknown rather than quietly sorted in with the passes.
+        let decoded = try decode(#"""
+        {"verdict":"unknown","checks":[
+          {"check":"budget"},
+          {"check":"travel","verdict":"fits","detail":"Fine.","itemIds":[]}
+        ]}
+        """#)
+        XCTAssertEqual(decoded.checks.count, 2)
+        XCTAssertEqual(decoded.checks[0].verdict, .unknown)
+        XCTAssertEqual(decoded.checks[0].detail, "")
+        XCTAssertEqual(decoded.checks[1].verdict, .fits)
+        // And it sorts as unanswered, ahead of the settled one.
+        XCTAssertEqual(NativePlanFeasibilityDisplay.ordered(decoded.checks).map(\.check), ["budget", "travel"])
+    }
+}

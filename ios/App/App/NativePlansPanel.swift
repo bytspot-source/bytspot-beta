@@ -367,6 +367,11 @@ struct NativePlanAPI: NativeDiscoverPlanAdding {
         let payload = try await client.trpcQueryPayload(path: "/trpc/plans.primePath", input: ["planId": planID])
         return try JSONDecoder().decode(NativePrimePathResponse.self, from: JSONSerialization.data(withJSONObject: payload))
     }
+
+    func feasibility(_ planID: String) async throws -> NativePlanFeasibility {
+        let payload = try await client.trpcQueryPayload(path: "/trpc/plans.feasibility", input: ["planId": planID])
+        return try JSONDecoder().decode(NativePlanFeasibility.self, from: JSONSerialization.data(withJSONObject: payload))
+    }
 }
 
 /// The wire shape of a Plan write, kept in its own namespace so a test can pin
@@ -1578,6 +1583,13 @@ struct NativePlanDetailSheet: View {
     @State private var primePathNeeds: [NativePrimePathNeed] = []
     /// Asking venues to fill the gaps this Plan still has.
     @State private var demandState = NativePlanDemandState()
+    /// Whether the Plan actually works. Nil until the answer arrives, and nil
+    /// again if it cannot be fetched — an unanswered question shows nothing
+    /// rather than a reassuring blank.
+    @State private var feasibility: NativePlanFeasibility?
+    /// Identifies the newest reload so an older one that finishes later is
+    /// discarded instead of overwriting it.
+    @State private var loadGeneration = UUID()
     /// The ask whose offers are open, if any.
     @State private var showingOffers: NativePlanDemandAsk?
 
@@ -1662,6 +1674,13 @@ struct NativePlanDetailSheet: View {
                 ctaLabel("Invite Bytspot connections", background: planRowBackground, foreground: NativeTheme.textPrimary)
             }
             .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-invite")
+        }
+
+        // Above the item list: whether the evening holds together is the
+        // question the list itself cannot answer.
+        if let feasibility {
+            sectionHeader("Does this work?")
+            NativePlanFeasibilityView(feasibility: feasibility)
         }
 
         if !plan.openNeeds.isEmpty {
@@ -2068,11 +2087,51 @@ struct NativePlanDetailSheet: View {
         do { try await operation(); onChanged(); await reload() } catch { errorMessage = "That didn't go through." }
     }
 
+    /// Reloads are started from several places at once — the task on appear,
+    /// pull to refresh, and every edit that calls `run` — so two can be in
+    /// flight together and finish out of order. Each takes a token and only
+    /// the newest may write, otherwise an older answer lands last and wins.
+    ///
+    /// Feasibility is cleared up front rather than left in place. A verdict
+    /// was computed against the Plan as it was; once that Plan is being
+    /// refetched the verdict describes something the guest is no longer
+    /// looking at, and a stale `This works` sitting above a changed list is
+    /// the exact false pass this feature exists to prevent. Showing nothing
+    /// claims nothing.
     private func reload() async {
         guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to see this Plan."; return }
-        do { plan = try await api().get(planID); errorMessage = nil } catch { errorMessage = "Couldn't load this Plan." }
+        let token = UUID()
+        loadGeneration = token
+        feasibility = nil
+        do {
+            let fetched = try await api().get(planID)
+            guard loadGeneration == token else { return }
+            plan = fetched; errorMessage = nil
+        } catch {
+            guard loadGeneration == token else { return }
+            errorMessage = "Couldn't load this Plan."
+        }
+        guard loadGeneration == token else { return }
         await loadPrimePath()
+        guard loadGeneration == token else { return }
+        await loadFeasibility(token)
+        guard loadGeneration == token else { return }
         await loadAsks()
+    }
+
+    /// Loaded after the Plan, like Prime Path. A failure is silent: the
+    /// section disappears rather than claiming the Plan is fine.
+    private func loadFeasibility(_ token: UUID) async {
+        guard sessionStore.canAttachBearerToken else { feasibility = nil; return }
+        guard let plan, plan.lifecycle != "cancelled", plan.state != "expired", plan.state != "completed" else {
+            feasibility = nil
+            return
+        }
+        let fetched = try? await api().feasibility(planID)
+        // A newer reload started while this was in flight; its answer is the
+        // current one and this reply describes a Plan already replaced.
+        guard loadGeneration == token else { return }
+        feasibility = fetched
     }
 
     /// C3: Load Prime Path candidates after the Plan itself. A failure is

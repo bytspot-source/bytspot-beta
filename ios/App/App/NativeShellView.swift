@@ -12260,14 +12260,13 @@ private struct NativeVenueDetailView: View {
 
     private func vibeLabel(_ title: String, supplied: Bool) -> some View {
         Label {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Recorded Vibe").font(.caption.weight(.semibold))
-                Text(title).font(.headline)
-            }
+            // One line. The mark already says media, and the eyebrow said
+            // Recorded Vibe directly above Play Vibe, which is the same fact
+            // twice in a control 44pt tall.
+            Text(title).font(.system(size: 15, weight: .semibold))
         } icon: {
-            // At .title2 the glyph out-weighed the two lines beside it in a
-            // 44pt capsule and the control read as a player. The words say
-            // what this is; the mark only has to point at it.
+            // At .title2 the glyph out-weighed the words it labels and the
+            // control read as a player rather than an action.
             Image(systemName: supplied ? "play.fill" : "play.slash")
                 .font(.system(size: 13, weight: .semibold))
         }

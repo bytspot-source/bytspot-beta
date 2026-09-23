@@ -151,7 +151,7 @@ test('the console never geocodes from the browser and never saves without a pin'
   const field = readFileSync(new URL('../LocationForm.tsx', import.meta.url), 'utf8');
   // Save is impossible without a chosen pin. Otherwise a location looks saved
   // and cannot be published, with the reason two screens away.
-  assert.match(field, /disabled=\{busy \|\| !pinned\}/);
+  assert.match(field, /disabled=\{busy \|\| !pinned( \|\| contactProblems\.length > 0)?\}/);
   // And no coordinate is ever typed or invented.
   assert.doesNotMatch(field, /Number\.NaN/);
   assert.doesNotMatch(field, /name="lat"|setLat|setLng/);

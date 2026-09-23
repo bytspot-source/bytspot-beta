@@ -11,7 +11,7 @@ import {
   pinFrom,
   type GeocodeCandidate,
 } from './geocoding.ts';
-import type { VendorLocation } from './locations.ts';
+import { normalizePhone, normalizeWebsite, type VendorLocation } from './locations.ts';
 import type { ProfileEdit } from './profile.ts';
 import type { VendorSession } from './seller.ts';
 
@@ -55,10 +55,23 @@ export function LocationForm({
   const [label, setLabel] = useState(editing?.label ?? '');
   const [query, setQuery] = useState(editing?.address ?? '');
   const [radius, setRadius] = useState(editing?.radiusMiles ? String(editing.radiusMiles) : '');
+  const [phone, setPhone] = useState(editing?.phone ?? '');
+  const [website, setWebsite] = useState(editing?.website ?? '');
   const [candidates, setCandidates] = useState<GeocodeCandidate[]>([]);
-  const [pinned, setPinned] = useState<GeocodeCandidate | undefined>(undefined);
+  // An edit keeps the pin it already has until the address is retyped, so
+  // adding a phone number does not mean finding the address again.
+  const [pinned, setPinned] = useState<GeocodeCandidate | undefined>(
+    editing
+      ? { formatted: editing.address ?? '', lat: editing.lat, lng: editing.lng, precision: 'rooftop', timezone: editing.timezone }
+      : undefined,
+  );
   const [looking, setLooking] = useState(false);
   const [searched, setSearched] = useState(false);
+
+  const contactProblems = [
+    ...(phone.trim() && !normalizePhone(phone) ? ['That phone number does not look right'] : []),
+    ...(website.trim() && !normalizeWebsite(website) ? ['That website does not look right'] : []),
+  ];
 
   const activeKind = fixedKind ?? kind;
   const chosen = getLocationKind(activeKind);
@@ -108,6 +121,8 @@ export function LocationForm({
       state: editing?.state ?? 'ACTIVE',
       ...pin,
       radiusMiles: radius ? Number(radius) : undefined,
+      phone: normalizePhone(phone),
+      website: normalizeWebsite(website),
     };
     onEdit({ field: 'location', value: location });
     onDone?.();
@@ -212,9 +227,27 @@ export function LocationForm({
         </label>
       ) : null}
 
+      <label className="vendor-field">
+        <span>phone (optional, shown to guests)</span>
+        <input value={phone} onChange={(event) => setPhone(event.target.value)} type="tel" autoComplete="tel" />
+      </label>
+      <label className="vendor-field">
+        <span>website (optional, shown to guests)</span>
+        <input value={website} onChange={(event) => setWebsite(event.target.value)} type="url" inputMode="url" autoComplete="url" />
+      </label>
+      {contactProblems.length ? (
+        <ul className="vendor-reasons">
+          {contactProblems.map((problem) => (
+            <li key={problem} className="vendor-reason-fixable">
+              {problem}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       {/* No pin, no save. The alternative is a location that looks saved and
           cannot be published, with the reason two screens away. */}
-      <button type="button" className="vendor-button" disabled={busy || !pinned} onClick={submit}>
+      <button type="button" className="vendor-button" disabled={busy || !pinned || contactProblems.length > 0} onClick={submit}>
         Save
       </button>
     </>

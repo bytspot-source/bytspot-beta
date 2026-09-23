@@ -6,7 +6,10 @@ import {
   fulfillmentFor,
   isWithinReach,
   locationPublishBlockers,
+  locationSetupBlockers,
   locationSupportsEtaKind,
+  normalizePhone,
+  normalizeWebsite,
   type VendorLocation,
 } from '../locations.ts';
 import {
@@ -162,4 +165,21 @@ test('activating a location needs SELL and a state that allows it', () => {
     activeLocations([MIDTOWN, { ...MOBILE, state: 'DRAFT' }]).map((item) => item.id),
     ['loc_fixed'],
   );
+});
+
+test('phone and website follow the API: dialable digits, and only a web page', () => {
+  assert.equal(normalizePhone('(404) 555-0123'), '4045550123');
+  assert.equal(normalizePhone('+1 404 555 0123'), '+14045550123');
+  assert.equal(normalizePhone('12'), undefined);
+  assert.equal(normalizeWebsite('peachtable.com'), 'https://peachtable.com/');
+  assert.equal(normalizeWebsite('javascript:alert(1)'), undefined);
+  assert.equal(normalizeWebsite('localhost'), undefined);
+});
+
+test('contact details are optional, and a bad one is named rather than dropped', () => {
+  assert.deepEqual(locationSetupBlockers({ ...MIDTOWN, phone: undefined, website: undefined }), []);
+  assert.deepEqual(locationSetupBlockers({ ...MIDTOWN, phone: 'call us', website: 'nope' }), [
+    'That phone number does not look right',
+    'That website does not look right',
+  ]);
 });

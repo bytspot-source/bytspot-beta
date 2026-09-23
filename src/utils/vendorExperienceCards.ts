@@ -46,11 +46,12 @@ export type VendorInventoryCard = {
   maxGuests: number;
   durationMins: number;
   intent: string;
-  place: { label: string; address: string | null; lat: number; lng: number };
+  place: { label: string; address: string | null; lat: number; lng: number; phone?: string | null; website?: string | null };
   distanceMiles: number;
   coverUrl: string | null;
   galleryUrls: string[];
   nextSlot: { startsAt: string; remaining: number };
+  upcomingSlots?: { startsAt: string; remaining: number }[];
 };
 
 const CARD_TYPES: readonly CardType[] = [
@@ -216,6 +217,18 @@ export function vendorInventoryToCard(
     vendorId: item.sellerId,
     discoverSource: 'bytspot_vendor',
     control: 'local',
+    ...(item.place.phone ? { phoneNumber: item.place.phone } : {}),
+    ...(item.place.website && /^https?:\/\//i.test(item.place.website) ? { website: item.place.website } : {}),
+    ...(item.intent === 'request'
+      ? {
+          ask: {
+            windowId: item.windowId,
+            sellerName: item.sellerName,
+            maxGuests: item.maxGuests,
+            slots: item.upcomingSlots?.length ? item.upcomingSlots : [item.nextSlot],
+          },
+        }
+      : {}),
   };
 }
 

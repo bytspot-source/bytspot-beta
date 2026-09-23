@@ -25,6 +25,9 @@ export interface VendorLocation {
   /** Only meaningful when the vendor is the one travelling. */
   radiusMiles?: number;
   timezone?: string;
+  /** Shown to guests on Discover as Call and Website. */
+  phone?: string;
+  website?: string;
 }
 
 export interface LocationPoint {
@@ -86,7 +89,33 @@ export function locationSetupBlockers(location: VendorLocation): string[] {
   }
   if (!Number.isFinite(location.lat) || !Number.isFinite(location.lng)) blockers.push('Needs a pin on the map');
   if (Math.abs(location.lat) > 90 || Math.abs(location.lng) > 180) blockers.push('Pin is not a real coordinate');
+  if (location.phone?.trim() && !normalizePhone(location.phone)) blockers.push('That phone number does not look right');
+  if (location.website?.trim() && !normalizeWebsite(location.website)) blockers.push('That website does not look right');
   return blockers;
+}
+
+/** The API's rule, applied first: "+" and 7–15 digits. */
+export function normalizePhone(raw: string | undefined): string | undefined {
+  if (!raw?.trim()) return undefined;
+  const digits = raw.replace(/[^\d+]/g, '');
+  const bare = digits.replace(/\+/g, '');
+  if (bare.length < 7 || bare.length > 15) return undefined;
+  return digits.startsWith('+') ? `+${bare}` : bare;
+}
+
+/** The API's rule, applied first: an absolute http(s) URL; a bare domain gets https. */
+export function normalizeWebsite(raw: string | undefined): string | undefined {
+  if (!raw?.trim()) return undefined;
+  const value = /^[a-z][a-z0-9+.-]*:/i.test(raw.trim()) ? raw.trim() : `https://${raw.trim()}`;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
+    if (!url.hostname.includes('.') || url.username || url.password) return undefined;
+    const href = url.toString();
+    return href.length <= 200 ? href : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Every reason a location cannot back published inventory, not just the first. */

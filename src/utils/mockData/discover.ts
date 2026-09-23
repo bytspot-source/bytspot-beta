@@ -69,6 +69,16 @@ export interface DiscoverCard {
   vendorServiceStatus?: 'active' | 'draft' | 'archived';
   curatedFallback?: boolean;
   control?: DiscoverCardControl;
+  /** A published vendor window this card can send an ask to. */
+  ask?: VendorAsk;
+}
+
+/** What a guest can ask a vendor window for: its id, party cap and open times. */
+export interface VendorAsk {
+  windowId: string;
+  sellerName: string;
+  maxGuests: number;
+  slots: { startsAt: string; remaining: number }[];
 }
 
 /**

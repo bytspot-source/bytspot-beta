@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Navigation, Phone, MessageCircle, Car, Heart, Share2, MapPin, Clock, Star, Users, Zap, ChevronLeft, ChevronRight, ExternalLink, CheckCircle, Ticket, Sparkles } from 'lucide-react';
+import { X, Navigation, Phone, MessageCircle, Car, Heart, Share2, MapPin, Clock, Star, Users, Zap, ChevronLeft, ChevronRight, ExternalLink, CheckCircle, Ticket, Sparkles, Globe, Send } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { saveSpot, isSpotSaved, removeSavedSpot, type SpotType } from '../utils/savedSpots';
 import { trpc } from '../utils/trpc';
@@ -10,6 +10,7 @@ import { getVenuePhotos, resolveVenuePhotos } from '../utils/venuePhoto';
 import { getVenueReviews, saveVenueReview, getAverageRating, type VenueReview } from '../utils/venueReviews';
 import { addAccessPassToWallet, BYTSPOT_COMMERCE_EVENT, getAccessPassForProduct, getBytspotMembership, hasPlatinumAccess, replaceAccessPassesFromServer, type AccessPass, type AccessPassInput, upsertAccessPass } from '../utils/insiderCommerce';
 import { APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP } from '../utils/reviewBuild';
+import { AskSheet } from './AskSheet';
 
 interface VenueDetailsProps {
   venue: any;
@@ -82,6 +83,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
   };
   const isTicketedVenue = venue.entryType === 'paid';
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [askOpen, setAskOpen] = useState(false);
   const [isFavorite, setIsFavorite] = useState(() => isSpotSaved(favoriteSpotId));
   const [activePass, setActivePass] = useState<AccessPass | null>(() => getAccessPassForProduct(accessProduct));
   const [membership, setMembership] = useState(() => getBytspotMembership());
@@ -289,6 +291,16 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
       window.open(`https://www.google.com/search?q=${q}`, '_blank');
       toast.info('Phone not in system', { description: 'Opening Google search', duration: 2500 });
     }
+  };
+
+  // A vendor's own card has no directory to fall back to: no number, no Call.
+  const phoneForCall = venue.phone || venue.phoneNumber;
+  const showCall = Boolean(phoneForCall) || venue.discoverSource !== 'bytspot_vendor';
+  const website: string | undefined =
+    typeof venue.website === 'string' && /^https?:\/\//i.test(venue.website) ? venue.website : undefined;
+
+  const handleWebsite = () => {
+    if (website) window.open(website, '_blank', 'noopener,noreferrer');
   };
 
   const handleBookValet = () => {
@@ -992,7 +1004,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
         {/* Fixed Action Menu */}
         <div className="fixed bottom-0 left-0 right-0 bg-[#000000] border-t-2 border-white/30 backdrop-blur-xl">
           <div className="max-w-[393px] mx-auto p-4">
-            <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className={`grid ${[true, showCall, Boolean(website), Boolean(onOpenConcierge)].filter(Boolean).length > 3 ? 'grid-cols-4' : 'grid-cols-3'} gap-2 mb-3`}>
               <motion.button
                 onClick={handleNavigate}
                 className="p-3 rounded-[12px] bg-gradient-to-br from-cyan-500 to-blue-500 border-2 border-white/30 flex flex-col items-center gap-1 shadow-lg"
@@ -1004,16 +1016,31 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
                 </span>
               </motion.button>
 
-              <motion.button
-                onClick={handleCall}
-                className="p-3 rounded-[12px] bg-gradient-to-br from-green-500 to-emerald-500 border-2 border-white/30 flex flex-col items-center gap-1 shadow-lg"
-                whileTap={{ scale: 0.95 }}
-              >
-                <Phone className="w-4 h-4 text-white" />
-                <span className="text-[12px] text-white" style={{ fontWeight: 600 }}>
-                  Call
-                </span>
-              </motion.button>
+              {showCall && (
+                <motion.button
+                  onClick={handleCall}
+                  className="p-3 rounded-[12px] bg-gradient-to-br from-green-500 to-emerald-500 border-2 border-white/30 flex flex-col items-center gap-1 shadow-lg"
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Phone className="w-4 h-4 text-white" />
+                  <span className="text-[12px] text-white" style={{ fontWeight: 600 }}>
+                    Call
+                  </span>
+                </motion.button>
+              )}
+
+              {website && (
+                <motion.button
+                  onClick={handleWebsite}
+                  className="p-3 rounded-[12px] bg-gradient-to-br from-sky-500 to-indigo-500 border-2 border-white/30 flex flex-col items-center gap-1 shadow-lg"
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Globe className="w-4 h-4 text-white" />
+                  <span className="text-[12px] text-white" style={{ fontWeight: 600 }}>
+                    Website
+                  </span>
+                </motion.button>
+              )}
 
               {onOpenConcierge && (
                 <motion.button
@@ -1045,6 +1072,19 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
                   {activePass
                     ? (onOpenAccessWallet ? 'Pass Confirmed · Open My Access' : 'Pass Confirmed ✓')
                     : `${isEventAccess ? 'Get Event Pass' : 'Get Entry Pass'} · ${venue.entryPrice || 'Paid entry'}`}
+                </span>
+              </motion.button>
+            ) : venue.ask ? (
+              <motion.button
+                onClick={() => setAskOpen(true)}
+                data-testid="venue-ask-cta"
+                className="w-full rounded-[16px] py-3.5 flex items-center justify-center gap-2 mb-3"
+                style={{ background: 'linear-gradient(135deg,#00BFFF,#A855F7)' }}
+                whileTap={{ scale: 0.97 }}
+              >
+                <Send className="w-5 h-5 text-white" strokeWidth={2.5} />
+                <span className="text-[15px] text-white" style={{ fontWeight: 700 }}>
+                  Ask {venue.ask.sellerName}
                 </span>
               </motion.button>
             ) : (
@@ -1264,6 +1304,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
           )}
         </AnimatePresence>
       </div>
+      {askOpen && venue.ask ? <AskSheet ask={venue.ask} onClose={() => setAskOpen(false)} /> : null}
     </motion.div>
   );
 }

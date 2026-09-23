@@ -134,6 +134,8 @@ export function LocationsView({
                 {kindLabel} · {fulfillmentFor(location) === 'vendorTravels' ? 'you travel' : 'guests come to you'}
                 {location.address ? ` · ${location.address}` : ''}
                 {location.radiusMiles ? ` · travels up to ${location.radiusMiles} miles` : ''}
+                {location.phone ? ` · ${location.phone}` : ''}
+                {location.website ? ` · ${location.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}` : ''}
               </p>
 
               {reasons.length === 0 ? (

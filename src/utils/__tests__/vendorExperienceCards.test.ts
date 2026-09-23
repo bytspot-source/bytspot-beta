@@ -4,6 +4,7 @@ import { getRankedDiscoverCardsWithSimplex } from '../vendorMatching.ts';
 import { curatedServiceRecommendationCards, savedServiceRequestToCard, vendorInventoryToCard, vendorServiceToCard } from '../vendorExperienceCards.ts';
 import { discoverCardCapability, discoverCardControl } from '../mockData/discover.ts';
 import { controlFromCapability } from '../bookableProjection.ts';
+import { askErrorMessage, askIsLive, askProblems, askTransport, type AskClient } from '../guestAsk.ts';
 
 test('vendorServiceToCard maps patch-verified services into paid discover cards', () => {
   const card = vendorServiceToCard({
@@ -184,4 +185,75 @@ test('a window card takes asks, so it never enters the checkout path', () => {
 
 test('an unknown discover type lands as a venue rather than an invalid card type', () => {
   assert.equal(vendorInventoryToCard({ ...inventoryItem, discoverType: 'spaceport' }, 0)?.type, 'venue');
+});
+
+test('a window card carries the place\'s phone, website and what it can be asked for', () => {
+  const card = vendorInventoryToCard(
+    {
+      ...inventoryItem,
+      place: { ...inventoryItem.place, phone: '+14045550123', website: 'https://peachtable.com/' },
+      upcomingSlots: [inventoryItem.nextSlot, { startsAt: '2026-09-24T23:30:00.000Z', remaining: 1 }],
+    },
+    0,
+  );
+  assert.equal(card?.phoneNumber, '+14045550123');
+  assert.equal(card?.website, 'https://peachtable.com/');
+  assert.deepEqual(card?.ask, {
+    windowId: 'win_1',
+    sellerName: 'Peach Table Co',
+    maxGuests: 2,
+    slots: [inventoryItem.nextSlot, { startsAt: '2026-09-24T23:30:00.000Z', remaining: 1 }],
+  });
+});
+
+test('a window card without contact details has none, and a non-web link is dropped', () => {
+  const card = vendorInventoryToCard({ ...inventoryItem, place: { ...inventoryItem.place, website: 'javascript:alert(1)' } }, 0);
+  assert.equal(card?.phoneNumber, undefined);
+  assert.equal(card?.website, undefined);
+  // Older API responses without upcomingSlots still offer the next one.
+  assert.deepEqual(card?.ask?.slots, [inventoryItem.nextSlot]);
+  // A window that does not take asks gets no Ask.
+  assert.equal(vendorInventoryToCard({ ...inventoryItem, intent: 'none' }, 0)?.ask, undefined);
+});
+
+const ask = { windowId: 'win_1', sellerName: 'Peach Table Co', maxGuests: 4, slots: [{ startsAt: '2026-09-24T23:00:00.000Z', remaining: 2 }] };
+
+test('an ask is checked against the card before it is sent', () => {
+  const at = ask.slots[0].startsAt;
+  assert.deepEqual(askProblems(ask, { partySize: 2, startsAt: at }), []);
+  assert.deepEqual(askProblems(ask, { partySize: 5, startsAt: at }), ['This takes up to 4 guests', 'Not enough room at that time']);
+  assert.deepEqual(askProblems(ask, { partySize: 3, startsAt: at }), ['Not enough room at that time']);
+  assert.deepEqual(askProblems(ask, { partySize: 2, startsAt: '2026-09-25T00:00:00.000Z' }), ['Pick a time']);
+  assert.deepEqual(askProblems(ask, { partySize: 0, startsAt: at }), ['How many are coming?']);
+});
+
+test('a signed-out guest is told to sign in, not shown a raw error', () => {
+  assert.equal(askErrorMessage({ data: { code: 'UNAUTHORIZED' }, message: 'Not authenticated' }), 'Sign in to send a request');
+  assert.equal(askErrorMessage({ data: { code: 'CONFLICT' }, message: 'You have already asked here.' }), 'You have already asked here.');
+  assert.equal(askErrorMessage(undefined), 'That did not send. Try again');
+});
+
+test('the ask transport sends the window, reads back its own request, and accepts', async () => {
+  const calls: string[] = [];
+  const client: AskClient = {
+    demand: {
+      ask: { mutate: async (input) => { calls.push(`ask:${JSON.stringify(input)}`); return { id: 'dem_1', state: 'OPEN', expiresAt: 'x' }; } },
+      mine: { query: async () => [
+        { id: 'dem_0', state: 'OPEN', expiresAt: 'x', offers: [] },
+        { id: 'dem_1', state: 'OFFERED', expiresAt: 'x', offers: [] },
+      ] },
+      acceptOffer: { mutate: async (input) => { calls.push(`accept:${input.offerId}`); return {}; } },
+      withdraw: { mutate: async (input) => { calls.push(`withdraw:${input.demandId}`); return {}; } },
+    },
+  };
+  const transport = askTransport(client);
+  await transport.send(ask, { partySize: 2, startsAt: ask.slots[0].startsAt, note: '  ' });
+  assert.equal(calls[0], `ask:${JSON.stringify({ windowId: 'win_1', partySize: 2, startsAt: ask.slots[0].startsAt })}`);
+  const status = await transport.read('dem_1');
+  assert.equal(status?.state, 'OFFERED');
+  assert.ok(askIsLive(status));
+  assert.equal(await transport.read('dem_gone'), undefined);
+  assert.ok(!askIsLive({ id: 'd', state: 'EXPIRED', expiresAt: 'x', offers: [] }));
+  await transport.accept('off_1');
+  assert.equal(calls[1], 'accept:off_1');
 });

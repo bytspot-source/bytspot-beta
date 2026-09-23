@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatBookablePrice } from '../utils/bookableTemplates';
 import {
   blankOnlyVariants,
@@ -25,6 +25,7 @@ import {
   demoDemandTransport,
   demoMediaTransport,
   demoSetupTransport,
+  demoWindowsTransport,
   VENDOR_DEMO_MODE,
 } from '@vendor-demo';
 import { httpDemandTransport, type DemandTransport } from './demandTransport';
@@ -32,14 +33,203 @@ import { httpMediaTransport, type MediaTransport } from './mediaTransport';
 import { useVendorDemand } from './useVendorDemand';
 import { OnboardingView } from './OnboardingView';
 import { gateReplacesConsole, shouldShowOnboarding } from './onboarding';
-import { httpSetupTransport, type AuthorizedFetch, type SetupTransport } from './setupTransport';
+import {
+  httpSetupTransport,
+  httpWindowsTransport,
+  windowDraftProblems,
+  type AuthorizedFetch,
+  type SetupTransport,
+  type VendorWindow,
+  type WindowDraft,
+  type WindowsTransport,
+} from './setupTransport';
+import { MediaPicker } from './MediaPicker';
+import type { VendorLocation } from './locations';
 import { useVendorSetup } from './useVendorSetup';
 import type { BookableSellerState } from '../utils/bookableTemplates';
 import { withheldBySellerState, type Seller, type VendorSession } from './seller';
 
-function BookablesView({ viewer }: { viewer: VendorViewer }) {
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function toClock(mins: number): string {
+  return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+}
+
+function fromClock(value: string): number {
+  const [hours, minutes] = value.split(':').map(Number);
+  return (hours || 0) * 60 + (minutes || 0);
+}
+
+export interface BookablesProps {
+  session: VendorSession;
+  locations: VendorLocation[];
+  windows: WindowsTransport;
+  media: MediaTransport;
+  authorizedFetch: AuthorizedFetch;
+}
+
+/**
+ * Drafting a window from a template, then publishing it. A draft is invisible
+ * to guests and to the demand feed; publishing is refused by the API until the
+ * business is approved and the place is active, and the console shows why.
+ */
+function useWindows(transport: WindowsTransport) {
+  const [windows, setWindows] = useState<VendorWindow[]>([]);
+  const [blockers, setBlockers] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    void transport.list().then((result) => {
+      if (live && result.value) setWindows(result.value);
+    });
+    return () => {
+      live = false;
+    };
+  }, [transport]);
+
+  const replace = (row: VendorWindow) =>
+    setWindows((current) => (current.some((entry) => entry.id === row.id) ? current.map((entry) => (entry.id === row.id ? row : entry)) : [...current, row]));
+
+  const create = useCallback(
+    async (draft: WindowDraft): Promise<boolean> => {
+      const problems = windowDraftProblems(draft);
+      if (problems.length) {
+        setBlockers(problems);
+        return false;
+      }
+      setBusy(true);
+      const result = await transport.create(draft);
+      setBusy(false);
+      if (!result.value) {
+        setBlockers(result.blockers ?? ['That did not save. Try again']);
+        return false;
+      }
+      setBlockers([]);
+      replace(result.value);
+      return true;
+    },
+    [transport],
+  );
+
+  const setPublished = useCallback(
+    async (id: string, published: boolean) => {
+      setBusy(true);
+      const result = await transport.setPublished(id, published);
+      setBusy(false);
+      if (!result.value) {
+        setBlockers(result.blockers ?? ['That did not save. Try again']);
+        return;
+      }
+      setBlockers([]);
+      replace(result.value);
+    },
+    [transport],
+  );
+
+  return { windows, blockers, busy, create, setPublished };
+}
+
+function WindowForm({
+  skuTemplateId,
+  locations,
+  busy,
+  onCreate,
+  onCancel,
+}: {
+  skuTemplateId: string;
+  locations: VendorLocation[];
+  busy: boolean;
+  onCreate: (draft: WindowDraft) => Promise<boolean>;
+  onCancel: () => void;
+}) {
+  const open = locations.filter((location) => location.state !== 'CLOSED');
+  const [draft, setDraft] = useState<WindowDraft>({
+    skuTemplateId,
+    locationId: open[0]?.id ?? '',
+    weekdays: [1, 2, 3, 4, 5],
+    openMins: 17 * 60,
+    closeMins: 22 * 60,
+    quantity: 1,
+  });
+
+  const toggleDay = (day: number) =>
+    setDraft((current) => ({
+      ...current,
+      weekdays: current.weekdays.includes(day)
+        ? current.weekdays.filter((entry) => entry !== day)
+        : [...current.weekdays, day].sort((a, b) => a - b),
+    }));
+
+  if (!open.length) return <p className="vendor-muted">Add a place first, so guests know where this happens.</p>;
+
+  return (
+    <form
+      className="vendor-card"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void onCreate(draft).then((saved) => {
+          if (saved) onCancel();
+        });
+      }}
+    >
+      <label className="vendor-field">
+        Where
+        <select value={draft.locationId} onChange={(event) => setDraft({ ...draft, locationId: event.target.value })}>
+          {open.map((location) => (
+            <option key={location.id} value={location.id}>
+              {location.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <nav className="vendor-filters" aria-label="Days">
+        {WEEKDAYS.map((label, day) => (
+          <button
+            key={label}
+            type="button"
+            className={draft.weekdays.includes(day) ? 'vendor-chip vendor-chip-on' : 'vendor-chip'}
+            onClick={() => toggleDay(day)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+      <label className="vendor-field">
+        Opens
+        <input type="time" value={toClock(draft.openMins)} onChange={(event) => setDraft({ ...draft, openMins: fromClock(event.target.value) })} />
+      </label>
+      <label className="vendor-field">
+        Closes
+        <input type="time" value={toClock(draft.closeMins)} onChange={(event) => setDraft({ ...draft, closeMins: fromClock(event.target.value) })} />
+      </label>
+      <label className="vendor-field">
+        How many per slot
+        <input
+          type="number"
+          min={1}
+          value={draft.quantity}
+          onChange={(event) => setDraft({ ...draft, quantity: Number(event.target.value) })}
+        />
+      </label>
+      <button type="submit" className="vendor-button" disabled={busy}>
+        Save as draft
+      </button>
+      <button type="button" className="vendor-chip" onClick={onCancel}>
+        Cancel
+      </button>
+    </form>
+  );
+}
+
+function BookablesView({ viewer, session, locations, windows: transport, media, authorizedFetch }: { viewer: VendorViewer } & BookablesProps) {
   const types = useMemo(() => listVendorBookableTypes(viewer.businessMode), [viewer.businessMode]);
   const [typeId, setTypeId] = useState(types[0]?.id ?? '');
+  const [drafting, setDrafting] = useState<string | undefined>(undefined);
+  const owned = useWindows(transport);
+  const canDraft = session.capabilities.has('SCHEDULE') && session.scope !== 'assigned';
+  const canPublish = session.capabilities.has('PUBLISH');
+  const placeLabel = (id: string) => locations.find((location) => location.id === id)?.label ?? 'A place';
 
   const type = types.find((item) => item.id === typeId);
   const presets = useMemo(() => templatesForBookableType(typeId), [typeId]);
@@ -92,6 +282,20 @@ function BookablesView({ viewer }: { viewer: VendorViewer }) {
                 <dd>{template.timing.etaLabel || 'No dispatch'}</dd>
               </div>
             </dl>
+            {canDraft && drafting !== template.id ? (
+              <button type="button" className="vendor-chip" onClick={() => setDrafting(template.id)}>
+                Sell this
+              </button>
+            ) : null}
+            {drafting === template.id ? (
+              <WindowForm
+                skuTemplateId={template.id}
+                locations={locations}
+                busy={owned.busy}
+                onCreate={owned.create}
+                onCancel={() => setDrafting(undefined)}
+              />
+            ) : null}
           </li>
         ))}
 
@@ -105,6 +309,48 @@ function BookablesView({ viewer }: { viewer: VendorViewer }) {
           </li>
         ))}
       </ul>
+
+      <section>
+        <h2 className="vendor-section-title">What you sell</h2>
+        {owned.blockers.length ? (
+          <ul className="vendor-reasons">
+            {owned.blockers.map((blocker) => (
+              <li key={blocker} className="vendor-reason-fixable">
+                {blocker}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {owned.windows.length === 0 ? <p className="vendor-muted">Nothing yet. Pick a preset above and press Sell this.</p> : null}
+        <ul className="vendor-grid">
+          {owned.windows.map((window) => (
+            <li key={window.id} className="vendor-card">
+              <div className="vendor-card-top">
+                <h3>{window.title}</h3>
+                <span className={`vendor-tier vendor-tier-${window.published ? 'green' : 'blank'}`}>
+                  {window.published ? 'Live' : 'Draft'}
+                </span>
+              </div>
+              <p className="vendor-muted">
+                {placeLabel(window.locationId)} · {window.weekdays.map((day) => WEEKDAYS[day]).join(' ')} ·{' '}
+                {toClock(window.openMins)}–{toClock(window.closeMins)} · {window.quantity} per slot ·{' '}
+                {formatBookablePrice(window.priceCents)}
+              </p>
+              {canPublish ? (
+                <button
+                  type="button"
+                  className={window.published ? 'vendor-chip' : 'vendor-chip vendor-chip-on'}
+                  disabled={owned.busy}
+                  onClick={() => void owned.setPublished(window.id, !window.published)}
+                >
+                  {window.published ? 'Take down' : 'Publish'}
+                </button>
+              ) : null}
+              <MediaPicker session={session} transport={media} parent="bookable" parentId={window.id} authorizedFetch={authorizedFetch} />
+            </li>
+          ))}
+        </ul>
+      </section>
     </>
   );
 }
@@ -172,6 +418,10 @@ function VendorConsole({
     () => (VENDOR_DEMO_MODE ? demoMediaTransport() : httpMediaTransport(authorizedFetch)),
     [authorizedFetch],
   );
+  const windows = useMemo<WindowsTransport>(
+    () => (VENDOR_DEMO_MODE ? demoWindowsTransport() : httpWindowsTransport(authorizedFetch)),
+    [authorizedFetch],
+  );
 
   /**
    * The state a vendor can move themselves, kept beside the reconciled seller.
@@ -224,6 +474,7 @@ function VendorConsole({
           authorizedFetch={authorizedFetch}
         />
       }
+      bookables={{ session, locations: setup.profile.locations, windows, media, authorizedFetch }}
       demand={
         <DemandFeed
           session={session}
@@ -247,6 +498,7 @@ function ConsoleShell({
   gate,
   gateReplacesConsole,
   places,
+  bookables,
   demand,
 }: {
   session: VendorSession;
@@ -255,6 +507,7 @@ function ConsoleShell({
   gateReplacesConsole: boolean;
   /** Rendered by the caller, which owns the profile these places live in. */
   places: React.ReactNode;
+  bookables: BookablesProps;
   /** Likewise: the feed is a read the caller owns, not shell state. */
   demand: React.ReactNode;
 }) {
@@ -317,7 +570,7 @@ function ConsoleShell({
         {gate}
         {gateReplacesConsole ? null : (
           <>
-            {current === 'bookables' ? <BookablesView viewer={viewer} /> : null}
+            {current === 'bookables' ? <BookablesView viewer={viewer} {...bookables} session={session} /> : null}
             {current === 'availability' ? <AvailabilityGrid session={session} /> : null}
             {current === 'demand' ? demand : null}
             {current === 'locations' ? places : null}

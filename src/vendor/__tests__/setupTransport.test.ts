@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { payoutBlockersFor } from '../profile.ts';
-import { httpSetupTransport, type AuthorizedFetch } from '../setupTransport.ts';
+import {
+  demoWindowsTransport,
+  httpSetupTransport,
+  httpWindowsTransport,
+  windowDraftProblems,
+  type AuthorizedFetch,
+} from '../setupTransport.ts';
 
 function stubFetch(reply: (path: string, init?: RequestInit) => { status: number; body: unknown }) {
   const calls: { path: string; init?: RequestInit }[] = [];
@@ -131,4 +137,68 @@ test('a refused state change surfaces the reason rather than a bare failure', as
   const result = await httpSetupTransport(authorized).moveLocation('loc_1', 'PAUSE_LOCATION');
   assert.equal(result.value, undefined);
   assert.deepEqual(result.blockers, ['Cannot pause a place with bookings today']);
+});
+
+const windowDraft = {
+  skuTemplateId: 'dining.table',
+  locationId: 'loc_1',
+  weekdays: [5, 6],
+  openMins: 17 * 60,
+  closeMins: 22 * 60,
+  quantity: 4,
+};
+
+test('a window draft is refused locally for what the API would refuse', () => {
+  assert.deepEqual(windowDraftProblems(windowDraft), []);
+  assert.deepEqual(windowDraftProblems({ ...windowDraft, locationId: '' }), ['Choose one of your places']);
+  assert.deepEqual(windowDraftProblems({ ...windowDraft, weekdays: [] }), ['Pick at least one day']);
+  assert.deepEqual(windowDraftProblems({ ...windowDraft, closeMins: windowDraft.openMins }), [
+    'Closing has to come after opening',
+  ]);
+  assert.deepEqual(windowDraftProblems({ ...windowDraft, quantity: 0 }), ['Sell at least one per slot']);
+});
+
+test('windows are created at /vendor/windows and published by operation, not by flag', async () => {
+  const { authorized, calls } = stubFetch((path) => ({
+    status: path === '/vendor/windows' ? 201 : 200,
+    body: { id: 'win_1', ...windowDraft, title: 'Table', published: path.endsWith('/publish') },
+  }));
+  const transport = httpWindowsTransport(authorized);
+
+  const created = await transport.create(windowDraft);
+  assert.equal(calls[0]?.path, '/vendor/windows');
+  assert.equal(calls[0]?.init?.method, 'POST');
+  assert.equal(created.value?.published, false);
+
+  const live = await transport.setPublished('win_1', true);
+  assert.equal(calls[1]?.path, '/vendor/windows/win_1/publish');
+  assert.equal(live.value?.published, true);
+
+  await transport.setPublished('win_1', false);
+  assert.equal(calls[2]?.path, '/vendor/windows/win_1/unpublish');
+});
+
+test('a refused publish surfaces the API checklist', async () => {
+  const { authorized } = stubFetch(() => ({
+    status: 409,
+    body: { error: 'Not ready to publish', blockers: ['Activate this place first', 42] },
+  }));
+  const result = await httpWindowsTransport(authorized).setPublished('win_1', true);
+  assert.equal(result.status, 409);
+  assert.deepEqual(result.blockers, ['Activate this place first']);
+});
+
+test('a window with no published flag reads as a draft', async () => {
+  const { authorized } = stubFetch(() => ({ status: 200, body: { windows: [{ id: 'win_1', published: 'yes' }] } }));
+  const listed = await httpWindowsTransport(authorized).list();
+  assert.equal(listed.value?.[0]?.published, false);
+});
+
+test('the demo windows transport drafts first and publishes on request', async () => {
+  const demo = demoWindowsTransport();
+  const created = await demo.create(windowDraft);
+  assert.equal(created.value?.published, false);
+  const live = await demo.setPublished(created.value!.id, true);
+  assert.equal(live.value?.published, true);
+  assert.equal((await demo.list()).value?.length, 1);
 });

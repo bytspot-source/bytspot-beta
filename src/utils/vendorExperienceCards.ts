@@ -7,7 +7,7 @@
  * Native presentation follows NativeVendorExperience.swift. The legacy
  * curated fixtures below are not a native restaurant inventory feed.
  */
-import type { DiscoverCard } from './mockData';
+import type { CardType, DiscoverCard } from './mockData';
 import { adaptVendorServiceToMatchDocument } from './vendorMatching.ts';
 import { resolveVenuePhoto } from './venuePhoto.ts';
 import type { VirtualPatchSavedServiceRequest } from './virtualPatch';
@@ -31,6 +31,32 @@ export type VendorDiscoveryService = {
   availability?: string;
   ctaText?: string;
 };
+
+/** One published vendor window, as `inventory.list` returns it. */
+export type VendorInventoryCard = {
+  windowId: string;
+  sellerId: string;
+  sellerName: string;
+  skuTemplateId: string;
+  title: string;
+  domain: string;
+  category: string;
+  discoverType: string;
+  priceCents: number;
+  maxGuests: number;
+  durationMins: number;
+  intent: string;
+  place: { label: string; address: string | null; lat: number; lng: number };
+  distanceMiles: number;
+  coverUrl: string | null;
+  galleryUrls: string[];
+  nextSlot: { startsAt: string; remaining: number };
+};
+
+const CARD_TYPES: readonly CardType[] = [
+  'parking', 'venue', 'valet', 'coffee', 'dining', 'shopping', 'nightlife',
+  'entertainment', 'fitness', 'service', 'boutique_apartment', 'mobility',
+];
 
 function formatDistance(miles: number): string {
   if (miles < 0.1) return `${Math.round(miles * 5280)} ft`;
@@ -136,6 +162,61 @@ export function savedServiceRequestToCard(
     discoverSource: liveVendorBacked ? 'bytspot_vendor' : undefined,
     control: liveVendorBacked ? 'vendor' : 'local',
   } as DiscoverCard;
+}
+
+function formatNextSlot(startsAt: string, now: Date): string {
+  const at = new Date(startsAt);
+  const time = at.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  if (at.toDateString() === now.toDateString()) return `Next: Today ${time}`;
+  const day = at.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  return `Next: ${day} ${time}`;
+}
+
+/**
+ * A published vendor window on a Discover card, pictured with the seller's own
+ * media. A window without any seller imagery yields no card rather than a
+ * stock photo. Control stays local: a window takes asks, not checkout, and
+ * the checkout path would treat its id as a vendor service.
+ */
+export function vendorInventoryToCard(
+  item: VendorInventoryCard,
+  index: number,
+  now: Date = new Date(),
+): DiscoverCard | null {
+  const image = item.coverUrl ?? item.galleryUrls[0];
+  if (!image) return null;
+
+  const type = (CARD_TYPES as readonly string[]).includes(item.discoverType) ? (item.discoverType as CardType) : 'venue';
+  const price = formatPrice(item.priceCents);
+  const spots = item.nextSlot.remaining;
+
+  return {
+    id: stableNumericId(item.windowId, 60_000 + index),
+    type,
+    name: item.title,
+    image,
+    photoUrls: [image, ...item.galleryUrls.filter((url) => url !== image)],
+    distance: formatDistance(item.distanceMiles),
+    price,
+    entryType: 'paid',
+    entryPrice: price,
+    availability: formatNextSlot(item.nextSlot.startsAt, now),
+    availableSpots: spots,
+    description: `${item.sellerName} · ${item.place.label}`,
+    location: item.place.address ?? item.place.label,
+    serviceCategory: item.category,
+    features: [
+      item.sellerName,
+      `Up to ${item.maxGuests} ${item.maxGuests === 1 ? 'guest' : 'guests'}`,
+      ...(item.durationMins ? [`${item.durationMins} min`] : []),
+    ],
+    verified: true,
+    _lat: item.place.lat,
+    _lng: item.place.lng,
+    vendorId: item.sellerId,
+    discoverSource: 'bytspot_vendor',
+    control: 'local',
+  };
 }
 
 export function vendorServiceToCard(

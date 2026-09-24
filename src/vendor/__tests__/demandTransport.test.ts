@@ -140,3 +140,14 @@ test('a refused response surfaces the reason rather than a bare failure', async 
   assert.equal(result.value, undefined);
   assert.deepEqual(result.blockers, ['Someone else took that slot']);
 });
+
+test('an offer paid in the app says so, and one paid at the venue sends what an older API expects', async () => {
+  const { authorized, calls } = stubFetch(() => ({ status: 200, body: { demand: [], supply: [] } }));
+  const transport = httpDemandTransport(authorized);
+
+  await transport.respond('d1', 'bk_1', 'OFFER', 'bytspot');
+  await transport.respond('d1', 'bk_1', 'OFFER', 'venue');
+
+  assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { operation: 'OFFER', bookableId: 'bk_1', payAt: 'bytspot' });
+  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { operation: 'OFFER', bookableId: 'bk_1' });
+});

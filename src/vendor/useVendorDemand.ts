@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { BookableDemandOperationId } from '../utils/bookableTemplates.ts';
-import type { Demand, DemandSupply } from './demand.ts';
+import type { Demand, DemandSupply, OfferPayAt } from './demand.ts';
 import type { DemandTransport } from './demandTransport.ts';
 
 export interface VendorDemandState {
@@ -13,7 +13,7 @@ export interface VendorDemandState {
 }
 
 export interface VendorDemandActions {
-  respond: (demandId: string, bookableId: string, operation: BookableDemandOperationId) => Promise<void>;
+  respond: (demandId: string, bookableId: string, operation: BookableDemandOperationId, payAt?: OfferPayAt) => Promise<void>;
   reload: () => Promise<void>;
 }
 
@@ -55,11 +55,11 @@ export function useVendorDemand(transport: DemandTransport): VendorDemandState &
   }, [reload]);
 
   const respond = useCallback(
-    async (demandId: string, bookableId: string, operation: BookableDemandOperationId) => {
+    async (demandId: string, bookableId: string, operation: BookableDemandOperationId, payAt?: OfferPayAt) => {
       setBlockers([]);
       setBusy(true);
       try {
-        const result = await transport.respond(demandId, bookableId, operation);
+        const result = await transport.respond(demandId, bookableId, operation, payAt);
         if (result.value) {
           setDemand(result.value.demand);
           setSupply(result.value.supply);

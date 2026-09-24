@@ -41,6 +41,17 @@ export interface DemandSupply {
   slots: AvailabilitySlot[];
 }
 
+/** How the guest pays for an offer: at the venue, or in the app before it is booked. */
+export type OfferPayAt = 'venue' | 'bytspot';
+
+/**
+ * Paid in the app only when the business asked for it, can be paid out, and
+ * has a price to charge. Anything else is paid at the venue, as before.
+ */
+export function offerPayAt(payInApp: boolean, canTakePayment: boolean, priceCents: number): OfferPayAt {
+  return payInApp && canTakePayment && priceCents > 0 ? 'bytspot' : 'venue';
+}
+
 export interface DemandMiss {
   rule: BookableMatchRuleId;
   reason: string;

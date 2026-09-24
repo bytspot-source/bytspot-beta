@@ -252,7 +252,11 @@ final class NativeM5DetailTests: XCTestCase {
             XCTAssertFalse(NativeVendorExperience.isDiscoveryReference(id: id))
         }
         XCTAssertTrue(NativeVendorExperience.isDiscoveryReference(id: "venue-real-1"))
+        // The catalog offering keeps its identity; the nearby-parties card
+        // does not, or the same room browses twice — once as an offering and
+        // once as a listed place it is not.
         XCTAssertTrue(NativeVendorExperience.isDiscoveryReference(id: "party:party-1"))
+        XCTAssertFalse(NativeVendorExperience.isDiscoveryReference(id: "party-party-1"))
         XCTAssertEqual(NativeVendorCapabilityTable.rows(for: .init()).filter(\.isExecutable).count, 0)
     }
 

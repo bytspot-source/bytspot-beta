@@ -5,9 +5,43 @@ import UIKit
 
 final class NativeDiscoverM6BrowseTests: XCTestCase {
     private func offering(_ sourceID: String = "spot-a", kind: NativePlanBookableSelection.SourceKind = .coffeeSpot,
-                          category: String = "coffee", capability: String = "request", title: String = "Same title") -> NativePlanBookableOffering {
+                          category: String = "coffee", capability: String = "request", title: String = "Same title",
+                          startsAt: String? = nil, spacesRemaining: Int? = nil) -> NativePlanBookableOffering {
         NativePlanBookableOffering(id: "catalog-\(sourceID)", sourceKind: kind, sourceId: sourceID,
-                                  category: category, title: title, subtitle: nil, capability: capability)
+                                  category: category, title: title, subtitle: nil, capability: capability,
+                                  startsAt: startsAt, spacesRemaining: spacesRemaining)
+    }
+
+    /// availabilityLine is the only line on the browse card that speaks for
+    /// the offering, so it is the line that must carry the time and the seats.
+    func testPartyBrowseLineStatesTimeAndSeatsAndStillNamesTheDoor() throws {
+        let soon = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3600))
+        let line = NativeDiscoverBrowsePolicy.availabilityLine(
+            offering: offering("party-1", kind: .party, category: "events", capability: "book",
+                               startsAt: soon, spacesRemaining: 12))
+        XCTAssertTrue(line.contains("12 left"), line)
+        XCTAssertTrue(line.contains("Party admission is separate"), "the door is never dropped for the seat count")
+
+        // The hour is stated, and stated first. Asserting only the seats and
+        // the door would stay green if the time silently vanished or the
+        // parts came out reversed, which is the half a guest reads first.
+        let hour = NativeTabContentStore.partyTimeLabel(try XCTUnwrap(NativeAccountDeletionFormat.date(fromISO: soon)))
+        XCTAssertTrue(line.hasPrefix(hour), "expected the line to lead with \(hour): \(line)")
+        let seats = try XCTUnwrap(line.range(of: "12 left"))
+        let door = try XCTUnwrap(line.range(of: "Party admission is separate"))
+        XCTAssertTrue(seats.lowerBound < door.lowerBound, "seats precede the admission note: \(line)")
+
+        // Full is a fact about the room, not a reason to hide it.
+        XCTAssertTrue(NativeDiscoverBrowsePolicy.availabilityLine(
+            offering: offering("party-2", kind: .party, startsAt: soon, spacesRemaining: 0)).contains("Full"))
+
+        // Unsupplied says nothing rather than implying room or a time, and
+        // leaves no dangling separator behind.
+        let bare = NativeDiscoverBrowsePolicy.availabilityLine(offering: offering("party-3", kind: .party))
+        XCTAssertEqual(bare, "Party admission is separate · open party details for access information")
+
+        // Nothing here changes what non-party supply says.
+        XCTAssertFalse(NativeDiscoverBrowsePolicy.availabilityLine(offering: offering()).contains("Party admission"))
     }
 
     func testDiscoverKeepsExactlyThirteenEmojiFreePillsWithoutHost() {
@@ -1180,6 +1214,124 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(unresolvedCopy.localizedCaseInsensitiveContains("Atlanta"))
         XCTAssertFalse(unresolvedCopy.localizedCaseInsensitiveContains("Midtown"))
         XCTAssertTrue(verifiedAtlantaCards.contains { $0.badgeText.localizedCaseInsensitiveContains("BEST VALUE") })
+    }
+
+    @MainActor
+    func testNearbyPartyProjectsIntoADiscoverCardWithTheServersOwnCapability() {
+        let startsAt = Date().addingTimeInterval(3 * 60 * 60)
+        let card = NativeTabContentStore.partyDiscoverCard(from: [
+            "id": "party-7", "title": "Rooftop Listening Session", "venueName": "Ponce Rooftop",
+            "startsAt": ISO8601DateFormatter().string(from: startsAt), "accessMode": "free-rsvp",
+            "capability": "book", "requiredMembershipTier": "green", "capacity": 40,
+            "spacesRemaining": 12, "distanceMiles": 1.4, "latitude": 33.7729, "longitude": -84.3654,
+        ])
+        XCTAssertEqual(card?.id, "party-party-7")
+        XCTAssertEqual(card?.type, "event")
+        XCTAssertEqual(card?.title, "Rooftop Listening Session")
+        XCTAssertEqual(card?.subtitle, "Ponce Rooftop")
+        XCTAssertEqual(card?.distance, "1.4 mi")
+        XCTAssertEqual(card?.cta, NativeDiscoverBookableCapability.book.statusLabel)
+        XCTAssertEqual(card?.badgeText, "OPEN DOOR")
+        XCTAssertTrue(card?.metadataLine.contains("12 left") == true)
+        XCTAssertEqual(card?.membershipRequired, true)
+        XCTAssertEqual(card?.control, NativeDiscoverCardControl.vendor)
+        XCTAssertEqual(card?.latitude, 33.7729)
+    }
+
+    @MainActor
+    func testAFullPartyStillAppearsAndSaysSo() {
+        // Being full is a fact about the party, not a reason to imply it does
+        // not exist. The card must show and must not offer to book it.
+        let card = NativeTabContentStore.partyDiscoverCard(from: [
+            "id": "party-8", "title": "Sold Out Warehouse", "venueName": "Westside",
+            "startsAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(7200)),
+            "accessMode": "paid-ticket", "capability": "book", "requiredMembershipTier": "",
+            "capacity": 30, "spacesRemaining": 0, "distanceMiles": 2.0,
+        ])
+        XCTAssertNotNil(card)
+        XCTAssertEqual(card?.badgeText, "FULL")
+        XCTAssertEqual(card?.categoryLabel, "Open door")
+        XCTAssertEqual(card?.cta, "Full")
+        XCTAssertEqual(card?.entryType, "paid")
+        XCTAssertEqual(card?.membershipRequired, false)
+    }
+
+    @MainActor
+    func testAPartyWithoutIdentityOrStartTimeIsNotInvented() {
+        XCTAssertNil(NativeTabContentStore.partyDiscoverCard(from: ["title": "No id", "startsAt": "2026-09-21T02:00:00Z"]))
+        XCTAssertNil(NativeTabContentStore.partyDiscoverCard(from: ["id": "p", "startsAt": "2026-09-21T02:00:00Z"]))
+        XCTAssertNil(NativeTabContentStore.partyDiscoverCard(from: ["id": "p", "title": "No start"]))
+        XCTAssertNil(NativeTabContentStore.partyDiscoverCard(from: ["id": "p", "title": "Bad start", "startsAt": "not-a-date"]))
+    }
+
+    @MainActor
+    func testPartiesLeadTheDeckAndAnEmptyNightIsSimplyAShorterDeck() {
+        let party = NativeTabContentStore.partyDiscoverCard(from: [
+            "id": "party-9", "title": "Courtyard Session", "venueName": "Old Fourth Ward",
+            "startsAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(5400)),
+            "accessMode": "free-rsvp", "capability": "book", "requiredMembershipTier": "",
+            "capacity": 20, "spacesRemaining": 5, "distanceMiles": 0.6,
+        ])
+        let venues = [venue(name: "Tongue & Groove", category: "club", address: "Venue row")]
+        let withParty = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: venues, parties: [party!], location: .verifiedMidtown)
+        XCTAssertEqual(withParty.first?.title, "Courtyard Session")
+
+        // No gatherings tonight must not leave a shelf behind claiming supply.
+        let withoutParty = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: venues, parties: [], location: .verifiedMidtown)
+        XCTAssertFalse(withoutParty.contains { $0.categoryLabel == "Open door" })
+    }
+
+    /// The card must not advertise a category the server gate can never fill.
+    /// Every approval-only host type is excluded from discovery, so naming the
+    /// channel "party" would promise house, rooftop, pool and birthday and
+    /// then show none of them.
+    @MainActor
+    func testTheChannelDoesNotNameItselfAfterTheCategoryItCanNeverShow() {
+        let partyTypes = NativeHostType.catalog.filter { $0.category == .party }
+        XCTAssertFalse(partyTypes.isEmpty)
+        for type in partyTypes {
+            XCTAssertEqual(type.door, .approvalOnly, "\(type.id) would change what this channel can show.")
+            XCTAssertEqual(type.door.allowedDoors, [.privateApproval])
+        }
+
+        let card = NativeTabContentStore.partyDiscoverCard(from: [
+            "id": "party-11", "title": "Neighborhood Market", "venueName": "Krog Street",
+            "startsAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(3600)),
+            "accessMode": "free-rsvp", "capability": "book", "requiredMembershipTier": "green",
+            "capacity": 50, "spacesRemaining": 20, "distanceMiles": 1.0,
+        ])
+        XCTAssertEqual(card?.categoryLabel, "Open door")
+        XCTAssertEqual(card?.badgeText, "OPEN DOOR")
+        XCTAssertEqual(card?.features.first, "Open door")
+        XCTAssertFalse(card?.categoryLabel.localizedCaseInsensitiveContains("part") == true)
+        XCTAssertFalse(card?.badgeText.localizedCaseInsensitiveContains("part") == true)
+    }
+
+    @MainActor
+    func testAnUnresolvedLocationShowsNoPartiesEvenWhenSomeWereFetched() {
+        let party = NativeTabContentStore.partyDiscoverCard(from: [
+            "id": "party-10", "title": "Should Never Show", "venueName": "Somewhere",
+            "startsAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(3600)),
+            "accessMode": "free-rsvp", "capability": "book", "requiredMembershipTier": "",
+            "capacity": 10, "spacesRemaining": 3, "distanceMiles": 0.2,
+        ])
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [], parties: [party!], location: .midtown)
+        XCTAssertFalse(cards.contains { $0.title == "Should Never Show" })
+        XCTAssertFalse(cards.contains { $0.categoryLabel == "Open door" })
+    }
+
+    @MainActor
+    func testPartyTimeLabelNamesTonightAndTomorrowRatherThanADate() {
+        let calendar = Calendar.current
+        let now = calendar.date(bySettingHour: 18, minute: 0, second: 0, of: Date())!
+        let tonight = calendar.date(byAdding: .hour, value: 3, to: now)!
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: now)!
+        XCTAssertTrue(NativeTabContentStore.partyTimeLabel(tonight, now: now).hasPrefix("Tonight "))
+        XCTAssertTrue(NativeTabContentStore.partyTimeLabel(tomorrow, now: now).hasPrefix("Tomorrow "))
+        let nextWeek = calendar.date(byAdding: .day, value: 6, to: now)!
+        let label = NativeTabContentStore.partyTimeLabel(nextWeek, now: now)
+        XCTAssertFalse(label.hasPrefix("Tonight"))
+        XCTAssertFalse(label.hasPrefix("Tomorrow"))
     }
 
     @MainActor

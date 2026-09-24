@@ -6,7 +6,9 @@ import {
   askStateLabel,
   askTransport,
   formatSlotLabel,
+  offerAction,
   type AskClient,
+  type AskOffer,
   type AskStatus,
 } from '../utils/guestAsk';
 
@@ -46,6 +48,15 @@ export function GuestRequests() {
     }
   };
 
+  const take = (offer: AskOffer) =>
+    act(async () => {
+      if (offerAction(offer).kind === 'pay') {
+        window.location.assign(await transport.pay(offer.id));
+        return;
+      }
+      await transport.accept(offer.id);
+    });
+
   if (!rows) {
     return <p className="px-4 py-10 text-center text-[14px] text-slate-300">{problem ?? 'Loading…'}</p>;
   }
@@ -79,16 +90,24 @@ export function GuestRequests() {
               <p className="text-[12px] text-slate-300">
                 ${(offer.priceCents / 100).toFixed(2)} · {offer.durationMins} min{offer.terms ? ` · ${offer.terms}` : ''}
               </p>
-              {!offer.accepted ? (
+              {offer.payment?.state === 'refunded' ? (
+                <p className="mt-1 text-[12px]" style={{ color: '#fda4af' }}>
+                  Refunded{offer.payment.reason ? `: ${offer.payment.reason}` : ''}
+                </p>
+              ) : null}
+              {offerAction(offer).kind !== 'none' ? (
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => void act(() => transport.accept(offer.id))}
+                  onClick={() => void take(offer)}
                   className="mt-2 w-full rounded-[10px] py-2 text-[14px] disabled:opacity-50"
                   style={{ fontWeight: 700, background: 'linear-gradient(135deg,#10b981,#059669)' }}
                 >
-                  Accept
+                  {offerAction(offer).label}
                 </button>
+              ) : null}
+              {offer.payAt === 'bytspot' && !offer.accepted ? (
+                <p className="mt-1 text-center text-[11px] text-slate-400">Paid through Stripe. Refunded in full if the time is gone.</p>
               ) : null}
             </div>
           ))}

@@ -8,7 +8,9 @@ import {
   askProblems,
   askTransport,
   formatSlotLabel,
+  offerAction,
   type AskClient,
+  type AskOffer,
   type AskStatus,
 } from '../utils/guestAsk';
 
@@ -92,11 +94,15 @@ export function AskSheet({ ask, onClose }: { ask: VendorAsk; onClose: () => void
     }
   };
 
-  const accept = async (offerId: string) => {
+  const accept = async (offer: AskOffer) => {
     setBusy(true);
     setProblem(undefined);
     try {
-      await transport.accept(offerId);
+      if (offerAction(offer).kind === 'pay') {
+        window.location.assign(await transport.pay(offer.id));
+        return;
+      }
+      await transport.accept(offer.id);
       setBooked(true);
     } catch (error) {
       setProblem(askErrorMessage(error));
@@ -203,15 +209,23 @@ export function AskSheet({ ask, onClose }: { ask: VendorAsk; onClose: () => void
                   <p className="text-[13px] text-white/60">
                     {dollars(offer.priceCents)} · {offer.durationMins} min{offer.terms ? ` · ${offer.terms}` : ''}
                   </p>
+                  {offer.payment?.state === 'refunded' ? (
+                    <p className="mt-1 text-[12px]" style={{ color: '#fda4af' }}>
+                      Refunded{offer.payment.reason ? `: ${offer.payment.reason}` : ''}
+                    </p>
+                  ) : null}
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => void accept(offer.id)}
+                    onClick={() => void accept(offer)}
                     className="mt-2 w-full rounded-[12px] py-2.5 text-[14px] disabled:opacity-50"
                     style={{ fontWeight: 700, background: 'linear-gradient(135deg,#10b981,#059669)' }}
                   >
-                    Accept · held until {new Date(offer.holdExpiresAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    {offerAction(offer).label} · held until {new Date(offer.holdExpiresAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                   </button>
+                  {offer.payAt === 'bytspot' ? (
+                    <p className="mt-1 text-center text-[11px] text-white/50">Paid through Stripe. Refunded in full if the time is gone.</p>
+                  ) : null}
                 </li>
               ))}
             </ul>

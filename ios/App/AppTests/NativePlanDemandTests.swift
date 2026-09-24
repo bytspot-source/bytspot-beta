@@ -534,4 +534,54 @@ final class NativeWindowAskTests: XCTestCase {
         XCTAssertNotNil(NativePushURLPolicy.routeURL(from: ["url": "https://bytspot.app/requests"]))
         XCTAssertNotNil(NativePushURLPolicy.routeURL(from: ["deepLink": "bytspot://requests"]))
     }
+
+    private func offer(_ extra: [String: Any] = [:]) throws -> NativePlanDemandOffer {
+        var json: [String: Any] = [
+            "id": "off_1", "where": "Midtown", "startsAt": "2026-09-24T23:00:00.000Z", "durationMins": 90,
+            "priceCents": 4500, "terms": NSNull(), "holdExpiresAt": "2026-09-24T22:15:00.000Z", "accepted": false,
+        ]
+        json.merge(extra) { $1 }
+        return try JSONDecoder().decode(NativePlanDemandOffer.self, from: JSONSerialization.data(withJSONObject: json))
+    }
+
+    func testAnOfferFromAnOlderServerIsPaidAtTheVenue() throws {
+        let older = try offer()
+        XCTAssertFalse(older.paysInApp)
+        XCTAssertNil(older.payment)
+        XCTAssertEqual(older.actionLabel, "Accept")
+    }
+
+    func testAnOfferPaidInTheAppIsPaidForAndSaysWhereThePaymentStands() throws {
+        let unpaid = try offer(["payAt": "bytspot"])
+        XCTAssertTrue(unpaid.paysInApp)
+        XCTAssertEqual(unpaid.actionLabel, "Pay $45")
+        // Paying again resumes the open checkout rather than starting a second charge.
+        let paying = try offer(["payAt": "bytspot", "payment": ["state": "paying"]])
+        XCTAssertEqual(paying.actionLabel, "Finish paying")
+        let refunded = try offer(["payAt": "bytspot", "payment": ["state": "refunded", "reason": "Someone took the last one."]])
+        XCTAssertEqual(refunded.payment?.reason, "Someone took the last one.")
+
+        let ask = NativePlanDemandAsk(
+            id: "d1", state: "OFFERED", category: "dining", partySize: 2, planId: nil,
+            expiresAt: "2026-09-24T23:30:00.000Z", offers: [paying],
+        )
+        XCTAssertEqual(ask.status, "Confirming payment")
+    }
+
+    func testACheckoutLinkMustBeASecureURL() throws {
+        XCTAssertEqual(try NativeOfferCheckout.url(from: ["url": "https://checkout.stripe.com/c/pay/cs_1"]).host, "checkout.stripe.com")
+        XCTAssertThrowsError(try NativeOfferCheckout.url(from: ["url": "http://checkout.stripe.com/c/pay/cs_1"]))
+        XCTAssertThrowsError(try NativeOfferCheckout.url(from: ["url": "javascript:alert(1)"]))
+        XCTAssertThrowsError(try NativeOfferCheckout.url(from: [:]))
+    }
+
+    @MainActor
+    func testTheReturnFromPayingOpensMyRequests() throws {
+        let coordinator = NativeNavigationCoordinator()
+        XCTAssertTrue(coordinator.handle(url: try XCTUnwrap(URL(string: "https://bytspot.app/?demand=d1&checkout=offer-paid&session_id=cs_1"))))
+        XCTAssertTrue(coordinator.requestsRequested)
+        coordinator.requestsRequested = false
+        XCTAssertTrue(coordinator.handle(url: try XCTUnwrap(URL(string: "https://bytspot.app/?demand=d1&checkout=offer-cancelled"))))
+        XCTAssertTrue(coordinator.requestsRequested)
+    }
 }

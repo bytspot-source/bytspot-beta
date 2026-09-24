@@ -31,9 +31,13 @@ struct NativePlanDemandOffer: Codable, Identifiable, Equatable {
     /// explicitly, and absent means not accepted — the safe direction, because
     /// it shows a table as choosable rather than claiming one is held.
     var accepted: Bool = false
+    /// "bytspot" when the seller asked to be paid in the app. Absent from an
+    /// older server, which only knew paying at the venue.
+    var payAt: String = "venue"
+    var payment: NativeOfferPayment? = nil
 
     private enum CodingKeys: String, CodingKey {
-        case id, `where`, startsAt, durationMins, priceCents, terms, holdExpiresAt, accepted
+        case id, `where`, startsAt, durationMins, priceCents, terms, holdExpiresAt, accepted, payAt, payment
     }
 
     init(from decoder: Decoder) throws {
@@ -46,11 +50,14 @@ struct NativePlanDemandOffer: Codable, Identifiable, Equatable {
         terms = try container.decodeIfPresent(String.self, forKey: .terms)
         holdExpiresAt = try container.decode(String.self, forKey: .holdExpiresAt)
         accepted = try container.decodeIfPresent(Bool.self, forKey: .accepted) ?? false
+        payAt = try container.decodeIfPresent(String.self, forKey: .payAt) ?? "venue"
+        payment = try container.decodeIfPresent(NativeOfferPayment.self, forKey: .payment)
     }
 
     init(
         id: String, where: String, startsAt: String, durationMins: Int,
-        priceCents: Int, terms: String?, holdExpiresAt: String, accepted: Bool = false
+        priceCents: Int, terms: String?, holdExpiresAt: String, accepted: Bool = false,
+        payAt: String = "venue", payment: NativeOfferPayment? = nil
     ) {
         self.id = id
         self.where = `where`
@@ -60,6 +67,17 @@ struct NativePlanDemandOffer: Codable, Identifiable, Equatable {
         self.terms = terms
         self.holdExpiresAt = holdExpiresAt
         self.accepted = accepted
+        self.payAt = payAt
+        self.payment = payment
+    }
+
+    /// Booked by paying for it, never by Accept: the server refuses that.
+    var paysInApp: Bool { payAt == "bytspot" }
+
+    /// Paying again while a checkout is open resumes it rather than charging twice.
+    var actionLabel: String {
+        guard paysInApp else { return "Accept" }
+        return payment?.state == "paying" ? "Finish paying" : "Pay \(price)"
     }
 
     /// Where and when, in the order a guest reads it.
@@ -81,6 +99,12 @@ struct NativePlanDemandOffer: Codable, Identifiable, Equatable {
         guard let until = NativePlanDemandFormat.date(holdExpiresAt) else { return false }
         return until > now
     }
+}
+
+/// Where the guest's payment for one offer stands: paying, paid or refunded.
+struct NativeOfferPayment: Codable, Equatable {
+    let state: String
+    var reason: String? = nil
 }
 
 /// What an accepted offer becomes. The seller is now committed.
@@ -152,6 +176,7 @@ struct NativePlanDemandAsk: Codable, Identifiable, Equatable {
     /// What the guest is owed while they wait, stated without overclaiming.
     var status: String {
         if let booked { return "Booked · \(booked.when)" }
+        if offers.contains(where: { $0.payment?.state == "paying" }) { return "Confirming payment" }
         if !offers.isEmpty { return offers.count == 1 ? "1 offer" : "\(offers.count) offers" }
         switch state {
         // MATCHED means a venue that could answer has seen it. It does not mean
@@ -168,6 +193,24 @@ protocol NativePlanDemandAsking {
     func mine() async throws -> [NativePlanDemandAsk]
     func withdraw(demandID: String) async throws
     func accept(offerID: String) async throws -> NativePlanDemandBooking
+    /// A hosted checkout for an offer paid in the app. The booking is made when
+    /// the payment is confirmed, not when this returns.
+    func pay(offerID: String) async throws -> URL
+}
+
+enum NativeOfferCheckout {
+    struct Missing: Error {}
+
+    static func url(from payload: Any) throws -> URL {
+        guard let raw = (payload as? [String: Any])?["url"] as? String,
+              let url = URL(string: raw), url.scheme?.lowercased() == "https" else { throw Missing() }
+        return url
+    }
+
+    /// Stripe runs in Safari; the guest comes back to a request that refreshes.
+    @MainActor static func open(_ url: URL) async {
+        _ = await UIApplication.shared.open(url)
+    }
 }
 
 struct NativePlanDemandAPI: NativePlanDemandAsking {
@@ -212,6 +255,11 @@ struct NativePlanDemandAPI: NativePlanDemandAsking {
         )
         let data = try JSONSerialization.data(withJSONObject: payload)
         return try JSONDecoder().decode(NativePlanDemandBooking.self, from: data)
+    }
+
+    func pay(offerID: String) async throws -> URL {
+        let payload = try await client.trpcPayload(path: "/trpc/demand.payOffer", method: "POST", input: ["offerId": offerID])
+        return try NativeOfferCheckout.url(from: payload)
     }
 }
 
@@ -367,6 +415,12 @@ struct NativePlanOffersSheet: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(NativeTheme.textTertiary)
                         .padding(.top, 2)
+                    if ask.offers.contains(where: \.paysInApp) {
+                        Text("Paid offers go through Stripe and are refunded in full if the time is gone.")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(NativeTheme.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 .padding(18)
             }
@@ -417,6 +471,13 @@ struct NativePlanOffersSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            if offer.payment?.state == "refunded" {
+                Text("Refunded\(offer.payment?.reason.map { ": \($0)" } ?? "")")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(NativeTheme.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             HStack(spacing: 10) {
                 Text(offer.hold(now: clock))
                     .font(.system(size: 11, weight: .bold))
@@ -426,7 +487,7 @@ struct NativePlanOffersSheet: View {
                     Button(action: { Task { await take(offer) } }) {
                         HStack(spacing: 6) {
                             if accepting == offer.id { ProgressView().controlSize(.mini).tint(.black) }
-                            Text("Accept").font(.system(size: 13, weight: .bold))
+                            Text(offer.actionLabel).font(.system(size: 13, weight: .bold))
                         }
                         .foregroundColor(.black)
                         .padding(.horizontal, 16)
@@ -655,7 +716,7 @@ struct NativeWindowAskRail: View {
         #if DEBUG
         switch NativeWindowAskPreview.mode {
         case "requests": showRequests = true
-        case "ask", "offered", "offers", "booked": asking = listings.first
+        case "ask", "offered", "offers", "booked", "pay": asking = listings.first
         default: break
         }
         #endif
@@ -764,6 +825,10 @@ struct NativeWindowAskSheet: View {
             .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
                 Task { await refresh() }
             }
+            // Back from Stripe: show the booking now, not on the next tick.
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                Task { await refresh() }
+            }
             .sheet(isPresented: $showOffers) {
                 if let ask {
                     NativePlanOffersSheet(ask: ask, accept: { offer in await take(offer) })
@@ -837,6 +902,8 @@ struct NativeWindowAskSheet: View {
                 .foregroundColor(NativeTheme.textPrimary)
             Text(ask.offers.isEmpty
                  ? "Sent. \(listing.sellerName) will answer here, and you'll get a notification when they do."
+                 : ask.status == "Confirming payment"
+                 ? "Payment received. Confirming with \(listing.sellerName); this can take a moment."
                  : "\(listing.sellerName) is holding a time for you.")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(NativeTheme.textSecondary)
@@ -876,7 +943,7 @@ struct NativeWindowAskSheet: View {
         guard let mine = try? await demand.mine() else { return }
         if ask == nil, let live = NativeWindowAskRules.liveAsk(in: mine, windowID: listing.windowId) { ask = live }
         #if DEBUG
-        if NativeWindowAskPreview.mode == "offers" { showOffers = true }
+        if NativeWindowAskPreview.mode == "offers" || NativeWindowAskPreview.mode == "pay" { showOffers = true }
         if NativeWindowAskPreview.mode == "booked", let offer = ask?.offers.first {
             booked = try? await demand.accept(offerID: offer.id)
         }
@@ -912,6 +979,12 @@ struct NativeWindowAskSheet: View {
 
     private func take(_ offer: NativePlanDemandOffer) async -> String? {
         do {
+            if offer.paysInApp {
+                let url = try await demand.pay(offerID: offer.id)
+                showOffers = false
+                await NativeOfferCheckout.open(url)
+                return nil
+            }
             booked = try await demand.accept(offerID: offer.id)
             showOffers = false
             return nil
@@ -974,6 +1047,9 @@ struct NativeGuestRequestsView: View {
             .task { await load() }
             .refreshable { await load() }
             .onReceive(Timer.publish(every: 15, on: .main, in: .common).autoconnect()) { _ in
+                Task { await load() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                 Task { await load() }
             }
             .sheet(item: $offersFor) { ask in
@@ -1039,6 +1115,12 @@ struct NativeGuestRequestsView: View {
 
     private func take(_ offer: NativePlanDemandOffer) async -> String? {
         do {
+            if offer.paysInApp {
+                let url = try await demand.pay(offerID: offer.id)
+                offersFor = nil
+                await NativeOfferCheckout.open(url)
+                return nil
+            }
             _ = try await demand.accept(offerID: offer.id)
             offersFor = nil
             await load()
@@ -1060,7 +1142,7 @@ struct NativeGuestRequestsView: View {
 
 #if DEBUG
 /// Simulator preview of asking from Discover (`BYT_NATIVE_ASK_PREVIEW` =
-/// rail | ask | offered | offers | booked | requests). Sample data, no network.
+/// rail | ask | offered | offers | pay | booked | requests). Sample data, no network.
 enum NativeWindowAskPreview {
     static var mode: String? {
         let key = "BYT_NATIVE_ASK_PREVIEW"
@@ -1115,6 +1197,7 @@ enum NativeWindowAskPreview {
 
         func ask(planID: String, needKind: String) async throws -> NativePlanDemandAsk { throw CancellationError() }
         func withdraw(demandID: String) async throws {}
+        func pay(offerID: String) async throws -> URL { URL(string: "https://checkout.stripe.com/c/pay/cs_test_preview")! }
 
         func accept(offerID: String) async throws -> NativePlanDemandBooking {
             let offer = NativeWindowAskPreview.offer
@@ -1126,9 +1209,11 @@ enum NativeWindowAskPreview {
 
         func mine() async throws -> [NativePlanDemandAsk] {
             let first = NativeWindowAskPreview.listings[0]
+            var shown = NativeWindowAskPreview.offer
+            if mode == "pay" { shown.payAt = "bytspot" }
             let offered = NativePlanDemandAsk(
                 id: "preview-demand-1", state: "OFFERED", category: "dining", partySize: 2, planId: nil,
-                expiresAt: NativeWindowAskPreview.iso(hoursFromNow: 3), offers: [NativeWindowAskPreview.offer],
+                expiresAt: NativeWindowAskPreview.iso(hoursFromNow: 3), offers: [shown],
                 targetWindowId: first.windowId, askedOf: NativeAskedOf(sellerName: first.sellerName, place: first.place.label),
                 earliest: NativeWindowAskPreview.iso(hoursFromNow: 3.5),
             )

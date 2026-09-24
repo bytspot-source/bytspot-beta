@@ -77,7 +77,7 @@ import {
   type NearbyLocation
 } from './utils/personalization';
 import { trpc } from './utils/trpc';
-import { askTransport, formatSlotLabel, SEEN_OFFERS_KEY, unseenOffers, type AskClient } from './utils/guestAsk';
+import { askTransport, formatSlotLabel, offerCheckoutReturn, SEEN_OFFERS_KEY, unseenOffers, type AskClient } from './utils/guestAsk';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
 import { canonicalLegalPath } from './utils/nativeHandoffGuard';
 import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
@@ -1258,6 +1258,19 @@ export default function App() {
     // Handle Stripe return URLs (/premium/success, /parking/success, /profile/payment, /premium/cancelled)
     const path = window.location.pathname;
     const query = new URLSearchParams(window.location.search);
+    const offerReturn = offerCheckoutReturn(window.location.search);
+    if (offerReturn) {
+      localStorage.setItem('bytspot_profile_focus', 'requests');
+      setCurrentScreen('main');
+      setActiveTab('profile');
+      if (offerReturn.outcome === 'paid') {
+        toast.success('Payment received', { description: 'Confirming your booking with the venue. It shows in My Requests.', duration: 6000 });
+      } else {
+        toast('Payment cancelled — no charges made.', { duration: 3000 });
+      }
+      window.history.replaceState({}, '', '/');
+      return;
+    }
     if (path.includes('/booking/success') || path.includes('/booking/cancelled')) {
       setCurrentScreen('main');
       return;

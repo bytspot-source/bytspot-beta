@@ -943,6 +943,10 @@ struct NativePartyPassRecord: Equatable {
     /// album that then refuses to open.
     let recapAvailable: Bool
     let recapPhotoCount: Int
+    /// What the Party sells beyond the door. Bottles are charged on top of
+    /// admission, never instead of it, so a free-entry Party may still have a
+    /// priced floor here.
+    let sessions: [NativePartySessionOffer]
 
     var isLocationWithheld: Bool { locationDisclosure != "public" }
 }
@@ -951,6 +955,75 @@ struct NativePartyPassBeat: Equatable, Identifiable {
     let title: String
     let scheduledAt: Date
     var id: String { "\(scheduledAt.timeIntervalSince1970)-\(title)" }
+}
+
+/// Bottles and a stretch of time, sold as one unit.
+///
+/// Priced two ways and the vendor picks, so the number can never be shown
+/// alone: under `included` the price is the whole bill, under `minimum` the
+/// guest pays it and then buys bottles on top. A card that printed "$200"
+/// for a minimum would quote a price nobody can pay.
+///
+/// `venueName` and the coordinates are nil when the session is held where the
+/// Party is. Stated, they are somewhere else — the ordinary case for an
+/// after-hours session, which also runs past the Party's own end.
+struct NativePartySessionOffer: Equatable, Identifiable {
+    enum Terms: String { case included, minimum }
+    /// `full` and `passed` are different facts: one says come back for the
+    /// next one, the other says this already happened.
+    enum State: String { case open, full, passed }
+
+    let id: String
+    let name: String
+    let kind: String
+    let startsAt: Date
+    let endsAt: Date?
+    let venueName: String?
+    let latitude: Double?
+    let longitude: Double?
+    let bottleCount: Int
+    let terms: Terms
+    let priceCents: Int
+    let remaining: Int
+    let state: State
+
+    var isElsewhere: Bool { venueName != nil }
+    var isAfterHours: Bool { kind == "after-hours" }
+
+    /// Always carries its terms. An `included` price stands alone because it
+    /// is the whole number; a `minimum` never does.
+    var priceLabel: String {
+        let amount = NativePartySessionOffer.money(cents: priceCents)
+        return terms == .included ? amount : "\(amount) + bottles"
+    }
+
+    /// What the bottles are, said separately from what they cost, because
+    /// under `minimum` the count is a floor the guest has to reach.
+    var bottleLabel: String? {
+        guard bottleCount > 0 else { return terms == .included ? "No bottles" : nil }
+        let noun = bottleCount == 1 ? "bottle" : "bottles"
+        return terms == .included ? "\(bottleCount) \(noun) included" : "\(bottleCount) \(noun) minimum"
+    }
+
+    /// Never a count for a session nobody can take: a number beside "Full"
+    /// reads as availability.
+    var availabilityLabel: String {
+        switch state {
+        case .passed: return "Passed"
+        case .full: return "Full"
+        case .open: return remaining == 1 ? "1 left" : "\(remaining) left"
+        }
+    }
+
+    var isTakeable: Bool { state == .open }
+
+    private static func money(cents: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.maximumFractionDigits = cents % 100 == 0 ? 0 : 2
+        return formatter.string(from: NSNumber(value: Double(cents) / 100.0)) ?? "$\(cents / 100)"
+    }
 }
 
 struct NativePartyPassAPI {
@@ -984,7 +1057,43 @@ struct NativePartyPassAPI {
         // offers a recap at all.
         let recapPhotoCount = max(0, int(row["recapPhotoCount"]) ?? 0)
         let recapAvailable = row["recapAvailable"] as? Bool == true && recapPhotoCount > 0
-        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL, hostDestinations: destinations(from: row), hostHandle: hostHandle(from: row), endsAt: isoDate(row["endsAt"]), runOfShow: beats(from: row), recapAvailable: recapAvailable, recapPhotoCount: recapPhotoCount)
+        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL, hostDestinations: destinations(from: row), hostHandle: hostHandle(from: row), endsAt: isoDate(row["endsAt"]), runOfShow: beats(from: row), recapAvailable: recapAvailable, recapPhotoCount: recapPhotoCount, sessions: sessions(from: row))
+    }
+
+    /// Fails closed per session: a malformed row drops that session rather
+    /// than the floor, but a row missing its price, its terms or its state is
+    /// dropped rather than guessed. Guessing `included` would quote a
+    /// minimum as a whole price.
+    static func sessions(from row: [String: Any]) -> [NativePartySessionOffer] {
+        guard let rows = row["sessions"] as? [[String: Any]] else { return [] }
+        return rows.compactMap { entry in
+            guard let id = clean(entry["id"]),
+                  let name = clean(entry["name"]),
+                  let startsAt = isoDate(entry["startsAt"]),
+                  let priceCents = int(entry["priceCents"]), priceCents >= 0,
+                  let terms = clean(entry["bottleTerms"]).flatMap(NativePartySessionOffer.Terms.init(rawValue:)),
+                  let state = clean(entry["state"]).flatMap(NativePartySessionOffer.State.init(rawValue:)) else { return nil }
+            let latitude = entry["latitude"] as? Double
+            let longitude = entry["longitude"] as? Double
+            // Half an address cannot be put on a map, so a session that
+            // states one coordinate states neither.
+            let hasPlace = latitude != nil && longitude != nil
+            return NativePartySessionOffer(
+                id: id,
+                name: name,
+                kind: clean(entry["kind"]) ?? "table",
+                startsAt: startsAt,
+                endsAt: isoDate(entry["endsAt"]),
+                venueName: clean(entry["venueName"]),
+                latitude: hasPlace ? latitude : nil,
+                longitude: hasPlace ? longitude : nil,
+                bottleCount: max(0, int(entry["bottleCount"]) ?? 0),
+                terms: terms,
+                priceCents: priceCents,
+                remaining: max(0, int(entry["remaining"]) ?? 0),
+                state: state
+            )
+        }
     }
 
     /// Scheduled beats fail closed: a malformed row drops that beat only, and

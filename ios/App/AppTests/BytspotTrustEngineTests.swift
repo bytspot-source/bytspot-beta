@@ -3601,6 +3601,122 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativePartyPassAPI.beats(from: [:]), [])
     }
 
+    // ─── The floor a Party sells beyond its door ─────────────────────────
+
+    private func sessionRow(_ over: [String: Any] = [:]) -> [String: Any] {
+        var row: [String: Any] = [
+            "id": "session-1", "name": "Front Table", "kind": "table",
+            "startsAt": "2026-08-10T23:00:00.000Z", "endsAt": "2026-08-11T03:00:00.000Z",
+            "venueName": NSNull(), "latitude": NSNull(), "longitude": NSNull(),
+            "bottleCount": 4, "bottleTerms": "included", "priceCents": 90000,
+            "remaining": 2, "state": "open",
+        ]
+        over.forEach { row[$0.key] = $0.value }
+        return row
+    }
+
+    func testPartySessionPriceNeverAppearsWithoutItsTerms() {
+        // $200 under a minimum is not $200: bottles are bought on top, so the
+        // bare number would quote a price nobody can pay. $900 all-in is the
+        // whole bill and stands alone.
+        let floor = NativePartyPassAPI.sessions(from: ["sessions": [
+            sessionRow(),
+            sessionRow(["id": "session-2", "bottleTerms": "minimum", "priceCents": 20000, "bottleCount": 2]),
+        ]])
+
+        XCTAssertEqual(floor.map(\.priceLabel), ["$900", "$200 + bottles"])
+        XCTAssertEqual(floor.map(\.bottleLabel), ["4 bottles included", "2 bottles minimum"])
+    }
+
+    func testPartySessionDroppedRatherThanGuessedWhenTermsOrPriceAreMissing() {
+        // Defaulting terms to `included` would turn a minimum into a whole
+        // price, which is the exact lie the terms exist to prevent.
+        let floor = NativePartyPassAPI.sessions(from: ["sessions": [
+            sessionRow(["id": "no-terms", "bottleTerms": NSNull()]),
+            sessionRow(["id": "unknown-terms", "bottleTerms": "on-request"]),
+            sessionRow(["id": "no-price", "priceCents": NSNull()]),
+            sessionRow(["id": "no-state", "state": NSNull()]),
+            sessionRow(["id": "kept"]),
+        ]])
+
+        XCTAssertEqual(floor.map(\.id), ["kept"])
+        XCTAssertEqual(NativePartyPassAPI.sessions(from: [:]), [])
+    }
+
+    func testPartySessionStatesFullAndPassedAsDifferentFacts() {
+        // One says come back for the next one; the other says this already
+        // happened. Collapsing them would send a guest to a door that shut.
+        let floor = NativePartyPassAPI.sessions(from: ["sessions": [
+            sessionRow(["id": "open", "remaining": 1, "state": "open"]),
+            sessionRow(["id": "full", "remaining": 0, "state": "full"]),
+            sessionRow(["id": "passed", "remaining": 3, "state": "passed"]),
+        ]])
+
+        XCTAssertEqual(floor.map(\.availabilityLabel), ["1 left", "Full", "Passed"])
+        XCTAssertEqual(floor.map(\.isTakeable), [true, false, false])
+    }
+
+    func testPartySessionPassedNeverShowsAUnitCount() {
+        // Units remain on a session that already started, and printing them
+        // beside a passed session would read as availability.
+        let passed = NativePartyPassAPI.sessions(from: ["sessions": [sessionRow(["state": "passed", "remaining": 3])]])
+        XCTAssertEqual(passed.first?.availabilityLabel, "Passed")
+        XCTAssertFalse(passed.first?.availabilityLabel.contains("3") ?? true)
+    }
+
+    func testAfterHoursSessionCarriesItsOwnAddressAndSilenceMeansThePartys() {
+        let floor = NativePartyPassAPI.sessions(from: ["sessions": [
+            sessionRow(),
+            sessionRow([
+                "id": "session-2", "name": "After Hours", "kind": "after-hours",
+                "startsAt": "2026-08-11T03:30:00.000Z", "endsAt": "2026-08-11T07:00:00.000Z",
+                "venueName": "The Annex", "latitude": 33.77, "longitude": -84.36,
+            ]),
+        ]])
+
+        XCTAssertFalse(floor[0].isElsewhere)
+        XCTAssertNil(floor[0].venueName)
+        XCTAssertTrue(floor[1].isElsewhere)
+        XCTAssertTrue(floor[1].isAfterHours)
+        XCTAssertEqual(floor[1].venueName, "The Annex")
+        // And it begins after the Party's own end, which is the point of it.
+        XCTAssertGreaterThan(floor[1].startsAt, floor[0].endsAt ?? .distantPast)
+    }
+
+    func testPartySessionStatesBothCoordinatesOrNeither() {
+        // Half an address cannot be put on a map.
+        let floor = NativePartyPassAPI.sessions(from: ["sessions": [
+            sessionRow(["venueName": "The Annex", "latitude": 33.77, "longitude": NSNull()]),
+        ]])
+        XCTAssertNil(floor.first?.latitude)
+        XCTAssertNil(floor.first?.longitude)
+        // The name survives: a guest can still be told where to go.
+        XCTAssertEqual(floor.first?.venueName, "The Annex")
+    }
+
+    func testFreeDoorStillCarriesAPricedFloor() {
+        // Bottles are charged on top of admission, never instead of it, so a
+        // free-entry Party saying only "RSVP" tells the cheaper half.
+        let row: [String: Any] = [
+            "source": "host-studio-party", "id": "party-1", "title": "First Listen",
+            "scheduledDate": "Sat, Aug 10", "accessMode": "free-rsvp", "tier": "green",
+            "locationDisclosure": "public", "locationLabel": "The Basement",
+            "sessions": [sessionRow()],
+        ]
+        let record = NativePartyPassAPI.sessions(from: row)
+        XCTAssertEqual(record.count, 1)
+        XCTAssertEqual(record.first?.priceLabel, "$900")
+    }
+
+    func testPartySessionSpeaksItsWholeOfferToVoiceOver() {
+        let session = NativePartyPassAPI.sessions(from: ["sessions": [
+            sessionRow(["bottleTerms": "minimum", "priceCents": 20000, "bottleCount": 2, "venueName": "The Annex"]),
+        ]]).first
+        XCTAssertEqual(session?.priceLabel, "$200 + bottles")
+        XCTAssertEqual(session?.bottleLabel, "2 bottles minimum")
+        XCTAssertEqual(session?.availabilityLabel, "2 left")
+    }
+
     func testNativePartyPassProjectsOnlyCanonicalOfficialHostDestinations() {
         // New ordered identity list: order preserved, primary flagged, and a
         // raw URL can never render as a label.

@@ -2305,6 +2305,17 @@ private struct NativeArrivalLedgerPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            NativePartyWalletSection()
+            // Wallet remains separate from Discover's public invitation.
+            if let openAccess {
+                Button(action: openAccess) {
+                    Label("Open Wallet", systemImage: "wallet.pass")
+                        .font(.headline).frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-bookings-open-wallet")
+            }
             if items.isEmpty { emptyState }
             else {
                 arrivalSummaryStrip
@@ -5394,6 +5405,8 @@ private struct NativeWalletLedgerPreferenceSections: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            NativePartyWalletSection()
+            NativePerformerInboxEntry()
             NativeManualCheckInWalletSection()
             if walletLedgerStore.snapshot.items.isEmpty {
                 NativeParkingReservationWalletSection()
@@ -11410,7 +11423,7 @@ private struct NativeDiscoverView: View {
             NavigationView {
                 Group {
                     if let route = NativeDiscoverBrowsePolicy.partyRoute(offering: offering) {
-                        NativePartyPassPreview(route: route).environmentObject(sessionStore)
+                        NativePartyInvitationDetail(partyID: route.partyID, openAuth: openNativeAuth).environmentObject(sessionStore)
                     } else {
                         ScrollView {
                             VStack(alignment: .leading, spacing: 16) {
@@ -11425,6 +11438,7 @@ private struct NativeDiscoverView: View {
                     Button("Done") { offeringDetail = nil }.frame(minWidth: 44, minHeight: 44)
                 } }
             }
+            .navigationViewStyle(.stack)
         }
         .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-discover-depth")

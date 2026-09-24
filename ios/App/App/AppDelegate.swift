@@ -28,13 +28,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 @MainActor
 final class BytspotSceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
+    let lifecycle = NativeSceneLifecycle()
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = scene as? UIWindowScene else { return }
         let appWindow = UIWindow(windowScene: windowScene)
         // App Store release invariant: the app is pure native SwiftUI — no
         // Capacitor/React webview. The SwiftUI shell is the unconditional root.
-        appWindow.rootViewController = UIHostingController(rootView: BytspotNativeAppRoot())
+        lifecycle.update(NativeSceneLifecycle.phase(for: windowScene.activationState))
+        appWindow.rootViewController = UIHostingController(rootView: NativeScenePhaseRoot(lifecycle: lifecycle, content: BytspotNativeAppRoot()))
         appWindow.makeKeyAndVisible()
         window = appWindow
         // Cold start: the launch URL, universal link or notification tap that
@@ -42,6 +44,12 @@ final class BytspotSceneDelegate: UIResponder, UIWindowSceneDelegate {
         // the SwiftUI coordinator is listening.
         NativeLaunchRouting.publishColdStart(connectionOptions)
     }
+
+    func sceneWillEnterForeground(_ scene: UIScene) { lifecycle.update(.inactive) }
+    func sceneDidBecomeActive(_ scene: UIScene) { lifecycle.update(.active) }
+    func sceneWillResignActive(_ scene: UIScene) { lifecycle.update(.inactive) }
+    func sceneDidEnterBackground(_ scene: UIScene) { lifecycle.update(.background) }
+    func sceneDidDisconnect(_ scene: UIScene) { lifecycle.update(.background) }
 
     /// Custom-scheme deep links (bytspot://…) while already running.
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
@@ -51,6 +59,43 @@ final class BytspotSceneDelegate: UIResponder, UIWindowSceneDelegate {
     /// Universal Links (https://bytspot.app/…) while already running.
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
         NativeLaunchRouting.publish(userActivities: [userActivity])
+    }
+}
+
+/// UIKit owns this app's scenes, so its delegate must supply SwiftUI's phase.
+/// Each window keeps its own state; no process-wide "any scene is active" rule
+/// may expose a private pass in a different, inactive scene.
+@MainActor
+final class NativeSceneLifecycle: ObservableObject {
+    @Published private(set) var phase: ScenePhase
+
+    init(activationState: UIScene.ActivationState = .unattached) {
+        phase = Self.phase(for: activationState)
+    }
+
+    static func phase(for activationState: UIScene.ActivationState) -> ScenePhase {
+        switch activationState {
+        case .foregroundActive: return .active
+        case .foregroundInactive: return .inactive
+        case .background, .unattached: return .background
+        @unknown default: return .background
+        }
+    }
+
+    func update(_ newPhase: ScenePhase) {
+        guard phase != newPhase else { return }
+        phase = newPhase
+    }
+}
+
+/// Observe phase without replacing the hosting controller or resetting the
+/// root's StateObjects, navigation, forms or account-scoped presentation state.
+struct NativeScenePhaseRoot<Content: View>: View {
+    @ObservedObject var lifecycle: NativeSceneLifecycle
+    let content: Content
+
+    var body: some View {
+        content.environment(\.scenePhase, lifecycle.phase)
     }
 }
 

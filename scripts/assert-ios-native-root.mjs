@@ -90,7 +90,16 @@ const packageScripts = packageJson.scripts ?? {};
 
 const checks = [
   // Native root is unconditional.
-  ['Scene delegate launches SwiftUI native root unconditionally', /UIHostingController\s*\(\s*rootView:\s*BytspotNativeAppRoot\s*\(\s*\)\s*\)/.test(appDelegateBody)],
+  ['Scene delegate launches SwiftUI native root unconditionally', appDelegateBody.includes('UIHostingController(rootView: NativeScenePhaseRoot(lifecycle: lifecycle, content: BytspotNativeAppRoot()))')],
+  ['UIKit scene phase is injected above the stable SwiftUI root', appDelegateBody.includes('content.environment(\\.scenePhase, lifecycle.phase)') && appDelegateBody.includes('@ObservedObject var lifecycle: NativeSceneLifecycle')],
+  ['Initial phase comes from this window scene, never global application activity', appDelegateBody.includes('lifecycle.update(NativeSceneLifecycle.phase(for: windowScene.activationState))')],
+  ['Every privacy-relevant scene transition is bridged', [
+    'sceneWillEnterForeground(_ scene: UIScene) { lifecycle.update(.inactive) }',
+    'sceneDidBecomeActive(_ scene: UIScene) { lifecycle.update(.active) }',
+    'sceneWillResignActive(_ scene: UIScene) { lifecycle.update(.inactive) }',
+    'sceneDidEnterBackground(_ scene: UIScene) { lifecycle.update(.background) }',
+    'sceneDidDisconnect(_ scene: UIScene) { lifecycle.update(.background) }',
+  ].every((callback) => appDelegateBody.includes(callback))],
   // iOS 27 requires scene adoption: an app-delegate window traps before the
   // first frame. Cold-start arrivals come from ConnectionOptions, never
   // launchOptions, and publishing from both would route the same arrival twice.

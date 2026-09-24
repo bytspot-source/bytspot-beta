@@ -60,6 +60,13 @@
 		A13F12012D00000000001201 /* NativeHostTaxonomy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F12002D00000000001200 /* NativeHostTaxonomy.swift */; };
 		A13F13012D00000000001301 /* BookableTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F13002D00000000001300 /* BookableTemplates.swift */; };
 		A13F14012D00000000001401 /* NativeDiscoverListing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F14002D00000000001400 /* NativeDiscoverListing.swift */; };
+		D92400012026092400000001 /* NativePartyInvitationDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92400022026092400000001 /* NativePartyInvitationDetail.swift */; };
+		D92400112026092400000001 /* NativePartyCommerce.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92400122026092400000001 /* NativePartyCommerce.swift */; };
+		D92400212026092400000001 /* NativePartyLineup.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92400222026092400000001 /* NativePartyLineup.swift */; };
+		D92400312026092400000001 /* NativePartySessionAuthoring.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92400322026092400000001 /* NativePartySessionAuthoring.swift */; };
+		D92400412026092400000001 /* NativePartyCommerceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92400422026092400000001 /* NativePartyCommerceTests.swift */; };
+		D92400512026092400000001 /* NativePartyLineupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92400522026092400000001 /* NativePartyLineupTests.swift */; };
+		D92400612026092400000001 /* NativePartySessionAuthoringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92400622026092400000001 /* NativePartySessionAuthoringTests.swift */; };
 		A13F13032D00000000001303 /* BookableTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F13022D00000000001302 /* BookableTemplates.swift */; };
 		A13F13052D00000000001305 /* bookable-templates.json in Resources */ = {isa = PBXBuildFile; fileRef = A13F13042D00000000001304 /* bookable-templates.json */; };
 		A13F13072D00000000001307 /* bookable-templates.json in Resources */ = {isa = PBXBuildFile; fileRef = A13F13062D00000000001306 /* bookable-templates.json */; };
@@ -157,6 +164,13 @@
 		A13F12002D00000000001200 /* NativeHostTaxonomy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHostTaxonomy.swift; sourceTree = "<group>"; };
 		A13F13002D00000000001300 /* BookableTemplates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookableTemplates.swift; sourceTree = "<group>"; };
 		A13F14002D00000000001400 /* NativeDiscoverListing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiscoverListing.swift; sourceTree = "<group>"; };
+		D92400022026092400000001 /* NativePartyInvitationDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyInvitationDetail.swift; sourceTree = "<group>"; };
+		D92400122026092400000001 /* NativePartyCommerce.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyCommerce.swift; sourceTree = "<group>"; };
+		D92400222026092400000001 /* NativePartyLineup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyLineup.swift; sourceTree = "<group>"; };
+		D92400322026092400000001 /* NativePartySessionAuthoring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartySessionAuthoring.swift; sourceTree = "<group>"; };
+		D92400422026092400000001 /* NativePartyCommerceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyCommerceTests.swift; sourceTree = "<group>"; };
+		D92400522026092400000001 /* NativePartyLineupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyLineupTests.swift; sourceTree = "<group>"; };
+		D92400622026092400000001 /* NativePartySessionAuthoringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartySessionAuthoringTests.swift; sourceTree = "<group>"; };
 		A13F13022D00000000001302 /* BookableTemplates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookableTemplates.swift; sourceTree = "<group>"; };
 		A13F13042D00000000001304 /* bookable-templates.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bookable-templates.json"; sourceTree = "<group>"; };
 		A13F13062D00000000001306 /* bookable-templates.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bookable-templates.json"; sourceTree = "<group>"; };
@@ -199,6 +213,9 @@
 			isa = PBXGroup;
 			children = (
 				9A1129492FA586137FE60C71 /* BytspotTrustEngineTests.swift */,
+				D92400422026092400000001 /* NativePartyCommerceTests.swift */,
+				D92400522026092400000001 /* NativePartyLineupTests.swift */,
+				D92400622026092400000001 /* NativePartySessionAuthoringTests.swift */,
 				D6B000022026091000000001 /* NativeDiscoverBookableTests.swift */,
 				D52000122026091000000002 /* NativeM2RouteTests.swift */,
 				D5200012202609190000000A /* NativePlanDemandTests.swift */,
@@ -255,6 +272,10 @@
 				A13F12002D00000000001200 /* NativeHostTaxonomy.swift */,
 				A13F13002D00000000001300 /* BookableTemplates.swift */,
 				A13F14002D00000000001400 /* NativeDiscoverListing.swift */,
+				D92400022026092400000001 /* NativePartyInvitationDetail.swift */,
+				D92400122026092400000001 /* NativePartyCommerce.swift */,
+				D92400222026092400000001 /* NativePartyLineup.swift */,
+				D92400322026092400000001 /* NativePartySessionAuthoring.swift */,
 				D52000122026091000000001 /* NativeM2RouteSheet.swift */,
 				D52000122026091900000009 /* NativePlanDemand.swift */,
 				D52000122026092100000011 /* NativePlanFeasibility.swift */,
@@ -489,6 +510,10 @@
 				A13F12012D00000000001201 /* NativeHostTaxonomy.swift in Sources */,
 				A13F13012D00000000001301 /* BookableTemplates.swift in Sources */,
 				A13F14012D00000000001401 /* NativeDiscoverListing.swift in Sources */,
+				D92400012026092400000001 /* NativePartyInvitationDetail.swift in Sources */,
+				D92400112026092400000001 /* NativePartyCommerce.swift in Sources */,
+				D92400212026092400000001 /* NativePartyLineup.swift in Sources */,
+				D92400312026092400000001 /* NativePartySessionAuthoring.swift in Sources */,
 				D52000112026091000000001 /* NativeM2RouteSheet.swift in Sources */,
 				D52000112026091900000009 /* NativePlanDemand.swift in Sources */,
 				D52000112026092100000011 /* NativePlanFeasibility.swift in Sources */,
@@ -500,6 +525,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				B3D8A6E7D100EEDA96C20BD3 /* BytspotTrustEngineTests.swift in Sources */,
+				D92400412026092400000001 /* NativePartyCommerceTests.swift in Sources */,
+				D92400512026092400000001 /* NativePartyLineupTests.swift in Sources */,
+				D92400612026092400000001 /* NativePartySessionAuthoringTests.swift in Sources */,
 				D6B000012026091000000001 /* NativeDiscoverBookableTests.swift in Sources */,
 				D52000112026091000000002 /* NativeM2RouteTests.swift in Sources */,
 				D5200011202609190000000A /* NativePlanDemandTests.swift in Sources */,

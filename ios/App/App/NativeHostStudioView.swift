@@ -175,6 +175,9 @@ struct NativeHostStudioView: View {
     @State private var taxonomy = NativeHostTaxonomySelection.default
     @State private var templateID: NativePartyTemplateID = NativeHostTaxonomySelection.default.type.printer
     @State private var title = ""
+    // Pre-filled with the default so the host reads the exact words that will
+    // publish, rather than discovering them on the invite afterwards. Clearing
+    // the field publishes no subtitle at all.
     @State private var tagline = "One moment. Your people."
     @State private var startsAt = Self.defaultStart
     @State private var beatOffsets: [Int] = []
@@ -419,9 +422,13 @@ struct NativeHostStudioView: View {
                 if NativeHostStudioPresentation.requiresReleaseTitle(for: templateID) {
                     field("Release title", text: $releaseTitle, icon: "music.note.list", prompt: "Single, album, mix, or video title")
                 }
+                // The subtitle is printed under the title on the invite and the
+                // share page, so it is the host's own words or it is nothing.
+                // Behind a collapsed disclosure it read as unchangeable: the
+                // default shipped on every invite and the control was unfindable.
+                field("Party subtitle", text: $tagline, icon: "quote.bubble.fill", prompt: "One moment. Your people.")
             }
-            optionalSection("Tagline & cover", icon: "photo") {
-                field("Party tagline", text: $tagline, icon: "quote.bubble.fill", prompt: "One-line hook")
+            optionalSection("Cover", icon: "photo") {
                 partyMediaEditor
             }
             if templateID != .comedyNight && templateID != .premiere {

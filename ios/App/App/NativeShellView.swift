@@ -1366,6 +1366,7 @@ private struct NativePartyPassPreview: View {
             scheduledBlock(party)
             NativeWalletLine(title: party.locationDisclosure == "after-approval" ? "Location after approval" : party.isLocationWithheld ? "Location withheld" : "Where", subtitle: party.locationLabel, icon: "mappin.and.ellipse")
             NativeWalletLine(title: "Capacity", subtitle: party.capacity > 0 ? "\(party.capacity) guests" : "Party capacity set by host", icon: "person.3.fill")
+            sessionsBlock(party)
             Button(action: { Task { await planArrival(for: party) } }) {
                 Label(isOpeningArrival ? "Opening Apple Maps…" : "Plan arrival in Apple Maps", systemImage: "map.fill")
                     .font(.system(size: 13, weight: .black)).frame(maxWidth: .infinity).frame(height: 46)
@@ -1382,6 +1383,72 @@ private struct NativePartyPassPreview: View {
 
     private func accessLabel(_ value: String) -> String {
         value == "paid-ticket" ? "TICKET" : value == "private-approval" ? "APPROVAL" : "RSVP"
+    }
+
+    /// What the Party sells beyond the door.
+    ///
+    /// Bottles are charged on top of admission rather than instead of it, so
+    /// this renders under a free door too — a Party can be free to enter and
+    /// still sell a $900 table, and saying only "RSVP" would tell the cheaper
+    /// half of the truth.
+    ///
+    /// Nothing here is buyable yet: the pass is read-only until a
+    /// Party-specific authorized action exists, so a session that is open
+    /// states its price and what is left without offering a button that
+    /// cannot be honoured.
+    @ViewBuilder private func sessionsBlock(_ party: NativePartyPassRecord) -> some View {
+        if !party.sessions.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("THE FLOOR").font(.system(size: 10, weight: .black)).tracking(1.2).foregroundColor(NativeTheme.textSecondary)
+                ForEach(party.sessions) { session in
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(session.name).font(.system(size: 13.5, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
+                            Spacer(minLength: 8)
+                            // The price carries its terms or it is not shown:
+                            // a bare number under `minimum` is a price no
+                            // guest can actually pay.
+                            Text(session.priceLabel)
+                                .font(.system(size: 13.5, weight: .black))
+                                .foregroundColor(session.isTakeable ? NativeTheme.textPrimary : NativeTheme.textSecondary)
+                        }
+                        HStack(spacing: 6) {
+                            Text(session.startsAt.formatted(date: .omitted, time: .shortened))
+                            if let bottles = session.bottleLabel { Text("·"); Text(bottles) }
+                            Spacer(minLength: 8)
+                            Text(session.availabilityLabel)
+                                .foregroundColor(session.isTakeable ? NativeTheme.emerald : NativeTheme.textSecondary)
+                        }
+                        .font(.system(size: 11.5, weight: .bold))
+                        .foregroundColor(NativeTheme.textSecondary)
+                        // Only when the session is held somewhere else. Silence
+                        // means the Party's own address, and repeating it on
+                        // every row would bury the one line that matters.
+                        if let elsewhere = session.venueName {
+                            Label(elsewhere, systemImage: "mappin.and.ellipse")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(NativeTheme.cyan)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                    .opacity(session.isTakeable ? 1 : 0.55)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(sessionAccessibilityLabel(session))
+                }
+            }
+            .padding(12)
+            .background(Color.white.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .accessibilityIdentifier("native-party-sessions")
+        }
+    }
+
+    /// Spoken in the order a guest decides in: what it is, what it costs, and
+    /// whether it can still be had.
+    private func sessionAccessibilityLabel(_ session: NativePartySessionOffer) -> String {
+        [session.name, session.priceLabel, session.bottleLabel, session.venueName.map { "at \($0)" }, session.availabilityLabel]
+            .compactMap { $0 }
+            .joined(separator: ", ")
     }
 
     /// Scheduled Run of Show. The pass derives "Now" locally from the party

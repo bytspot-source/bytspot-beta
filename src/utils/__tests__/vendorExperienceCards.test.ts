@@ -244,6 +244,7 @@ test('the ask transport sends the window, reads back its own request, and accept
         { id: 'dem_1', state: 'OFFERED', expiresAt: 'x', offers: [] },
       ] },
       acceptOffer: { mutate: async (input) => { calls.push(`accept:${input.offerId}`); return {}; } },
+      payOffer: { mutate: async (input) => { calls.push(`pay:${input.offerId}`); return { url: 'https://checkout.stripe.test/s' }; } },
       withdraw: { mutate: async (input) => { calls.push(`withdraw:${input.demandId}`); return {}; } },
     },
   };
@@ -257,6 +258,8 @@ test('the ask transport sends the window, reads back its own request, and accept
   assert.ok(!askIsLive({ id: 'd', state: 'EXPIRED', expiresAt: 'x', offers: [] }));
   await transport.accept('off_1');
   assert.equal(calls[1], 'accept:off_1');
+  assert.equal(await transport.pay('off_2'), 'https://checkout.stripe.test/s');
+  assert.equal(calls[2], 'pay:off_2');
 });
 
 test('reopening a card resumes its live ask, and the list says where each one stands', async () => {
@@ -286,4 +289,25 @@ test('each offer waiting on the guest is announced once', async () => {
   ];
   assert.deepEqual(unseenOffers(rows, new Set(['o1'])).map(({ offer }) => offer.id), ['o2']);
   assert.deepEqual(unseenOffers(rows, new Set(['o1', 'o2'])), []);
+});
+
+test('an offer paid in the app is paid for, not accepted, and says where the payment stands', async () => {
+  const { offerAction, askStateLabel } = await import('../guestAsk.ts');
+  const base = { id: 'o', where: 'Peach Table', startsAt: 'x', durationMins: 60, priceCents: 4500, holdExpiresAt: 'x', accepted: false };
+  // An older API sends no payAt; that is paying at the venue.
+  assert.deepEqual(offerAction(base), { kind: 'accept', label: 'Accept' });
+  assert.deepEqual(offerAction({ ...base, payAt: 'venue' as const }), { kind: 'accept', label: 'Accept' });
+  assert.deepEqual(offerAction({ ...base, payAt: 'bytspot' as const }), { kind: 'pay', label: 'Pay $45.00' });
+  const paying = { ...base, payAt: 'bytspot' as const, payment: { state: 'paying' as const } };
+  assert.deepEqual(offerAction(paying), { kind: 'pay', label: 'Finish paying' });
+  assert.equal(offerAction({ ...base, accepted: true }).kind, 'none');
+  assert.equal(askStateLabel({ id: 'd', state: 'OFFERED', expiresAt: 'x', offers: [paying] }), 'Confirming payment');
+});
+
+test('the return from Stripe is recognised only for an offer checkout', async () => {
+  const { offerCheckoutReturn } = await import('../guestAsk.ts');
+  assert.deepEqual(offerCheckoutReturn('?demand=d1&checkout=offer-paid&session_id=cs_1'), { outcome: 'paid', demandId: 'd1' });
+  assert.deepEqual(offerCheckoutReturn('?demand=d1&checkout=offer-cancelled'), { outcome: 'cancelled', demandId: 'd1' });
+  assert.equal(offerCheckoutReturn('?setup=success'), undefined);
+  assert.equal(offerCheckoutReturn(''), undefined);
 });

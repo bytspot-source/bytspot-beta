@@ -215,6 +215,10 @@ final class NativeNavigationCoordinator: ObservableObject {
         if path == "access" { requestedTab = .home; requestedDestination = .accessWallet; return true }
         // `plans` is where offer pushes pointed before My Requests existed; it lists the same asks.
         if path == "requests" || path == "plans" { requestedTab = .home; requestsRequested = true; return true }
+        // Back from paying for an offer, when the return link opens the app.
+        if components.queryItems?.contains(where: { $0.name == "checkout" && ($0.value ?? "").hasPrefix("offer-") }) == true {
+            requestedTab = .home; requestsRequested = true; return true
+        }
         if let partyRoute = NativePartyPassRoute(url: url) {
             // A Clip handoff that carried a public point opens the map on it, so the
             // guest lands on where they are going rather than on a card about it.

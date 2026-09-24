@@ -24,7 +24,7 @@ xcrun simctl install "$UDID" "$APP_PATH"
 xcrun simctl privacy "$UDID" grant location-always "$BUNDLE_ID" || true
 xcrun simctl location "$UDID" set 33.7866,-84.3833 || true
 
-for mode in rail ask offered offers booked requests; do
+for mode in rail ask offered offers pay booked requests; do
   xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
   SIMCTL_CHILD_BYT_NATIVE_PREVIEW_TAB=discover \
   SIMCTL_CHILD_BYT_NATIVE_ASK_PREVIEW="$mode" \

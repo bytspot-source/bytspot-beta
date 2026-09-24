@@ -1,0 +1,76 @@
+services:
+
+  # ─── Vendor console: vendor.bytspot.app ───────────────────────────────────
+  # Its own origin, so the vendor service worker and session stay off
+  # bytspot.app (see vite.vendor.config.ts). Render ignores vendor/public/_headers
+  # and _redirects, so the same rules are declared here.
+  - type: web
+    runtime: static
+    name: bytspot-vendor
+    branch: main
+    buildCommand: npm ci --no-audit --no-fund && npm run build:vendor
+    staticPublishPath: ./dist-vendor
+    pullRequestPreviewsEnabled: false
+    domains:
+      - vendor.bytspot.app
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Same site as vendor.bytspot.app, so the SameSite=Strict refresh cookie
+      # is stored and sent. On bytspot-api.onrender.com every reload signs out.
+      - key: VITE_API_URL
+        value: https://api.bytspot.app
+    buildFilter:
+      paths:
+        - src/**
+        - vendor/**
+        - contracts/**
+        - vite.vendor.config.ts
+        - package.json
+        - package-lock.json
+        - tsconfig*.json
+        - render.yaml
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /sw.js
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache
+      - path: /manifest.webmanifest
+        name: Cache-Control
+        value: public, max-age=3600
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /*
+        name: X-Robots-Tag
+        value: noindex, nofollow
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin
+      - path: /*
+        name: Cross-Origin-Resource-Policy
+        value: same-origin
+      - path: /*
+        name: Permissions-Policy
+        value: geolocation=(), camera=(), microphone=(), payment=(), usb=()
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=31536000; includeSubDomains
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.bytspot.app https://bytspot-api.onrender.com https://*.r2.cloudflarestorage.com; media-src 'self' blob: https://api.bytspot.app https://bytspot-api.onrender.com https://*.r2.cloudflarestorage.com; font-src 'self'; connect-src 'self' https://api.bytspot.app https://bytspot-api.onrender.com https://*.r2.cloudflarestorage.com; upgrade-insecure-requests"

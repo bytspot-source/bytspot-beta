@@ -98,7 +98,8 @@ test('writes carry the session as a header and never as a cookie', async () => {
   // attached here, and sending credentials would undo that.
   const hook = readFileSync(new URL('../useVendorAuth.ts', import.meta.url), 'utf8');
   assert.match(hook, /credentials: 'omit'/);
-  assert.match(hook, /Authorization', `Bearer/);
+  // The ref holds an AccessToken, so the header must carry its value, not the object.
+  assert.match(hook, /Authorization', `Bearer \$\{token\.current\.value\}`/);
 });
 
 test('the console is handed a call, never the token', () => {

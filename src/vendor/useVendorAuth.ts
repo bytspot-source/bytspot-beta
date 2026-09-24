@@ -140,7 +140,7 @@ export function useVendorAuth(transport: AuthTransport): VendorAuthState & Vendo
       const headers = new Headers(init?.headers);
       // Bearer, never a cookie: the refresh cookie is Path-scoped to the auth
       // routes precisely so it is not attached to ordinary calls.
-      if (token.current) headers.set('Authorization', `Bearer ${token.current}`);
+      if (token.current) headers.set('Authorization', `Bearer ${token.current.value}`);
       // Names which business this edit is for. The server still checks the
       // caller holds a seat there — this says which one, it does not grant it.
       if (activeSeller.current) headers.set('X-Bytspot-Seller', activeSeller.current);

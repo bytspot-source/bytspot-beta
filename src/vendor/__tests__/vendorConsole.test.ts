@@ -387,16 +387,16 @@ test('the onboarding guards reject the shapes that stranded a business', () => {
   };
   assert.ok(assertVendorConsoleContract(invented).some((error) => error.includes('closes no requirement')));
 
-  // PENDING is the platform's turn, so offering a checklist there would invite a
-  // vendor to fix something that is not what is holding them up.
-  const busywork = {
+  // PENDING still owes what going live requires, and nobody reviews it, so a
+  // pending gate without the checklist would leave the vendor waiting on nobody.
+  const waiting = {
     ...VENDOR_CONSOLE,
     onboarding: {
       ...onboarding,
-      states: onboarding.states.map((item) => (item.state === 'PENDING' ? { ...item, checklist: true } : item)),
+      states: onboarding.states.map((item) => (item.state === 'PENDING' ? { ...item, checklist: false } : item)),
     },
   };
-  assert.ok(assertVendorConsoleContract(busywork).some((error) => error.includes('nothing to tick off')));
+  assert.ok(assertVendorConsoleContract(waiting).some((error) => error.includes('still has things to tick off')));
 
   const silent = {
     ...VENDOR_CONSOLE,

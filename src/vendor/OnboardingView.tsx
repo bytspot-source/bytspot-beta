@@ -3,12 +3,9 @@ import type { BookableLocationKindId } from '../utils/bookableTemplates.ts';
 import {
   canAdvanceOnboarding,
   nextOnboardingItem,
-  onboardingActions,
   onboardingCopy,
   onboardingItems,
   onboardingProgress,
-  onboardingStage,
-  willStallAfterApproval,
   type OnboardingItem,
 } from './onboarding.ts';
 import type { GeocodeCandidate } from './geocoding.ts';
@@ -27,7 +24,6 @@ export interface OnboardingViewProps {
   onEdit: (edit: ProfileEdit) => void;
   onStartPayout: () => void;
   onGeocode: (query: string, kind: BookableLocationKindId) => Promise<GeocodeCandidate[]>;
-  onMove: (operation: 'SUBMIT_SELLER' | 'WITHDRAW_SELLER') => void;
   blockers: string[];
   busy: boolean;
   media: MediaTransport;
@@ -45,7 +41,6 @@ export function OnboardingView({
   onEdit,
   onStartPayout,
   onGeocode,
-  onMove,
   blockers,
   busy,
   media,
@@ -53,13 +48,10 @@ export function OnboardingView({
 }: OnboardingViewProps) {
   const { seller } = session;
   const items = useMemo(() => onboardingItems(seller), [seller]);
-  const stage = onboardingStage(seller);
   const progress = onboardingProgress(seller);
   const copy = onboardingCopy(seller.state);
   const next = nextOnboardingItem(seller);
-  const actions = useMemo(() => onboardingActions(session), [session]);
   const canAdvance = canAdvanceOnboarding(session);
-  const stalls = useMemo(() => (seller.state === 'DRAFT' ? willStallAfterApproval(seller) : []), [seller]);
 
   return (
     <>
@@ -107,59 +99,8 @@ export function OnboardingView({
           ))}
         </ul>
       ) : null}
-
-      {stage === 'awaiting-review' ? (
-        <section className="vendor-card">
-          <p className="vendor-muted">
-            Submitted as {seller.legalName}. Nothing here can speed it up, so there is nothing to fill in.
-          </p>
-        </section>
-      ) : null}
-
-      {stalls.length > 0 && stage === 'ready-to-submit' ? (
-        <section className="vendor-card vendor-card-blank">
-          <p className="vendor-muted">
-            You can submit now, but approval will not make you sellable until{' '}
-            {stalls.map((item) => item.label.toLowerCase()).join(' and ')} {stalls.length === 1 ? 'is' : 'are'} done.
-          </p>
-        </section>
-      ) : null}
-
-      {canAdvance
-        ? actions.map((action) => (
-            <section className="vendor-card" key={action.id}>
-              <button
-                type="button"
-                className="vendor-button"
-                disabled={!action.verdict.ok || busy}
-                onClick={() => onMove(action.id)}
-              >
-                {action.label}
-              </button>
-              {!action.verdict.ok ? (
-                <ul className="vendor-reasons">
-                  {action.verdict.reason === 'requirements-unmet' ? (
-                    (action.verdict.missing ?? []).map((requirement) => (
-                      <li key={requirement.id} className="vendor-reason-fixable">
-                        {requirement.label} is still missing
-                      </li>
-                    ))
-                  ) : (
-                    <li>{refusalCopy(action.verdict.reason)}</li>
-                  )}
-                </ul>
-              ) : null}
-            </section>
-          ))
-        : null}
     </>
   );
-}
-
-function refusalCopy(reason: 'forbidden' | 'illegal-state' | 'requirements-unmet'): string {
-  if (reason === 'forbidden') return 'This seat cannot move the business.';
-  if (reason === 'illegal-state') return 'The business is not in a state this applies to.';
-  return 'Something is still missing.';
 }
 
 function ChecklistRow({

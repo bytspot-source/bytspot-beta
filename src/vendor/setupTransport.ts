@@ -1,5 +1,5 @@
 import { VENDOR_API_BASE_URL } from './authTransport.ts';
-import type { BookableLocationOperationId } from '../utils/bookableTemplates.ts';
+import { getBookableSeller, type BookableLocationOperationId } from '../utils/bookableTemplates.ts';
 import { reviveCandidates, type GeocodeCandidate } from './geocoding.ts';
 import type { PayoutAccount, VendorProfile } from './profile.ts';
 import type { VendorLocation } from './locations.ts';
@@ -88,7 +88,15 @@ function reviveProfile(json: Record<string, unknown>): VendorProfile {
       };
     }),
     payout: revivePayout(json.payout),
+    state: getBookableSeller().identity.states.find((state) => state === json.state),
+    verifiedAt: reviveDate(json.verifiedAt),
   };
+}
+
+function reviveDate(raw: unknown): Date | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
 /**

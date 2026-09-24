@@ -10,10 +10,10 @@ import {
   invitableRoles,
   inviteSeat,
   moveSeat,
-  moveSeller,
   type Seat,
   type VendorSession,
 } from './seller';
+import { verifiedLabel } from './onboarding';
 
 const SEED: Seat[] = [
   { id: 'seat_1', sellerId: 'sel_1', personId: 'per_1', role: 'owner', state: 'ACTIVE', locationIds: [], bookableIds: [] },
@@ -76,7 +76,7 @@ export function SeatsView({ session }: SeatsViewProps) {
   };
 
   const liveGap = goLiveBlockers(session.seller);
-  const submit = moveSeller(session, 'SUBMIT_SELLER');
+  const verified = verifiedLabel(session.seller);
 
   return (
     <>
@@ -93,13 +93,7 @@ export function SeatsView({ session }: SeatsViewProps) {
             ))}
           </ul>
         ) : null}
-        {submit.ok ? (
-          <div className="vendor-demand-actions">
-            <button type="button" className="vendor-chip vendor-chip-on">
-              Submit for review
-            </button>
-          </div>
-        ) : null}
+        {verified ? <p className="vendor-verified">✓ {verified}</p> : null}
       </section>
 
       <section>

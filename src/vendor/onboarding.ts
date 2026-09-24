@@ -157,3 +157,22 @@ export function canAdvanceOnboarding(session: VendorSession): boolean {
   const { requiresRole } = getBookableSeller().identity.operations.find((item) => item.id === 'SUBMIT_SELLER') ?? {};
   return requiresRole ? session.seat.role === requiresRole : sessionCan(session, 'SELL');
 }
+
+/**
+ * The badge a live business carries. Only ACTIVE earns it: a suspended business
+ * was verified once but cannot sell, and the badge would say otherwise.
+ */
+export function verifiedLabel(seller: Seller): string | undefined {
+  if (seller.state !== 'ACTIVE') return undefined;
+  if (!seller.verifiedAt) return 'Verified';
+  return `Verified ${seller.verifiedAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+}
+
+const JUST_VERIFIED_MS = 7 * 24 * 3_600_000;
+
+/** Whether verification is recent enough to still be news on the landing screen. */
+export function justVerified(seller: Seller, now: Date = new Date()): boolean {
+  if (seller.state !== 'ACTIVE' || !seller.verifiedAt) return false;
+  const age = now.getTime() - seller.verifiedAt.getTime();
+  return age >= 0 && age < JUST_VERIFIED_MS;
+}

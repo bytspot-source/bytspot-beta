@@ -1,6 +1,7 @@
 import {
   getBookableSeller,
   type BookableSellerRequirement,
+  type BookableSellerState,
 } from '../utils/bookableTemplates.ts';
 import { activeLocations, locationSetupBlockers, type VendorLocation } from './locations.ts';
 import type { Seller } from './seller.ts';
@@ -30,6 +31,10 @@ export interface VendorProfile {
   contactEmail?: string;
   locations: VendorLocation[];
   payout?: PayoutAccount;
+  /** The business's state as the server last decided it. Read-only. */
+  state?: BookableSellerState;
+  /** When the server first found every requirement met. Read-only. */
+  verifiedAt?: Date;
 }
 
 export const EMPTY_PROFILE: VendorProfile = { locations: [] };
@@ -73,10 +78,17 @@ export function satisfiedRequirements(profile: VendorProfile): string[] {
 /**
  * A seller whose `satisfied` list is recomputed from the records it holds. The
  * server sends its own list, and this is what keeps the console honest between
- * a write landing and the next refresh.
+ * a write landing and the next refresh. State and verification come from the
+ * server alone: the business moves on the write that completes it, not at the
+ * next sign-in.
  */
 export function reconcileSeller(seller: Seller, profile: VendorProfile): Seller {
-  return { ...seller, satisfied: satisfiedRequirements(profile) };
+  return {
+    ...seller,
+    state: profile.state ?? seller.state,
+    verifiedAt: profile.verifiedAt ?? seller.verifiedAt,
+    satisfied: satisfiedRequirements(profile),
+  };
 }
 
 export function unmetFor(profile: VendorProfile): BookableSellerRequirement[] {

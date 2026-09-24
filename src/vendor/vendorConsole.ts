@@ -451,10 +451,10 @@ function onboardingContractErrors(onboarding: VendorOnboardingContract): string[
     if (!sellerCanUseConsole(item.state)) errors.push(`${item.state} has onboarding copy but no console to show it in`);
   }
 
-  // PENDING is the platform's turn. Offering a checklist there would invite a
-  // vendor to fix something that is not what is holding them up.
-  if (onboarding.states.find((item) => item.state === 'PENDING')?.checklist) {
-    errors.push('a business under review has nothing to tick off');
+  // PENDING still owes what going live requires, and verification is automatic,
+  // so hiding the checklist there would leave the vendor waiting on nobody.
+  if (!onboarding.states.find((item) => item.state === 'PENDING')?.checklist) {
+    errors.push('a pending business still has things to tick off');
   }
 
   return errors;

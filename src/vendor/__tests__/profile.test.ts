@@ -181,3 +181,14 @@ test('setup and publish read the same location rules', () => {
   assert.ok(locationPublishBlockers(location({ state: 'PAUSED' }), 'dining').some((item) => item.includes('not active')));
   assert.deepEqual(locationSetupBlockers(location()), []);
 });
+
+test('the business moves when the server says so, not at the next sign-in', () => {
+  const draft = seller({ state: 'DRAFT', satisfied: [] });
+  const verifiedAt = new Date('2026-09-24T15:00:00Z');
+  const moved = reconcileSeller(draft, { ...complete, state: 'ACTIVE', verifiedAt });
+  assert.equal(moved.state, 'ACTIVE');
+  assert.equal(moved.verifiedAt, verifiedAt);
+
+  // A profile without a state (the demo, or an older API) leaves sign-in's.
+  assert.equal(reconcileSeller(draft, complete).state, 'DRAFT');
+});

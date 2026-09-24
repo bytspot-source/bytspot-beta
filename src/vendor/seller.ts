@@ -37,6 +37,8 @@ export interface Seller {
   businessMode: VendorBusinessMode;
   /** Requirement ids already satisfied, so the gap reads as a checklist. */
   satisfied: string[];
+  /** When the platform first found every requirement met. */
+  verifiedAt?: Date;
 }
 
 /**

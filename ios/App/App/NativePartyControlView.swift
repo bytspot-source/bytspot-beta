@@ -207,12 +207,16 @@ struct NativePartyControlView: View {
     @State private var recapStore: NativeAuthenticatedImageStore?
     @State private var pickingRecap = false
     @State private var recapBusy = false
+    @State private var showingSessions = false
+    @State private var showingLineup = false
 
     var body: some View {
         ZStack { BytspotNativeBackground(tier: .green).ignoresSafeArea(); ScrollView { VStack(alignment: .leading, spacing: 10) {
             HStack { Button(action: { dismiss() }) { Image(systemName: "chevron.left") }; Spacer(); Text("PARTY CONTROL").font(.system(size: 11, weight: .black)).tracking(1.5); Spacer(); Button(action: { Task { await reload() } }) { Image(systemName: "arrow.clockwise") } }.foregroundColor(.white)
             if let summary { overview(summary) } else { ProgressView().tint(.white).frame(maxWidth: .infinity, minHeight: 140) }
             recapCard
+            Button("Tables & sessions") { showingSessions = true }.controlButton(color: NativeTheme.cyan)
+            Button("DJ / MC lineup") { showingLineup = true }.controlButton(color: NativeTheme.purple)
             HStack(spacing: 10) { Button(showingDoor ? "Close Door Mode" : "Door Mode") { showingDoor.toggle() }.controlButton(color: NativeTheme.purple); Button((summary?.admissionPaused ?? false) ? "Resume RSVPs" : "Pause RSVPs") { Task { await setPaused() } }.controlButton(color: NativeTheme.orange) }
             closeRoomControl
             if showingDoor { doorMode }
@@ -227,6 +231,12 @@ struct NativePartyControlView: View {
         // moment the session that was allowed to see them does.
         .onDisappear { forgetRecap() }
         .onChange(of: sessionStore.token) { _ in forgetRecap(); Task { await loadRecap() } }
+        .sheet(isPresented: $showingSessions) {
+            NativePartySessionAuthoringView(partyID: partyID).environmentObject(sessionStore)
+        }
+        .sheet(isPresented: $showingLineup) {
+            NativePartyLineupHostSheet(partyID: partyID).environmentObject(sessionStore)
+        }
         .sheet(isPresented: $pickingRecap) {
             NativePartyPhotoPicker(selectionLimit: recapFreeSlots) { images in
                 pickingRecap = false

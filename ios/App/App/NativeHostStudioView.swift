@@ -196,6 +196,8 @@ struct NativeHostStudioView: View {
     @State private var selectedCircleIDs: Set<String> = []
     @State private var teammateEmail = ""
     @State private var teammateRole: NativePartyHostRole = .cohost
+    @State private var showingSessions = false
+    @State private var showingLineup = false
     @State private var listeningFormat: NativeListeningPartyFormat = .listeningSession
     @State private var fanMeetupFormat: NativeFanMeetupFormat = .meetAndGreet
     @State private var releaseFormat: NativeReleaseFormat = .single
@@ -269,6 +271,12 @@ struct NativeHostStudioView: View {
         .onDisappear { publishTask?.cancel() }
         .sheet(isPresented: $showCoverPicker) {
             NativePartyPhotoPicker(selectionLimit: 1) { images in setCoverImage(images.first) }
+        }
+        .sheet(isPresented: $showingSessions) {
+            if let party = publishPresentation.party { NativePartySessionAuthoringView(partyID: party.id).environmentObject(sessionStore) }
+        }
+        .sheet(isPresented: $showingLineup) {
+            if let party = publishPresentation.party { NativePartyLineupHostSheet(partyID: party.id).environmentObject(sessionStore) }
         }
         .sheet(isPresented: $showingPartyControl) {
             if let party = publishPresentation.party { NativePartyControlView(partyID: party.id).environmentObject(sessionStore) }
@@ -763,6 +771,8 @@ struct NativeHostStudioView: View {
                 }.pickerStyle(.menu).frame(minHeight: 44)
                 Text(roleSummary).font(.footnote).foregroundColor(NativeTheme.textSecondary)
             }
+            Text("After publishing, add tables and sessions or invite a DJ / MC to the lineup. Paid sessions require an eligible seller account.")
+                .font(.footnote).foregroundColor(NativeTheme.textSecondary)
             Text("Publishing creates your Party Pass and share link.")
                 .font(.footnote).foregroundColor(NativeTheme.textSecondary)
         }
@@ -1110,6 +1120,8 @@ struct NativeHostStudioView: View {
                         .foregroundColor(NativeTheme.inverseText).background(NativeTheme.cyan)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                 }.buttonStyle(.plain)
+                Button("Tables & sessions") { showingSessions = true }.studioSecondaryButton()
+                Button("DJ / MC lineup") { showingLineup = true }.studioSecondaryButton()
                 Button(action: { showingPartyControl = true }) {
                     Label("Open Party Control", systemImage: "person.3.sequence.fill").frame(maxWidth: .infinity)
                 }.studioSecondaryButton()
@@ -1280,7 +1292,7 @@ struct NativeHostStudioView: View {
     private func accessDetail(_ mode: NativePartyAccessMode) -> String { mode == .freeRSVP ? "Fastest way to fill the room." : mode == .paidTicket ? "Sell a limited first drop." : "You approve every guest." }
     // Finance says refund only: this build ships without a payout rail, so
     // promising payout access would be a capability the app does not have.
-    private var roleSummary: String { teammateRole == .cohost ? "Edit, invite, and check-in access." : teammateRole == .door ? "Check-in access only." : "Refund access only." }
+    private var roleSummary: String { "Saves a teammate contact and intended role only. This does not grant account access. Invite DJs and MCs to the public lineup after publishing." }
 
     private func setCoverImage(_ image: UIImage?) {
         guard let image, let media = NativePartyPendingImage(image: image, shape: .cover) else { if image != nil { publishPresentation.message = "That cover could not be prepared." }; return }

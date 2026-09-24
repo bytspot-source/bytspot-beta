@@ -1,6 +1,8 @@
 import XCTest
 import CoreLocation
 import UIKit
+import SwiftUI
+import Combine
 @testable import App
 
 final class NativeDiscoverM6BrowseTests: XCTestCase {
@@ -209,6 +211,88 @@ final class NativeDiscoverM6BrowseTests: XCTestCase {
         }
         XCTAssertNil(NativeDiscoverBrowsePolicy.partyRoute(offering: offering()))
         XCTAssertNil(NativeDiscoverBrowsePolicy.partyRoute(offering: offering("party-a?other=id", kind: .party)))
+    }
+
+    private func invitationFixture(id: String = "party-a", accessMode: String = "free-rsvp",
+                                   disclosure: String = "public", capacity: Int = 40,
+                                   tier: String = "green", scheduledDate: String = "2026-09-24T20:00:00Z") -> NativePartyPassRecord {
+        NativePartyPassRecord(id: id, title: "An evening together", tagline: nil, hostName: "Host",
+                              scheduledDate: scheduledDate, locationLabel: "Private studio address",
+                              locationDisclosure: disclosure, accessMode: accessMode, capacity: capacity,
+                              requiredTier: tier, coverURL: nil, hostDestinations: [], hostHandle: nil,
+                              endsAt: nil, runOfShow: [], recapAvailable: false, recapPhotoCount: 0, sessions: [])
+    }
+
+    func testInvitationEntryDescribesRequirementsNotAdmission() {
+        let rsvp = NativePartyInvitationPresentation(party: invitationFixture())
+        XCTAssertEqual(rsvp.entryTitle, "RSVP required")
+        XCTAssertTrue(rsvp.entryNote.contains("does not reserve"))
+        let approval = NativePartyInvitationPresentation(party: invitationFixture(accessMode: "private-approval"))
+        XCTAssertEqual(approval.entryTitle, "Host approval required")
+        XCTAssertTrue(approval.entryNote.contains("until the host approves"))
+        let paid = NativePartyInvitationPresentation(party: invitationFixture(accessMode: "paid-ticket"))
+        XCTAssertEqual(paid.entryTitle, "Ticket required")
+        XCTAssertTrue(paid.entryNote.contains("separate purchases"))
+        XCTAssertEqual(NativePartyInvitationPresentation(party: invitationFixture(accessMode: "unknown")).entryTitle,
+                       "Entry details unavailable")
+    }
+
+    func testInvitationCapacityIsNotRemainingInventoryAndBaselineIsNotPremium() {
+        let presentation = NativePartyInvitationPresentation(party: invitationFixture())
+        XCTAssertEqual(presentation.capacityLabel, "40 guests maximum")
+        XCTAssertNil(presentation.membershipLabel)
+        XCTAssertEqual(NativePartyInvitationPresentation(party: invitationFixture(capacity: 0)).capacityLabel,
+                       "Capacity not supplied")
+        XCTAssertEqual(NativePartyInvitationPresentation(party: invitationFixture(tier: "black")).membershipLabel,
+                       "Black membership required")
+        XCTAssertEqual(NativePartyInvitationPresentation(party: invitationFixture(tier: "platinum")).membershipLabel,
+                       "Platinum membership required")
+    }
+
+    func testInvitationNeverPromotesPrivateLocationLabels() {
+        for disclosure in ["after-approval", "withheld", "unknown"] {
+            let presentation = NativePartyInvitationPresentation(party: invitationFixture(disclosure: disclosure))
+            XCTAssertFalse(presentation.locationLabel.contains("Private studio address"))
+        }
+        XCTAssertEqual(NativePartyInvitationPresentation(party: invitationFixture()).locationLabel,
+                       "Private studio address")
+    }
+
+    func testInvitationDatesUseLocalFormattingAndPreserveLegacyLabels() throws {
+        let date = try XCTUnwrap(NativeAccountDeletionFormat.date(fromISO: "2026-09-24T20:00:00Z"))
+        XCTAssertEqual(NativePartyInvitationPresentation(party: invitationFixture()).scheduledDateLabel,
+                       date.formatted(date: .abbreviated, time: .shortened))
+        XCTAssertEqual(NativePartyInvitationPresentation(party: invitationFixture(scheduledDate: "Friday evening")).scheduledDateLabel,
+                       "Friday evening")
+    }
+
+    func testInvitationStateRejectsOldAccountsAndRetries() {
+        var state = NativePartyInvitationState()
+        let first = state.begin(partyID: "party-a", userID: "user-a")
+        state.finish(invitationFixture(), generation: first)
+        XCTAssertNotNil(state.record(partyID: "party-a", userID: "user-a"))
+        XCTAssertNil(state.record(partyID: "party-a", userID: "user-b"))
+        XCTAssertNil(state.record(partyID: "party-b", userID: "user-a"))
+        let second = state.begin(partyID: "party-a", userID: "user-b")
+        state.finish(invitationFixture(), generation: first)
+        XCTAssertNil(state.party)
+        state.finish(invitationFixture(), generation: second)
+        XCTAssertNotNil(state.record(partyID: "party-a", userID: "user-b"))
+        state.invalidate()
+        state.finish(invitationFixture(), generation: second)
+        XCTAssertNil(state.party)
+    }
+
+    func testInvitationStateFailsClosedOnMissingOrMismatchedParty() {
+        var state = NativePartyInvitationState()
+        let first = state.begin(partyID: "party-a", userID: nil)
+        state.finish(invitationFixture(id: "party-b"), generation: first)
+        XCTAssertTrue(state.failed)
+        XCTAssertNil(state.party)
+        let retry = state.begin(partyID: "party-a", userID: nil)
+        XCTAssertFalse(state.failed)
+        state.finish(nil, generation: retry)
+        XCTAssertTrue(state.failed)
     }
 
     func testCatalogDeduplicatesExactSourceNotTitleOrOfferingID() {
@@ -6688,6 +6772,67 @@ final class NativeVenueRichDetailsTests: XCTestCase {
         XCTAssertEqual(preserved.richDetails?.source, .venue)
         XCTAssertEqual(preserved.richDetails?.supplementarySource, .googlePlaces(placeID: placeID))
         XCTAssertEqual(preserved.richDetails?.hasGoogleFacts, true)
+    }
+}
+
+@MainActor
+final class NativeSceneLifecycleTests: XCTestCase {
+    func testInitialPhaseUsesOnlyTheAttachedScenesActivationState() {
+        XCTAssertEqual(NativeSceneLifecycle().phase, .background)
+        XCTAssertEqual(NativeSceneLifecycle(activationState: .unattached).phase, .background)
+        XCTAssertEqual(NativeSceneLifecycle(activationState: .background).phase, .background)
+        XCTAssertEqual(NativeSceneLifecycle(activationState: .foregroundInactive).phase, .inactive)
+        XCTAssertEqual(NativeSceneLifecycle(activationState: .foregroundActive).phase, .active)
+    }
+
+    func testDelegateTransitionsHidePrivateContentBeforeBackgroundAndOnDisconnect() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first)
+        let delegate = BytspotSceneDelegate()
+        let lifecycle = delegate.lifecycle
+        XCTAssertEqual(lifecycle.phase, .background)
+        delegate.sceneWillEnterForeground(scene)
+        XCTAssertEqual(lifecycle.phase, .inactive)
+        delegate.sceneDidBecomeActive(scene)
+        XCTAssertEqual(lifecycle.phase, .active)
+        delegate.sceneWillResignActive(scene)
+        XCTAssertEqual(lifecycle.phase, .inactive)
+        delegate.sceneDidEnterBackground(scene)
+        XCTAssertEqual(lifecycle.phase, .background)
+        delegate.sceneWillEnterForeground(scene)
+        XCTAssertEqual(lifecycle.phase, .inactive)
+        delegate.sceneDidBecomeActive(scene)
+        XCTAssertEqual(lifecycle.phase, .active)
+        delegate.sceneDidDisconnect(scene)
+        XCTAssertEqual(lifecycle.phase, .background)
+        XCTAssertTrue(delegate.lifecycle === lifecycle, "Lifecycle events must not replace the root's observed identity.")
+        XCTAssertNil(delegate.window, "Lifecycle updates must not create or replace a hosting window.")
+    }
+
+    func testActivityInOneSceneDoesNotActivateAnotherScene() {
+        let first = NativeSceneLifecycle()
+        let second = NativeSceneLifecycle()
+        first.update(.active)
+        XCTAssertEqual(first.phase, .active)
+        XCTAssertEqual(second.phase, .background)
+        second.update(.inactive)
+        XCTAssertEqual(first.phase, .active)
+        first.update(.background)
+        XCTAssertEqual(second.phase, .inactive)
+    }
+
+    func testDuplicateCallbacksDoNotRepublishPhase() {
+        let lifecycle = NativeSceneLifecycle()
+        var observed: [ScenePhase] = []
+        let observation = lifecycle.$phase.sink { observed.append($0) }
+        lifecycle.update(.background)
+        lifecycle.update(.inactive)
+        lifecycle.update(.inactive)
+        lifecycle.update(.active)
+        lifecycle.update(.active)
+        lifecycle.update(.inactive)
+        lifecycle.update(.background)
+        XCTAssertEqual(observed, [.background, .inactive, .active, .inactive, .background])
+        observation.cancel()
     }
 }
 

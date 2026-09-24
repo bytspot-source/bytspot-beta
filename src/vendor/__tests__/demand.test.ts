@@ -252,3 +252,13 @@ test('responding follows the contract or does not happen at all', () => {
   // The original is never mutated, so a refused response leaves no trace.
   assert.equal(matched.state, 'MATCHED');
 });
+
+test('an offer is paid in the app only when asked, payable out, and priced', async () => {
+  const { offerPayAt } = await import('../demand.ts');
+  assert.equal(offerPayAt(true, true, 4500), 'bytspot');
+  assert.equal(offerPayAt(false, true, 4500), 'venue');
+  // No active payout account: there is nowhere to send the money.
+  assert.equal(offerPayAt(true, false, 4500), 'venue');
+  // Nothing to charge.
+  assert.equal(offerPayAt(true, true, 0), 'venue');
+});

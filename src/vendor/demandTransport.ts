@@ -1,6 +1,6 @@
 import type { BookableDemandOperationId, BookableDemandState, BookableDomainId } from '../utils/bookableTemplates.ts';
 import type { AvailabilitySlot } from './availability.ts';
-import type { Demand, DemandSupply } from './demand.ts';
+import type { Demand, DemandSupply, OfferPayAt } from './demand.ts';
 import type { VendorLocation } from './locations.ts';
 import type { AuthorizedFetch, SetupResult } from './setupTransport.ts';
 
@@ -30,6 +30,7 @@ export interface DemandTransport {
     demandId: string,
     bookableId: string,
     operation: BookableDemandOperationId,
+    payAt?: OfferPayAt,
   ) => Promise<SetupResult<DemandFeedSnapshot>>;
 }
 
@@ -156,11 +157,12 @@ export function httpDemandTransport(authorized: AuthorizedFetch): DemandTranspor
 
   return {
     loadFeed: () => send('/vendor/demand', { method: 'GET' }),
-    respond: (demandId, bookableId, operation) =>
+    respond: (demandId, bookableId, operation, payAt) =>
       send(`/vendor/demand/${encodeURIComponent(demandId)}/respond`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ operation, bookableId }),
+        // Absent means at the venue, which an older API also assumes.
+        body: JSON.stringify({ operation, bookableId, ...(payAt === 'bytspot' ? { payAt } : {}) }),
       }),
   };
 }

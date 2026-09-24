@@ -31,6 +31,7 @@ import {
 import { httpDemandTransport, type DemandTransport } from './demandTransport';
 import { httpMediaTransport, type MediaTransport } from './mediaTransport';
 import { useVendorDemand } from './useVendorDemand';
+import { payoutIsUsable } from './profile';
 import { OnboardingView } from './OnboardingView';
 import { gateReplacesConsole, shouldShowOnboarding } from './onboarding';
 import {
@@ -483,7 +484,8 @@ function VendorConsole({
           blockers={feed.blockers}
           busy={feed.busy}
           loading={feed.loading}
-          onRespond={(demandId, bookableId, operation) => void feed.respond(demandId, bookableId, operation)}
+          onRespond={(demandId, bookableId, operation, payAt) => void feed.respond(demandId, bookableId, operation, payAt)}
+          canTakePayment={payoutIsUsable(setup.profile.payout)}
           media={media}
           authorizedFetch={authorizedFetch}
         />

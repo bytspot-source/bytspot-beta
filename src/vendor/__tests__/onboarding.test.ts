@@ -7,6 +7,8 @@ import {
 } from '../../utils/bookableTemplates.ts';
 import {
   canAdvanceOnboarding,
+  justVerified,
+  verifiedLabel,
   gateReplacesConsole,
   nextOnboardingItem,
   onboardingActions,
@@ -123,10 +125,10 @@ test('the gate replaces the console only where nothing operational is allowed', 
   assert.equal(gateReplacesConsole(seller({ state: 'SUSPENDED' })), false);
 });
 
-test('a business under review is not offered a checklist', () => {
+test('a pending business keeps its checklist, since verification waits on what it still owes', () => {
   const pending = seller({ state: 'PENDING', satisfied: ['legalName', 'contactEmail'] });
   assert.equal(onboardingStage(pending), 'awaiting-review');
-  assert.equal(onboardingCopy('PENDING')?.checklist, false);
+  assert.equal(onboardingCopy('PENDING')?.checklist, true);
   // Withdraw is the only thing it can do, and submit is gone.
   assert.deepEqual(onboardingActions(session({ state: 'PENDING' })).map((item) => item.id), ['WITHDRAW_SELLER']);
 });
@@ -173,4 +175,17 @@ test('every state a console can open in has something to say', () => {
   for (const item of vendorOnboardingContract().states) {
     assert.equal(sellerCanUseConsole(item.state), true, `${item.state} has copy but no console`);
   }
+});
+
+test('only a live business wears the verified badge, and the news lasts a week', () => {
+  const verifiedAt = new Date('2026-09-24T15:00:00Z');
+  const live = seller({ state: 'ACTIVE', verifiedAt });
+  assert.match(verifiedLabel(live) ?? '', /^Verified /);
+  assert.equal(verifiedLabel(seller({ state: 'ACTIVE' })), 'Verified');
+  assert.equal(verifiedLabel(seller({ state: 'PENDING', verifiedAt })), undefined);
+  assert.equal(verifiedLabel(seller({ state: 'SUSPENDED', verifiedAt })), undefined);
+
+  assert.equal(justVerified(live, new Date('2026-09-25T15:00:00Z')), true);
+  assert.equal(justVerified(live, new Date('2026-10-02T15:00:00Z')), false);
+  assert.equal(justVerified(seller({ state: 'ACTIVE' })), false);
 });

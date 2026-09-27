@@ -203,3 +203,19 @@ test('the demo windows transport drafts first and publishes on request', async (
   assert.equal(live.value?.published, true);
   assert.equal((await demo.list()).value?.length, 1);
 });
+
+test('the profile carries the state the server decided, and nothing it made up', async () => {
+  const { authorized } = stubFetch(() => ({
+    status: 200,
+    body: { locations: [], state: 'ACTIVE', verifiedAt: '2026-09-24T15:00:00.000Z' },
+  }));
+  const live = (await httpSetupTransport(authorized).loadProfile()).value;
+  assert.equal(live?.state, 'ACTIVE');
+  assert.equal(live?.verifiedAt?.toISOString(), '2026-09-24T15:00:00.000Z');
+
+  // A state the catalog does not know, or a date that is not one, is dropped.
+  const { authorized: odd } = stubFetch(() => ({ status: 200, body: { locations: [], state: 'APPROVED', verifiedAt: 'soon' } }));
+  const dropped = (await httpSetupTransport(odd).loadProfile()).value;
+  assert.equal(dropped?.state, undefined);
+  assert.equal(dropped?.verifiedAt, undefined);
+});

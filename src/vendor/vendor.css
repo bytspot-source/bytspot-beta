@@ -6,6 +6,7 @@
   --vendor-text: #f5f5f7;
   --vendor-muted: #9a9aa2;
   --vendor-accent: #4f8cff;
+  --vendor-verified: #34c759;
 }
 
 * {
@@ -136,6 +137,21 @@ body {
 
 .vendor-card-blank {
   border-style: dashed;
+}
+
+.vendor-card-verified {
+  border-color: var(--vendor-verified);
+}
+
+.vendor-card-verified .vendor-chip {
+  margin-top: 12px;
+}
+
+.vendor-verified {
+  margin: 0 0 8px;
+  color: var(--vendor-verified);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .vendor-window-row {

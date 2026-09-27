@@ -33,7 +33,7 @@ import { httpMediaTransport, type MediaTransport } from './mediaTransport';
 import { useVendorDemand } from './useVendorDemand';
 import { payoutIsUsable } from './profile';
 import { OnboardingView } from './OnboardingView';
-import { gateReplacesConsole, shouldShowOnboarding } from './onboarding';
+import { gateReplacesConsole, justVerified, shouldShowOnboarding, verifiedLabel } from './onboarding';
 import {
   httpSetupTransport,
   httpWindowsTransport,
@@ -47,8 +47,8 @@ import {
 import { MediaPicker } from './MediaPicker';
 import type { VendorLocation } from './locations';
 import { useVendorSetup } from './useVendorSetup';
-import type { BookableSellerState } from '../utils/bookableTemplates';
-import { withheldBySellerState, type Seller, type VendorSession } from './seller';
+import { effectiveSeatCapabilities } from '../utils/bookableTemplates';
+import { withheldBySellerState, type VendorSession } from './seller';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -425,16 +425,22 @@ function VendorConsole({
   );
 
   /**
-   * The state a vendor can move themselves, kept beside the reconciled seller.
-   * Capabilities are not recomputed from it: only the platform moves a business
-   * to ACTIVE, so nothing a vendor supplies can widen what its own seat may do.
+   * The state is the one the server reported with the profile, so a business
+   * that went live on this write can sell without signing in again. Only the
+   * server moves it, which is why capabilities may be recomputed from it.
    */
-  const [movedTo, setMovedTo] = useState<BookableSellerState | undefined>(undefined);
-  const seller = useMemo<Seller>(
-    () => (movedTo ? { ...setup.seller, state: movedTo } : setup.seller),
-    [setup.seller, movedTo],
+  const seller = setup.seller;
+  const session = useMemo<VendorSession>(
+    () =>
+      seller.state === opened.seller.state
+        ? { ...opened, seller }
+        : {
+            ...opened,
+            seller,
+            capabilities: new Set(effectiveSeatCapabilities(opened.seat.role, opened.seat.state, seller.state)),
+          },
+    [opened, seller],
   );
-  const session = useMemo<VendorSession>(() => ({ ...opened, seller }), [opened, seller]);
 
   return (
     <ConsoleShell
@@ -450,7 +456,6 @@ function VendorConsole({
             onEdit={(edit) => void setup.edit(edit)}
             onStartPayout={() => void setup.startPayout()}
             onGeocode={setup.geocode}
-            onMove={(operation) => setMovedTo(operation === 'SUBMIT_SELLER' ? 'PENDING' : 'DRAFT')}
             media={media}
             authorizedFetch={authorizedFetch}
           />
@@ -527,6 +532,8 @@ function ConsoleShell({
   const secondary = useMemo(() => vendorSecondaryNav(viewer), [viewer]);
   const [view, setView] = useState(() => vendorLandingView(viewer));
   const withheld = useMemo(() => withheldBySellerState(session), [session]);
+  const verified = verifiedLabel(session.seller);
+  const [verifiedSeen, setVerifiedSeen] = useState(false);
 
   const visible = [...primary, ...secondary];
   const active = visible.find((item) => item.id === view);
@@ -542,6 +549,7 @@ function ConsoleShell({
           {session.seller.legalName} · {staffRoleLabel(session.seat.role)}
           {session.scope === 'assigned' ? ' · assigned work only' : ''}
         </p>
+        {verified ? <p className="vendor-verified">✓ {verified}</p> : null}
         <button type="button" className="vendor-chip" onClick={onSignOut}>
           Sign out
         </button>
@@ -569,6 +577,18 @@ function ConsoleShell({
 
       <main className="vendor-main">
         <InstallCard />
+        {justVerified(session.seller) && !verifiedSeen ? (
+          <section className="vendor-card vendor-card-verified">
+            <h2 className="vendor-section-title">✓ You are verified</h2>
+            <p className="vendor-muted">
+              {session.seller.legalName} passed every check: business name, contact email, a live location and a payout
+              account. You can now publish times and take bookings.
+            </p>
+            <button type="button" className="vendor-chip" onClick={() => setVerifiedSeen(true)}>
+              Got it
+            </button>
+          </section>
+        ) : null}
         {gate}
         {gateReplacesConsole ? null : (
           <>

@@ -23,6 +23,10 @@ struct BytspotClipApp: App {
                 }
                 .task {
                     #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("--test-party-invocation") {
+                        await BytspotAviationFallbackTests.runPartyInvocationRegressions()
+                        return
+                    }
                     // Simulator recovery path: on iOS 26 the _XCAppClipURL
                     // argv is not consistently surfaced through
                     // onContinueUserActivity. Pull it directly from argv
@@ -704,6 +708,7 @@ enum ClipPartyPassActionPolicy {
 #endif
 
 enum ClipFlowStep: Equatable {
+    case awaitingInvocation
     case catalog
     case partyLoading(partyID: String)
     case partyFailed(partyID: String, message: String)
@@ -761,7 +766,7 @@ final class ClipInvocationModel: ObservableObject {
     @Published var verificationState: ClipVerifyState = .idle
     @Published var contextError: String?
 
-    @Published var flow: ClipFlowStep = .catalog
+    @Published var flow: ClipFlowStep = .awaitingInvocation
     @Published var vendorsByService: [String: [ClipVendor]] = [:]
     @Published var loadingVendorsService: String?
     @Published var vendorFilter: ClipVendorFilter = .now
@@ -770,8 +775,21 @@ final class ClipInvocationModel: ObservableObject {
     @Published private(set) var selectedPartyTicketTier: ClipPartyTicketTier?
 
     private let api = ClipPatchVerifier()
+    private let partyInviteLoader: @MainActor (String) async throws -> PartyPassInvite
+    private var invocationGeneration = UUID()
     private var loadTask: Task<Void, Never>?
     private var vendorTasks: [String: Task<Void, Never>] = [:]
+
+    init(partyInviteLoader: @escaping @MainActor (String) async throws -> PartyPassInvite = {
+        try await ClipPatchVerifier().partyInvite(partyID: $0)
+    }) {
+        self.partyInviteLoader = partyInviteLoader
+    }
+
+    #if DEBUG
+    // Capture the exact task in deterministic, network-free invocation tests.
+    var invocationTaskForTesting: Task<Void, Never>? { loadTask }
+    #endif
 
     var hasPremiumMembershipAccess: Bool { tier == .black || tier == .platinum }
 
@@ -785,9 +803,15 @@ final class ClipInvocationModel: ObservableObject {
     }
 
     func handle(url: URL) {
+        invocationGeneration = UUID()
+        let generation = invocationGeneration
         loadTask?.cancel()
+        loadTask = nil
         vendorTasks.values.forEach { $0.cancel() }
         vendorTasks.removeAll()
+        isLoadingContext = false
+        isLoadingServices = false
+        vendorsByService.removeAll()
 
         invocationURL = url
         partyShareURL = nil
@@ -828,7 +852,9 @@ final class ClipInvocationModel: ObservableObject {
         case .party(let partyID):
             flow = .partyLoading(partyID: partyID)
             isLoadingContext = true
-            loadTask = Task { [weak self] in await self?.loadPartyInvite(partyID: partyID) }
+            loadTask = Task { [weak self] in
+                await self?.loadPartyInvite(partyID: partyID, generation: generation)
+            }
             return
         case .invalid:
             flow = .partyFailed(partyID: "", message: "This Party Pass link is invalid. Ask the host for a fresh link.")
@@ -1116,9 +1142,11 @@ final class ClipInvocationModel: ObservableObject {
         loadingVendorsService = service.id
         let patchId = self.patchId
         let tier = self.tier
+        let generation = invocationGeneration
         vendorTasks[service.id] = Task { [weak self] in
+            guard !Task.isCancelled else { return }
             let live = (try? await self?.api.searchVendors(service: service, patchId: patchId, tier: tier)) ?? []
-            guard let self else { return }
+            guard let self, !Task.isCancelled, generation == self.invocationGeneration else { return }
             if !live.isEmpty {
                 self.vendorsByService[service.id] = live
                 self.refreshFlow(service: service, liveVendors: live)
@@ -1137,22 +1165,40 @@ final class ClipInvocationModel: ObservableObject {
         Task { await verify(token: token) }
     }
 
-    private func loadPartyInvite(partyID: String) async {
-        defer { isLoadingContext = false; loadTask = nil }
+    func retryPartyInvite() {
+        guard case .partyFailed(let partyID, _) = flow,
+              !partyID.isEmpty, let invocationURL else { return }
+        handle(url: invocationURL)
+    }
+
+    private func loadPartyInvite(partyID: String, generation: UUID) async {
+        guard !Task.isCancelled, generation == invocationGeneration else { return }
+        defer {
+            // A cancelled URLSession request may finish after its replacement.
+            // It must not clear the new request's spinner or cancellation handle.
+            if generation == invocationGeneration {
+                isLoadingContext = false
+                loadTask = nil
+            }
+        }
         do {
-            let invite = try await api.partyInvite(partyID: partyID)
-            try Task.checkCancellation()
+            let invite = try await partyInviteLoader(partyID)
+            guard !Task.isCancelled, generation == invocationGeneration else { return }
+            guard invite.id == partyID else { throw ClipPatchVerifier.VerifyError.decode }
             tier = invite.tier
             partyShareURL = invite.canonicalURL
             flow = .party(invite)
-        } catch is CancellationError {
-            return
         } catch {
+            // URLSession reports URLError.cancelled, not necessarily
+            // CancellationError. Both stale failure and success must be inert.
+            guard !Task.isCancelled, generation == invocationGeneration else { return }
             flow = .partyFailed(partyID: partyID, message: "This Party Pass could not be loaded.")
         }
     }
 
     private func loadContextAndVerify(patchId: String, token: String?) async {
+        guard !Task.isCancelled else { return }
+        let generation = invocationGeneration
         verificationState = .idle
         contextError = nil
         isLoadingContext = true
@@ -1173,7 +1219,7 @@ final class ClipInvocationModel: ObservableObject {
             resolvedServices.removeAll { $0.id == service.id }
             resolvedServices.insert(service, at: 0)
         }
-        if Task.isCancelled { return }
+        guard !Task.isCancelled, generation == invocationGeneration else { return }
 
         patchContext = resolvedContext
         if let resolvedContext {
@@ -1202,13 +1248,15 @@ final class ClipInvocationModel: ObservableObject {
             prefetchVendors(for: first)
         }
         await refreshPreselectedCheckout(patchPayload: patchPayload)
+        guard !Task.isCancelled, generation == invocationGeneration else { return }
         if let token, !token.isEmpty {
             await verify(token: token)
         }
     }
 
     private func refreshPreselectedCheckout(patchPayload: ClipPatchVendorPayload?) async {
-        guard case .checkout(let currentService, let currentVendor) = flow else { return }
+        guard !Task.isCancelled, case .checkout(let currentService, let currentVendor) = flow else { return }
+        let generation = invocationGeneration
         let liveService = patchPayload?.service ?? services.first(where: { $0.id == currentService.id }) ?? currentService
         if let liveVendor = patchPayload?.vendor {
             vendorsByService[liveService.id] = [liveVendor]
@@ -1216,7 +1264,7 @@ final class ClipInvocationModel: ObservableObject {
             return
         }
         let liveVendors = (try? await api.searchVendors(service: liveService, patchId: patchId, tier: tier)) ?? []
-        guard !liveVendors.isEmpty else { return }
+        guard !Task.isCancelled, generation == invocationGeneration, !liveVendors.isEmpty else { return }
         vendorsByService[liveService.id] = liveVendors
         let selected = liveVendors.first(where: { $0.id == currentVendor.id })
             ?? liveVendors.first(where: { $0.name.caseInsensitiveCompare(currentVendor.name) == .orderedSame })
@@ -1238,12 +1286,16 @@ final class ClipInvocationModel: ObservableObject {
     }
 
     private func verify(token: String) async {
+        guard !Task.isCancelled else { return }
+        let generation = invocationGeneration
         verificationState = .verifying
         do {
             let result = try await api.verify(token: token)
+            guard !Task.isCancelled, generation == invocationGeneration else { return }
             let label = patchContext?.title ?? result.patch.label ?? venueSlug ?? "Bytspot Access"
             verificationState = Self.verificationState(for: result, label: label)
         } catch {
+            guard !Task.isCancelled, generation == invocationGeneration else { return }
             let msg: String
             switch error {
             case ClipPatchVerifier.VerifyError.missingToken: msg = "No secure token was included in this tap."

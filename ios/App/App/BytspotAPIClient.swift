@@ -2594,6 +2594,22 @@ struct NativeVenueSummary: Identifiable, Equatable {
     }
 }
 
+/// Provenance retained only by the events.nearby decoder. The endpoint has
+/// already checked membership, circles, publication, disclosure and geography.
+/// This is invitation identity, NOT a plans.bookables selection or a pass.
+struct NativeNearbyParty: Equatable, Identifiable {
+    var id: String { partyID }
+    let partyID: String
+    let startsAt: Date
+    let spacesRemaining: Int?
+
+    fileprivate init(partyID: String, startsAt: Date, spacesRemaining: Int?) {
+        self.partyID = partyID
+        self.startsAt = startsAt
+        self.spacesRemaining = spacesRemaining
+    }
+}
+
 struct NativeDiscoverSummary: Identifiable, Equatable {
     let id: String
     let type: String
@@ -2619,7 +2635,7 @@ struct NativeDiscoverSummary: Identifiable, Equatable {
 
     /// A source-provided address, never inferred from marketing subtitle text.
     let address: String?
-
+    fileprivate(set) var nearbyParty: NativeNearbyParty? = nil
 
     init(id: String, type: String, title: String, subtitle: String, distance: String, rating: String, icon: String, verified: Bool, entryType: String, cta: String, imageUrl: URL?, categoryLabel: String, badgeText: String, metadataLine: String, features: [String], vibeScore: Int, availability: String, membershipRequired: Bool, control: String = NativeDiscoverCardControl.local, latitude: Double? = nil, longitude: Double? = nil, address: String? = nil) {
         self.id = id
@@ -3101,6 +3117,14 @@ struct NativeTabContentSnapshot: Equatable {
         !trustworthyLiveEvents.isEmpty
     }
 
+    var trustworthyNearbyPartyCards: [NativeDiscoverSummary] {
+        guard source != .fallback, errorMessage == nil else { return [] }
+        return discoverCards.filter { card in
+            guard let party = card.nearbyParty else { return false }
+            return card.id == "party-\(party.partyID)"
+        }
+    }
+
     static func isFallbackVenueFixture(_ venue: NativeVenueSummary) -> Bool {
         fallbackVenues.contains { fixture in
             venue.id.caseInsensitiveCompare(fixture.id) == .orderedSame
@@ -3134,6 +3158,21 @@ final class NativeTabContentStore: ObservableObject {
     private var refreshGeneration = 0
     private var snapshotOrigin: NativeLocationCoordinate?
     private var bestValueOrigin: NativeLocationCoordinate?
+    private var nearbyPartyUserID: String?
+
+    /// Nearby can contain circle-scoped invitations. Clear them synchronously
+    /// on account/session changes, before any replacement network response.
+    func synchronizeAccount(userID: String?, forceReset: Bool = false) {
+        guard forceReset || nearbyPartyUserID != userID else { return }
+        nearbyPartyUserID = userID
+        refreshGeneration += 1
+        isRefreshing = false
+        snapshot = NativeTabContentSnapshot(venues: snapshot.venues,
+            discoverCards: snapshot.discoverCards.filter { $0.nearbyParty == nil },
+            events: snapshot.events, source: snapshot.source, lastUpdated: snapshot.lastUpdated,
+            errorMessage: snapshot.errorMessage, bestValueOptions: snapshot.bestValueOptions,
+            hasLiveVenueInventory: snapshot.hasLiveVenueInventory, hasLiveEventInventory: snapshot.hasLiveEventInventory)
+    }
 
     func snapshot(for location: NativeLocationCoordinate) -> NativeTabContentSnapshot {
         Self.locationSafeSnapshot(snapshot, origin: snapshotOrigin, bestValueOrigin: bestValueOrigin, current: location)
@@ -3161,6 +3200,7 @@ final class NativeTabContentStore: ObservableObject {
 
     func refresh(sessionStore: BytspotSessionStore, location: NativeLocationCoordinate = .midtown) async {
         guard NativeMigrationConfig.isNativeRootEnabled else { return }
+        synchronizeAccount(userID: sessionStore.canAttachBearerToken ? sessionStore.authenticatedUserID : nil)
         invalidateLocationScopedContent(for: location)
         let generation = refreshGeneration
         isRefreshing = true
@@ -3330,7 +3370,7 @@ final class NativeTabContentStore: ObservableObject {
             !$0.id.hasPrefix("best-value-") && !$0.badgeText.localizedCaseInsensitiveContains("BEST VALUE")
         }
         guard cards.count != snapshot.discoverCards.count || !snapshot.bestValueOptions.isEmpty else { return snapshot }
-        return NativeTabContentSnapshot(venues: snapshot.venues, discoverCards: cards, events: snapshot.events, source: source(forVisibleDeck: cards, hasLiveInputs: false), lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage, hasLiveVenueInventory: snapshot.hasLiveVenueInventory, hasLiveEventInventory: snapshot.hasLiveEventInventory)
+        return NativeTabContentSnapshot(venues: snapshot.venues, discoverCards: cards, events: snapshot.events, source: source(forVisibleDeck: cards, hasLiveInputs: snapshot.source != .fallback), lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage, hasLiveVenueInventory: snapshot.hasLiveVenueInventory, hasLiveEventInventory: snapshot.hasLiveEventInventory)
     }
 
     nonisolated static func localValueOptions(_ options: [NativeLiveValueOption]) -> [NativeLiveValueOption] {
@@ -3520,7 +3560,11 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private static func appendUnique(_ cards: [NativeDiscoverSummary], to merged: inout [NativeDiscoverSummary]) {
-        for card in cards where !merged.contains(where: { $0.id == card.id || $0.title.caseInsensitiveCompare(card.title) == .orderedSame }) {
+        for card in cards where !merged.contains(where: {
+            if let party = card.nearbyParty { return $0.nearbyParty?.partyID == party.partyID }
+            if $0.nearbyParty != nil { return false }
+            return $0.id == card.id || $0.title.caseInsensitiveCompare(card.title) == .orderedSame
+        }) {
             merged.append(card)
         }
     }
@@ -3543,19 +3587,27 @@ final class NativeTabContentStore: ObservableObject {
     /// says "open door" rather than "party", which would promise a whole
     /// category — house, rooftop, pool, birthday — this channel can never show.
     static func partyDiscoverCard(from item: [String: Any]) -> NativeDiscoverSummary? {
+        let allowedID = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
         guard let id = item["id"] as? String, !id.isEmpty,
+              id.unicodeScalars.allSatisfy({ allowedID.contains($0) }),
               let title = item["title"] as? String, !title.isEmpty,
               let startsAtRaw = item["startsAt"] as? String,
-              let startsAt = NativeAccountDeletionFormat.date(fromISO: startsAtRaw) else { return nil }
+              let startsAt = NativeAccountDeletionFormat.date(fromISO: startsAtRaw),
+              let accessMode = item["accessMode"] as? String,
+              ["free-rsvp", "paid-ticket"].contains(accessMode) else { return nil }
+        // Nearby omits these gate fields today. Never accept a contradictory
+        // private/unpublished row if a future response explicitly supplies them.
+        if let disclosure = item["locationDisclosure"] as? String, disclosure != "public" { return nil }
+        if let status = item["status"] as? String, status != "published" { return nil }
+        if item["templateId"] as? String == "private-party" { return nil }
         let capability = item["capability"] as? String ?? "details"
-        let accessMode = item["accessMode"] as? String ?? ""
         let tier = (item["requiredMembershipTier"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let venueName = (item["venueName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let spacesRemaining = item["spacesRemaining"] as? Int
         let isFull = spacesRemaining == 0
         let timeLabel = partyTimeLabel(startsAt)
         let seatsLabel = spacesRemaining.map { $0 == 0 ? "Full" : "\($0) left" }
-        return NativeDiscoverSummary(
+        var card = NativeDiscoverSummary(
             id: "party-\(id)",
             // These are time-bound, seated, host-supplied events. Filing them
             // under Celebrate would claim the private-party category the
@@ -3587,6 +3639,8 @@ final class NativeTabContentStore: ObservableObject {
             latitude: item["latitude"] as? Double,
             longitude: item["longitude"] as? Double
         )
+        card.nearbyParty = NativeNearbyParty(partyID: id, startsAt: startsAt, spacesRemaining: spacesRemaining)
+        return card
     }
 
     static func partyCapabilityLabel(_ capability: String) -> String {
@@ -3737,6 +3791,14 @@ final class NativeTabContentStore: ObservableObject {
         let isAtlantaRegion = canUseCurrentEventFeed(at: location)
         let venueCandidates = sourceVenues + (isAtlantaRegion ? NativeTabContentSnapshot.fallbackVenues : [])
         return cards.compactMap { card in
+            // Nearby is already a geographic query; validate its coordinates
+            // without matching it to an unrelated venue by title or ID fragment.
+            if card.nearbyParty != nil {
+                guard !location.isFallback, card.hasKnownCoordinates,
+                      let miles = location.distanceMiles(toLatitude: card.latitude, longitude: card.longitude),
+                      miles.isFinite, miles <= localVenueRadiusMiles else { return nil }
+                return card
+            }
             let canonicalID = curatedIDs.first { card.id == $0 || card.id.contains($0) }
             let hasPlaceProviderBadge = card.badgeText.localizedCaseInsensitiveContains("APPLE MAPS") || card.badgeText.localizedCaseInsensitiveContains("GOOGLE PLACES")
             let isLocalPlaceCard = hasPlaceProviderBadge && hasMeasuredLocalDistance(card.distance)

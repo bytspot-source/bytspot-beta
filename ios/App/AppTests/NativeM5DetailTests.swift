@@ -252,12 +252,56 @@ final class NativeM5DetailTests: XCTestCase {
             XCTAssertFalse(NativeVendorExperience.isDiscoveryReference(id: id))
         }
         XCTAssertTrue(NativeVendorExperience.isDiscoveryReference(id: "venue-real-1"))
-        // The catalog offering keeps its identity; the nearby-parties card
-        // does not, or the same room browses twice — once as an offering and
-        // once as a listed place it is not.
+        // Both sources retain party identity, but nearby invitations must
+        // never enter the generic reference/venue routing branch. Catalog
+        // deduplication is a separate exact-identity policy.
         XCTAssertTrue(NativeVendorExperience.isDiscoveryReference(id: "party:party-1"))
         XCTAssertFalse(NativeVendorExperience.isDiscoveryReference(id: "party-party-1"))
         XCTAssertEqual(NativeVendorCapabilityTable.rows(for: .init()).filter(\.isExecutable).count, 0)
+    }
+
+    func testNearbyHomeAndDiscoverOpenInvitationOnlyAndNeverSynthesizeBookables() throws {
+        let shell = try shellSource()
+        let home = try region(in: shell, from: "private struct NativeHomeDashboardView: View {",
+                              to: "private struct NativeHomeSearchSheet: View {")
+        let discover = try region(in: shell, from: "private struct NativeDiscoverView: View {",
+                                  to: "private struct NativeDiscoverFilterChip: View {")
+        let card = try region(in: shell, from: "private struct NativeDiscoverFeatureCard: View {",
+                             to: "private struct NativeSpecialDiscoverCard: View {")
+        for (surface, sheet) in [(home, "homePartyInvitation"), (discover, "nearbyInvitationDetail")] {
+            XCTAssertTrue(surface.contains(".sheet(item: $\(sheet))"))
+            XCTAssertTrue(surface.contains("NativePartyInvitationDetail(partyID: party.partyID"))
+            XCTAssertFalse(surface.contains("NativePartyPassView("))
+            XCTAssertFalse(surface.contains("NativePartyPassSurface("))
+        }
+        let homePrimary = try region(in: home, from: "    private func triggerPrimaryAIPick(",
+                                     to: "    private static func isValetPremiumRide(")
+        XCTAssertEqual(homePrimary.components(separatedBy: "homePartyInvitation = party").count - 1, 2)
+        XCTAssertEqual(homePrimary.components(separatedBy: "regionalSnapshot.trustworthyNearbyPartyCards.contains(card)").count - 1, 2)
+        XCTAssertEqual(discover.components(separatedBy: "if card.nearbyParty != nil { openNearbyInvitation(card); return }").count - 1, 2)
+        let plan = try region(in: discover, from: "    private func beginPlanSelection(",
+                             to: "    private func finishPlanDismissal()")
+        XCTAssertTrue(plan.contains("guard card.nearbyParty == nil else { return }"))
+        XCTAssertTrue(card.contains("if card.nearbyParty == nil {"), "Nearby-only cards have no Add to Plan button")
+        XCTAssertTrue(discover.contains("nearbyInvitations(in: regionalSnapshot, catalog: catalogRows)"))
+        XCTAssertTrue(discover.contains("NativeVendorExperience.isDiscoveryReference(id: $0.id)"))
+        XCTAssertTrue(discover.contains("nearbyParty: card.nearbyParty"))
+        XCTAssertTrue(shell.contains("tabContentStore.synchronizeAccount(userID: userID, forceReset: forceReset)"))
+    }
+
+    func testNearbyProvenanceComesOnlyFromNearbyDecoderAndIsInvalidatedWithAccount() throws {
+        let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("App/BytspotAPIClient.swift")
+        let api = try String(contentsOf: path, encoding: .utf8)
+        let fetch = try region(in: api, from: "    private func fetchNearbyParties(", to: "    private func fetchVendorServices(")
+        XCTAssertTrue(fetch.contains("NativeLiveContentV2Contract.partiesNearbyRoute"))
+        XCTAssertTrue(fetch.contains("Self.partyDiscoverCard(from: item)"))
+        let bootstrapDecoder = try region(in: api, from: "    private static func discoverCard(from item:",
+                                          to: "    private static func event(from pair:")
+        XCTAssertFalse(bootstrapDecoder.contains("nearbyParty"), "Generic payloads cannot mint provenance")
+        let reset = try region(in: api, from: "    func synchronizeAccount(", to: "    func snapshot(for location:")
+        XCTAssertTrue(reset.contains("refreshGeneration += 1"), "Late reads cannot restore an old account's invitations")
+        XCTAssertTrue(reset.contains("snapshot.discoverCards.filter { $0.nearbyParty == nil }"))
     }
 
     func testExternalRequiresExplicitNamedValidatedHandoff() throws {

@@ -138,9 +138,16 @@ struct BytspotPatchRoute: Equatable, Identifiable {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
         let query = components.queryItems ?? []
         let pathParts = Self.pathParts(from: components)
-        let queryPatch = Self.queryValue(in: query, names: ["patch", "patchid", "p"])
+        let host = components.host?.lowercased() ?? ""
+        // Apple's `p` identifies the Clip bundle, never a patch. Keep the
+        // legacy alias elsewhere and explicit patch aliases on Apple links.
+        let isAppClipHost = host == "appclip.apple.com" || host.hasSuffix(".appclip.apple.com")
+        let patchAliases: Set<String> = isAppClipHost ? ["patch", "patchid"] : ["patch", "patchid", "p"]
+        let queryPatch = Self.queryValue(in: query, names: patchAliases)
         let pathPatch = Self.patchId(from: pathParts)
         guard let patchId = queryPatch ?? pathPatch, !patchId.isEmpty else { return nil }
+        let normalizedPatchId = patchId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalizedPatchId != "com.bytspot", !normalizedPatchId.hasPrefix("com.bytspot.") else { return nil }
         self.url = url
         self.patchId = patchId
         self.token = Self.queryValue(in: query, names: ["t", "token"])

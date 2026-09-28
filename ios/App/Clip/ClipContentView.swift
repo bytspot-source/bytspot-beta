@@ -138,17 +138,22 @@ struct ClipContentView: View {
 
             Group {
                 switch invocation.flow {
+                case .awaitingInvocation:
+                    ClipPartyInviteStateView(title: "Open your invitation", message: "Open a Bytspot link or scan its QR code to continue.", isLoading: false)
+                        .transition(.opacity)
                 case .catalog:
                     ClipCatalogView(showOverlay: $showOverlay)
                         .transition(.asymmetric(insertion: .opacity, removal: .move(edge: .leading).combined(with: .opacity)))
                 case .partyLoading:
                     ClipPartyInviteStateView(title: "Loading Party Pass…", message: "Getting the moment directly from its Host Studio party.", isLoading: true)
                         .transition(.opacity)
-                case .partyFailed(_, let message):
-                    ClipPartyInviteStateView(title: "Party Pass unavailable", message: message, isLoading: false)
+                case .partyFailed(let partyID, let message):
+                    ClipPartyInviteStateView(title: "Party Pass unavailable", message: message, isLoading: false,
+                                             retry: partyID.isEmpty ? nil : { invocation.retryPartyInvite() })
                         .transition(.opacity)
                 case .party(let invite):
                     PartyPassClipView(invite: invite, showOverlay: $showOverlay)
+                        .id(invite.id)
                         .transition(.opacity)
                 case .vendors(let service):
                     ClipVendorListView(service: service)
@@ -180,6 +185,7 @@ private struct ClipPartyInviteStateView: View {
     let title: String
     let message: String
     let isLoading: Bool
+    var retry: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 14) {
@@ -188,6 +194,12 @@ private struct ClipPartyInviteStateView: View {
                 .font(.system(size: 34, weight: .black)).foregroundColor(isLoading ? ClipTheme.cyan : ClipTheme.pink)
             Text(title).font(.system(size: 24, weight: .black, design: .rounded)).foregroundColor(.white)
             Text(message).font(.system(size: 13, weight: .bold, design: .rounded)).foregroundColor(.white.opacity(0.62)).multilineTextAlignment(.center)
+            if let retry {
+                Button("Try again", action: retry)
+                    .buttonStyle(.borderedProminent)
+                    .tint(ClipTheme.cyan)
+                    .accessibilityIdentifier("party-invite-retry")
+            }
         }
         .padding(26).frame(maxWidth: 360)
         .background(RoundedRectangle(cornerRadius: 28).fill(ClipTheme.panelElevated.opacity(0.92)))

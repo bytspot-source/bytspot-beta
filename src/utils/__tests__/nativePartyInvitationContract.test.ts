@@ -87,6 +87,31 @@ test('Performer review and removal buttons opt out of List row-wide automatic ac
   }
 });
 
+test('Nearby invitations survive Home and catalog gaps without becoming personal passes or Plan inventory', () => {
+  const home = section(shell, 'static func trustedHomeCards(', 'static func venueRailVenues(');
+  assert.match(home, /snapshot\.trustworthyNearbyPartyCards/);
+  const homeSheet = section(shell, '.sheet(item: $homePartyInvitation)', '.sheet(isPresented: $showValetRideSheet)');
+  assert.match(homeSheet, /NativePartyInvitationDetail\(partyID: party.partyID/);
+  const nearbySheet = section(shell, '.sheet(item: $nearbyInvitationDetail)', '.sheet(item: $detailVenue)');
+  assert.match(nearbySheet, /NativePartyInvitationDetail\(partyID: party.partyID/);
+  assert.doesNotMatch(nearbySheet, /NativePartyPassPreview|NativePartyPersonalPassView/);
+  assert.match(shell, /nearbyInvitations\(in: regionalSnapshot, catalog: catalogRows\)/);
+  assert.match(shell, /guard card.nearbyParty == nil else \{ return \}/);
+});
+
+test('Clip waits for invocation and renders a recoverable party error instead of silently showing vendors', () => {
+  const model = readFileSync('ios/App/Clip/ClipApp.swift', 'utf8');
+  const view = readFileSync('ios/App/Clip/ClipContentView.swift', 'utf8');
+  assert.match(model, /@Published var flow: ClipFlowStep = \.awaitingInvocation/);
+  assert.match(view, /case \.awaitingInvocation:/);
+  assert.match(view, /invocation\.retryPartyInvite\(\)/);
+  assert.match(view, /PartyPassClipView\(invite: invite, showOverlay: \$showOverlay\)\s*\.id\(invite.id\)/);
+  const load = section(model, 'private func loadPartyInvite(', 'private func loadContextAndVerify(');
+  assert.match(load, /if generation == invocationGeneration/);
+  assert.match(load, /guard !Task.isCancelled, generation == invocationGeneration else/);
+  assert.match(load, /guard invite.id == partyID else/);
+});
+
 test('The new screen is registered in the main app build, not copied into the Clip', () => {
   assert.equal(project.match(/NativePartyInvitationDetail.swift in Sources/g)?.length, 2);
   assert.equal(project.match(/path = NativePartyInvitationDetail.swift/g)?.length, 1);

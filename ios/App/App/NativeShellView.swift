@@ -6284,7 +6284,7 @@ enum NativeHomeRegionPresentation {
     static func hasTrustedLocalRecommendations(in snapshot: NativeTabContentSnapshot) -> Bool {
         if canPresentLaunchPicks(in: snapshot) { return true }
         if snapshot.hasTrustworthyLiveEventInventory { return true }
-        return false
+        return !snapshot.trustworthyNearbyPartyCards.isEmpty
     }
 
     static func canPresentLaunchPicks(in snapshot: NativeTabContentSnapshot) -> Bool {
@@ -6299,7 +6299,9 @@ enum NativeHomeRegionPresentation {
     static func trustedHomeCards(in snapshot: NativeTabContentSnapshot) -> [NativeDiscoverSummary] {
         let venues = snapshot.trustworthyLiveVenues
         let events = snapshot.trustworthyLiveEvents
-        return NativeTabContentStore.homeDiscoverCards(venues: venues, events: events)
+        // Perishable invitations lead; only events.nearby's source-bound rows
+        // survive, never arbitrary cards wearing a party prefix or live badge.
+        return snapshot.trustworthyNearbyPartyCards + NativeTabContentStore.homeDiscoverCards(venues: venues, events: events)
     }
 
     @MainActor
@@ -6524,6 +6526,7 @@ private struct NativeHomeDashboardView: View {
     @AppStorage(NativeLaunchPersonalizationStorage.crewKey) private var launchCrewPreference = ""
     @AppStorage(NativeLaunchPersonalizationStorage.completedKey) private var launchPicksCompleted = false
     @State private var aiPickDetailVenue: NativeVenueSummary?
+    @State private var homePartyInvitation: NativeNearbyParty?
     @State private var showGuestSavePrompt = false
     @State private var guestHomePromptTitle = "Save your picks?"
     @State private var guestHomePromptSubtitle = "Sign in to keep favorites, routes, and parking preferences across devices."
@@ -6634,6 +6637,18 @@ private struct NativeHomeDashboardView: View {
                 detail
             }
         }
+        .sheet(item: $homePartyInvitation) { party in
+            NavigationView {
+                NativePartyInvitationDetail(partyID: party.partyID, openAuth: { openNativeAuth(.login, nil) })
+                    .environmentObject(sessionStore)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") { homePartyInvitation = nil }.frame(minWidth: 44, minHeight: 44)
+                    } }
+            }
+            .navigationViewStyle(.stack)
+        }
+        .onChange(of: sessionStore.token) { _ in homePartyInvitation = nil }
+        .onChange(of: sessionStore.authenticatedUserID) { _ in homePartyInvitation = nil }
         .sheet(isPresented: $showValetRideSheet) {
             NativeValetPremiumRideSheet(openNativeTab: openNativeTab, openNativeAccess: openNativeAccess, openNativeAuth: { openNativeAuth(.login, nil) })
         }
@@ -7150,7 +7165,7 @@ private struct NativeHomeDashboardView: View {
                 eyebrowColor: NativeTheme.purple,
                 reason: personalizedAIReason,
                 crowdEmoji: crowdEmoji(venue.crowd),
-                crowdLabel: venue.crowd?.label ?? "Explore",
+                crowdLabel: card.nearbyParty != nil ? card.metadataLine : (venue.crowd?.label ?? "Explore"),
                 categoryEmoji: categoryEmoji(venue.discoverType),
                 primaryCTATitle: Self.honestPrimaryCTATitle(for: card),
                 primaryCTAIcon: Self.primaryCTAIcon(forTitle: Self.honestPrimaryCTATitle(for: card)),
@@ -7200,6 +7215,7 @@ private struct NativeHomeDashboardView: View {
 
     private var personalizedAIPick: NativeDiscoverSummary? {
         let cards = NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot)
+        if let party = regionalSnapshot.trustworthyNearbyPartyCards.first { return party }
         let localPlaceCards = cards.filter(NativeHomeRegionPresentation.isTrustedLocalPlaceCard)
         let types = Self.personalizedAIPickTypes(vibe: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
         return types.compactMap { type in localPlaceCards.first { $0.type == type } }.first
@@ -7229,6 +7245,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var personalizedAIReason: String {
+        if personalizedAIPick?.nearbyParty != nil { return "A nearby invitation published by its host." }
         if let card = personalizedAIPick,
            NativeHomeRegionPresentation.isTrustedLocalPlaceCard(card),
            !Self.personalizedAIPickTypes(vibe: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference).contains(card.type) {
@@ -7277,7 +7294,8 @@ private struct NativeHomeDashboardView: View {
 
     private func venueForAIPick(_ card: NativeDiscoverSummary) -> NativeVenueSummary {
         let venues = NativeLocationAwareUIContent.venues(in: regionalSnapshot)
-        if let direct = venues.first(where: { $0.id == card.id || "venue-\($0.id)" == card.id || $0.name.caseInsensitiveCompare(card.title) == .orderedSame }) { return direct }
+        if card.nearbyParty == nil,
+           let direct = venues.first(where: { $0.id == card.id || "venue-\($0.id)" == card.id || $0.name.caseInsensitiveCompare(card.title) == .orderedSame }) { return direct }
         return NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type, address: card.subtitle, distance: card.distance, imageURL: card.imageUrl, sourceCategory: card.categoryLabel, latitude: card.latitude, longitude: card.longitude)
     }
 
@@ -7287,12 +7305,22 @@ private struct NativeHomeDashboardView: View {
     }
 
     private func triggerPrimaryAIPick(card: NativeDiscoverSummary, venue: NativeVenueSummary) {
+        if let party = card.nearbyParty {
+            guard regionalSnapshot.trustworthyNearbyPartyCards.contains(card) else { return }
+            homePartyInvitation = party
+            return
+        }
         if card.id == Self.valetRideServiceID || Self.isValetPremiumRide(venue) { handleRideHandoff(); return }
         if Self.honestPrimaryCTATitle(for: card) == "Route" { routeToAIPick(venue); return }
         aiPickDetailVenue = venue
     }
 
     private func openAIPickDetails(card: NativeDiscoverSummary, venue: NativeVenueSummary) {
+        if let party = card.nearbyParty {
+            guard regionalSnapshot.trustworthyNearbyPartyCards.contains(card) else { return }
+            homePartyInvitation = party
+            return
+        }
         if card.id == Self.valetRideServiceID || Self.isValetPremiumRide(venue) { handleRideHandoff(); return }
         aiPickDetailVenue = venue
     }
@@ -7304,6 +7332,7 @@ private struct NativeHomeDashboardView: View {
     static let valetRideServiceID = "service-valet-ride"
 
     static func primaryCTATitle(for card: NativeDiscoverSummary) -> String {
+        if card.nearbyParty != nil { return "Details" }
         if card.id == Self.valetRideServiceID { return "Request Transfer" }
         if card.type == "boutique_apartment" { return "View Stay" }
         if card.type == "coffee" { return "Plan Stop" }
@@ -11158,7 +11187,13 @@ enum NativeDiscoverBrowsePolicy {
     /// described as room, and a full one says Full rather than vanishing. The
     /// admission note always ends the line, because the door is the fact a
     /// guest most needs before travelling.
-    static func availabilityLine(offering: NativePlanBookableOffering?) -> String {
+    static func availabilityLine(offering: NativePlanBookableOffering?, nearbyParty: NativeNearbyParty? = nil) -> String {
+        if let nearbyParty {
+            var parts = [NativeTabContentStore.partyTimeLabel(nearbyParty.startsAt)]
+            if let left = nearbyParty.spacesRemaining { parts.append(left == 0 ? "Full" : "\(left) left") }
+            parts.append("Party admission is separate · open party details for access information")
+            return parts.joined(separator: " · ")
+        }
         guard let offering, offering.sourceKind == .party else {
             return presentation(offering: offering).availabilityLine
         }
@@ -11184,8 +11219,23 @@ enum NativeDiscoverBrowsePolicy {
         return trimmed
     }
 
+    /// Nearby inventory may include eligible circle invitations or rows beyond
+    /// the global catalog cap. Only an actual catalog party identity replaces
+    /// one; titles, display prefixes and coffee source IDs do not.
+    static func nearbyInvitations(in snapshot: NativeTabContentSnapshot,
+                                  catalog: [NativePlanBookableOffering]) -> [NativeDiscoverSummary] {
+        let catalogPartyIDs = Set(catalog.compactMap { partyRoute(offering: $0)?.partyID })
+        var seen = Set<String>()
+        return snapshot.trustworthyNearbyPartyCards.filter { card in
+            guard let party = card.nearbyParty else { return false }
+            return !catalogPartyIDs.contains(party.partyID) && seen.insert(party.partyID).inserted
+        }
+    }
+
     static func precedes(supported: Bool, relevance: Int, id: String,
-                         otherSupported: Bool, otherRelevance: Int, otherID: String) -> Bool {
+                         otherSupported: Bool, otherRelevance: Int, otherID: String,
+                         isParty: Bool = false, otherIsParty: Bool = false) -> Bool {
+        if isParty != otherIsParty { return isParty }
         if supported != otherSupported { return supported }
         if relevance != otherRelevance { return relevance > otherRelevance }
         return id < otherID
@@ -11292,6 +11342,7 @@ private struct NativeDiscoverView: View {
     @State private var planIntent = NativeDiscoverPlanIntent()
     @State private var coffeeRequest: NativeDiscoverCoffeeRequest?
     @State private var offeringDetail: NativePlanBookableOffering?
+    @State private var nearbyInvitationDetail: NativeNearbyParty?
     @State private var signInAfterPlanDismissal = false
     @State private var detailVenue: NativeVenueSummary?
     @State private var detailOffering: NativePlanBookableOffering?
@@ -11333,9 +11384,11 @@ private struct NativeDiscoverView: View {
 
         var address: String? = nil
         var offering: NativePlanBookableOffering? = nil
+        var nearbyParty: NativeNearbyParty? = nil
+        var isParty: Bool { nearbyParty != nil || offering?.sourceKind == .party }
         var presentation: NativeDiscoverBookablePresentation { NativeDiscoverBrowsePolicy.presentation(offering: offering) }
-        var executableActionTitle: String? { offering?.sourceKind == .party ? "View party" : NativeM5DetailPolicy.primaryTitle(for: presentation) }
-        var browseID: String { offering.map { "offering:\($0.selection.id)" } ?? "reference:\(id)" }
+        var executableActionTitle: String? { isParty ? "View party" : NativeM5DetailPolicy.primaryTitle(for: presentation) }
+        var browseID: String { nearbyParty.map { "invitation:\($0.partyID)" } ?? offering.map { "offering:\($0.selection.id)" } ?? "reference:\(id)" }
     }
 
     static let categoryLabels = NativeDiscoverBookablePresentation.railLabels
@@ -11418,6 +11471,16 @@ private struct NativeDiscoverView: View {
                         NotificationCenter.default.post(name: .nativePlanDidChange, object: nil)
                     }, suggestedSpotID: request.spotID)
             }
+        }
+        .sheet(item: $nearbyInvitationDetail) { party in
+            NavigationView {
+                NativePartyInvitationDetail(partyID: party.partyID, openAuth: openNativeAuth)
+                    .environmentObject(sessionStore)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") { nearbyInvitationDetail = nil }.frame(minWidth: 44, minHeight: 44)
+                    } }
+            }
+            .navigationViewStyle(.stack)
         }
         .sheet(item: $offeringDetail) { offering in
             NavigationView {
@@ -11518,6 +11581,7 @@ private struct NativeDiscoverView: View {
                         requestReady: transactions.userID == catalogUserID && transactions.hasLoaded && !transactions.isLoading && !transactions.failed,
                         openAuth: openNativeAuth,
                         openDetails: {
+                            if card.nearbyParty != nil { openNearbyInvitation(card); return }
                             if let offering = card.offering {
                                 guard catalog.rows(for: catalogUserID).contains(offering) else {
                                     discoverStatusMessage = "This option changed. Refresh Discover and try again."
@@ -11535,6 +11599,7 @@ private struct NativeDiscoverView: View {
                             }
                         },
                         primaryAction: {
+                            if card.nearbyParty != nil { openNearbyInvitation(card); return }
                             if let offering = card.offering,
                                let transaction = transactions.transaction(for: offering, userID: catalogUserID) {
                                 transactionPlan = NativeDiscoverPlanDestination(id: transaction.planID)
@@ -11583,13 +11648,18 @@ private struct NativeDiscoverView: View {
                 NativeDiscoverBookablePresentation.matchesCategory($0.type, filter: selectedFilter, sourceCategory: $0.categoryLabel)
             }
             .map(Self.spec(from:))
-        let offerings = catalog.rows(for: catalogUserID).filter {
+        let catalogRows = catalog.rows(for: catalogUserID)
+        let offerings = catalogRows.filter {
             NativeDiscoverBrowsePolicy.matchesCategory($0, filter: selectedFilter)
         }.map(Self.spec(offering:))
-        return (references + offerings).sorted { first, second in
+        let invitations = NativeDiscoverBrowsePolicy.nearbyInvitations(in: regionalSnapshot, catalog: catalogRows)
+            .filter { NativeDiscoverBookablePresentation.matchesCategory($0.type, filter: selectedFilter, sourceCategory: $0.categoryLabel) }
+            .map(Self.spec(from:))
+        return (invitations + references + offerings).sorted { first, second in
             NativeDiscoverBrowsePolicy.precedes(
                 supported: first.presentation.primaryActionTitle != nil, relevance: searchScore(for: first), id: first.browseID,
-                otherSupported: second.presentation.primaryActionTitle != nil, otherRelevance: searchScore(for: second), otherID: second.browseID)
+                otherSupported: second.presentation.primaryActionTitle != nil, otherRelevance: searchScore(for: second), otherID: second.browseID,
+                isParty: first.isParty, otherIsParty: second.isParty)
         }
     }
 
@@ -11641,7 +11711,7 @@ private struct NativeDiscoverView: View {
     fileprivate static func spec(from card: NativeDiscoverSummary) -> DiscoverCardSpec {
         // Summary control/verified/CTA fields are legacy display inputs, never
         // canonical supply. In particular, do not match a catalog row by title.
-        DiscoverCardSpec(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: card.distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, control: card.control, latitude: card.latitude, longitude: card.longitude, address: card.address)
+        DiscoverCardSpec(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: card.distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, control: card.control, latitude: card.latitude, longitude: card.longitude, address: card.address, nearbyParty: card.nearbyParty)
     }
 
     private func venueForDetail(_ card: DiscoverCardSpec) -> NativeVenueSummary {
@@ -11681,6 +11751,7 @@ private struct NativeDiscoverView: View {
         planSelection = nil
         coffeeRequest = nil
         offeringDetail = nil
+        nearbyInvitationDetail = nil
         detailOffering = nil
         detailVenue = nil
         discoverStatusMessage = nil
@@ -11688,7 +11759,16 @@ private struct NativeDiscoverView: View {
         transactionPlan = nil
     }
 
+    private func openNearbyInvitation(_ card: DiscoverCardSpec) {
+        guard let party = card.nearbyParty,
+              regionalSnapshot.trustworthyNearbyPartyCards.contains(where: { $0.nearbyParty == party }) else { return }
+        nearbyInvitationDetail = party
+    }
+
     private func beginPlanSelection(_ card: DiscoverCardSpec, requestCoffee: Bool) {
+        // Nearby eligibility is not plans.addBookables authority. In particular,
+        // do not synthesize attachable supply for a circle-only invitation.
+        guard card.nearbyParty == nil else { return }
         if requestCoffee {
             guard transactions.userID == catalogUserID, transactions.hasLoaded,
                   !transactions.failed, !transactions.isLoading,
@@ -11768,6 +11848,7 @@ private struct NativeDiscoverFilterChip: View {
 private extension BytspotNativeShellView {
     func synchronizePlaceAccount(forceReset: Bool = false) {
         let userID = sessionStore.canAttachBearerToken ? sessionStore.authenticatedUserID : nil
+        tabContentStore.synchronizeAccount(userID: userID, forceReset: forceReset)
         NativeVenueVisitStore.shared.synchronize(userID: userID, forceReset: forceReset)
         NativeDiscoverTransactionStore.shared.synchronize(userID: userID, forceReset: forceReset)
     }
@@ -11884,7 +11965,7 @@ private struct NativeDiscoverFeatureCard: View {
                             authorized: locationStore.authorizationState == .allowed) {
                             Label(distance, systemImage: "location").font(.footnote).foregroundColor(.white.opacity(0.72))
                         }
-                        Text(NativeDiscoverBrowsePolicy.availabilityLine(offering: card.offering))
+                        Text(NativeDiscoverBrowsePolicy.availabilityLine(offering: card.offering, nearbyParty: card.nearbyParty))
                             .font(.footnote).foregroundColor(.white.opacity(0.72))
                     }
                     .padding(20)
@@ -11894,7 +11975,7 @@ private struct NativeDiscoverFeatureCard: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Details for \(card.title)")
-            .accessibilityHint(NativeDiscoverBrowsePolicy.availabilityLine(offering: card.offering))
+            .accessibilityHint(NativeDiscoverBrowsePolicy.availabilityLine(offering: card.offering, nearbyParty: card.nearbyParty))
             .accessibilityIdentifier("native-discover-details-\(card.id)")
 
             if let transaction {
@@ -11940,13 +12021,15 @@ private struct NativeDiscoverFeatureCard: View {
             .disabled(card.presentation.capability == .request && !requestReady)
             .accessibilityIdentifier("native-discover-primary-cta-\(card.id)")
         }
-        Button(action: addToPlan) {
-            actionLabel(NativeM5DetailPolicy.addToPlanTitle, foreground: card.executableActionTitle == nil ? .black : .white)
-                .background(card.executableActionTitle == nil ? Color.white : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+        if card.nearbyParty == nil {
+            Button(action: addToPlan) {
+                actionLabel(NativeM5DetailPolicy.addToPlanTitle, foreground: card.executableActionTitle == nil ? .black : .white)
+                    .background(card.executableActionTitle == nil ? Color.white : Color.clear)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-discover-add-to-plan-\(card.id)")
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("native-discover-add-to-plan-\(card.id)")
     }
 
     private func actionLabel(_ title: String, foreground: Color = .black) -> some View {
@@ -11965,7 +12048,7 @@ private struct NativeDiscoverFeatureCard: View {
                     dash: card.presentation.ringStyle.dashPattern.map { CGFloat($0) }))
                     .frame(width: 10, height: 10)
             }
-            Text(card.offering?.sourceKind == .party ? "Party" : card.presentation.statusLabel)
+            Text(card.isParty ? "Party" : card.presentation.statusLabel)
                 .font(.caption.weight(.semibold)).foregroundColor(.white.opacity(0.72))
         }
         .padding(.horizontal, 10).padding(.vertical, 6)

@@ -118,6 +118,133 @@ enum BytspotAviationFallbackTests {
         assertDefaultAppClipLinkRoutesToParty()
     }
 
+    /// Explicit DEBUG launch test (`--test-party-invocation`). Uses suspended
+    /// in-memory requests, never URLSession or an authenticated party endpoint.
+    @MainActor static func runPartyInvocationRegressions() async {
+        func invite(_ id: String) -> PartyPassInvite {
+            PartyPassInvite.fromPayload([
+                "id": id, "title": "Fixture invitation", "tier": "green",
+                "source": "host-studio-party", "locationDisclosure": "withheld"
+            ])!
+        }
+        func url(_ id: String) -> URL { URL(string: "https://bytspot.app/party/\(id)")! }
+
+        let requests = PartyInvocationRequests()
+        let model = ClipInvocationModel(partyInviteLoader: { try await requests.load($0) })
+        precondition(model.flow == .awaitingInvocation, "A cold Clip must wait for context, not show the vendor catalog.")
+        model.handle(url: URL(string: "https://appclip.apple.com/id?p=com.bytspot.app.Clip")!)
+        guard case .partyFailed(let missingID, _) = model.flow, missingID.isEmpty else {
+            preconditionFailure("A missing party ID must fail explicitly, never become a patch.")
+        }
+        precondition(model.invocationTaskForTesting == nil && !model.isLoadingContext)
+
+        // A fails after B started. A must not clear B's handle; C must still
+        // cancel B. The fixture intentionally ignores cancellation until resumed.
+        model.handle(url: url("a"))
+        let taskA = model.invocationTaskForTesting!
+        await requests.waitFor("a")
+        let activity = NSUserActivity(activityType: NSUserActivityTypeBrowsingWeb)
+        activity.webpageURL = url("b")
+        model.handle(activity: activity)
+        let taskB = model.invocationTaskForTesting!
+        await requests.waitFor("b")
+        requests.finish("a", .failure(URLError(.cancelled)))
+        await taskA.value
+        precondition(model.flow == .partyLoading(partyID: "b") && model.isLoadingContext)
+        precondition(model.invocationTaskForTesting != nil, "Old completion cleared the replacement's cancellation handle.")
+        model.handle(url: url("c"))
+        let taskC = model.invocationTaskForTesting!
+        await requests.waitFor("c")
+        requests.finish("b", .success(invite("b")))
+        await taskB.value
+        precondition(requests.cancelled.contains("b"), "C must still cancel B after A finishes.")
+        precondition(model.flow == .partyLoading(partyID: "c") && model.isLoadingContext)
+        requests.finish("c", .success(invite("c")))
+        await taskC.value
+        precondition(model.flow == .party(invite("c")) && !model.isLoadingContext)
+        precondition(model.partyShareURL == url("c"))
+
+        // Both Swift cancellation and ordinary late network failure are stale.
+        for (index, error) in [CancellationError() as Error, URLError(.timedOut) as Error].enumerated() {
+            let oldID = "old-\(index)", newID = "new-\(index)"
+            model.handle(url: url(oldID))
+            let oldTask = model.invocationTaskForTesting!
+            await requests.waitFor(oldID)
+            model.handle(url: url(newID))
+            let newTask = model.invocationTaskForTesting!
+            await requests.waitFor(newID)
+            requests.finish(oldID, .failure(error))
+            await oldTask.value
+            precondition(model.flow == .partyLoading(partyID: newID) && model.isLoadingContext)
+            requests.finish(newID, .success(invite(newID)))
+            await newTask.value
+            precondition(model.flow == .party(invite(newID)))
+        }
+
+        model.handle(url: url("old-party"))
+        let abandonedTask = model.invocationTaskForTesting!
+        await requests.waitFor("old-party")
+        model.handle(url: URL(string: "https://bytspot.app/")!)
+        requests.finish("old-party", .success(invite("old-party")))
+        await abandonedTask.value
+        precondition(model.flow == .catalog && !model.isLoadingContext && !model.isLoadingServices)
+        precondition(model.partyShareURL == nil)
+
+        // A genuine current failure remains recoverable without reopening iOS.
+        model.handle(url: url("retry"))
+        let failedTask = model.invocationTaskForTesting!
+        await requests.waitFor("retry")
+        requests.finish("retry", .failure(URLError(.notConnectedToInternet)))
+        await failedTask.value
+        guard case .partyFailed(let failedID, _) = model.flow, failedID == "retry" else {
+            preconditionFailure("Current failure must expose the invitation retry state.")
+        }
+        model.retryPartyInvite()
+        let retryTask = model.invocationTaskForTesting!
+        await requests.waitFor("retry")
+        requests.finish("retry", .success(invite("retry")))
+        await retryTask.value
+        precondition(model.flow == .party(invite("retry")) && !model.isLoadingContext)
+
+        model.handle(url: url("expected"))
+        let mismatchedTask = model.invocationTaskForTesting!
+        await requests.waitFor("expected")
+        requests.finish("expected", .success(invite("other")))
+        await mismatchedTask.value
+        guard case .partyFailed(let expectedID, _) = model.flow, expectedID == "expected" else {
+            preconditionFailure("A response for another party must never replace this invitation.")
+        }
+        precondition(model.partyShareURL == nil && !model.isLoadingContext)
+        print("PARTY_INVOCATION_REGRESSIONS_PASSED")
+    }
+
+    @MainActor private final class PartyInvocationRequests {
+        private var pending: [String: CheckedContinuation<PartyPassInvite, Error>] = [:]
+        private var started: [String: CheckedContinuation<Void, Never>] = [:]
+        private(set) var cancelled: Set<String> = []
+
+        func load(_ id: String) async throws -> PartyPassInvite {
+            defer { if Task.isCancelled { cancelled.insert(id) } }
+            return try await withCheckedThrowingContinuation { continuation in
+                precondition(pending[id] == nil)
+                pending[id] = continuation
+                started.removeValue(forKey: id)?.resume()
+            }
+        }
+
+        func waitFor(_ id: String) async {
+            if pending[id] != nil { return }
+            await withCheckedContinuation { started[id] = $0 }
+        }
+
+        func finish(_ id: String, _ result: Result<PartyPassInvite, Error>) {
+            guard let continuation = pending.removeValue(forKey: id) else {
+                preconditionFailure("No suspended fixture request for \(id)")
+            }
+            continuation.resume(with: result)
+        }
+    }
+
     /// A shared link opens the Clip through Apple's default App Clip link,
     /// because iOS will not invoke a Clip from a link on the page's own domain.
     /// That URL names the party by query parameter and reserves `p` for the

@@ -71,6 +71,8 @@ export interface DiscoverCard {
   control?: DiscoverCardControl;
   /** A published vendor window this card can send an ask to. */
   ask?: VendorAsk;
+  /** The place's own menu files, from the vendor console. */
+  menus?: { url: string; format: 'pdf' | 'image' }[];
 }
 
 /** What a guest can ask a vendor window for: its id, party cap and open times. */

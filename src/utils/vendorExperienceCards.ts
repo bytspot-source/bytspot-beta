@@ -32,6 +32,9 @@ export type VendorDiscoveryService = {
   ctaText?: string;
 };
 
+/** A menu file the seller uploaded to the place. Shown, never sold. */
+export type VendorMenuFile = { url: string; format: 'pdf' | 'image' };
+
 /** One published vendor window, as `inventory.list` returns it. */
 export type VendorInventoryCard = {
   windowId: string;
@@ -50,6 +53,7 @@ export type VendorInventoryCard = {
   distanceMiles: number;
   coverUrl: string | null;
   galleryUrls: string[];
+  menus?: VendorMenuFile[];
   nextSlot: { startsAt: string; remaining: number };
   upcomingSlots?: { startsAt: string; remaining: number }[];
 };
@@ -173,6 +177,13 @@ function formatNextSlot(startsAt: string, now: Date): string {
   return `Next: ${day} ${time}`;
 }
 
+/** Keeps only menu links shaped like the API's own media route, so a card never links out to a stranger's file. */
+export function menusFrom(menus: VendorMenuFile[] | undefined): VendorMenuFile[] {
+  return (menus ?? []).filter(
+    (menu) => /^(https:\/\/[^/]+|http:\/\/localhost(:\d+)?)\/media\/vendor\/[^/?#]+$/.test(menu.url) && (menu.format === 'pdf' || menu.format === 'image'),
+  );
+}
+
 /**
  * A published vendor window on a Discover card, pictured with the seller's own
  * media. A window without any seller imagery yields no card rather than a
@@ -219,6 +230,7 @@ export function vendorInventoryToCard(
     control: 'local',
     ...(item.place.phone ? { phoneNumber: item.place.phone } : {}),
     ...(item.place.website && /^https?:\/\//i.test(item.place.website) ? { website: item.place.website } : {}),
+    ...(menusFrom(item.menus).length ? { menus: menusFrom(item.menus) } : {}),
     ...(item.intent === 'request'
       ? {
           ask: {

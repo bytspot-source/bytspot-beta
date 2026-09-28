@@ -5,6 +5,7 @@ import {
 } from '../utils/bookableTemplates.ts';
 import { activeLocations, locationSetupBlockers, type VendorLocation } from './locations.ts';
 import type { Seller } from './seller.ts';
+import { getBusinessKind, getVendorBookableType } from './vendorConsole.ts';
 
 /**
  * A payout destination, as far as this origin is ever allowed to know it.
@@ -29,6 +30,10 @@ export interface PayoutAccount {
 export interface VendorProfile {
   legalName?: string;
   contactEmail?: string;
+  /** What the business said it is. Unset until asked; Bookables then shows every type. */
+  businessKind?: string;
+  /** Bookable types added on top of the kind's own. */
+  extraBookableTypes?: string[];
   locations: VendorLocation[];
   payout?: PayoutAccount;
   /** The business's state as the server last decided it. Read-only. */
@@ -113,6 +118,8 @@ export type ProfileEditRefusal = 'invalid' | 'incomplete';
 export type ProfileEdit =
   | { field: 'legalName'; value: string }
   | { field: 'contactEmail'; value: string }
+  | { field: 'businessKind'; value: string }
+  | { field: 'extraBookableTypes'; value: string[] }
   | { field: 'location'; value: VendorLocation }
   | { field: 'payout'; value: PayoutAccount };
 
@@ -135,6 +142,18 @@ export function applyProfileEdit(profile: VendorProfile, edit: ProfileEdit): Pro
     const value = edit.value.trim();
     if (!isEmail(value)) return { ok: false, reason: 'invalid', blockers: ['That is not an address we can reach'] };
     return { ok: true, profile: { ...profile, contactEmail: value } };
+  }
+
+  if (edit.field === 'businessKind') {
+    if (!getBusinessKind(edit.value)) return { ok: false, reason: 'invalid', blockers: ['Pick one of the kinds listed'] };
+    return { ok: true, profile: { ...profile, businessKind: edit.value } };
+  }
+
+  if (edit.field === 'extraBookableTypes') {
+    if (edit.value.some((id) => !getVendorBookableType(id))) {
+      return { ok: false, reason: 'invalid', blockers: ['That category does not exist'] };
+    }
+    return { ok: true, profile: { ...profile, extraBookableTypes: [...new Set(edit.value)] } };
   }
 
   if (edit.field === 'location') {

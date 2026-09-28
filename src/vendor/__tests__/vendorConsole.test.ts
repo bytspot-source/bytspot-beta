@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  addableBookableTypes,
+  bookableTypesForBusiness,
+  listBusinessKinds,
   assertVendorConsoleContract,
   blankOnlyVariants,
   bookableTypesForDiscoverCategory,
@@ -403,4 +406,37 @@ test('the onboarding guards reject the shapes that stranded a business', () => {
     onboarding: { ...onboarding, states: onboarding.states.filter((item) => item.state !== 'SUSPENDED') },
   };
   assert.ok(assertVendorConsoleContract(silent).some((error) => error.includes('no onboarding copy for a SUSPENDED')));
+});
+
+test('a business sees only its own kind of Bookables, main one first', () => {
+  const ids = (types: { id: string }[]) => types.map((type) => type.id);
+  assert.deepEqual(ids(bookableTypesForBusiness('standard', 'valet')), ['parking', 'ride']);
+  assert.deepEqual(ids(bookableTypesForBusiness('standard', 'restaurant')), ['table', 'events', 'experience']);
+  // Added categories come after the kind's own, once each.
+  assert.deepEqual(ids(bookableTypesForBusiness('standard', 'valet', ['stay', 'parking'])), ['parking', 'ride', 'stay']);
+  // No kind yet, or one the contract dropped: nothing is hidden.
+  assert.equal(bookableTypesForBusiness('standard', undefined).length, VENDOR_CONSOLE.bookableTypes.length);
+  assert.equal(bookableTypesForBusiness('standard', 'spaceport').length, VENDOR_CONSOLE.bookableTypes.length);
+});
+
+test('Add another category offers only what the business does not have', () => {
+  const addable = addableBookableTypes('valet', ['stay']).map((type) => type.id);
+  for (const have of ['parking', 'ride', 'stay']) assert.ok(!addable.includes(have), have);
+  assert.equal(addable.length, VENDOR_CONSOLE.bookableTypes.length - 3);
+  assert.deepEqual(addableBookableTypes(undefined), []);
+});
+
+test('a home seller finds their own kind first', () => {
+  assert.equal(listBusinessKinds('cottage')[0].id, 'home');
+  assert.equal(listBusinessKinds('standard').length, VENDOR_CONSOLE.businessKinds.length);
+});
+
+test('a business kind that opens an unknown or no type is refused', () => {
+  const broken = {
+    ...VENDOR_CONSOLE,
+    businessKinds: [...VENDOR_CONSOLE.businessKinds, { id: 'yachts', label: 'Yachts', icon: 'sailboat', bookableTypes: ['yacht'] }],
+  };
+  assert.ok(assertVendorConsoleContract(broken).includes('business kind yachts opens unknown bookable type yacht'));
+  const orphan = { ...VENDOR_CONSOLE, businessKinds: VENDOR_CONSOLE.businessKinds.filter((kind) => kind.id !== 'home') };
+  assert.ok(assertVendorConsoleContract(orphan).includes('bookable type local belongs to no business kind'));
 });

@@ -2382,6 +2382,10 @@ struct NativeVenueRichDetails: Equatable {
     var cancellationPolicy: String? = nil
     var price: String? = nil
     var vendorName: String? = nil
+    /// A hand-checked OpenTable or Resy handoff. Travels with its provider
+    /// label so the button always names where the guest is going.
+    var tableBookingURL: URL? = nil
+    var tableBookingProvider: String? = nil
 
     var phoneURL: URL? { NativeVenueDetailsDTO.safePhoneURL(phone) }
     var hasGoogleFacts: Bool {
@@ -2402,6 +2406,10 @@ struct NativeVenueRichDetails: Equatable {
         result.websiteURL = websiteURL ?? extra.websiteURL
         result.hours = hours ?? extra.hours
         result.price = price ?? extra.price
+        if tableBookingURL == nil {
+            result.tableBookingURL = extra.tableBookingURL
+            result.tableBookingProvider = extra.tableBookingProvider
+        }
         return result
     }
 
@@ -2410,6 +2418,7 @@ struct NativeVenueRichDetails: Equatable {
             || phone != nil || menuURL != nil || websiteURL != nil || hours != nil
             || amenities != nil || accessibility != nil || rules != nil
             || cancellationPolicy != nil || price != nil || vendorName != nil
+            || tableBookingURL != nil
     }
 }
 
@@ -2495,7 +2504,25 @@ enum NativeVenueDetailsDTO {
         details.price = text(place["priceLevel"]).flatMap { priceLabels[$0] }
         // isOpen, reviews, types and websiteUri do not imply availability,
         // amenities, vendor ownership, a menu, or an external booking action.
+        // Only the server's hand-checked `booking` list names a handoff.
+        if let booking = tableBooking(place["booking"]) {
+            details.tableBookingURL = booking.url
+            details.tableBookingProvider = booking.label
+        }
         return details.hasSuppliedFacts ? details : nil
+    }
+
+    /// An OpenTable or Resy link from the server's hand-checked list, re-checked
+    /// so a malformed or foreign link can never become a button.
+    static func tableBooking(_ value: Any?) -> (url: URL, label: String)? {
+        guard let booking = value as? [String: Any], let provider = booking["provider"] as? String,
+              let raw = booking["url"] as? String, let url = safeHTTPSURL(raw),
+              let host = url.host?.lowercased() else { return nil }
+        switch provider {
+        case "opentable" where host == "opentable.com" || host == "www.opentable.com": return (url, "OpenTable")
+        case "resy" where host == "resy.com": return (url, "Resy")
+        default: return nil
+        }
     }
 
     private static func text(_ value: Any?) -> String? {

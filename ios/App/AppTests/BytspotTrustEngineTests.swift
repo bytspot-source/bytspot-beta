@@ -5402,6 +5402,24 @@ final class NativePlanBookablesContractTests: XCTestCase {
         XCTAssertEqual(decoded.canDelete, false)
     }
 
+    func testGetThereLeavesFromThePreviousStopOrFromWhereTheGuestIs() throws {
+        let dinner = try item(["id": "a", "destination": ["name": "Peach Table", "address": "1 Peachtree St NE", "lat": 33.77, "lng": -84.39]])
+        let hidden = try item(["id": "b"])
+        let drinks = try item(["id": "c", "destination": ["name": "Rooftop & Co", "lat": 33.78, "lng": -84.38]])
+        let items = [dinner, hidden, drinks]
+        XCTAssertNil(hidden.destination, "A room that hides its place decodes with none, so no link renders.")
+        XCTAssertNil(NativePlanRideLink.origin(for: dinner, in: items))
+        XCTAssertEqual(NativePlanRideLink.origin(for: drinks, in: items)?.name, "Peach Table", "Skips a stop with no place.")
+
+        let first = try XCTUnwrap(NativePlanRideLink.url(.uber, to: dinner.destination!, from: nil)).absoluteString
+        XCTAssertTrue(first.hasPrefix("https://m.uber.com/ul/?action=setPickup&pickup=my_location"))
+        XCTAssertTrue(first.contains("dropoff%5Blatitude%5D=33.770000") || first.contains("dropoff[latitude]=33.770000"))
+        let next = try XCTUnwrap(NativePlanRideLink.url(.lyft, to: drinks.destination!, from: dinner.destination)).absoluteString
+        XCTAssertTrue(next.hasPrefix("https://www.lyft.com/ride?id=lyft"))
+        XCTAssertTrue(next.contains("33.770000") && next.contains("33.780000"))
+        XCTAssertFalse(next.contains("my_location"))
+    }
+
     func testDerivedBookedFlagWinsOverUnbookedStoredStatus() throws {
         let booked = try item(["partyId": "party-1", "capability": "book", "booked": true])
         XCTAssertEqual(NativePlanDisplay.itemStatusLabel(booked), "Booked")

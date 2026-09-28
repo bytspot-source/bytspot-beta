@@ -33,6 +33,15 @@ struct NativePlan: Codable, Identifiable, Equatable {
         let capability: String
         let status: String
         let reservation: Reservation?
+        /// Where the item is, when the API may share it. Missing on older APIs
+        /// and on rooms that hide their place, so "Get there" does not render.
+        var destination: Destination? = nil
+    }
+    struct Destination: Codable, Equatable {
+        let name: String
+        let address: String?
+        let lat: Double
+        let lng: Double
     }
     struct Readiness: Codable, Equatable {
         let going: Int
@@ -510,6 +519,65 @@ struct NativePlanConnectionsState {
         }
         return nil
     }
+}
+
+/// Ride-app links from one Plan stop to the next. The first stop leaves from
+/// wherever the guest is; each later one leaves from the stop before it, so the
+/// links follow the evening in the order the Plan shows. Booking and payment
+/// stay with Uber or Lyft.
+enum NativePlanRideLink {
+    enum Provider: String, CaseIterable { case uber, lyft
+        var title: String { self == .uber ? "Uber" : "Lyft" }
+    }
+
+    /// The stop before `item` that has a place, if any.
+    static func origin(for item: NativePlan.Item, in items: [NativePlan.Item]) -> NativePlan.Destination? {
+        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return nil }
+        return items[..<index].reversed().compactMap(\.destination).first
+    }
+
+    static func url(_ provider: Provider, to stop: NativePlan.Destination, from origin: NativePlan.Destination?) -> URL? {
+        var components = URLComponents()
+        components.scheme = "https"
+        var items: [URLQueryItem]
+        switch provider {
+        case .uber:
+            components.host = "m.uber.com"; components.path = "/ul/"
+            items = [URLQueryItem(name: "action", value: "setPickup")]
+            if let origin {
+                items += [
+                    URLQueryItem(name: "pickup[latitude]", value: coordinate(origin.lat)),
+                    URLQueryItem(name: "pickup[longitude]", value: coordinate(origin.lng)),
+                    URLQueryItem(name: "pickup[nickname]", value: origin.name),
+                ]
+            } else {
+                items.append(URLQueryItem(name: "pickup", value: "my_location"))
+            }
+            items += [
+                URLQueryItem(name: "dropoff[latitude]", value: coordinate(stop.lat)),
+                URLQueryItem(name: "dropoff[longitude]", value: coordinate(stop.lng)),
+                URLQueryItem(name: "dropoff[nickname]", value: stop.name),
+            ]
+            if let address = stop.address, !address.isEmpty { items.append(URLQueryItem(name: "dropoff[formatted_address]", value: address)) }
+        case .lyft:
+            components.host = "www.lyft.com"; components.path = "/ride"
+            items = [URLQueryItem(name: "id", value: "lyft")]
+            if let origin {
+                items += [
+                    URLQueryItem(name: "pickup[latitude]", value: coordinate(origin.lat)),
+                    URLQueryItem(name: "pickup[longitude]", value: coordinate(origin.lng)),
+                ]
+            }
+            items += [
+                URLQueryItem(name: "destination[latitude]", value: coordinate(stop.lat)),
+                URLQueryItem(name: "destination[longitude]", value: coordinate(stop.lng)),
+            ]
+        }
+        components.queryItems = items
+        return components.url
+    }
+
+    private static func coordinate(_ value: Double) -> String { String(format: "%.6f", value) }
 }
 
 enum NativePlanDisplay {
@@ -1764,6 +1832,20 @@ struct NativePlanDetailSheet: View {
                             // to state and renders nothing.
                             if let footnote = NativeCoffeeDisplay.itemFootnote(status: item.reservation?.status, holdExpiresAt: item.reservation?.holdExpiresAt) {
                                 Text(footnote).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+                            }
+                            if let stop = item.destination {
+                                let origin = NativePlanRideLink.origin(for: item, in: plan.items)
+                                HStack(spacing: 8) {
+                                    Text("Get there").font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                                    ForEach(NativePlanRideLink.Provider.allCases, id: \.self) { provider in
+                                        if let url = NativePlanRideLink.url(provider, to: stop, from: origin) {
+                                            Link(provider.title, destination: url)
+                                                .font(.system(size: 12, weight: .bold))
+                                                .frame(minHeight: 44)
+                                                .accessibilityIdentifier("native-plan-ride-\(provider.rawValue)-\(item.id)")
+                                        }
+                                    }
+                                }
                             }
                         }
                         Spacer()

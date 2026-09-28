@@ -12,6 +12,7 @@ import { addAccessPassToWallet, BYTSPOT_COMMERCE_EVENT, getAccessPassForProduct,
 import { APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP } from '../utils/reviewBuild';
 import { AskSheet } from './AskSheet';
 import { menusFrom } from '../utils/vendorExperienceCards';
+import { tableBookingFrom } from '../utils/tableBooking';
 
 interface VenueDetailsProps {
   venue: any;
@@ -303,6 +304,8 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
   const handleWebsite = () => {
     if (website) window.open(website, '_blank', 'noopener,noreferrer');
   };
+
+  const tableBooking = tableBookingFrom(venue.tableBooking);
 
   const handleBookValet = () => {
     if (onBookRide) {
@@ -1112,6 +1115,27 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
                   {checkedIn ? 'Checked In ✓' : checkInPending ? 'Verifying…' : 'Check In · +10 pts'}
                 </span>
               </motion.button>
+            )}
+
+            {tableBooking && (
+              <div className="mb-3">
+                <motion.a
+                  href={tableBooking.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="venue-table-booking"
+                  className="w-full rounded-[16px] py-3.5 flex items-center justify-center gap-2 bg-[#1C1C1E]/80 border-2 border-white/30"
+                  whileTap={{ scale: 0.97 }}
+                >
+                  <ExternalLink className="w-5 h-5 text-white" strokeWidth={2.5} />
+                  <span className="text-[15px] text-white" style={{ fontWeight: 700 }}>
+                    Book on {tableBooking.label} ↗
+                  </span>
+                </motion.a>
+                <p className="text-[11px] text-white/60 text-center mt-1">
+                  You book with {tableBooking.label}, not Bytspot.
+                </p>
+              </div>
             )}
 
             <div className="grid grid-cols-3 gap-2">

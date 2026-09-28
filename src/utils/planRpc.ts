@@ -1,3 +1,4 @@
+import { tableBookingFrom, type TableBooking } from './tableBooking.ts';
 // The web adapter mirrors plans.create/list/get. A Plan coordinates intent;
 // confirming a Plan never confirms inventory, payment, or someone else's RSVP.
 export const PLAN_NEEDS = ['coffee', 'dining', 'nightlife', 'parking', 'stay', 'ride'] as const;
@@ -53,7 +54,12 @@ export interface Plan {
   needs: string[];
   openNeeds: string[];
   readiness: { going: number; maybe: number; pending: number };
-  items: Array<{ id: string; title: string; needKind: string; booked: boolean; status: string }>;
+  items: Array<{
+    id: string; title: string; needKind: string; booked: boolean; status: string;
+    tableBooking?: TableBooking;
+    /** The guest's own record that they booked it with the provider; never `booked`. */
+    guestBooking?: { bookedFor: string | null };
+  }>;
 }
 export interface PlanApi {
   list(): Promise<Plan[]>;
@@ -105,9 +111,23 @@ export function parsePlan(value: unknown): Plan {
     readiness: { going: count(readiness.going), maybe: count(readiness.maybe), pending: count(readiness.pending) },
     items: row.items.map(value => {
       const item = object(value);
-      return { id: text(item.id), title: text(item.title), needKind: text(item.needKind), booked: item.booked === true, status: text(item.status) };
+      const tableBooking = tableBookingFrom(item.tableBooking);
+      const report = item.guestBooking && typeof item.guestBooking === 'object' ? item.guestBooking as RecordValue : null;
+      const reported = report && typeof report.reportedAt === 'string' && Number.isFinite(Date.parse(report.reportedAt));
+      const bookedFor = reported && typeof report.bookedFor === 'string' && Number.isFinite(Date.parse(report.bookedFor)) ? report.bookedFor : null;
+      return {
+        id: text(item.id), title: text(item.title), needKind: text(item.needKind), booked: item.booked === true, status: text(item.status),
+        ...(tableBooking ? { tableBooking } : {}),
+        ...(reported ? { guestBooking: { bookedFor } } : {}),
+      };
     }),
   };
+}
+/** "Booked" only ever means Bytspot settled it; the guest's own report says so. */
+export function planItemStatus(item: Plan['items'][number]): string {
+  if (item.status === 'cancelled') return 'Cancelled';
+  if (item.booked) return 'Booked';
+  return item.guestBooking ? 'Booked (by you)' : 'Not booked';
 }
 export function createPlanApi(client: PlansTransport): PlanApi {
   return {

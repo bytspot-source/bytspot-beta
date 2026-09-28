@@ -8,6 +8,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { trpc, API_BASE_URL, type ApiVenue } from '../trpc';
 import type { DiscoverCard, CardType } from '../mockData';
 import { resolveVenuePhoto } from '../venuePhoto';
+import { tableBookingFrom } from '../tableBooking';
 import { loadVirtualPatchContext } from '../virtualPatch';
 import { canUseAutomaticBrowserGeolocation } from '../nativeLocationPolicy';
 
@@ -155,7 +156,7 @@ function googleTypeToCardType(types: string[], primaryType: string | null): Card
 }
 
 export function placeToCard(
-  p: { placeId: string; name: string; address: string; lat: number; lng: number; rating: number | null; ratingCount: number; types: string[]; primaryType: string | null; photoUrls: string[]; isOpen: boolean | null; websiteUri: string | null; priceLevel: string | null },
+  p: { placeId: string; name: string; address: string; lat: number; lng: number; rating: number | null; ratingCount: number; types: string[]; primaryType: string | null; photoUrls: string[]; isOpen: boolean | null; websiteUri: string | null; priceLevel: string | null; booking?: unknown },
   index: number,
   userCoords?: { lat: number; lng: number },
 ): DiscoverCard {
@@ -181,6 +182,7 @@ export function placeToCard(
     website: p.websiteUri ?? undefined,
     isOpen: p.isOpen,
     placeId: p.placeId,
+    tableBooking: tableBookingFrom(p.booking),
     photoUrls: p.photoUrls,
     verified: false,
     control: 'local',

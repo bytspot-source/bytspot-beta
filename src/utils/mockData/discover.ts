@@ -3,6 +3,7 @@
 import { controlFromCapability, type BookableCapability } from '../bookableProjection.ts';
 
 import type { BytspotProviderSource, BytspotVendorMatchDocument } from '../vendorMatching.ts';
+import type { TableBooking } from '../tableBooking.ts';
 
 export type CardType = 'parking' | 'venue' | 'valet' | 'coffee' | 'dining' | 'shopping' | 'nightlife' | 'entertainment' | 'fitness' | 'service' | 'boutique_apartment' | 'mobility';
 export type DiscoverCardSource = Extract<BytspotProviderSource, 'bytspot_vendor' | 'bytspot_discover' | 'bytspot_curated'>;
@@ -49,6 +50,8 @@ export interface DiscoverCard {
   _lat?: number;
   _lng?: number;
   placeId?: string;
+  /** A hand-checked OpenTable or Resy handoff for a Google place. */
+  tableBooking?: TableBooking;
   photoUrls?: string[];
   ratingCount?: number;
   isOpen?: boolean | null;

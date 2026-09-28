@@ -11,6 +11,7 @@ import { getVenueReviews, saveVenueReview, getAverageRating, type VenueReview } 
 import { addAccessPassToWallet, BYTSPOT_COMMERCE_EVENT, getAccessPassForProduct, getBytspotMembership, hasPlatinumAccess, replaceAccessPassesFromServer, type AccessPass, type AccessPassInput, upsertAccessPass } from '../utils/insiderCommerce';
 import { APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP } from '../utils/reviewBuild';
 import { AskSheet } from './AskSheet';
+import { menusFrom } from '../utils/vendorExperienceCards';
 
 interface VenueDetailsProps {
   venue: any;
@@ -27,7 +28,6 @@ const liveReviews: Array<{ id: number; user: string; avatar?: string; rating: nu
 
 // galleryImages now computed per-venue inside the component
 
-const menuItems: Array<{ name: string; price: string; available: boolean }> = [];
 
 /**
  * Generate estimated crowd history based on venue category and current crowd level.
@@ -84,6 +84,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
   const isTicketedVenue = venue.entryType === 'paid';
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [askOpen, setAskOpen] = useState(false);
+  const venueMenus = menusFrom(venue?.menus);
   const [isFavorite, setIsFavorite] = useState(() => isSpotSaved(favoriteSpotId));
   const [activePass, setActivePass] = useState<AccessPass | null>(() => getAccessPassForProduct(accessProduct));
   const [membership, setMembership] = useState(() => getBytspotMembership());
@@ -729,44 +730,50 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
             </div>
           </motion.div>
 
-          {/* Menu Preview */}
-          <motion.div
-            className="mb-6"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-[20px] text-white" style={{ fontWeight: 600 }}>
-                Menu Preview
-              </h3>
-              <button className="text-[15px] text-cyan-400" style={{ fontWeight: 600 }}>
-                View Full Menu
-              </button>
-            </div>
-            <div className="space-y-2">
-              {menuItems.map((item) => (
-                <div
-                  key={item.name}
-                  className="flex items-center justify-between p-3 rounded-[12px] bg-[#1C1C1E]/80 border border-white/30"
+          {/* Menu */}
+          {venueMenus.length > 0 && (
+            <motion.div
+              className="mb-6"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-[20px] text-white" style={{ fontWeight: 600 }}>
+                  Menu
+                </h3>
+                <a
+                  href={venueMenus[0].url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[15px] text-cyan-400"
+                  style={{ fontWeight: 600 }}
                 >
-                  <div className="flex-1">
-                    <p className="text-[15px] text-white" style={{ fontWeight: 600 }}>
-                      {item.name}
-                    </p>
-                    {item.available && (
-                      <span className="text-[13px] text-green-400" style={{ fontWeight: 500 }}>
-                        Available
+                  View Full Menu
+                </a>
+              </div>
+              <div className="flex gap-2 overflow-x-auto" data-testid="venue-menu-files">
+                {venueMenus.map((menu, index) => (
+                  <a
+                    key={menu.url}
+                    href={menu.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`Menu ${index + 1}${menu.format === 'pdf' ? ' (PDF)' : ''}`}
+                    className="shrink-0 w-24 h-32 rounded-[12px] overflow-hidden bg-[#1C1C1E]/80 border border-white/30 flex items-center justify-center"
+                  >
+                    {menu.format === 'image' ? (
+                      <img src={menu.url} alt={`Menu page ${index + 1}`} className="w-full h-full object-cover" loading="lazy" />
+                    ) : (
+                      <span className="text-[13px] text-white/80 text-center px-2" style={{ fontWeight: 600 }}>
+                        PDF menu {venueMenus.length > 1 ? index + 1 : ''}
                       </span>
                     )}
-                  </div>
-                  <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>
-                    {item.price}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </motion.div>
+                  </a>
+                ))}
+              </div>
+            </motion.div>
+          )}
 
           {/* Social Proof */}
           <motion.div

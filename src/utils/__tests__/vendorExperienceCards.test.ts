@@ -169,6 +169,19 @@ test('vendorInventoryToCard pictures a published window with the seller\'s own c
   assert.equal(card.discoverSource, 'bytspot_vendor');
 });
 
+test('a card carries the place\'s menu files, and drops links that are not ours', () => {
+  const menus = [
+    { url: 'https://api.test/media/vendor/m_1', format: 'pdf' as const },
+    { url: 'https://evil.test/menu.pdf', format: 'pdf' as const },
+    { url: 'https://api.test/media/vendor/m_2', format: 'image' as const },
+  ];
+  const card = vendorInventoryToCard({ ...inventoryItem, menus }, 0);
+  assert.deepEqual(card?.menus, [menus[0], menus[2]]);
+  // No menus means no Menu section, not an empty one.
+  assert.equal(vendorInventoryToCard(inventoryItem, 0)?.menus, undefined);
+  assert.equal(vendorInventoryToCard({ ...inventoryItem, menus: [menus[1]] }, 0)?.menus, undefined);
+});
+
 test('vendorInventoryToCard falls back to the seller\'s gallery, never to a stock photo', () => {
   const galleryOnly = vendorInventoryToCard({ ...inventoryItem, coverUrl: null }, 0);
   assert.equal(galleryOnly?.image, 'https://api.test/media/vendor/gal_1');

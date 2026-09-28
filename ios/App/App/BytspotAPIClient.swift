@@ -1505,7 +1505,7 @@ private extension KeyedDecodingContainer where Key == NativeAnyCodingKey {
 private extension String { var nilIfEmpty: String? { isEmpty ? nil : self } }
 
 enum NativeMobilityRouteContract {
-    static let routes = ["mobility.quotes.create", "mobility.reservations.create", "mobility.reservations.cancel", "mobility.trips.status", "mobility.passenger.update"]
+    static let routes = ["mobility.quotes.create", "mobility.reservations.create", "mobility.reservations.cancel", "mobility.trips.status"]
 }
 
 /// Coordinate-authoritative request builder for rides originating from an
@@ -1583,14 +1583,6 @@ struct NativeMobilityDataAPI {
         var input: [String: Any] = ["id": id]
         if let reason, !reason.isEmpty { input["reason"] = reason }
         return try await client.trpcDecode(NativeMutationSuccess.self, path: "/trpc/mobility.reservations.cancel", method: "POST", input: input)
-    }
-
-    func updatePassenger(id: String, name: String? = nil, phone: String? = nil, note: String? = nil) async throws -> NativeMobilityRideRecord {
-        var input: [String: Any] = ["id": id]
-        if let name, !name.isEmpty { input["name"] = name }
-        if let phone, !phone.isEmpty { input["phone"] = phone }
-        if let note, !note.isEmpty { input["note"] = note }
-        return try await client.trpcDecode(NativeMobilityRideRecord.self, path: "/trpc/mobility.passenger.update", method: "POST", input: input)
     }
 }
 
@@ -4245,7 +4237,7 @@ extension NativeTabContentSnapshot {
     ]
 
     static let canonicalMobilityCards = [
-        NativeDiscoverSummary(id: "service-valet-ride", type: "mobility", title: "Private Airport Transfer", subtitle: "Request an airport transfer with clear pricing, vehicle fit, and My Access review.", distance: "Mobility", rating: "4.9", icon: "airplane.departure", verified: true, entryType: "paid", cta: "Request Transfer", imageUrl: URL(string: "https://images.unsplash.com/photo-1449965408869-eaa3f722e40d?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Mobility", badgeText: "Airport Ride", metadataLine: "Bytspot + Elife · Airport", features: ["Review estimate", "Authorization request", "My Access status"], vibeScore: 8, availability: "Estimate + review", membershipRequired: true, control: NativeDiscoverCardControl.vendor),
+        NativeDiscoverSummary(id: "service-valet-ride", type: "mobility", title: "Private Airport Transfer", subtitle: "Request an airport transfer with clear pricing, vehicle fit, and My Access review.", distance: "Mobility", rating: "4.9", icon: "airplane.departure", verified: true, entryType: "paid", cta: "Request Transfer", imageUrl: URL(string: "https://images.unsplash.com/photo-1449965408869-eaa3f722e40d?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Mobility", badgeText: "Airport Ride", metadataLine: "Bytspot · Airport", features: ["Review estimate", "Authorization request", "My Access status"], vibeScore: 8, availability: "Estimate + review", membershipRequired: true, control: NativeDiscoverCardControl.vendor),
         NativeDiscoverSummary(id: "group-transport", type: "mobility", title: "Group Transport", subtitle: "Plan vans, event shuttles, and private buses for a crew or airport transfer.", distance: "Group", rating: "4.8", icon: "bus.fill", verified: true, entryType: "paid", cta: "Plan Group Ride", imageUrl: URL(string: "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Mobility", badgeText: "Group Ride", metadataLine: "Vans · Shuttles · Private buses", features: ["Event shuttle", "Group ride", "Private bus"], vibeScore: 7, availability: "Request quote", membershipRequired: true, control: NativeDiscoverCardControl.vendor)
     ]
 

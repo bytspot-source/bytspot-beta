@@ -5510,7 +5510,7 @@ private struct NativeValetRideWalletSection: View {
                     NativeTransactionLedger(entries: [
                         NativeTransactionLedgerEntry("Vehicle", ride.tier),
                         NativeTransactionLedgerEntry("Fare", ride.price),
-                        NativeTransactionLedgerEntry("Provider", "Elife"),
+                        NativeTransactionLedgerEntry("Provider", ride.provider),
                         NativeTransactionLedgerEntry("Request", ride.statusDisplayLabel, valueColor: ride.isConfirmed ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent)
                     ])
                     Text("Pickup: \(ride.pickup) → \(ride.dropoff)")
@@ -8138,7 +8138,7 @@ private struct NativeValetQuote: Identifiable, Equatable {
     }
 
     static func preview(for service: NativeValetServiceClass) -> NativeValetQuote {
-        NativeValetQuote(id: "BYT-ELIFE-742", service: service, price: service.quoteLabel, eta: service.etaLabel, pickup: "North curb · high confidence", cancellation: "Free cancellation before dispatch")
+        NativeValetQuote(id: "BYT-PREVIEW", service: service, price: service.quoteLabel, eta: service.etaLabel, pickup: "North curb · high confidence", cancellation: "Free cancellation before dispatch")
     }
 
     init(record: NativeMobilityQuoteRecord, fallbackService: NativeValetServiceClass) {
@@ -8195,7 +8195,7 @@ private struct NativeValetRideWalletRecord: Codable, Equatable, Identifiable {
     init(ride: NativeMobilityRideRecord, quote: NativeValetQuote, pickup: String, dropoff: String) {
         id = ride.id
         quoteID = ride.quoteId ?? quote.id
-        provider = ride.provider ?? NativeValetElifeIntegrationContract.providerName
+        provider = ride.provider ?? NativeValetMobilityContract.providerName
         serviceTitle = ride.serviceTitle ?? quote.service.title
         tier = quote.service.bytspotTier.displayName
         price = ride.priceLabel ?? quote.price
@@ -9531,10 +9531,11 @@ private struct NativeParkingBookingSheet: View {
     #endif
 }
 
-private enum NativeValetElifeIntegrationContract {
-    static let providerName = "Elife Transfer"
-    static let providerFooter = "Global transfer network by Elife"
+private enum NativeValetMobilityContract {
+    static let providerName = "Bytspot Mobility"
+    static let providerFooter = "Uber and Lyft handoff until a transfer partner is live"
     static let appClipMode = "api-proxy-no-sdk"
+    static let unavailableMessage = "Transfer pricing isn't available yet, so nothing was requested or charged. Open Uber or Lyft below with this route."
     static let backendRoutes = NativeMobilityRouteContract.routes
     static let luxuryServiceClass = NativeValetServiceClass.firstClass
     static let luxuryTier = BytspotTier.black
@@ -10180,12 +10181,8 @@ private struct NativeValetPremiumRideSheet: View {
             Text("Bytspot vendors").font(.system(size: 11.5, weight: .black)).foregroundColor(NativeTheme.textPrimary)
             Image(systemName: "arrow.left.arrow.right").font(.system(size: 9.5, weight: .black)).foregroundColor(NativeTheme.textTertiary)
             Image(systemName: "globe.americas.fill").font(.system(size: 12, weight: .black)).foregroundColor(accent)
-            Text("Elife network").font(.system(size: 11.5, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+            Text("Uber · Lyft").font(.system(size: 11.5, weight: .black)).foregroundColor(NativeTheme.textPrimary)
             Spacer(minLength: 0)
-            HStack(spacing: 5) {
-                Circle().fill(NativeTheme.emerald).frame(width: 6, height: 6)
-                Text("LIVE").font(.system(size: 9, weight: .black)).tracking(1).foregroundColor(NativeTheme.emerald)
-            }
         }
         .padding(.horizontal, 12)
         .frame(minHeight: 38)
@@ -10200,7 +10197,7 @@ private struct NativeValetPremiumRideSheet: View {
             VStack(alignment: .leading, spacing: 0) {
                 readinessStep("Set itinerary", "Pickup, drop-off, time, riders, and luggage.", "mappin.and.ellipse")
                 readinessConnector
-                readinessStep("Review estimate", "Bytspot checks Elife pricing and vehicle availability.", "person.2.fill")
+                readinessStep("Review estimate", "Bytspot checks pricing and vehicle availability.", "person.2.fill")
                 readinessConnector
                 readinessStep("Request authorization", "Submit for review; dispatch follows approval.", "checkmark.shield.fill")
             }
@@ -10584,7 +10581,7 @@ private struct NativeValetPremiumRideSheet: View {
         nativeImpactLight()
         switch state {
         case .intro, .serviceSelection, .routeEntry, .failed, .cancelled:
-            state = .quoting; statusMessage = "Checking Elife pricing and vehicle availability for this itinerary."
+            state = .quoting; statusMessage = "Checking pricing and vehicle availability for this itinerary."
             Task { await requestLiveQuote() }
         case .quoteReady:
             guard sessionStore.isAuthenticated else {
@@ -10610,13 +10607,18 @@ private struct NativeValetPremiumRideSheet: View {
             state = .quoteReady
             statusMessage = "Estimate ready. Request booking when you want Bytspot Mobility to review authorization."
         } catch {
-            liveQuote = .preview(for: selectedService)
-            state = .quoteReady
-            statusMessage = "Preview estimate shown. Live pricing will replace it when the route is available."
+            liveQuote = nil
+            state = .failed
+            statusMessage = NativeValetMobilityContract.unavailableMessage
         }
     }
 
     private func submitBookingRequest() async {
+        guard liveQuote != nil else {
+            state = .failed
+            statusMessage = NativeValetMobilityContract.unavailableMessage
+            return
+        }
         do {
             state = .requesting
             statusMessage = "Preparing secure Stripe authorization."
@@ -10653,7 +10655,7 @@ private struct NativeValetPremiumRideSheet: View {
         NativeMobilityRideRecord(
             id: "BYT-REQ-\(Int(Date().timeIntervalSince1970))",
             quoteId: quote.id,
-            provider: NativeValetElifeIntegrationContract.providerName,
+            provider: NativeValetMobilityContract.providerName,
             providerReservationId: nil,
             reservationReference: nil,
             status: NativeValetRideWalletRecord.pendingAuthorizationStatus,
@@ -10676,7 +10678,7 @@ private struct NativeValetPremiumRideSheet: View {
 
     private func quoteInput() -> [String: Any] {
         [
-            "provider": "elife",
+            "provider": "bytspot",
             "bookingType": "private_airport_transfer",
             "serviceClass": selectedService.rawValue,
             "serviceTitle": selectedService.title,
@@ -10688,7 +10690,7 @@ private struct NativeValetPremiumRideSheet: View {
             "pickupTimeLabel": pickupTime,
             "pickupTime": ISO8601DateFormatter().string(from: Date()),
             "flightNumber": flightNumber.trimmingCharacters(in: .whitespacesAndNewlines),
-            "appClipMode": NativeValetElifeIntegrationContract.appClipMode
+            "appClipMode": NativeValetMobilityContract.appClipMode
         ]
     }
 
@@ -10747,7 +10749,7 @@ private struct NativeValetPremiumRideSheet: View {
         didRunAutorun = true
         try? await Task.sleep(nanoseconds: 450_000_000)
         state = .quoting
-        statusMessage = "Checking Elife pricing and vehicle availability for this itinerary."
+        statusMessage = "Checking pricing and vehicle availability for this itinerary."
         await requestLiveQuote()
         if mode == "confirm" {
             state = .requesting
@@ -10797,7 +10799,7 @@ private struct NativeValetLivePanel: View {
         }
         var subtitle: String {
             switch self {
-            case .quoting: return "Bytspot is reviewing Elife pricing, vehicle fit, and route details."
+            case .quoting: return "Bytspot is reviewing pricing, vehicle fit, and route details."
             case .requesting: return "Your itinerary is being submitted for pending authorization."
             }
         }
@@ -10980,7 +10982,7 @@ private struct NativeValetRouteMapPreview: View {
 private struct NativeValetDriverVendorCard: View {
     static let matchingTitle = "Vendor review pending"
     static let verifiedBadge = "Bytspot Verified Vendor"
-    static let dispatchTag = "Elife network"
+    static let dispatchTag = "Bytspot Mobility"
     static let identifier = "native-valet-driver-vendor-card"
 
     let assigned: Bool
@@ -19126,7 +19128,7 @@ enum NativeHomeParitySelfTests {
         precondition(actions.map(\.subtitle) == ["Book a stop", "Book dinner", "Find a stay", "Ride / valet / rental", "Reserve now", "Build a Plan"], "NativeHomeParitySelfTests: quick-action subtitles drifted from Home command-center model.")
         precondition(actions.map(\.icon) == ["cup.and.saucer.fill", "fork.knife", "house.fill", "airplane.departure", "parkingsign.circle.fill", "sparkles"], "NativeHomeParitySelfTests: quick-action SF Symbols drifted.")
         precondition(actions[0].target == .discoverFilter("coffee") && actions[1].target == .discoverFilter("dining") && actions[2].target == .discoverFilter("boutique_apartment"), "NativeHomeParitySelfTests: intent actions must open Discover with category context.")
-        precondition(actions[3].target == .rideHandoff, "NativeHomeParitySelfTests: Book Ride must open the native Valet/Elife flow, not hybrid web.")
+        precondition(actions[3].target == .rideHandoff, "NativeHomeParitySelfTests: Book Ride must open the native Valet flow, not hybrid web.")
         precondition(actions[4].target == .nativeTab(.map) && actions[5].target == .nativeTab(.concierge), "NativeHomeParitySelfTests: Parking/Concierge must route to their native tabs.")
         precondition(NativeHomeDashboardView.categoryQuickSearchSpecs.map(\.label) == ["Coffee", "Dining", "Mobility", "Shopping", "Nightlife", "Fitness", "Events"], "NativeHomeParitySelfTests: category chip labels drifted.")
         precondition(NativeHomeDashboardView.categoryQuickSearchSpecs.map(\.filter) == ["coffee", "dining", "mobility", "shopping", "nightlife", "fitness", "entertainment"], "NativeHomeParitySelfTests: category chips must hand off Discover filters.")
@@ -19560,7 +19562,7 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeDiscoverView.curatedCards.map(\.type) == ["coffee", "boutique_apartment", "dining", "nightlife", "parking", "entertainment", "fitness", "mobility", "mobility", "service", "service"], "NativeDiscoverParitySelfTests: curated fallback card types drifted.")
         let valetRideCard = NativeTabContentSnapshot.canonicalMobilityCards.first { $0.id == "service-valet-ride" }!
         precondition(valetRideCard.cta == "Request Transfer" && valetRideCard.availability == "Estimate + review", "NativeDiscoverParitySelfTests: airport transfer must show estimate/review before request booking.")
-        precondition(valetRideCard.metadataLine == "Bytspot + Elife · Airport", "NativeDiscoverParitySelfTests: airport transfer metadata must preserve Bytspot/Elife fulfillment copy.")
+        precondition(valetRideCard.metadataLine == "Bytspot · Airport", "NativeDiscoverParitySelfTests: airport transfer metadata must not name a provider Bytspot is not connected to.")
         precondition(valetRideCard.features == ["Review estimate", "Authorization request", "My Access status"], "NativeDiscoverParitySelfTests: airport transfer must use request-booking feature copy.")
         precondition(NativeTabContentSnapshot.canonicalMobilityCards.map(\.title) == ["Private Airport Transfer", "Group Transport"], "NativeDiscoverParitySelfTests: Mobility fallback cards drifted.")
         precondition(NativeTabContentSnapshot.canonicalMobilityCards.map(\.categoryLabel) == ["Mobility", "Mobility"], "NativeDiscoverParitySelfTests: Mobility cards must use the top-level Mobility category.")
@@ -19585,8 +19587,8 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeTabContentSnapshot.canonicalServiceCards.map(\.title) == ["Broni Home Taste", "GH Akwaaba Pass"], "NativeDiscoverParitySelfTests: canonical service labels drifted.")
         precondition(NativeTabContentSnapshot.canonicalServiceCards.map(\.categoryLabel) == ["Dining", "Event Pass"], "NativeDiscoverParitySelfTests: special service cards should use user-facing labels, not backend Services wording.")
         precondition(!NativeTabContentSnapshot.canonicalServiceCards.map(\.badgeText).contains("PAID CHECKOUT"), "NativeDiscoverParitySelfTests: paid-checkout backend copy must not show on Discover cards.")
-        precondition(NativeValetElifeIntegrationContract.providerName == "Elife Transfer" && NativeValetElifeIntegrationContract.appClipMode == "api-proxy-no-sdk", "NativeDiscoverParitySelfTests: Valet must remain Elife API-proxy/no-SDK for App Clip size.")
-        precondition(NativeValetElifeIntegrationContract.backendRoutes == NativeMobilityRouteContract.routes, "NativeDiscoverParitySelfTests: Valet backend route contract must mirror NativeMobilityDataAPI.")
+        precondition(NativeValetMobilityContract.providerName == "Bytspot Mobility" && NativeValetMobilityContract.appClipMode == "api-proxy-no-sdk", "NativeDiscoverParitySelfTests: Valet must remain API-proxy/no-SDK for App Clip size.")
+        precondition(NativeValetMobilityContract.backendRoutes == NativeMobilityRouteContract.routes, "NativeDiscoverParitySelfTests: Valet backend route contract must mirror NativeMobilityDataAPI.")
         precondition(NativeValetRideWalletStore.storageKey == "bytspot_native_valet_rides", "NativeDiscoverParitySelfTests: Valet ride wallet storage key drifted.")
         precondition(NativeParkingBookingContract.title == "Reserve Parking Space" && NativeParkingBookingContract.confirmedTitle == "Space Reserved", "NativeDiscoverParitySelfTests: Smart Parking booking titles must state the concrete reservation outcome.")
         precondition(NativeParkingBookingContract.primaryCTA == "Pay & Reserve" && NativeParkingBookingContract.paymentMethods == ["Apple Pay", "Credit / Debit Card"], "NativeDiscoverParitySelfTests: Smart Parking booking must use explicit payment authorization copy, not pay-at-lot placeholders.")
@@ -19600,8 +19602,8 @@ enum NativeDiscoverParitySelfTests {
         let stayRequest = NativeStayRequestRecord.pending(venue: NativeVenueSummary(id: "stay", name: "Midtown Boutique Suite", category: "boutique_apartment", address: "Midtown", distance: "Nearby", rating: 4.9, latitude: 0, longitude: 0, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "Paid"), verifiedPatchId: "DISCOVER-VERIFIED", imageUrl: nil), arrivalLabel: "Tonight", nightsLabel: "2 nights", termsLabel: "Standard cancellation")
         precondition(stayRequest.status == "availability requested" && stayRequest.totalDueLabel == "$434" && stayRequest.conciergePrompt.contains("Card is charged only after host confirms availability"), "NativeDiscoverParitySelfTests: Boutique Stay request must persist clear payment and host-confirmation terms.")
         precondition(NativeConciergeView.nativeHandoffPromptKey == "bytspot_native_concierge_handoff_prompt", "NativeDiscoverParitySelfTests: Concierge native handoff prompt key drifted.")
-        precondition(NativeValetElifeIntegrationContract.luxuryServiceClass.bytspotTier == .black && NativeValetElifeIntegrationContract.luxuryTier == .black, "NativeDiscoverParitySelfTests: luxury Valet service must route to Bytspot Black tier.")
-        precondition(NativeValetElifeIntegrationContract.accentHex == BytspotTheme.cyanHex, "NativeDiscoverParitySelfTests: Valet flow must use cyan as the single accent.")
+        precondition(NativeValetMobilityContract.luxuryServiceClass.bytspotTier == .black && NativeValetMobilityContract.luxuryTier == .black, "NativeDiscoverParitySelfTests: luxury Valet service must route to Bytspot Black tier.")
+        precondition(NativeValetMobilityContract.accentHex == BytspotTheme.cyanHex, "NativeDiscoverParitySelfTests: Valet flow must use cyan as the single accent.")
         precondition(NativeValetLivePanel.steps == ["Price", "Review", "Request"], "NativeDiscoverParitySelfTests: Valet live-state stepper must stay Price → Review → Request.")
         precondition(NativeValetLivePanel.Phase.quoting.title == "Checking price and availability" && NativeValetLivePanel.Phase.requesting.title == "Sending booking request", "NativeDiscoverParitySelfTests: Valet live-state phase titles drifted.")
         precondition(NativeValetQuoteHeadlineContract.quoteReadyEyebrow == "QUOTE READY" && NativeValetQuoteHeadlineContract.confirmedEyebrow == "REQUEST RECEIVED", "NativeDiscoverParitySelfTests: Quote Ready / Request Received headline eyebrows drifted.")

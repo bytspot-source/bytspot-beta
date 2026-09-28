@@ -170,6 +170,7 @@ export interface VendorWindow {
   quantity: number;
   priceCents: number;
   maxGuests: number;
+  durationMins?: number;
   intent: string;
   published: boolean;
   coverUrl?: string;
@@ -182,6 +183,19 @@ export interface WindowDraft {
   openMins: number;
   closeMins: number;
   quantity: number;
+  /** Left out to keep the preset's. A blank has no preset, so it needs both. */
+  title?: string;
+  priceCents?: number;
+  durationMins?: number;
+}
+
+/** `custom.<domain>.<variant>`: a catalog variant with no printed preset. */
+export function blankTemplateId(domain: string, variant: string): string {
+  return `custom.${domain}.${variant}`;
+}
+
+export function isBlankTemplateId(id: string): boolean {
+  return id.startsWith('custom.');
 }
 
 export interface WindowsTransport {
@@ -198,6 +212,17 @@ export function windowDraftProblems(draft: WindowDraft): string[] {
   if (!draft.weekdays.length) problems.push('Pick at least one day');
   if (draft.closeMins <= draft.openMins) problems.push('Closing has to come after opening');
   if (!Number.isInteger(draft.quantity) || draft.quantity < 1) problems.push('Sell at least one per slot');
+  if (isBlankTemplateId(draft.skuTemplateId)) {
+    if (!draft.title?.trim()) problems.push('Give it a name guests will see');
+    if (draft.priceCents === undefined) problems.push('Set a price');
+  }
+  if (draft.title !== undefined && draft.title.trim().length > 80) problems.push('Keep the name under 80 characters');
+  if (draft.priceCents !== undefined && (!Number.isInteger(draft.priceCents) || draft.priceCents < 0)) {
+    problems.push('That price does not look right');
+  }
+  if (draft.durationMins !== undefined && (!Number.isInteger(draft.durationMins) || draft.durationMins < 5 || draft.durationMins > 1440)) {
+    problems.push('Length is between 5 minutes and a day');
+  }
   return problems;
 }
 
@@ -215,6 +240,7 @@ function reviveWindow(raw: unknown): VendorWindow {
     quantity: Number(json.quantity ?? 0),
     priceCents: Number(json.priceCents ?? 0),
     maxGuests: Number(json.maxGuests ?? 0),
+    durationMins: typeof json.durationMins === 'number' ? json.durationMins : undefined,
     intent: String(json.intent ?? 'request'),
     // Only an explicit true is published: a missing flag must read as a draft.
     published: json.published === true,
@@ -259,9 +285,9 @@ export function demoWindowsTransport(): WindowsTransport {
       const row: VendorWindow = {
         ...draft,
         id: `demo_window_${issued}`,
-        title: draft.skuTemplateId,
-        domain: draft.skuTemplateId.split('.')[0] ?? '',
-        priceCents: 0,
+        title: draft.title?.trim() || draft.skuTemplateId,
+        domain: (isBlankTemplateId(draft.skuTemplateId) ? draft.skuTemplateId.split('.')[1] : draft.skuTemplateId.split('.')[0]) ?? '',
+        priceCents: draft.priceCents ?? 0,
         maxGuests: 1,
         intent: 'request',
         published: false,

@@ -37,6 +37,7 @@ import { gateReplacesConsole, justVerified, shouldShowOnboarding, verifiedLabel 
 import {
   httpSetupTransport,
   httpWindowsTransport,
+  blankTemplateId,
   windowDraftProblems,
   type AuthorizedFetch,
   type SetupTransport,
@@ -131,20 +132,30 @@ function useWindows(transport: WindowsTransport) {
   return { windows, blockers, busy, create, setPublished };
 }
 
+/**
+ * A preset shows its own name, price and length as placeholders and keeps them
+ * when the fields are left empty. A blank has none, so name and price are required.
+ */
 function WindowForm({
   skuTemplateId,
+  preset,
   locations,
   busy,
   onCreate,
   onCancel,
 }: {
   skuTemplateId: string;
+  preset?: { title: string; priceCents: number; durationMins: number };
   locations: VendorLocation[];
   busy: boolean;
   onCreate: (draft: WindowDraft) => Promise<boolean>;
   onCancel: () => void;
 }) {
   const open = locations.filter((location) => location.state !== 'CLOSED');
+  const [name, setName] = useState('');
+  const [price, setPrice] = useState('');
+  const [length, setLength] = useState('');
+  const [tried, setTried] = useState(false);
   const [draft, setDraft] = useState<WindowDraft>({
     skuTemplateId,
     locationId: open[0]?.id ?? '',
@@ -162,6 +173,14 @@ function WindowForm({
         : [...current.weekdays, day].sort((a, b) => a - b),
     }));
 
+  const full: WindowDraft = {
+    ...draft,
+    title: name.trim() || undefined,
+    priceCents: price.trim() ? Math.round(Number(price) * 100) : undefined,
+    durationMins: length.trim() ? Number(length) : undefined,
+  };
+  const problems = windowDraftProblems(full);
+
   if (!open.length) return <p className="vendor-muted">Add a place first, so guests know where this happens.</p>;
 
   return (
@@ -169,11 +188,42 @@ function WindowForm({
       className="vendor-card"
       onSubmit={(event) => {
         event.preventDefault();
-        void onCreate(draft).then((saved) => {
+        setTried(true);
+        if (problems.length) return;
+        void onCreate(full).then((saved) => {
           if (saved) onCancel();
         });
       }}
     >
+      <label className="vendor-field">
+        Name guests see{preset ? '' : ' (required)'}
+        <input value={name} maxLength={80} placeholder={preset?.title ?? 'e.g. Hydrafacial, 45 minutes'} onChange={(event) => setName(event.target.value)} />
+      </label>
+      <label className="vendor-field">
+        Price in dollars{preset ? '' : ' (required)'}
+        <input
+          type="number"
+          inputMode="decimal"
+          min="0"
+          step="0.01"
+          value={price}
+          placeholder={preset ? (preset.priceCents / 100).toFixed(2) : '0.00'}
+          onChange={(event) => setPrice(event.target.value)}
+        />
+      </label>
+      <label className="vendor-field">
+        Length in minutes
+        <input
+          type="number"
+          inputMode="numeric"
+          min="5"
+          max="1440"
+          step="5"
+          value={length}
+          placeholder={preset ? String(preset.durationMins) : '60'}
+          onChange={(event) => setLength(event.target.value)}
+        />
+      </label>
       <label className="vendor-field">
         Where
         <select value={draft.locationId} onChange={(event) => setDraft({ ...draft, locationId: event.target.value })}>
@@ -213,6 +263,15 @@ function WindowForm({
           onChange={(event) => setDraft({ ...draft, quantity: Number(event.target.value) })}
         />
       </label>
+      {tried && problems.length ? (
+        <ul className="vendor-reasons">
+          {problems.map((problem) => (
+            <li key={problem} className="vendor-reason-fixable">
+              {problem}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <button type="submit" className="vendor-button" disabled={busy}>
         Save as draft
       </button>
@@ -291,6 +350,7 @@ function BookablesView({ viewer, session, locations, windows: transport, media, 
             {drafting === template.id ? (
               <WindowForm
                 skuTemplateId={template.id}
+                preset={{ title: template.title, priceCents: template.priceCents, durationMins: template.durationMins }}
                 locations={locations}
                 busy={owned.busy}
                 onCreate={owned.create}
@@ -306,7 +366,21 @@ function BookablesView({ viewer, session, locations, windows: transport, media, 
               <h3>{variant.replace(/-/g, ' ')}</h3>
               <span className="vendor-tier vendor-tier-blank">Blank</span>
             </div>
-            <p className="vendor-muted">No preset yet. Start blank and set price, duration and rules yourself.</p>
+            <p className="vendor-muted">No preset yet. Start blank and set the name, price and length yourself.</p>
+            {canDraft && type && drafting !== blankTemplateId(type.domain, variant) ? (
+              <button type="button" className="vendor-chip" onClick={() => setDrafting(blankTemplateId(type.domain, variant))}>
+                Start blank
+              </button>
+            ) : null}
+            {type && drafting === blankTemplateId(type.domain, variant) ? (
+              <WindowForm
+                skuTemplateId={blankTemplateId(type.domain, variant)}
+                locations={locations}
+                busy={owned.busy}
+                onCreate={owned.create}
+                onCancel={() => setDrafting(undefined)}
+              />
+            ) : null}
           </li>
         ))}
       </ul>

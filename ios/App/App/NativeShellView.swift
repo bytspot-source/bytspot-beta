@@ -12346,7 +12346,8 @@ private struct NativeVenueDetailView: View {
 
     private var placePresentation: NativeDiscoverBookablePresentation {
         NativeDiscoverBookablePresentation(offering: exactOffering,
-            externalURL: externalURL, externalProvider: externalProvider)
+            externalURL: externalURL ?? details?.tableBookingURL,
+            externalProvider: externalURL != nil ? externalProvider : details?.tableBookingProvider)
     }
 
     private var details: NativeVenueRichDetails? { suppliedDetails ?? venue.richDetails }
@@ -12806,7 +12807,8 @@ private struct NativeVenueDetailView: View {
     private func beginDetailPlanSelection(requestCoffee: Bool) {
         guard !requestCoffee || (exactOffering?.sourceKind == .coffeeSpot && placePresentation.capability == .request && requestStatusReady && currentTransaction == nil) else { return }
         let selection = NativeDiscoverPlanSelection(title: venue.name,
-            needKind: exactOffering?.category ?? venue.discoverType, offering: exactOffering)
+            needKind: exactOffering?.category ?? venue.discoverType, offering: exactOffering,
+            placeID: exactOffering == nil ? venue.googlePlaceID : nil)
         planIntent.begin(selection: selection, userID: detailUserID, requestCoffee: requestCoffee)
         planSelection = selection
     }

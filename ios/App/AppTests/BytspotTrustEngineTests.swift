@@ -5420,6 +5420,56 @@ final class NativePlanBookablesContractTests: XCTestCase {
         XCTAssertFalse(next.contains("my_location"))
     }
 
+    func testIBookedItIsTheGuestsWordAndNeverBytspotsBooked() throws {
+        let listed = try item(["id": "a", "capability": "details",
+                               "tableBooking": ["provider": "resy", "label": "Resy", "url": "https://resy.com/cities/atl/example"]])
+        XCTAssertEqual(NativePlanDisplay.tableBooking(listed)?.label, "Resy")
+        XCTAssertEqual(NativePlanDisplay.itemStatusLabel(listed), "Not booked")
+
+        let reported = try item(["id": "a", "capability": "details",
+                                 "tableBooking": ["provider": "resy", "label": "Resy", "url": "https://resy.com/cities/atl/example"],
+                                 "guestBooking": ["reportedAt": "2026-09-28T12:00:00.000Z", "bookedFor": "2026-10-02T23:30:00.000Z"]])
+        XCTAssertEqual(NativePlanDisplay.itemStatusLabel(reported), "Booked (by you)")
+        XCTAssertNotNil(NativePlanDisplay.guestBookingTimeLabel(reported))
+        XCTAssertNotEqual(reported.booked, true)
+
+        let cancelled = try item(["id": "a", "status": "cancelled",
+                                  "tableBooking": ["provider": "resy", "label": "Resy", "url": "https://resy.com/cities/atl/example"],
+                                  "guestBooking": ["reportedAt": "2026-09-28T12:00:00.000Z"]])
+        XCTAssertNil(NativePlanDisplay.tableBooking(cancelled))
+        XCTAssertEqual(NativePlanDisplay.itemStatusLabel(cancelled), "Cancelled")
+
+        for (provider, url) in [("opentable", "https://resy.com/x"), ("resy", "http://resy.com/x"), ("resy", "https://resy.com.evil.example/x"), ("sevenrooms", "https://sevenrooms.com/x")] {
+            let foreign = try item(["tableBooking": ["provider": provider, "label": "x", "url": url]])
+            XCTAssertNil(NativePlanDisplay.tableBooking(foreign), url)
+        }
+    }
+
+    func testAReferenceCarriesItsExactPlaceAndAnOfferingNeverDoes() {
+        let reference = NativeDiscoverPlanSelection(title: "Example Grill", needKind: "dining", placeID: "ChIJ_example-1")
+        XCTAssertEqual(reference.addRequest(planID: "plan-1").input["placeId"] as? String, "ChIJ_example-1")
+        let malformed = NativeDiscoverPlanSelection(title: "Example Grill", needKind: "dining", placeID: "places/../x")
+        XCTAssertNil(malformed.addRequest(planID: "plan-1").input["placeId"])
+    }
+
+    func testPlaceDetailsNameOnlyAHandCheckedTableBooking() {
+        let payload: [String: Any] = ["result": ["data": ["place": [
+            "placeId": "ChIJ_example-1", "websiteUri": "https://example.com",
+            "booking": ["provider": "opentable", "label": "OpenTable", "url": "https://www.opentable.com/r/example"],
+        ]]]]
+        let details = NativeVenueDetailsDTO.placeDetails(from: payload, googlePlaceID: "ChIJ_example-1")
+        XCTAssertEqual(details?.tableBookingURL?.absoluteString, "https://www.opentable.com/r/example")
+        XCTAssertEqual(details?.tableBookingProvider, "OpenTable")
+        let presentation = NativeDiscoverBookablePresentation(externalURL: details?.tableBookingURL, externalProvider: details?.tableBookingProvider)
+        XCTAssertEqual(presentation.primaryActionTitle, "Open OpenTable ↗")
+
+        let foreign: [String: Any] = ["result": ["data": ["place": [
+            "placeId": "ChIJ_example-1", "websiteUri": "https://example.com",
+            "booking": ["provider": "opentable", "url": "https://example.com/book"],
+        ]]]]
+        XCTAssertNil(NativeVenueDetailsDTO.placeDetails(from: foreign, googlePlaceID: "ChIJ_example-1")?.tableBookingURL)
+    }
+
     func testDerivedBookedFlagWinsOverUnbookedStoredStatus() throws {
         let booked = try item(["partyId": "party-1", "capability": "book", "booked": true])
         XCTAssertEqual(NativePlanDisplay.itemStatusLabel(booked), "Booked")

@@ -36,6 +36,20 @@ struct NativePlan: Codable, Identifiable, Equatable {
         /// Where the item is, when the API may share it. Missing on older APIs
         /// and on rooms that hide their place, so "Get there" does not render.
         var destination: Destination? = nil
+        /// A hand-checked OpenTable or Resy link for a reference item.
+        var tableBooking: TableBooking? = nil
+        /// The guest's own record that they booked it there. Never `booked`:
+        /// Bytspot cannot see that booking.
+        var guestBooking: GuestBooking? = nil
+    }
+    struct TableBooking: Codable, Equatable {
+        let provider: String
+        let label: String
+        let url: String
+    }
+    struct GuestBooking: Codable, Equatable {
+        let reportedAt: String
+        let bookedFor: String?
     }
     struct Destination: Codable, Equatable {
         let name: String
@@ -138,12 +152,16 @@ struct NativeDiscoverPlanSelection: Identifiable, Equatable {
     let title: String
     let needKind: String
     let offering: NativePlanBookableOffering?
+    /// The exact Google place behind a Reference, so a listed OpenTable or
+    /// Resy link can follow it onto the Plan. Never sent with an offering.
+    let placeID: String?
 
-    init(id: UUID = UUID(), title: String, needKind: String, offering: NativePlanBookableOffering? = nil) {
+    init(id: UUID = UUID(), title: String, needKind: String, offering: NativePlanBookableOffering? = nil, placeID: String? = nil) {
         self.id = id
         self.title = title
         self.needKind = needKind
         self.offering = offering
+        self.placeID = placeID.flatMap { NativeVenueDetailsDTO.exactGooglePlaceID($0) }
     }
 
     var referenceTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -157,8 +175,9 @@ struct NativeDiscoverPlanSelection: Identifiable, Equatable {
     func addRequest(planID: String) -> NativePlanWriteRequest {
         if let offering { return NativePlanContract.addRequest(planID: planID, selections: [offering.selection]) }
         // Actual plans.attach signature: no supplyRef, URL, capability, or metadata.
-        return NativePlanWriteRequest(path: "/trpc/plans.attach",
-                                      input: ["planId": planID, "title": referenceTitle, "needKind": normalizedNeed])
+        var input: [String: Any] = ["planId": planID, "title": referenceTitle, "needKind": normalizedNeed]
+        if let placeID { input["placeId"] = placeID }
+        return NativePlanWriteRequest(path: "/trpc/plans.attach", input: input)
     }
 
     func createRequest(idempotencyKey: String) -> NativePlanWriteRequest {
@@ -406,6 +425,14 @@ struct NativePlanAPI: NativeDiscoverPlanAdding {
         )
     }
 
+    /// "I booked it": the guest's note that they booked a listed place with
+    /// the provider. `booked: false` clears it. It never books anything.
+    func reportTableBooking(planID: String, itemID: String, booked: Bool, bookedFor: Date?) async throws {
+        var input: [String: Any] = ["planId": planID, "itemId": itemID, "booked": booked]
+        if booked, let bookedFor { input["bookedFor"] = ISO8601DateFormatter().string(from: bookedFor) }
+        _ = try await client.trpcPayload(path: "/trpc/plans.reportTableBooking", method: "POST", input: input)
+    }
+
     func primePath(_ planID: String) async throws -> NativePrimePathResponse {
         let payload = try await client.trpcQueryPayload(path: "/trpc/plans.primePath", input: ["planId": planID])
         return try JSONDecoder().decode(NativePrimePathResponse.self, from: JSONSerialization.data(withJSONObject: payload))
@@ -600,7 +627,23 @@ enum NativePlanDisplay {
     }
 
     static func itemStatusLabel(_ item: NativePlan.Item) -> String {
-        item.booked == true ? "Booked" : itemStatusLabel(item.status)
+        if item.booked == true { return "Booked" }
+        // The guest's word, labelled as theirs so it never reads as Bytspot's.
+        if item.guestBooking != nil && item.status != "cancelled" { return "Booked (by you)" }
+        return itemStatusLabel(item.status)
+    }
+
+    /// The OpenTable or Resy link on a live item, re-checked before it can
+    /// become a button.
+    static func tableBooking(_ item: NativePlan.Item) -> (url: URL, label: String)? {
+        guard item.status != "cancelled", let booking = item.tableBooking else { return nil }
+        return NativeVenueDetailsDTO.tableBooking(["provider": booking.provider, "url": booking.url])
+    }
+
+    static func guestBookingTimeLabel(_ item: NativePlan.Item) -> String? {
+        guard item.booked != true, let raw = item.guestBooking?.bookedFor,
+              let date = ISO8601DateFormatter.partyControlDate(from: raw) else { return nil }
+        return "For " + date.formatted(date: .abbreviated, time: .shortened)
     }
 
     static func selectedSourceIDs(in items: [NativePlan.Item]) -> Set<String> {
@@ -1662,6 +1705,42 @@ private struct NativePlanListRow: View {
     }
 }
 
+/// "I booked it": when the guest says they booked a listed place with
+/// OpenTable or Resy. Only a note on their Plan; Bytspot books nothing.
+private struct NativePlanGuestBookingSheet: View {
+    let title: String
+    let provider: String
+    let onSave: (Date?) -> Void
+    @State private var when: Date
+    @Environment(\.dismiss) private var dismiss
+
+    init(title: String, provider: String, suggested: Date, onSave: @escaping (Date?) -> Void) {
+        self.title = title
+        self.provider = provider
+        self.onSave = onSave
+        _when = State(initialValue: suggested)
+    }
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(footer: Text("This notes it on your Plan. Your booking stays with \(provider).")) {
+                    DatePicker("Booked for", selection: $when)
+                }
+                Section {
+                    Button("Save") { onSave(when) }.accessibilityIdentifier("native-plan-guest-booking-save")
+                    Button("Save without a time") { onSave(nil) }
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }
+        .environment(\.nativeDeepSpaceGroundDrawn, false)
+        .preferredColorScheme(.dark)
+    }
+}
+
 struct NativePlanDetailSheet: View {
     let planID: String
     @ObservedObject var sessionStore: BytspotSessionStore
@@ -1694,6 +1773,13 @@ struct NativePlanDetailSheet: View {
     @State private var loadGeneration = UUID()
     /// The ask whose offers are open, if any.
     @State private var showingOffers: NativePlanDemandAsk?
+    /// The item whose OpenTable or Resy page the creator just left for, so
+    /// coming back can ask whether they booked it.
+    @State private var leftForTableBooking: NativePlan.Item?
+    @State private var askDidBook: NativePlan.Item?
+    @State private var recordingBooking: NativePlan.Item?
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
 
     private var isCreator: Bool { plan?.creatorUserId == sessionStore.authenticatedUserID }
 
@@ -1745,6 +1831,32 @@ struct NativePlanDetailSheet: View {
         }
         .sheet(item: $showingOffers) { ask in
             NativePlanOffersSheet(ask: ask, accept: { offer in await take(offer, from: ask) })
+        }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active, let item = leftForTableBooking else { return }
+            leftForTableBooking = nil
+            askDidBook = item
+        }
+        .confirmationDialog(
+            askDidBook.map { "Did you book \($0.title)?" } ?? "",
+            isPresented: Binding(get: { askDidBook != nil }, set: { if !$0 { askDidBook = nil } }),
+            titleVisibility: .visible,
+            presenting: askDidBook
+        ) { item in
+            Button("Yes, I booked it") { recordingBooking = item }
+            Button("No", role: .cancel) {}
+        } message: { item in
+            Text("Bytspot can't see bookings made on \(NativePlanDisplay.tableBooking(item)?.label ?? "the provider"), so this only notes it on your Plan.")
+        }
+        .sheet(item: $recordingBooking) { item in
+            NativePlanGuestBookingSheet(
+                title: item.title,
+                provider: NativePlanDisplay.tableBooking(item)?.label ?? "the provider",
+                suggested: plan?.startsAt.flatMap { ISO8601DateFormatter.partyControlDate(from: $0) } ?? Date()
+            ) { bookedFor in
+                recordingBooking = nil
+                Task { await run { try await api().reportTableBooking(planID: planID, itemID: item.id, booked: true, bookedFor: bookedFor) } }
+            }
         }
     }
 
@@ -1846,6 +1958,33 @@ struct NativePlanDetailSheet: View {
                                         }
                                     }
                                 }
+                            }
+                            if let booking = NativePlanDisplay.tableBooking(item) {
+                                if let time = NativePlanDisplay.guestBookingTimeLabel(item) {
+                                    Text(time).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+                                }
+                                HStack(spacing: 12) {
+                                    if item.guestBooking == nil {
+                                        Button("Book on \(booking.label) ↗") {
+                                            if isCreator { leftForTableBooking = item }
+                                            openURL(booking.url)
+                                        }
+                                        .frame(minHeight: 44)
+                                        .accessibilityIdentifier("native-plan-table-booking-\(item.id)")
+                                        if isCreator {
+                                            Button("I booked it") { recordingBooking = item }
+                                                .frame(minHeight: 44)
+                                                .accessibilityIdentifier("native-plan-guest-booked-\(item.id)")
+                                        }
+                                    } else if isCreator {
+                                        Button("Not booked after all") {
+                                            Task { await run { try await api().reportTableBooking(planID: planID, itemID: item.id, booked: false, bookedFor: nil) } }
+                                        }
+                                        .frame(minHeight: 44)
+                                        .accessibilityIdentifier("native-plan-guest-unbooked-\(item.id)")
+                                    }
+                                }
+                                .font(.system(size: 12, weight: .bold))
                             }
                         }
                         Spacer()

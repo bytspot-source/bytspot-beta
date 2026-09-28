@@ -105,9 +105,12 @@ struct NativePartyPassRoute: Equatable {
         let isDefaultAppClipLink = scheme == "https" && (host == "appclip.apple.com" || host.hasSuffix(".appclip.apple.com"))
         guard isCustomScheme || isUniversalLink || isDefaultAppClipLink else { return nil }
 
-        let queryPartyID = (components.queryItems ?? []).first {
-            ["partyid", "party"].contains($0.name.lowercased())
-        }?.value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let queryPartyID = (components.queryItems ?? []).lazy.compactMap { item -> String? in
+            guard ["partyid", "party"].contains(item.name.lowercased()),
+                  let value = item.value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty else { return nil }
+            return value
+        }.first
 
         let pathComponents: [Substring]
         if isCustomScheme, let host = components.host, !host.isEmpty {
@@ -115,6 +118,8 @@ struct NativePartyPassRoute: Equatable {
         } else {
             pathComponents = components.path.split(separator: "/")
         }
+        // A malformed explicit Party path must not fall back to a query ID.
+        if pathComponents.first?.lowercased() == "party", pathComponents.count != 2 { return nil }
         let pathPartyID: String? = (pathComponents.count == 2 && pathComponents[0].lowercased() == "party")
             ? String(pathComponents[1]).trimmingCharacters(in: .whitespacesAndNewlines)
             : nil

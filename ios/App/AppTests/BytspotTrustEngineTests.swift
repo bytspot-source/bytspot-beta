@@ -351,6 +351,143 @@ final class NativeDiscoverM6BrowseTests: XCTestCase {
         XCTAssertFalse(state.failed)
     }
 
+    @MainActor
+    private func nearbyCard(_ id: String = "nearby-party", accessMode: String = "free-rsvp") throws -> NativeDiscoverSummary {
+        try XCTUnwrap(NativeTabContentStore.partyDiscoverCard(from: [
+            "id": id, "title": "Same title", "venueName": "Host's room",
+            "startsAt": "2099-09-28T20:00:00Z", "accessMode": accessMode,
+            "capability": "book", "requiredMembershipTier": "green",
+            "latitude": 40.7128, "longitude": -74.0060, "distanceMiles": 0.2,
+            "spacesRemaining": 12
+        ]))
+    }
+
+    private func nearbySnapshot(_ cards: [NativeDiscoverSummary], source: NativeTabContentSnapshot.Source = .live,
+                                error: String? = nil) -> NativeTabContentSnapshot {
+        .init(venues: [], discoverCards: cards, events: [], source: source, lastUpdated: nil, errorMessage: error)
+    }
+
+    @MainActor
+    func testHomePreservesAuthoritativeNearbyPartyOnlyInventory() throws {
+        let card = try nearbyCard()
+        let snapshot = nearbySnapshot([card])
+        XCTAssertFalse(snapshot.hasTrustworthyLiveVenueInventory)
+        XCTAssertFalse(snapshot.hasTrustworthyLiveEventInventory)
+        let home = NativeHomeRegionPresentation.homeSafeSnapshot(snapshot)
+        XCTAssertEqual(home.discoverCards, [card])
+        XCTAssertEqual(home.trustworthyNearbyPartyCards, [card])
+        XCTAssertTrue(NativeHomeRegionPresentation.hasTrustedLocalRecommendations(in: home))
+        XCTAssertFalse(NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: home,
+            launchPicksCompleted: false, launchPickCount: 0))
+        XCTAssertFalse(NativeHomeRegionPresentation.canPresentLaunchPicks(in: home), "An invitation is not a venue")
+        XCTAssertEqual(NativeHomeRegionPresentation.homeSafeSnapshot(home), home)
+    }
+
+    @MainActor
+    func testNearbyPartySurvivesNonAtlantaLocalizationButNotUnresolvedOrRemoteLocation() throws {
+        let card = try nearbyCard()
+        let local = NativeLocationCoordinate(latitude: 40.7128, longitude: -74.0060, isFallback: false)
+        XCTAssertEqual(NativeTabContentStore.locationAwareCards([card], sourceVenues: [], location: local), [card])
+        XCTAssertTrue(NativeTabContentStore.locationAwareCards([card], sourceVenues: [], location: .midtown).isEmpty)
+        XCTAssertTrue(NativeTabContentStore.locationAwareCards([card], sourceVenues: [], location: .verifiedMidtown).isEmpty)
+        let moved = NativeTabContentStore.locationSafeSnapshot(nearbySnapshot([card]), origin: local,
+            bestValueOrigin: nil, current: .verifiedMidtown)
+        XCTAssertTrue(moved.trustworthyNearbyPartyCards.isEmpty)
+    }
+
+    @MainActor
+    func testNearbyDedupeUsesActualCatalogPartyIdentityNotTitlesOrPrefixes() throws {
+        let card = try nearbyCard()
+        let snapshot = nearbySnapshot([card, card])
+        let matching = offering("nearby-party", kind: .party, category: "events")
+        XCTAssertTrue(NativeDiscoverBrowsePolicy.nearbyInvitations(in: snapshot, catalog: [matching]).isEmpty)
+        for unrelated in [offering("different-party", kind: .party), offering("nearby-party", kind: .coffeeSpot)] {
+            XCTAssertEqual(NativeDiscoverBrowsePolicy.nearbyInvitations(in: snapshot, catalog: [unrelated]), [card])
+        }
+        let other = try nearbyCard("different-party")
+        let local = NativeLocationCoordinate(latitude: 40.7128, longitude: -74.0060, isFallback: false)
+        let deck = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [], parties: [card, other], location: local)
+        XCTAssertEqual(deck.compactMap { $0.nearbyParty?.partyID }, ["nearby-party", "different-party"],
+            "Different parties may share a title")
+    }
+
+    @MainActor
+    func testCircleAndCatalogGapInvitationsSurviveEmptyFailedAndPartialCatalog() throws {
+        // The nearby DTO deliberately omits audience IDs: the authenticated
+        // server gate, not client-created bookable facts, authorizes this row.
+        let card = try nearbyCard("eligible-circle-party")
+        let snapshot = nearbySnapshot([card])
+        var catalog = NativeDiscoverCatalogState()
+        let generation = catalog.begin(userID: "viewer")
+        XCTAssertEqual(NativeDiscoverBrowsePolicy.nearbyInvitations(in: snapshot, catalog: catalog.rows(for: "viewer")), [card])
+        catalog.finish(nil, generation: generation, userID: "viewer")
+        XCTAssertTrue(catalog.failed)
+        XCTAssertEqual(NativeDiscoverBrowsePolicy.nearbyInvitations(in: snapshot, catalog: catalog.rows(for: "viewer")), [card])
+        let retry = catalog.begin(userID: "viewer")
+        catalog.finish([offering("outside-nearby-page", kind: .party)], generation: retry, userID: "viewer")
+        XCTAssertEqual(NativeDiscoverBrowsePolicy.nearbyInvitations(in: snapshot, catalog: catalog.rows(for: "viewer")), [card])
+        XCTAssertEqual(card.nearbyParty?.partyID, "eligible-circle-party")
+        let line = NativeDiscoverBrowsePolicy.availabilityLine(offering: nil, nearbyParty: card.nearbyParty)
+        XCTAssertTrue(line.contains("12 left"))
+        XCTAssertTrue(line.contains("Party admission is separate"))
+        XCTAssertFalse(NativeVendorExperience.isDiscoveryReference(id: card.id), "Never relax the venue-route guard")
+        let presentation = NativeDiscoverBrowsePolicy.referencePresentation(for: card)
+        XCTAssertEqual(presentation.capability, .details, "Nearby's legacy book label is not catalog authority")
+        XCTAssertNil(presentation.primaryActionTitle)
+    }
+
+    @MainActor
+    func testFullPaidInvitationSurvivesHomeAndDiscoverWithoutBookingPromise() throws {
+        let card = try XCTUnwrap(NativeTabContentStore.partyDiscoverCard(from: [
+            "id": "full-paid-party", "title": "Full gathering", "startsAt": "2099-09-28T20:00:00Z",
+            "accessMode": "paid-ticket", "spacesRemaining": 0,
+            "latitude": 40.7128, "longitude": -74.0060
+        ]))
+        let home = NativeHomeRegionPresentation.homeSafeSnapshot(nearbySnapshot([card]))
+        XCTAssertEqual(home.trustworthyNearbyPartyCards, [card])
+        XCTAssertEqual(NativeDiscoverBrowsePolicy.nearbyInvitations(in: home, catalog: []), [card])
+        XCTAssertEqual(card.entryType, "paid")
+        XCTAssertTrue(NativeDiscoverBrowsePolicy.availabilityLine(offering: nil, nearbyParty: card.nearbyParty).contains("Full"))
+        XCTAssertEqual(NativeDiscoverBrowsePolicy.referencePresentation(for: card).capability, .details)
+    }
+
+    @MainActor
+    func testPrivateMalformedAndUnprovenancePartyCardsStayExcluded() throws {
+        let card = try nearbyCard()
+        // All the same display claims, but no nearby decoder provenance.
+        let unproven = NativeDiscoverSummary(id: card.id, type: card.type, title: card.title,
+            subtitle: card.subtitle, distance: card.distance, rating: card.rating, icon: card.icon,
+            verified: true, entryType: card.entryType, cta: "View party", imageUrl: nil,
+            categoryLabel: card.categoryLabel, badgeText: "LIVE API", metadataLine: card.metadataLine,
+            features: card.features, vibeScore: 10, availability: card.availability, membershipRequired: true)
+        XCTAssertNil(unproven.nearbyParty)
+        XCTAssertTrue(NativeHomeRegionPresentation.homeSafeSnapshot(nearbySnapshot([unproven])).discoverCards.isEmpty)
+        XCTAssertFalse(NativeHomeRegionPresentation.hasTrustedLocalRecommendations(in: nearbySnapshot([unproven])))
+        XCTAssertTrue(NativeDiscoverBrowsePolicy.nearbyInvitations(in: nearbySnapshot([unproven]), catalog: []).isEmpty)
+        for snapshot in [nearbySnapshot([card], source: .fallback), nearbySnapshot([card], error: "Unavailable")] {
+            XCTAssertTrue(snapshot.trustworthyNearbyPartyCards.isEmpty)
+            XCTAssertFalse(NativeHomeRegionPresentation.hasTrustedLocalRecommendations(in: snapshot))
+        }
+        let valid: [String: Any] = ["id": "party", "title": "Party", "startsAt": "2099-09-28T20:00:00Z", "accessMode": "free-rsvp"]
+        for (key, value) in [("accessMode", "private-approval"), ("accessMode", "unknown"),
+                             ("locationDisclosure", "withheld"), ("locationDisclosure", "after-approval"),
+                             ("templateId", "private-party"), ("status", "draft"), ("id", "bad/id")] {
+            var invalid = valid
+            invalid[key] = value
+            XCTAssertNil(NativeTabContentStore.partyDiscoverCard(from: invalid), "\(key)=\(value)")
+        }
+        var missingAccess = valid
+        missingAccess.removeValue(forKey: "accessMode")
+        XCTAssertNil(NativeTabContentStore.partyDiscoverCard(from: missingAccess))
+    }
+
+    func testPerishablePartyLeadsEvenSupportedCoffee() {
+        XCTAssertTrue(NativeDiscoverBrowsePolicy.precedes(supported: false, relevance: 0, id: "z",
+            otherSupported: true, otherRelevance: 999, otherID: "a", isParty: true, otherIsParty: false))
+        XCTAssertFalse(NativeDiscoverBrowsePolicy.precedes(supported: true, relevance: 999, id: "a",
+            otherSupported: false, otherRelevance: 0, otherID: "z", isParty: false, otherIsParty: true))
+    }
+
     func testSupportedThenRelevanceThenStableIdentityOrdering() {
         XCTAssertTrue(NativeDiscoverBrowsePolicy.precedes(supported: true, relevance: 0, id: "z", otherSupported: false, otherRelevance: 999, otherID: "a"))
         XCTAssertTrue(NativeDiscoverBrowsePolicy.precedes(supported: false, relevance: 20, id: "z", otherSupported: false, otherRelevance: 10, otherID: "a"))
@@ -1355,6 +1492,7 @@ final class BytspotTrustEngineTests: XCTestCase {
             "startsAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(5400)),
             "accessMode": "free-rsvp", "capability": "book", "requiredMembershipTier": "",
             "capacity": 20, "spacesRemaining": 5, "distanceMiles": 0.6,
+            "latitude": 33.7866, "longitude": -84.3833,
         ])
         let venues = [venue(name: "Tongue & Groove", category: "club", address: "Venue row")]
         let withParty = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: venues, parties: [party!], location: .verifiedMidtown)

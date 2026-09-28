@@ -3,6 +3,118 @@ import MapKit
 import Testing
 @testable import App
 
+/// Invocation routing regressions live in this already-registered routing test
+/// file so they run in AppTests without adding project-file registrations.
+@MainActor
+struct NativeInvocationRouteTests {
+    @Test(arguments: [
+        "https://appclip.apple.com/id?p=com.bytspot.app.Clip",
+        "https://appclip.apple.com/id?p=com.bytspot.app.Clip&partyId=",
+        "https://appclip.apple.com/id?p=com.bytspot.app.Clip&partyId=%20%0A&party=",
+        "https://appclip.apple.com/id?P=BYT424",
+        "https://demo.appclip.apple.com/id?p=BYT424"
+    ])
+    func missingPartyNeverEntersPatchPairing(raw: String) throws {
+        let url = try #require(URL(string: raw))
+        #expect(NativePartyPassRoute(url: url) == nil)
+        #expect(BytspotPatchRoute(url: url) == nil)
+        let coordinator = NativeNavigationCoordinator()
+        #expect(!coordinator.notifyPatchScanned(url: url, source: .universalLink))
+        #expect(!coordinator.handle(url: url))
+        // No patch destination is emitted for the shell's pairing hook.
+        #expect(coordinator.requestedDestination == nil)
+        #expect(coordinator.requestedTab == nil)
+        #expect(coordinator.lastScanSource == nil)
+    }
+
+    @Test(arguments: [
+        "https://appclip.apple.com/id?p=com.bytspot.app.Clip&partyId=&party=Party-42",
+        "https://appclip.apple.com/id?p=com.bytspot.app.Clip&partyId=%20%0A&party=%20Party-42%20",
+        "https://appclip.apple.com/id?p=com.bytspot.app.Clip&party&PaRtYiD=Party-42",
+        "https://appclip.apple.com/id?p=com.bytspot.app.Clip&partyId=&partyId=Party-42&party=other",
+        "https://demo.appclip.apple.com/id?p=com.bytspot.app.Clip&party=Party-42",
+        "https://bytspot.app/party/Party-42",
+        "bytspot://party/Party-42",
+        "https://bytspot.app/party/Party-42?partyId=other",
+        "https://appclip.apple.com/party/Party-42?partyId=other"
+    ])
+    func partyAliasesAndCanonicalLinksReachOnlyParty(raw: String) throws {
+        let url = try #require(URL(string: raw))
+        let route = try #require(NativePartyPassRoute(url: url))
+        #expect(route.partyID == "Party-42")
+        #expect(BytspotPatchRoute(url: url) == nil)
+        let coordinator = NativeNavigationCoordinator()
+        #expect(!coordinator.notifyPatchScanned(url: url, source: .universalLink))
+        #expect(coordinator.handle(url: url))
+        #expect(coordinator.requestedDestination == .party(route))
+        #expect(coordinator.requestedTab == .home)
+        #expect(coordinator.lastScanSource == nil)
+    }
+
+    @Test(arguments: [
+        "https://appclip.apple.com/party?partyId=Party-42",
+        "https://appclip.apple.com/party/invalid/extra?partyId=Party-42",
+        "https://appclip.apple.com/party/%20?partyId=Party-42",
+        "https://appclip.apple.com/party/bad%2Fid?partyId=Party-42",
+        "https://appclip.apple.com/id?partyId=bad%2Fid&party=Party-42",
+        "https://bytspot.app/party?partyId=Party-42",
+        "bytspot://party?partyId=Party-42",
+        "https://bytspot.app/id?partyId=Party-42",
+        "https://bytspot.com/party/Party-42",
+        "https://untrusted.example/party/Party-42",
+        "https://appclip.apple.com.untrusted.example/id?partyId=Party-42",
+        "https://fakeappclip.apple.com/id?partyId=Party-42",
+        "http://appclip.apple.com/id?partyId=Party-42"
+    ])
+    func malformedOrUntrustedPartyLinksRemainRejected(raw: String) throws {
+        let url = try #require(URL(string: raw))
+        #expect(NativePartyPassRoute(url: url) == nil)
+        #expect(BytspotPatchRoute(url: url) == nil)
+        let coordinator = NativeNavigationCoordinator()
+        #expect(!coordinator.handle(url: url))
+        #expect(coordinator.requestedDestination == nil)
+    }
+
+    @Test(arguments: [
+        "https://bytspot.app/?p=com.bytspot.app.Clip",
+        "https://bytspot.app/?patch=COM.BYTSPOT.APP",
+        "https://bytspot.app/?patchid=%20Com.Bytspot.App.Clip%20",
+        "https://bytspot.app/p/com.bytspot.app.Clip",
+        "bytspot://access/COM.BYTSPOT.APP",
+        "https://appclip.apple.com/id?p=com.bytspot.app.Clip&patch=com.bytspot.app"
+    ])
+    func bundleIdentifiersAreNeverPatches(raw: String) throws {
+        let url = try #require(URL(string: raw))
+        #expect(BytspotPatchRoute(url: url) == nil)
+        let coordinator = NativeNavigationCoordinator()
+        #expect(!coordinator.notifyPatchScanned(url: url, source: .qr))
+        #expect(coordinator.requestedDestination == nil)
+        #expect(coordinator.lastScanSource == nil)
+    }
+
+    @Test(arguments: [
+        "https://appclip.apple.com/id?p=com.bytspot.app.Clip&patch=BYT424",
+        "https://appclip.apple.com/id?patchid=BYT424&p=com.bytspot.app.Clip",
+        "https://demo.appclip.apple.com/id?P=com.bytspot.app.Clip&PATCHID=BYT424",
+        "https://appclip.apple.com/p/BYT424?p=com.bytspot.app.Clip",
+        "https://bytspot.app/?p=BYT424",
+        "https://bytspot.com/BYT424",
+        "bytspot://p/BYT424",
+        "bytspot://access/BYT424",
+        "bytspot://t/BYT424"
+    ])
+    func explicitAppleAndLegacyPatchLinksStillWork(raw: String) throws {
+        let url = try #require(URL(string: raw))
+        let route = try #require(BytspotPatchRoute(url: url))
+        #expect(route.patchId == "BYT424")
+        let coordinator = NativeNavigationCoordinator()
+        #expect(coordinator.notifyPatchScanned(url: url, source: .qr))
+        #expect(coordinator.requestedDestination == .patch(route))
+        #expect(coordinator.requestedTab == .map)
+        #expect(coordinator.lastScanSource == .qr)
+    }
+}
+
 @MainActor
 struct NativeM2RouteTests {
     private let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)

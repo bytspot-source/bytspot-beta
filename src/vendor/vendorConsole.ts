@@ -32,6 +32,14 @@ export interface VendorBookableType {
   cottageDefault?: boolean;
 }
 
+/** What a business says it is. Its bookable types are what Bookables opens; the first is the main one. */
+export interface VendorBusinessKind {
+  id: string;
+  label: string;
+  icon: string;
+  bookableTypes: string[];
+}
+
 export interface VendorNavItem {
   id: string;
   label: string;
@@ -114,6 +122,7 @@ export interface VendorConsoleContract {
   };
   copy: VendorCopy;
   bookableTypes: VendorBookableType[];
+  businessKinds: VendorBusinessKind[];
   unsupportedTypes: { id: string; label: string; wouldNeed: { domain: string; variant: string } }[];
   navigation: { primary: VendorNavItem[]; secondary: VendorNavItem[] };
   createBookableSteps: { id: string; title: string; field: string }[];
@@ -198,6 +207,45 @@ export function listVendorBookableTypes(mode: VendorBusinessMode = 'standard'): 
 
 export function getVendorBookableType(id: string): VendorBookableType | undefined {
   return VENDOR_CONSOLE.bookableTypes.find((type) => type.id === id);
+}
+
+/** Every kind, with the home seller's first in cottage mode. */
+export function listBusinessKinds(mode: VendorBusinessMode = 'standard'): VendorBusinessKind[] {
+  const kinds = VENDOR_CONSOLE.businessKinds;
+  if (mode !== 'cottage') return kinds;
+  const cottage = (kind: VendorBusinessKind) =>
+    kind.bookableTypes.some((id) => getVendorBookableType(id)?.cottageDefault) ? 1 : 0;
+  return [...kinds].sort((a, b) => cottage(b) - cottage(a));
+}
+
+export function getBusinessKind(id: string | undefined): VendorBusinessKind | undefined {
+  return id ? VENDOR_CONSOLE.businessKinds.find((kind) => kind.id === id) : undefined;
+}
+
+/**
+ * The pills Bookables shows: the kind's types in its own order, then the ones
+ * the business added. No kind yet means every type, so a business that was
+ * selling before the question existed loses nothing. Mirrors the API's
+ * allowedBookableTypes, which refuses a draft outside this list.
+ */
+export function bookableTypesForBusiness(
+  mode: VendorBusinessMode,
+  kindId: string | undefined,
+  extras: string[] = [],
+): VendorBookableType[] {
+  const kind = getBusinessKind(kindId);
+  if (!kind) return listVendorBookableTypes(mode);
+  return [...new Set([...kind.bookableTypes, ...extras])]
+    .map(getVendorBookableType)
+    .filter((type): type is VendorBookableType => Boolean(type));
+}
+
+/** What "Add another category" offers: every type the business does not have yet. */
+export function addableBookableTypes(kindId: string | undefined, extras: string[] = []): VendorBookableType[] {
+  const kind = getBusinessKind(kindId);
+  if (!kind) return [];
+  const have = new Set([...kind.bookableTypes, ...extras]);
+  return VENDOR_CONSOLE.bookableTypes.filter((type) => !have.has(type.id));
 }
 
 /**
@@ -336,6 +384,23 @@ export function assertVendorConsoleContract(input: VendorConsoleContract = VENDO
     if (!templatesForBookableType(type.id).length && !blankOnlyVariants(type.id).length) {
       errors.push(`bookable type ${type.id} can neither print a template nor start blank`);
     }
+  }
+
+  // A kind that opens nothing would leave its business with an empty Bookables,
+  // and a type no kind opens can only be reached by adding it by hand.
+  const seenKinds = new Set<string>();
+  const reachable = new Set<string>();
+  for (const kind of input.businessKinds) {
+    if (seenKinds.has(kind.id)) errors.push(`duplicate business kind ${kind.id}`);
+    seenKinds.add(kind.id);
+    if (!kind.bookableTypes.length) errors.push(`business kind ${kind.id} opens no bookable type`);
+    for (const id of kind.bookableTypes) {
+      if (!seenTypes.has(id)) errors.push(`business kind ${kind.id} opens unknown bookable type ${id}`);
+      reachable.add(id);
+    }
+  }
+  for (const id of seenTypes) {
+    if (!reachable.has(id)) errors.push(`bookable type ${id} belongs to no business kind`);
   }
 
   for (const type of input.unsupportedTypes) {

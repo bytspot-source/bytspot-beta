@@ -11,6 +11,8 @@ export interface VendorSetupState {
   seller: Seller;
   blockers: string[];
   busy: boolean;
+  /** False until the first profile read lands, so screens do not act on an empty one. */
+  loaded: boolean;
 }
 
 export interface VendorSetupActions {
@@ -157,5 +159,5 @@ export function useVendorSetup(
     [transport],
   );
 
-  return { profile, seller, blockers, busy, edit, startPayout, move, geocode, reload };
+  return { profile, seller, blockers, busy, loaded, edit, startPayout, move, geocode, reload };
 }

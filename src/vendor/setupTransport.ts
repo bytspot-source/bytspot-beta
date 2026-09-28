@@ -30,7 +30,10 @@ export interface PayoutOnboardingHandoff {
 
 export interface SetupTransport {
   loadProfile: () => Promise<SetupResult<VendorProfile>>;
-  saveField: (field: 'legalName' | 'contactEmail', value: string) => Promise<SetupResult<VendorProfile>>;
+  saveField: (
+    field: 'legalName' | 'contactEmail' | 'businessKind' | 'extraBookableTypes',
+    value: string | string[],
+  ) => Promise<SetupResult<VendorProfile>>;
   saveLocation: (location: VendorLocation) => Promise<SetupResult<VendorProfile>>;
   /**
    * Runs a lifecycle operation on one place.
@@ -78,6 +81,10 @@ function reviveProfile(json: Record<string, unknown>): VendorProfile {
   return {
     legalName: typeof json.legalName === 'string' ? json.legalName : undefined,
     contactEmail: typeof json.contactEmail === 'string' ? json.contactEmail : undefined,
+    businessKind: typeof json.businessKind === 'string' ? json.businessKind : undefined,
+    extraBookableTypes: Array.isArray(json.extraBookableTypes)
+      ? json.extraBookableTypes.filter((id): id is string => typeof id === 'string')
+      : [],
     locations: locations.map((entry) => {
       const location = entry as VendorLocation;
       return {

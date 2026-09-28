@@ -192,3 +192,16 @@ test('the business moves when the server says so, not at the next sign-in', () =
   // A profile without a state (the demo, or an older API) leaves sign-in's.
   assert.equal(reconcileSeller(draft, complete).state, 'DRAFT');
 });
+
+test('a business kind and added categories are checked before they are saved', () => {
+  const picked = applyProfileEdit(EMPTY_PROFILE, { field: 'businessKind', value: 'valet' });
+  assert.equal(picked.ok && picked.profile.businessKind, 'valet');
+  assert.deepEqual(applyProfileEdit(EMPTY_PROFILE, { field: 'businessKind', value: 'spaceport' }), {
+    ok: false,
+    reason: 'invalid',
+    blockers: ['Pick one of the kinds listed'],
+  });
+  const added = applyProfileEdit(EMPTY_PROFILE, { field: 'extraBookableTypes', value: ['stay', 'stay'] });
+  assert.deepEqual(added.ok && added.profile.extraBookableTypes, ['stay']);
+  assert.equal(applyProfileEdit(EMPTY_PROFILE, { field: 'extraBookableTypes', value: ['yacht'] }).ok, false);
+});

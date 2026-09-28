@@ -261,3 +261,15 @@ test("the demo keeps a blank's own name and price", async () => {
   assert.equal(saved.value?.priceCents, 9500);
   assert.equal(saved.value?.domain, 'wellness');
 });
+
+test('the business kind round-trips, and junk in the added list is dropped', async () => {
+  const { authorized, calls } = stubFetch(() => ({
+    status: 200,
+    body: { businessKind: 'valet', extraBookableTypes: ['stay', 7], locations: [] },
+  }));
+  const result = await httpSetupTransport(authorized).saveField('extraBookableTypes', ['stay']);
+  assert.equal(result.value?.businessKind, 'valet');
+  assert.deepEqual(result.value?.extraBookableTypes, ['stay']);
+  assert.equal(calls[0].path, '/vendor/profile');
+  assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { extraBookableTypes: ['stay'] });
+});

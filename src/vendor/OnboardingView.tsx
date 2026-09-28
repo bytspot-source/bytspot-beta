@@ -15,7 +15,7 @@ import type { MediaTransport } from './mediaTransport.ts';
 import { payoutIsUsable, type ProfileEdit, type VendorProfile } from './profile.ts';
 import type { VendorSession } from './seller.ts';
 import type { AuthorizedFetch } from './setupTransport.ts';
-import { staffRoleLabel } from './vendorConsole.ts';
+import { getBusinessKind, getVendorBookableType, listBusinessKinds, staffRoleLabel, type VendorBusinessMode } from './vendorConsole.ts';
 
 export interface OnboardingViewProps {
   session: VendorSession;
@@ -79,6 +79,17 @@ export function OnboardingView({
           </ul>
         ) : null}
       </section>
+
+      {canAdvance ? (
+        <section className="vendor-card">
+          <BusinessKindPicker
+            mode={seller.businessMode}
+            kind={profile.businessKind}
+            busy={busy}
+            onPick={(id) => onEdit({ field: 'businessKind', value: id })}
+          />
+        </section>
+      ) : null}
 
       {copy?.checklist ? (
         <ul className="vendor-demand-list">
@@ -249,6 +260,67 @@ function PayoutField({
       <button type="button" className="vendor-button" disabled={busy} onClick={onStartPayout}>
         Set up payouts
       </button>
+    </>
+  );
+}
+
+/**
+ * The one question that narrows Bookables. Unanswered it is the whole card;
+ * answered it collapses to the choice and a way to change it.
+ */
+export function BusinessKindPicker({
+  mode,
+  kind,
+  busy,
+  onPick,
+}: {
+  mode: VendorBusinessMode;
+  kind?: string;
+  busy: boolean;
+  onPick: (id: string) => void;
+}) {
+  const chosen = getBusinessKind(kind);
+  const [changing, setChanging] = useState(false);
+  const typeLabels = (ids: string[]) => ids.map((id) => getVendorBookableType(id)?.label ?? id).join(', ');
+
+  if (chosen && !changing) {
+    return (
+      <>
+        <p className="vendor-section-title">✓ {chosen.label}</p>
+        <p className="vendor-muted">You will set up {typeLabels(chosen.bookableTypes)}. You can add another category in Bookables.</p>
+        <button type="button" className="vendor-chip" disabled={busy} onClick={() => setChanging(true)}>
+          Change
+        </button>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <p className="vendor-section-title">What kind of business are you?</p>
+      <p className="vendor-muted">We only show you what fits. You can add another category later.</p>
+      <div className="vendor-filters" role="group" aria-label="Kind of business">
+        {listBusinessKinds(mode).map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={item.id === kind ? 'vendor-chip vendor-chip-on' : 'vendor-chip'}
+            disabled={busy}
+            title={typeLabels(item.bookableTypes)}
+            onClick={() => {
+              setChanging(false);
+              onPick(item.id);
+            }}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      {changing ? (
+        <button type="button" className="vendor-chip" onClick={() => setChanging(false)}>
+          Keep {chosen?.label}
+        </button>
+      ) : null}
     </>
   );
 }

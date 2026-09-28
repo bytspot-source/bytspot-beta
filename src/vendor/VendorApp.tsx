@@ -3,7 +3,8 @@ import { formatBookablePrice } from '../utils/bookableTemplates';
 import {
   blankOnlyVariants,
   discoverCategoriesForBookableType,
-  listVendorBookableTypes,
+  addableBookableTypes,
+  bookableTypesForBusiness,
   staffRoleLabel,
   templatesForBookableType,
   vendorLandingView,
@@ -32,8 +33,8 @@ import { httpDemandTransport, type DemandTransport } from './demandTransport';
 import { httpMediaTransport, type MediaTransport } from './mediaTransport';
 import { useVendorDemand } from './useVendorDemand';
 import { payoutIsUsable } from './profile';
-import { OnboardingView } from './OnboardingView';
-import { gateReplacesConsole, justVerified, shouldShowOnboarding, verifiedLabel } from './onboarding';
+import { BusinessKindPicker, OnboardingView } from './OnboardingView';
+import { canAdvanceOnboarding, gateReplacesConsole, justVerified, shouldShowOnboarding, verifiedLabel } from './onboarding';
 import {
   httpSetupTransport,
   httpWindowsTransport,
@@ -68,6 +69,19 @@ export interface BookablesProps {
   windows: WindowsTransport;
   media: MediaTransport;
   authorizedFetch: AuthorizedFetch;
+  business: BusinessChoice;
+}
+
+/** What the business said it is, and the categories it added. Owned by the profile. */
+export interface BusinessChoice {
+  kind?: string;
+  extras: string[];
+  /** False until the profile is read, so a business with a kind never sees the question flash. */
+  loaded: boolean;
+  canEdit: boolean;
+  busy: boolean;
+  onKind: (id: string) => void;
+  onExtras: (ids: string[]) => void;
 }
 
 /**
@@ -282,9 +296,24 @@ function WindowForm({
   );
 }
 
-function BookablesView({ viewer, session, locations, windows: transport, media, authorizedFetch }: { viewer: VendorViewer } & BookablesProps) {
-  const types = useMemo(() => listVendorBookableTypes(viewer.businessMode), [viewer.businessMode]);
-  const [typeId, setTypeId] = useState(types[0]?.id ?? '');
+function BookablesView({
+  viewer,
+  session,
+  locations,
+  windows: transport,
+  media,
+  authorizedFetch,
+  business,
+}: { viewer: VendorViewer } & BookablesProps) {
+  const types = useMemo(
+    () => bookableTypesForBusiness(viewer.businessMode, business.kind, business.extras),
+    [viewer.businessMode, business.kind, business.extras],
+  );
+  const addable = useMemo(() => addableBookableTypes(business.kind, business.extras), [business.kind, business.extras]);
+  const [picked, setTypeId] = useState(types[0]?.id ?? '');
+  // Choosing a kind can take the open pill away; land on the kind's main one instead.
+  const typeId = types.some((item) => item.id === picked) ? picked : (types[0]?.id ?? '');
+  const [adding, setAdding] = useState(false);
   const [drafting, setDrafting] = useState<string | undefined>(undefined);
   const owned = useWindows(transport);
   const canDraft = session.capabilities.has('SCHEDULE') && session.scope !== 'assigned';
@@ -298,6 +327,12 @@ function BookablesView({ viewer, session, locations, windows: transport, media, 
 
   return (
     <>
+      {business.loaded && !business.kind && business.canEdit ? (
+        <section className="vendor-card">
+          <BusinessKindPicker mode={viewer.businessMode} busy={business.busy} onPick={business.onKind} />
+        </section>
+      ) : null}
+
       <section>
         <h2 className="vendor-section-title">{VENDOR_CONSOLE.createBookableSteps[0].title}</h2>
         <nav className="vendor-filters" aria-label="What you are selling">
@@ -311,7 +346,31 @@ function BookablesView({ viewer, session, locations, windows: transport, media, 
               {item.label}
             </button>
           ))}
+          {business.canEdit && addable.length ? (
+            <button type="button" className="vendor-chip" aria-expanded={adding} onClick={() => setAdding((open) => !open)}>
+              {adding ? 'Done' : '+ Add another category'}
+            </button>
+          ) : null}
         </nav>
+        {adding ? (
+          <nav className="vendor-filters" aria-label="Categories you can add">
+            {addable.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="vendor-chip"
+                disabled={business.busy}
+                onClick={() => {
+                  business.onExtras([...business.extras, item.id]);
+                  setTypeId(item.id);
+                  setAdding(false);
+                }}
+              >
+                + {item.label}
+              </button>
+            ))}
+          </nav>
+        ) : null}
         {type ? <p className="vendor-muted vendor-question">{type.question}</p> : null}
         {rails.length ? (
           <p className="vendor-muted vendor-question">
@@ -554,7 +613,22 @@ function VendorConsole({
           authorizedFetch={authorizedFetch}
         />
       }
-      bookables={{ session, locations: setup.profile.locations, windows, media, authorizedFetch }}
+      bookables={{
+        session,
+        locations: setup.profile.locations,
+        windows,
+        media,
+        authorizedFetch,
+        business: {
+          kind: setup.profile.businessKind,
+          extras: setup.profile.extraBookableTypes ?? [],
+          loaded: setup.loaded,
+          canEdit: canAdvanceOnboarding(session),
+          busy: setup.busy,
+          onKind: (id) => void setup.edit({ field: 'businessKind', value: id }),
+          onExtras: (ids) => void setup.edit({ field: 'extraBookableTypes', value: ids }),
+        },
+      }}
       demand={
         <DemandFeed
           session={session}

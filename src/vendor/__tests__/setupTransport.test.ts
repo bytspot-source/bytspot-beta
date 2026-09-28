@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { payoutBlockersFor } from '../profile.ts';
+import { listBookableDomains } from '../../utils/bookableTemplates.ts';
+import { blankOnlyVariants, listVendorBookableTypes } from '../vendorConsole.ts';
 import {
+  blankTemplateId,
   demoWindowsTransport,
   httpSetupTransport,
   httpWindowsTransport,
@@ -218,4 +221,43 @@ test('the profile carries the state the server decided, and nothing it made up',
   const dropped = (await httpSetupTransport(odd).loadProfile()).value;
   assert.equal(dropped?.state, undefined);
   assert.equal(dropped?.verifiedAt, undefined);
+});
+
+const blankDraft = {
+  skuTemplateId: blankTemplateId('wellness', 'facial'),
+  locationId: 'loc_1',
+  weekdays: [1],
+  openMins: 9 * 60,
+  closeMins: 17 * 60,
+  quantity: 1,
+};
+
+test('a blank must be named and priced; a preset needs neither', () => {
+  assert.deepEqual(windowDraftProblems(blankDraft), ['Give it a name guests will see', 'Set a price']);
+  assert.deepEqual(windowDraftProblems({ ...blankDraft, title: 'Hydrafacial', priceCents: 9500 }), []);
+  assert.deepEqual(windowDraftProblems({ ...blankDraft, skuTemplateId: 'wellness.massage-60' }), []);
+  assert.deepEqual(windowDraftProblems({ ...blankDraft, title: 'Hydrafacial', priceCents: 9500, durationMins: 2 }), [
+    'Length is between 5 minutes and a day',
+  ]);
+  assert.deepEqual(windowDraftProblems({ ...blankDraft, title: 'Hydrafacial', priceCents: -1 }), ['That price does not look right']);
+});
+
+test('every Blank card names a variant its domain already lists, so the API accepts it', () => {
+  let blanks = 0;
+  for (const type of listVendorBookableTypes('standard')) {
+    const domain = listBookableDomains().find((entry) => entry.id === type.domain);
+    for (const variant of blankOnlyVariants(type.id)) {
+      blanks += 1;
+      assert.ok(domain?.variants.includes(variant), `${type.id}: ${variant} is not a ${type.domain} variant`);
+      assert.equal(blankTemplateId(type.domain, variant), `custom.${type.domain}.${variant}`);
+    }
+  }
+  assert.ok(blanks > 0);
+});
+
+test("the demo keeps a blank's own name and price", async () => {
+  const saved = await demoWindowsTransport().create({ ...blankDraft, title: 'Hydrafacial', priceCents: 9500 });
+  assert.equal(saved.value?.title, 'Hydrafacial');
+  assert.equal(saved.value?.priceCents, 9500);
+  assert.equal(saved.value?.domain, 'wellness');
 });

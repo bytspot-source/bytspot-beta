@@ -5,7 +5,7 @@ import {
   type BookableSellerRequirement,
   type BookableSellerState,
 } from '../utils/bookableTemplates.ts';
-import { moveSeller, sessionCan, type SellerMoveVerdict, type Seller, type VendorSession } from './seller.ts';
+import { goLiveBlockers, moveSeller, sessionCan, type SellerMoveVerdict, type Seller, type VendorSession } from './seller.ts';
 import { vendorOnboardingContract, type VendorOnboardingStep } from './vendorConsole.ts';
 
 /**
@@ -96,6 +96,17 @@ export function shouldShowOnboarding(seller: Seller): boolean {
 
 export function onboardingCopy(state: BookableSellerState) {
   return vendorOnboardingContract().states.find((item) => item.state === state);
+}
+
+/** Everything is in, and only Bytspot's approval stands between the business and going live. */
+export function awaitingBytspotApproval(seller: Seller): boolean {
+  return seller.state === 'PENDING' && goLiveBlockers(seller).length === 0;
+}
+
+/** The gate's heading and body, including the wait for approval that no state names. */
+export function onboardingHeadline(seller: Seller): { title: string; body: string; checklist: boolean } | undefined {
+  if (awaitingBytspotApproval(seller)) return { ...vendorOnboardingContract().awaitingApproval, checklist: true };
+  return onboardingCopy(seller.state);
 }
 
 /**

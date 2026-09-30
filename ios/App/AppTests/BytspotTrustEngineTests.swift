@@ -5445,6 +5445,15 @@ final class NativePlanBookablesContractTests: XCTestCase {
         }
     }
 
+    func testABookingTapNamesOnlyAnExactPlace() throws {
+        let input = NativeTableBookingTapAPI.input(placeID: "ChIJ_example-1", surface: .plan)
+        XCTAssertEqual(input?["placeId"] as? String, "ChIJ_example-1")
+        XCTAssertEqual(input?["surface"] as? String, "plan")
+        XCTAssertNil(NativeTableBookingTapAPI.input(placeID: "places/../x", surface: .venue))
+        XCTAssertEqual(try item(["placeId": "ChIJ_example-1"]).placeId, "ChIJ_example-1")
+        XCTAssertNil(try item().placeId)
+    }
+
     func testAReferenceCarriesItsExactPlaceAndAnOfferingNeverDoes() {
         let reference = NativeDiscoverPlanSelection(title: "Example Grill", needKind: "dining", placeID: "ChIJ_example-1")
         XCTAssertEqual(reference.addRequest(planID: "plan-1").input["placeId"] as? String, "ChIJ_example-1")

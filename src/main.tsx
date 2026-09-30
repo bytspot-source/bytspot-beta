@@ -66,7 +66,25 @@ async function bootLegalPages() {
   createRoot(document.getElementById('root')!).render(createElement(App));
 }
 
+/** Bytspot Admin is a web back office, so it boots instead of the native handoff. */
+function isAdminPath(): boolean {
+  return window.location.pathname === '/admin' || window.location.pathname.startsWith('/admin/');
+}
+
+async function bootAdmin() {
+  const [{ createRoot }, { createElement }, { default: AdminApp }] = await Promise.all([
+    import('react-dom/client'),
+    import('react'),
+    import('./admin/AdminApp.tsx'),
+  ]);
+  document.title = 'Bytspot Admin';
+  document.querySelector('meta[name="apple-itunes-app"]')?.remove();
+  createRoot(document.getElementById('root')!).render(createElement(AdminApp));
+}
+
 unregisterLegacyServiceWorkers();
-if (!renderNativeHandoffOnly()) {
+if (isAdminPath()) {
+  void bootAdmin();
+} else if (!renderNativeHandoffOnly()) {
   void bootLegalPages();
 }

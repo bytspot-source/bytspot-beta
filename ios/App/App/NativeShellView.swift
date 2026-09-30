@@ -12794,6 +12794,10 @@ private struct NativeVenueDetailView: View {
         case .requestCoffee: beginDetailPlanSelection(requestCoffee: true)
         case .external(let url):
             // The visible CTA names the provider; only this explicit tap leaves Bytspot.
+            if externalURL == nil, url == details?.tableBookingURL, let placeID = venue.googlePlaceID {
+                let client = BytspotAPIClient(tokenProvider: { [credential = sessionStore.token] in credential })
+                Task { await NativeTableBookingTapAPI(client: client).record(placeID: placeID, surface: .venue) }
+            }
             handoffURL(url) { accepted in
                 if !accepted { statusMessage = "Could not open the provider. Please try again." }
             }

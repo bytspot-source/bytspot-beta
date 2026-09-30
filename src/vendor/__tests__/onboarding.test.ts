@@ -12,7 +12,9 @@ import {
   gateReplacesConsole,
   nextOnboardingItem,
   onboardingActions,
+  awaitingBytspotApproval,
   onboardingCopy,
+  onboardingHeadline,
   onboardingItems,
   onboardingProgress,
   onboardingStage,
@@ -131,6 +133,19 @@ test('a pending business keeps its checklist, since verification waits on what i
   assert.equal(onboardingCopy('PENDING')?.checklist, true);
   // Withdraw is the only thing it can do, and submit is gone.
   assert.deepEqual(onboardingActions(session({ state: 'PENDING' })).map((item) => item.id), ['WITHDRAW_SELLER']);
+});
+
+test('a finished business is told it is waiting on Bytspot, not on itself', () => {
+  const all = ['legalName', 'contactEmail', 'activeLocation', 'payoutAccount'];
+  const finished = seller({ state: 'PENDING', satisfied: all });
+  assert.equal(awaitingBytspotApproval(finished), true);
+  assert.equal(onboardingHeadline(finished)?.title, vendorOnboardingContract().awaitingApproval.title);
+
+  const owing = seller({ state: 'PENDING', satisfied: ['legalName', 'contactEmail'] });
+  assert.equal(awaitingBytspotApproval(owing), false);
+  assert.equal(onboardingHeadline(owing)?.title, onboardingCopy('PENDING')?.title);
+  assert.equal(awaitingBytspotApproval(seller({ state: 'ACTIVE', satisfied: all })), false);
+  assert.doesNotMatch(JSON.stringify(vendorOnboardingContract()), /automatic|No one needs to review/);
 });
 
 test('submitting is gated on what blocks review, not on everything', () => {

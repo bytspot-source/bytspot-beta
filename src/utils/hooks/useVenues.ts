@@ -127,6 +127,8 @@ export function venueToCard(v: ApiVenue, index: number, userCoords?: { lat: numb
     entryType: (v as any).entryType || 'free',
     entryPrice: (v as any).entryPrice || null,
     ticketUrl: (v as any).ticketUrl || null,
+    placeId: (v as any).googlePlaceId ?? undefined,
+    tableBooking: tableBookingFrom((v as any).booking),
     // Stash the slug for detail lookups
     _slug: v.slug,
     _lat: v.lat,

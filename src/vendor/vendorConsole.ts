@@ -109,6 +109,8 @@ export interface VendorOnboardingStep {
 export interface VendorOnboardingContract {
   steps: VendorOnboardingStep[];
   states: { state: BookableSellerState; title: string; body: string; checklist: boolean }[];
+  /** What the gate says once everything is in and only Bytspot's approval is left. */
+  awaitingApproval: { title: string; body: string };
 }
 
 export interface VendorConsoleContract {
@@ -516,10 +518,13 @@ function onboardingContractErrors(onboarding: VendorOnboardingContract): string[
     if (!sellerCanUseConsole(item.state)) errors.push(`${item.state} has onboarding copy but no console to show it in`);
   }
 
-  // PENDING still owes what going live requires, and verification is automatic,
-  // so hiding the checklist there would leave the vendor waiting on nobody.
+  // PENDING still owes what going live requires, so hiding the checklist there
+  // would leave the vendor unsure what they are waiting on.
   if (!onboarding.states.find((item) => item.state === 'PENDING')?.checklist) {
     errors.push('a pending business still has things to tick off');
+  }
+  if (!onboarding.awaitingApproval?.title?.trim() || !onboarding.awaitingApproval?.body?.trim()) {
+    errors.push('a finished business waiting on approval needs its own copy');
   }
 
   return errors;

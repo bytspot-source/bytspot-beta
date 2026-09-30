@@ -3,7 +3,7 @@ import type { BookableLocationKindId } from '../utils/bookableTemplates.ts';
 import {
   canAdvanceOnboarding,
   nextOnboardingItem,
-  onboardingCopy,
+  onboardingHeadline,
   onboardingItems,
   onboardingProgress,
   type OnboardingItem,
@@ -49,7 +49,7 @@ export function OnboardingView({
   const { seller } = session;
   const items = useMemo(() => onboardingItems(seller), [seller]);
   const progress = onboardingProgress(seller);
-  const copy = onboardingCopy(seller.state);
+  const copy = onboardingHeadline(seller);
   const next = nextOnboardingItem(seller);
   const canAdvance = canAdvanceOnboarding(session);
 

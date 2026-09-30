@@ -26,6 +26,9 @@ export interface AskOffer {
   /** Absent from an older API, which only knew paying at the venue. */
   payAt?: 'venue' | 'bytspot';
   payment?: { state: 'paying' | 'paid' | 'refunded'; reason?: string };
+  /** The code shown at the door. Present only on the booking the guest holds. */
+  pass?: string;
+  checkedIn?: boolean;
 }
 
 export interface AskStatus {
@@ -143,6 +146,16 @@ export function askTransport(client: AskClient) {
     pay: async (offerId: string) => (await client.demand.payOffer.mutate({ offerId })).url,
     withdraw: (demandId: string) => client.demand.withdraw.mutate({ demandId }),
   };
+}
+
+/** A pass code as it is read aloud: two groups of four. */
+export function passLabel(code: string): string {
+  return code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
+}
+
+/** What the pass QR encodes. The prefix lets a door scanner ignore every other QR code. */
+export function passQrValue(code: string): string {
+  return `BYTSPOT-PASS:${code}`;
 }
 
 export function formatSlotLabel(startsAt: string, now: Date = new Date()): string {

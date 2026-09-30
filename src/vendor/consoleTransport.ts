@@ -3,7 +3,8 @@ import type { PayoutAccount } from './profile.ts';
 import type { AuthorizedFetch, SetupResult, VendorWindow } from './setupTransport.ts';
 
 /**
- * Staff, Availability, Analytics, Payouts and Settings, against the API.
+ * Home, Bookings, Pass scanner, Staff, Availability, Analytics, Earnings,
+ * Payouts and Settings, against the API.
  *
  * Every screen gets a function, never the token, and every response is
  * revived field by field so a server that started sending more than this
@@ -95,7 +96,57 @@ export interface Payouts {
   lines: PayoutLine[];
 }
 
+export type BookingState = 'upcoming' | 'checked_in' | 'no_show' | 'past';
+export type PassState = 'ISSUED' | 'ADMITTED' | 'EXPIRED' | 'REVOKED';
+export type BookingMoveId = 'CHECK_IN' | 'NO_SHOW';
+export type BookingsWhen = 'upcoming' | 'past';
+
+export interface Booking {
+  id: string;
+  title: string;
+  where: string;
+  locationId: string;
+  windowId?: string;
+  startsAt: Date;
+  durationMins: number;
+  timezone?: string;
+  partySize: number;
+  guestName?: string;
+  note?: string;
+  priceCents: number;
+  payAt: 'venue' | 'bytspot';
+  paid: 'paid' | 'refunded' | 'at_venue';
+  state: BookingState;
+  pass: PassState;
+  checkedInAt?: Date;
+}
+
+export interface EarningsDay {
+  date: string;
+  appNetCents: number;
+  venueCents: number;
+  bookings: number;
+}
+
+export interface Earnings {
+  days: number;
+  totals: {
+    appGrossCents: number;
+    feeCents: number;
+    appNetCents: number;
+    refundedCents: number;
+    venueCents: number;
+    bookings: number;
+  };
+  daily: EarningsDay[];
+  upcomingVenueCents: number;
+}
+
 export interface ConsoleTransport {
+  bookings: (when: BookingsWhen) => Promise<SetupResult<Booking[]>>;
+  moveBooking: (id: string, operation: BookingMoveId) => Promise<SetupResult<Booking>>;
+  verifyPass: (code: string) => Promise<SetupResult<Booking>>;
+  earnings: (days: number) => Promise<SetupResult<Earnings>>;
   team: () => Promise<SetupResult<Team>>;
   invite: (draft: InviteDraft) => Promise<SetupResult<Team>>;
   moveSeat: (id: string, operation: SeatMoveId) => Promise<SetupResult<Team>>;
@@ -118,6 +169,66 @@ const date = (value: unknown): Date | undefined => {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 };
+
+const BOOKING_STATES: BookingState[] = ['upcoming', 'checked_in', 'no_show', 'past'];
+const PASS_STATES: PassState[] = ['ISSUED', 'ADMITTED', 'EXPIRED', 'REVOKED'];
+
+/** Undefined when the booking has no readable time, rather than drawing it at the epoch. */
+export function reviveBooking(json: Json): Booking | undefined {
+  const startsAt = date(json.startsAt);
+  if (!startsAt || !str(json.id)) return undefined;
+  const state = str(json.state) as BookingState;
+  const pass = str(json.pass) as PassState;
+  return {
+    id: str(json.id),
+    title: str(json.title) || 'Booking',
+    where: str(json.where),
+    locationId: str(json.locationId),
+    windowId: typeof json.windowId === 'string' ? json.windowId : undefined,
+    startsAt,
+    durationMins: num(json.durationMins),
+    timezone: typeof json.timezone === 'string' ? json.timezone : undefined,
+    partySize: num(json.partySize),
+    guestName: typeof json.guestName === 'string' ? json.guestName : undefined,
+    note: typeof json.note === 'string' ? json.note : undefined,
+    priceCents: num(json.priceCents),
+    payAt: json.payAt === 'bytspot' ? 'bytspot' : 'venue',
+    paid: json.paid === 'paid' || json.paid === 'refunded' ? json.paid : 'at_venue',
+    state: BOOKING_STATES.includes(state) ? state : 'past',
+    pass: PASS_STATES.includes(pass) ? pass : 'REVOKED',
+    checkedInAt: date(json.checkedInAt),
+  };
+}
+
+export function reviveBookings(json: Json): Booking[] {
+  const rows = Array.isArray(json.bookings) ? (json.bookings as Json[]) : [];
+  return rows.map(reviveBooking).filter((row): row is Booking => row !== undefined);
+}
+
+export function reviveEarnings(json: Json): Earnings {
+  const totals = (json.totals ?? {}) as Json;
+  const daily = Array.isArray(json.daily) ? (json.daily as Json[]) : [];
+  return {
+    days: num(json.days),
+    totals: {
+      appGrossCents: num(totals.appGrossCents),
+      feeCents: num(totals.feeCents),
+      appNetCents: num(totals.appNetCents),
+      refundedCents: num(totals.refundedCents),
+      venueCents: num(totals.venueCents),
+      bookings: num(totals.bookings),
+    },
+    daily: daily
+      .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(str(row.date)))
+      .map((row) => ({
+        date: str(row.date),
+        appNetCents: num(row.appNetCents),
+        venueCents: num(row.venueCents),
+        bookings: num(row.bookings),
+      })),
+    upcomingVenueCents: num(json.upcomingVenueCents),
+  };
+}
 
 export function reviveTeam(json: Json): Team {
   const seats = Array.isArray(json.seats) ? (json.seats as Json[]) : [];
@@ -237,6 +348,28 @@ export function revivePayouts(json: Json): Payouts {
   };
 }
 
+const PASS_QR_PREFIX = 'BYTSPOT-PASS:';
+
+/** A typed code (any case, spaces or dashes) or a scanned pass QR, as the 8-character code. */
+export function readPassCode(raw: string): string | undefined {
+  let value = raw.trim().toUpperCase();
+  if (value.startsWith(PASS_QR_PREFIX)) value = value.slice(PASS_QR_PREFIX.length);
+  value = value.replace(/[\s-]/g, '');
+  return /^[A-Z0-9]{8}$/.test(value) ? value : undefined;
+}
+
+/** Whether two instants fall on the same calendar day where the place is. */
+export function sameLocalDay(a: Date, b: Date, timezone?: string): boolean {
+  const day = (at: Date) => {
+    try {
+      return at.toLocaleDateString('en-CA', { timeZone: timezone });
+    } catch {
+      return at.toLocaleDateString('en-CA');
+    }
+  };
+  return day(a) === day(b);
+}
+
 /** Only an https link to the processor is opened; anything else is refused. */
 export function safeDashboardUrl(raw: unknown): string | undefined {
   if (typeof raw !== 'string') return undefined;
@@ -279,7 +412,13 @@ export function httpConsoleTransport(authorized: AuthorizedFetch): ConsoleTransp
   const get = { method: 'GET' as const };
   const windowPath = (id: string) => `/vendor/windows/${encodeURIComponent(id)}`;
 
+  const booking = (json: Json) => reviveBooking((json.booking ?? {}) as Json);
+
   return {
+    bookings: (when) => send(`/vendor/bookings?when=${encodeURIComponent(when)}`, get, reviveBookings),
+    moveBooking: (id, operation) => send(`/vendor/bookings/${encodeURIComponent(id)}/state`, post({ operation }), booking),
+    verifyPass: (code) => send('/vendor/passes/verify', post({ code }), booking),
+    earnings: (days) => send(`/vendor/earnings?days=${encodeURIComponent(String(days))}`, get, reviveEarnings),
     team: () => send('/vendor/seats', get, reviveTeam),
     invite: (draft) => send('/vendor/seats', post(draft), reviveTeam),
     moveSeat: (id, operation) => send(`/vendor/seats/${encodeURIComponent(id)}/state`, post({ operation }), reviveTeam),
@@ -305,6 +444,18 @@ export function demoConsoleTransport(): ConsoleTransport {
     paidCents: 0, netCents: 0, refunds: 0, payAtVenueCents: 0, top: [],
   };
   return {
+    bookings: async () => ({ status: 200, value: [] }),
+    moveBooking: async () => ({ status: 404, blockers: ['That booking is not here'] }),
+    verifyPass: async () => ({ status: 404, blockers: ['No booking here has that pass'] }),
+    earnings: async (days) => ({
+      status: 200,
+      value: {
+        days,
+        totals: { appGrossCents: 0, feeCents: 0, appNetCents: 0, refundedCents: 0, venueCents: 0, bookings: 0 },
+        daily: [],
+        upcomingVenueCents: 0,
+      },
+    }),
     team: async () => ({ status: 200, value: team }),
     invite: async (draft) => {
       team = {

@@ -324,3 +324,10 @@ test('the return from Stripe is recognised only for an offer checkout', async ()
   assert.equal(offerCheckoutReturn('?setup=success'), undefined);
   assert.equal(offerCheckoutReturn(''), undefined);
 });
+
+test('a booking pass reads in two groups of four and its QR names itself', async () => {
+  const { passLabel, passQrValue } = await import('../guestAsk.ts');
+  assert.equal(passLabel('ABCD2345'), 'ABCD-2345');
+  assert.equal(passLabel('ODD'), 'ODD');
+  assert.equal(passQrValue('ABCD2345'), 'BYTSPOT-PASS:ABCD2345');
+});

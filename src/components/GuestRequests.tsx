@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { trpc } from '../utils/trpc';
 import {
   askErrorMessage,
@@ -7,6 +8,8 @@ import {
   askTransport,
   formatSlotLabel,
   offerAction,
+  passLabel,
+  passQrValue,
   type AskClient,
   type AskOffer,
   type AskStatus,
@@ -90,6 +93,15 @@ export function GuestRequests() {
               <p className="text-[12px] text-slate-300">
                 ${(offer.priceCents / 100).toFixed(2)} · {offer.durationMins} min{offer.terms ? ` · ${offer.terms}` : ''}
               </p>
+              {offer.accepted && offer.pass ? (
+                <div className="mt-3 flex items-center gap-3 rounded-[10px] bg-white p-3 text-slate-950" data-testid="booking-pass">
+                  <QRCodeSVG value={passQrValue(offer.pass)} size={96} level="M" aria-label="Pass QR code" />
+                  <div>
+                    <p className="text-[12px] text-slate-600">{offer.checkedIn ? 'Checked in' : 'Show this at the door'}</p>
+                    <p className="font-mono text-[20px] tracking-wider" style={{ fontWeight: 700 }}>{passLabel(offer.pass)}</p>
+                  </div>
+                </div>
+              ) : null}
               {offer.payment?.state === 'refunded' ? (
                 <p className="mt-1 text-[12px]" style={{ color: '#fda4af' }}>
                   Refunded{offer.payment.reason ? `: ${offer.payment.reason}` : ''}

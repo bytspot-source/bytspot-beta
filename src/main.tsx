@@ -1,6 +1,8 @@
 import './index.css';
 import { canonicalLegalPath, nativeHandoffContext } from './utils/nativeHandoffGuard';
 
+const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
+
 function escapeHtml(value: string) {
   return value.replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char] ?? char);
 }
@@ -83,7 +85,7 @@ async function bootAdmin() {
 }
 
 unregisterLegacyServiceWorkers();
-if (isAdminPath()) {
+if (!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && isAdminPath()) {
   void bootAdmin();
 } else if (!renderNativeHandoffOnly()) {
   void bootLegalPages();

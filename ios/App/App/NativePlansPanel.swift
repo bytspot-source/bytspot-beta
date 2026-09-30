@@ -38,6 +38,8 @@ struct NativePlan: Codable, Identifiable, Equatable {
         var destination: Destination? = nil
         /// A hand-checked OpenTable or Resy link for a reference item.
         var tableBooking: TableBooking? = nil
+        /// The Google place a reference item points at, if any.
+        var placeId: String? = nil
         /// The guest's own record that they booked it there. Never `booked`:
         /// Bytspot cannot see that booking.
         var guestBooking: GuestBooking? = nil
@@ -1967,6 +1969,10 @@ struct NativePlanDetailSheet: View {
                                     if item.guestBooking == nil {
                                         Button("Book on \(booking.label) ↗") {
                                             if isCreator { leftForTableBooking = item }
+                                            if let placeID = item.placeId {
+                                                let client = BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token })
+                                                Task { await NativeTableBookingTapAPI(client: client).record(placeID: placeID, surface: .plan) }
+                                            }
                                             openURL(booking.url)
                                         }
                                         .frame(minHeight: 44)

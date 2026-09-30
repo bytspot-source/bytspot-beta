@@ -9,7 +9,7 @@ import { expect, test } from '@playwright/test';
 const LEGAL_PATHS = ['/privacy', '/terms', '/disclaimer', '/support'] as const;
 
 test.describe('Retired PWA stays retired', () => {
-  for (const path of ['/', '/map', '/provider', '/vendor', '/host', '/admin'] as const) {
+  for (const path of ['/', '/map', '/provider', '/vendor', '/host'] as const) {
     test(`${path} renders the native handoff, not the web app`, async ({ page }) => {
       await page.goto(path);
       await expect(page.getByText('Native only')).toBeVisible();
@@ -25,6 +25,13 @@ test.describe('Retired PWA stays retired', () => {
     await expect(page.locator('meta[name="apple-itunes-app"]').first())
       .toHaveAttribute('content', /app-argument=\S*\/party\/test-party-id$/);
   });
+});
+
+test('/admin boots Bytspot Admin instead of the handoff', async ({ page }) => {
+  await page.goto('/admin');
+  await expect(page.getByRole('heading', { name: 'Bytspot Admin' })).toBeVisible();
+  await expect(page.getByText('Native only')).toHaveCount(0);
+  await expect(page.locator('meta[name="apple-itunes-app"]')).toHaveCount(0);
 });
 
 test.describe('Legal pages still load', () => {

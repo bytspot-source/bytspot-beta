@@ -2567,6 +2567,24 @@ struct NativeVenueDetailsAPI {
     }
 }
 
+/// Counts a tap on an admin-listed OpenTable or Resy link, for the numbers
+/// Bytspot shows the restaurant. Fire and forget: a failed count never blocks
+/// the handoff.
+struct NativeTableBookingTapAPI {
+    enum Surface: String { case venue, plan }
+    let client: BytspotAPIClient
+
+    static func input(placeID: String, surface: Surface) -> [String: Any]? {
+        guard let id = NativeVenueDetailsDTO.exactGooglePlaceID(placeID) else { return nil }
+        return ["placeId": id, "surface": surface.rawValue]
+    }
+
+    func record(placeID: String, surface: Surface) async {
+        guard let input = Self.input(placeID: placeID, surface: surface) else { return }
+        _ = try? await client.trpcPayload(path: "/trpc/places.bookingTap", method: "POST", input: input)
+    }
+}
+
 struct NativeVenueSummary: Identifiable, Equatable {
     let id: String
     let name: String

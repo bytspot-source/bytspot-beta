@@ -1124,6 +1124,11 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
                   target="_blank"
                   rel="noopener noreferrer"
                   data-testid="venue-table-booking"
+                  onClick={() => {
+                    if (typeof venue.placeId === 'string' && venue.placeId) {
+                      trpc.places.bookingTap.mutate({ placeId: venue.placeId, surface: 'venue' }).catch(() => undefined);
+                    }
+                  }}
                   className="w-full rounded-[16px] py-3.5 flex items-center justify-center gap-2 bg-[#1C1C1E]/80 border-2 border-white/30"
                   whileTap={{ scale: 0.97 }}
                 >

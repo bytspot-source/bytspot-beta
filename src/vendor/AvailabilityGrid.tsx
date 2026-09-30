@@ -1,211 +1,305 @@
-import { useMemo, useState } from 'react';
-import {
-  availabilityDefaultsFor,
-  canSetSlotQuantity,
-  listBookableDomains,
-  listBookableTemplates,
-} from '../utils/bookableTemplates';
-import {
-  applyAvailabilityOperation,
-  availabilityOperationsFor,
-  buildAvailabilityGrid,
-  formatSlotTime,
-  printableSkuCount,
-  sellableSlots,
-  WEEKDAY_LABELS,
-  type AvailabilityWindow,
-  type SlotCommitments,
-} from './availability';
-import { authorizeAvailability, canSeeBookable, type VendorSession } from './seller';
-
-const HORIZON_DAYS = 14;
-
-// Stands in for bookings the API has not been wired up to yet, so the grid
-// shows what a partly sold week actually looks like.
-const DEMO_COMMITMENTS: SlotCommitments = {};
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { availabilityDefaultsFor, listBookableDomains, type BookableDomainId } from '../utils/bookableTemplates';
+import { availabilityOperationsFor, formatSlotTime, WEEKDAY_LABELS } from './availability';
+import type { ConsoleTransport, LiveSlot, ScheduleDraft, SlotMoveId, WindowSlots } from './consoleTransport';
+import type { VendorWindow, WindowsTransport } from './setupTransport';
+import { sessionCan, type VendorSession } from './seller';
 
 interface AvailabilityGridProps {
   session: VendorSession;
+  transport: ConsoleTransport;
+  windows: WindowsTransport;
 }
 
-export function AvailabilityGrid({ session }: AvailabilityGridProps) {
-  const all = useMemo(() => listBookableTemplates(), []);
-  // An assigned seat schedules only its own work, so the picker is scoped first.
-  const templates = useMemo(
-    () => (session.scope === 'all' ? all : all.filter((item) => canSeeBookable(session, item.id))),
-    [all, session],
-  );
-  const [templateId, setTemplateId] = useState('dining.table-for-4');
-  const template = templates.find((item) => item.id === templateId) ?? templates[0];
-  const defaults = availabilityDefaultsFor(template.domain);
-  // The catalog's own label, never the domain id: a vendor should not be shown
-  // "stall" when they run a car park.
-  const domainLabel =
-    listBookableDomains().find((item) => item.id === template.domain)?.label ?? template.domain;
+const SLOT_MOVES: SlotMoveId[] = ['OPEN_SLOT', 'CLOSE_SLOT', 'BLOCK_SLOT'];
 
-  const [window, setWindow] = useState<AvailabilityWindow>({
-    weekdays: [5, 6],
-    openMins: 19 * 60,
-    closeMins: 24 * 60,
-    quantity: 5,
-  });
-  const [commitments, setCommitments] = useState<SlotCommitments>(DEMO_COMMITMENTS);
+function toClock(mins: number): string {
+  const wrapped = mins % 1440;
+  return `${String(Math.floor(wrapped / 60)).padStart(2, '0')}:${String(wrapped % 60).padStart(2, '0')}`;
+}
 
-  const slots = useMemo(
-    () =>
-      buildAvailabilityGrid({
-        domain: template.domain,
-        window,
-        days: HORIZON_DAYS,
-        commitments,
-      }),
-    [template.domain, window, commitments],
-  );
-  const sellable = useMemo(() => sellableSlots(slots, template.domain), [slots, template.domain]);
+function fromClock(value: string): number {
+  const [hours, minutes] = value.split(':').map(Number);
+  return (hours || 0) * 60 + (minutes || 0);
+}
+
+function dayKey(slot: LiveSlot, timeZone?: string): string {
+  return slot.startsAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone });
+}
+
+/**
+ * Real slots for one bookable, from the API. Tapping a slot offers only the
+ * moves the contract allows from its state, and the server checks them again.
+ */
+export function AvailabilityGrid({ session, transport, windows }: AvailabilityGridProps) {
+  const [bookables, setBookables] = useState<VendorWindow[] | undefined>(undefined);
+  const [selectedId, setSelectedId] = useState('');
+  const [data, setData] = useState<WindowSlots | undefined>(undefined);
+  const [schedule, setSchedule] = useState<ScheduleDraft | undefined>(undefined);
+  const [picked, setPicked] = useState<LiveSlot | undefined>(undefined);
+  const [blockers, setBlockers] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const canSchedule = sessionCan(session, 'SCHEDULE');
+
+  useEffect(() => {
+    let live = true;
+    void windows.list().then((result) => {
+      if (!live) return;
+      const rows = result.value ?? [];
+      setBookables(rows);
+      setSelectedId((current) => current || rows[0]?.id || '');
+    });
+    return () => {
+      live = false;
+    };
+  }, [windows]);
+
+  const land = useCallback((result: Awaited<ReturnType<ConsoleTransport['slots']>>) => {
+    if (!result.value) {
+      setBlockers(result.blockers ?? ['That did not load. Try again']);
+      return false;
+    }
+    setBlockers([]);
+    setData(result.value);
+    const { weekdays, openMins, closeMins, quantity } = result.value.window;
+    setSchedule({ weekdays, openMins, closeMins, quantity });
+    return true;
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    let live = true;
+    setData(undefined);
+    setPicked(undefined);
+    void transport.slots(selectedId).then((result) => {
+      if (live) land(result);
+    });
+    return () => {
+      live = false;
+    };
+  }, [selectedId, transport, land]);
+
+  const run = async (call: () => ReturnType<ConsoleTransport['slots']>) => {
+    setBusy(true);
+    const ok = land(await call());
+    setBusy(false);
+    if (ok) setPicked(undefined);
+  };
 
   const byDay = useMemo(() => {
-    const groups = new Map<string, typeof slots>();
-    for (const slot of slots) {
-      const key = slot.startsAt.toDateString();
+    const groups = new Map<string, LiveSlot[]>();
+    for (const slot of data?.slots ?? []) {
+      const key = dayKey(slot, data?.timezone);
       groups.set(key, [...(groups.get(key) ?? []), slot]);
     }
     return [...groups.entries()];
-  }, [slots]);
+  }, [data]);
 
-  const toggleWeekday = (day: number) =>
-    setWindow((current) => ({
-      ...current,
-      weekdays: current.weekdays.includes(day)
-        ? current.weekdays.filter((item) => item !== day)
-        : [...current.weekdays, day].sort(),
-    }));
+  const domain = data?.window.domain as BookableDomainId | undefined;
+  const defaults = domain ? availabilityDefaultsFor(domain) : undefined;
+  const domainLabel = domain ? listBookableDomains().find((item) => item.id === domain)?.label ?? domain : '';
+  const dirty =
+    Boolean(data && schedule) &&
+    JSON.stringify(schedule) !==
+      JSON.stringify({
+        weekdays: data!.window.weekdays,
+        openMins: data!.window.openMins,
+        closeMins: data!.window.closeMins,
+        quantity: data!.window.quantity,
+      });
+  const moves = picked ? availabilityOperationsFor(session.seat.role, picked.state).filter((move) => SLOT_MOVES.includes(move.id as SlotMoveId)) : [];
 
-  const cycleSlot = (slotId: string) => {
-    const slot = slots.find((item) => item.id === slotId);
-    if (!slot) return;
-    const next = slot.state === 'BLOCKED' ? 'OPEN_SLOT' : 'BLOCK_SLOT';
-    if (!authorizeAvailability(session, next, slot.state, template.id).ok) return;
-    const applied = applyAvailabilityOperation(commitments, slot, session.seat.role, next);
-    if (applied) setCommitments(applied);
-  };
-
-  const setQuantity = (next: number) => {
-    // Quantity lives on the window, so the floor is the busiest slot already sold.
-    const busiest = slots.reduce((max, slot) => Math.max(max, slot.committed), 0);
-    if (!canSetSlotQuantity({ quantity: window.quantity, committed: busiest }, next)) return;
-    setWindow((current) => ({ ...current, quantity: next }));
-  };
+  if (bookables === undefined) return <p className="vendor-muted">Loading…</p>;
+  if (bookables.length === 0) {
+    return (
+      <section className="vendor-card">
+        <h2 className="vendor-section-title">No services yet</h2>
+        <p className="vendor-muted">Create one in Bookables first. Its days, hours and slots show up here.</p>
+      </section>
+    );
+  }
 
   return (
     <>
       <section>
         <h2 className="vendor-section-title">Which service?</h2>
         <nav className="vendor-filters" aria-label="Your services">
-          {templates.map((item) => (
+          {bookables.map((item) => (
             <button
               key={item.id}
               type="button"
-              className={item.id === template.id ? 'vendor-chip vendor-chip-on' : 'vendor-chip'}
-              onClick={() => setTemplateId(item.id)}
+              className={item.id === selectedId ? 'vendor-chip vendor-chip-on' : 'vendor-chip'}
+              onClick={() => setSelectedId(item.id)}
             >
-              {item.name}
+              {item.title}
+              {item.published ? '' : ' (draft)'}
             </button>
           ))}
         </nav>
-        <p className="vendor-muted vendor-question">
-          {domainLabel} runs in {defaults.slotMinutes}-minute slots, needs {defaults.leadTimeMins} minutes notice, and
-          guests can book up to {defaults.horizonDays} days ahead.
-        </p>
+        {defaults ? (
+          <p className="vendor-muted vendor-question">
+            {domainLabel} runs in {defaults.slotMinutes}-minute slots, needs {defaults.leadTimeMins} minutes notice, and
+            guests can book up to {defaults.horizonDays} days ahead.
+          </p>
+        ) : null}
       </section>
 
-      <section className="vendor-card">
-        <h2 className="vendor-section-title">When?</h2>
-        <nav className="vendor-filters" aria-label="Days open">
-          {WEEKDAY_LABELS.map((label, day) => (
+      {schedule ? (
+        <section className="vendor-card">
+          <h2 className="vendor-section-title">When?</h2>
+          <nav className="vendor-filters" aria-label="Days open">
+            {WEEKDAY_LABELS.map((label, day) => (
+              <button
+                key={label}
+                type="button"
+                disabled={!canSchedule}
+                className={schedule.weekdays.includes(day) ? 'vendor-chip vendor-chip-on' : 'vendor-chip'}
+                onClick={() =>
+                  setSchedule((current) =>
+                    current && {
+                      ...current,
+                      weekdays: current.weekdays.includes(day)
+                        ? current.weekdays.filter((item) => item !== day)
+                        : [...current.weekdays, day].sort(),
+                    },
+                  )
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          <div className="vendor-window-row">
+            <label>
+              Opens
+              <input
+                type="time"
+                disabled={!canSchedule}
+                value={toClock(schedule.openMins)}
+                onChange={(event) => setSchedule((current) => current && { ...current, openMins: fromClock(event.target.value) })}
+              />
+            </label>
+            <label>
+              Closes
+              <input
+                type="time"
+                disabled={!canSchedule}
+                value={toClock(schedule.closeMins)}
+                onChange={(event) => {
+                  const value = fromClock(event.target.value);
+                  setSchedule((current) => current && { ...current, closeMins: value <= current.openMins ? 1440 : value });
+                }}
+              />
+            </label>
+            <label>
+              How many?
+              <span className="vendor-stepper">
+                <button
+                  type="button"
+                  disabled={!canSchedule}
+                  aria-label="Fewer"
+                  onClick={() => setSchedule((current) => current && { ...current, quantity: Math.max(1, current.quantity - 1) })}
+                >
+                  −
+                </button>
+                <strong>{schedule.quantity}</strong>
+                <button
+                  type="button"
+                  disabled={!canSchedule}
+                  aria-label="More"
+                  onClick={() => setSchedule((current) => current && { ...current, quantity: current.quantity + 1 })}
+                >
+                  +
+                </button>
+              </span>
+            </label>
+          </div>
+          {canSchedule ? (
             <button
-              key={label}
               type="button"
-              className={window.weekdays.includes(day) ? 'vendor-chip vendor-chip-on' : 'vendor-chip'}
-              onClick={() => toggleWeekday(day)}
+              className="vendor-chip vendor-chip-on"
+              disabled={!dirty || busy || schedule.weekdays.length === 0}
+              onClick={() => void run(() => transport.saveSchedule(selectedId, schedule))}
             >
-              {label}
+              {busy ? 'Saving…' : 'Save hours'}
             </button>
-          ))}
-        </nav>
+          ) : null}
+        </section>
+      ) : null}
 
-        <div className="vendor-window-row">
-          <label>
-            Opens
-            <input
-              type="time"
-              value={`${String(Math.floor(window.openMins / 60)).padStart(2, '0')}:${String(window.openMins % 60).padStart(2, '0')}`}
-              onChange={(event) => {
-                const [hours, mins] = event.target.value.split(':').map(Number);
-                setWindow((current) => ({ ...current, openMins: hours * 60 + mins }));
-              }}
-            />
-          </label>
-          <label>
-            Closes
-            <input
-              type="time"
-              value={`${String(Math.floor((window.closeMins % 1440) / 60)).padStart(2, '0')}:${String(window.closeMins % 60).padStart(2, '0')}`}
-              onChange={(event) => {
-                const [hours, mins] = event.target.value.split(':').map(Number);
-                const value = hours * 60 + mins;
-                setWindow((current) => ({ ...current, closeMins: value <= current.openMins ? 1440 : value }));
-              }}
-            />
-          </label>
-          <label>
-            How many?
-            <span className="vendor-stepper">
-              <button type="button" onClick={() => setQuantity(window.quantity - 1)} aria-label="Fewer">
-                −
+      {blockers.length ? (
+        <ul className="vendor-reasons">
+          {blockers.map((reason) => (
+            <li key={reason} className="vendor-reason-fixable">{reason}</li>
+          ))}
+        </ul>
+      ) : null}
+
+      {picked ? (
+        <section className="vendor-card">
+          <h2 className="vendor-section-title">
+            {dayKey(picked, data?.timezone)} · {formatSlotTime(picked.startMins)}
+          </h2>
+          <p className="vendor-muted">
+            {picked.state.toLowerCase()} · {picked.remaining} of {picked.quantity} left
+            {picked.committed ? ` · ${picked.committed} booked stay booked` : ''}
+          </p>
+          <div className="vendor-demand-actions">
+            {moves.map((move) => (
+              <button
+                key={move.id}
+                type="button"
+                className="vendor-chip"
+                disabled={busy}
+                onClick={() => void run(() => transport.moveSlot(selectedId, picked.startsAt, move.id as SlotMoveId))}
+              >
+                {move.label}
               </button>
-              <strong>{window.quantity}</strong>
-              <button type="button" onClick={() => setQuantity(window.quantity + 1)} aria-label="More">
-                +
-              </button>
-            </span>
-          </label>
-        </div>
-      </section>
+            ))}
+            <button type="button" className="vendor-chip" onClick={() => setPicked(undefined)}>
+              Cancel
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <section className="vendor-card">
-        <div className="vendor-card-top">
-          <h2 className="vendor-section-title">{printableSkuCount(slots)} openings for guests to book</h2>
-        </div>
-        <p className="vendor-muted">
-          {slots.length} slots over {HORIZON_DAYS} days · {sellable.length} bookable right now · the rest are held by
-          notice time, time off or bookings already taken.
-        </p>
-
-        {byDay.length === 0 ? (
+        {!data ? (
+          <p className="vendor-muted">Loading slots…</p>
+        ) : !data.timezone ? (
+          <p className="vendor-muted">This place has no time zone yet, so no slots can be shown. Publish the service to set it.</p>
+        ) : byDay.length === 0 ? (
           <p className="vendor-muted">No days selected, so nothing is on sale.</p>
         ) : (
-          <ul className="vendor-days">
-            {byDay.map(([day, daySlots]) => (
-              <li key={day}>
-                <h3 className="vendor-day-label">{day}</h3>
-                <div className="vendor-slot-row">
-                  {daySlots.map((slot) => (
-                    <button
-                      key={slot.id}
-                      type="button"
-                      className={`vendor-slot vendor-slot-${slot.state.toLowerCase()}`}
-                      onClick={() => cycleSlot(slot.id)}
-                      disabled={!availabilityOperationsFor(session.seat.role, slot.state).length}
-                      title={`${slot.state} · ${slot.remaining} of ${slot.quantity} left`}
-                    >
-                      <span>{formatSlotTime(slot.startMins)}</span>
-                      <small>{slot.state === 'PASSED' ? '—' : `${slot.remaining}/${slot.quantity}`}</small>
-                    </button>
-                  ))}
-                </div>
-              </li>
-            ))}
-          </ul>
+          <>
+            <h2 className="vendor-section-title">
+              {data.slots.filter((slot) => slot.state === 'OPEN').reduce((total, slot) => total + slot.remaining, 0)}{' '}
+              openings for guests to book
+            </h2>
+            <p className="vendor-muted">Times are shown in {data.timezone}. Tap a slot to open, close or block it.</p>
+            <ul className="vendor-days">
+              {byDay.map(([day, slots]) => (
+                <li key={day}>
+                  <h3 className="vendor-day-label">{day}</h3>
+                  <div className="vendor-slot-row">
+                    {slots.map((slot) => (
+                      <button
+                        key={slot.startsAt.toISOString()}
+                        type="button"
+                        className={`vendor-slot vendor-slot-${slot.state.toLowerCase()}`}
+                        disabled={!canSchedule || slot.state === 'PASSED'}
+                        title={`${slot.state} · ${slot.remaining} of ${slot.quantity} left`}
+                        onClick={() => setPicked(slot)}
+                      >
+                        <span>{formatSlotTime(slot.startMins)}</span>
+                        <small>{slot.state === 'PASSED' ? '—' : `${slot.remaining}/${slot.quantity}`}</small>
+                      </button>
+                    ))}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </section>
     </>

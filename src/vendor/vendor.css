@@ -382,6 +382,17 @@ body {
   color: #7ee2a8;
 }
 
+.vendor-stats {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  margin: 0 0 14px;
+}
+
+.vendor-stats strong {
+  font-size: 22px;
+}
+
 .vendor-meta {
   margin: 14px 0 0;
   display: grid;

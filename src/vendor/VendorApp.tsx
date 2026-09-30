@@ -18,6 +18,9 @@ import { AvailabilityGrid } from './AvailabilityGrid';
 import { DemandFeed } from './DemandFeed';
 import { LocationsView } from './LocationsView';
 import { SeatsView } from './SeatsView';
+import { BusinessView, SettingsView } from './BusinessView';
+import { AnalyticsView, PayoutsView } from './MoneyViews';
+import { demoConsoleTransport, httpConsoleTransport, type ConsoleTransport } from './consoleTransport';
 import { WebhooksView } from './WebhooksView';
 import { AuthGate } from './AuthGate';
 import { httpAuthTransport } from './authTransport';
@@ -552,6 +555,10 @@ function VendorConsole({
     () => (VENDOR_DEMO_MODE ? demoMediaTransport() : httpMediaTransport(authorizedFetch)),
     [authorizedFetch],
   );
+  const consoleApi = useMemo<ConsoleTransport>(
+    () => (VENDOR_DEMO_MODE ? demoConsoleTransport() : httpConsoleTransport(authorizedFetch)),
+    [authorizedFetch],
+  );
   const windows = useMemo<WindowsTransport>(
     () => (VENDOR_DEMO_MODE ? demoWindowsTransport() : httpWindowsTransport(authorizedFetch)),
     [authorizedFetch],
@@ -629,6 +636,19 @@ function VendorConsole({
           onExtras: (ids) => void setup.edit({ field: 'extraBookableTypes', value: ids }),
         },
       }}
+      consoleApi={consoleApi}
+      windows={windows}
+      business={
+        <BusinessView
+          session={session}
+          profile={setup.profile}
+          blockers={setup.blockers}
+          busy={setup.busy}
+          canEdit={canAdvanceOnboarding(session)}
+          onEdit={(edit) => void setup.edit(edit)}
+        />
+      }
+      payouts={<PayoutsView transport={consoleApi} busy={setup.busy} onStartPayout={() => void setup.startPayout()} />}
       demand={
         <DemandFeed
           session={session}
@@ -647,6 +667,8 @@ function VendorConsole({
   );
 }
 
+const BUILT_VIEWS = ['bookables', 'availability', 'demand', 'locations', 'staff', 'webhooks', 'business', 'analytics', 'payouts', 'settings'];
+
 function ConsoleShell({
   session,
   onSignOut,
@@ -655,6 +677,10 @@ function ConsoleShell({
   places,
   bookables,
   demand,
+  consoleApi,
+  windows,
+  business,
+  payouts,
 }: {
   session: VendorSession;
   onSignOut: () => void;
@@ -665,6 +691,10 @@ function ConsoleShell({
   bookables: BookablesProps;
   /** Likewise: the feed is a read the caller owns, not shell state. */
   demand: React.ReactNode;
+  consoleApi: ConsoleTransport;
+  windows: WindowsTransport;
+  business: React.ReactNode;
+  payouts: React.ReactNode;
 }) {
   // Nav reads the session's effective capabilities, so suspending the business
   // removes the tab rather than leaving a screen that refuses every action.
@@ -741,12 +771,16 @@ function ConsoleShell({
         {gateReplacesConsole ? null : (
           <>
             {current === 'bookables' ? <BookablesView viewer={viewer} {...bookables} session={session} /> : null}
-            {current === 'availability' ? <AvailabilityGrid session={session} /> : null}
+            {current === 'availability' ? <AvailabilityGrid session={session} transport={consoleApi} windows={windows} /> : null}
             {current === 'demand' ? demand : null}
             {current === 'locations' ? places : null}
-            {current === 'staff' ? <SeatsView session={session} /> : null}
+            {current === 'staff' ? <SeatsView session={session} transport={consoleApi} windows={windows} /> : null}
             {current === 'webhooks' ? <WebhooksView session={session} /> : null}
-            {!['bookables', 'availability', 'demand', 'locations', 'staff', 'webhooks'].includes(current) ? (
+            {current === 'business' ? business : null}
+            {current === 'analytics' ? <AnalyticsView transport={consoleApi} /> : null}
+            {current === 'payouts' ? payouts : null}
+            {current === 'settings' ? <SettingsView session={session} transport={consoleApi} onSignOut={onSignOut} /> : null}
+            {!BUILT_VIEWS.includes(current) ? (
               <PlaceholderView id={current} label={active?.label ?? current} />
             ) : null}
           </>

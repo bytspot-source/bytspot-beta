@@ -50,9 +50,9 @@ test('the bypass is chosen at build time and never at runtime', () => {
   for (const banned of [/catch/, /navigator\.onLine/, /VENDOR_DEMO_MODE\s*\|\|/, /!VENDOR_DEMO_MODE/]) {
     assert.doesNotMatch(code, banned, `${banned} would make the bypass reachable at runtime`);
   }
-  // Seven uses and no more: the import, one choice per transport, and the banner
+  // Eight uses and no more: the import, one choice per transport, and the banner
   // that makes a demo build impossible to mistake for a real one.
-  assert.equal(code.match(/VENDOR_DEMO_MODE/g)?.length, 7);
+  assert.equal(code.match(/VENDOR_DEMO_MODE/g)?.length, 8);
   assert.match(code, /vendor-eyebrow[\s\S]{0,80}VENDOR_DEMO_MODE/);
 
   // Both transports are chosen the same way. A write path that reached the live
@@ -61,6 +61,7 @@ test('the bypass is chosen at build time and never at runtime', () => {
   assert.match(code, /VENDOR_DEMO_MODE \? demoDemandTransport\([a-zA-Z.]*\) : httpDemandTransport\(/);
   assert.match(code, /VENDOR_DEMO_MODE \? demoMediaTransport\(\) : httpMediaTransport\(/);
   assert.match(code, /VENDOR_DEMO_MODE \? demoWindowsTransport\(\) : httpWindowsTransport\(/);
+  assert.match(code, /VENDOR_DEMO_MODE \? demoConsoleTransport\(\) : httpConsoleTransport\(/);
 });
 
 test('the demo console opens, and still refuses what production would refuse', async () => {

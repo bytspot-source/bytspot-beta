@@ -84,6 +84,8 @@ export interface VendorAsk {
   sellerName: string;
   maxGuests: number;
   slots: { startsAt: string; remaining: number }[];
+  /** The QR / NFC patch the guest scanned to reach this card, credited on the request. */
+  viaPatch?: string;
 }
 
 /**

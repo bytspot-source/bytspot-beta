@@ -3,11 +3,14 @@ import test from 'node:test';
 import {
   demoConsoleTransport,
   httpConsoleTransport,
+  patchDraftProblems,
   readPassCode,
   reviveAnalytics,
   reviveBooking,
   reviveBookings,
   reviveEarnings,
+  revivePatch,
+  revivePatches,
   revivePayouts,
   reviveSlots,
   reviveTeam,
@@ -200,4 +203,41 @@ test('the demo build has no bookings and knows no passes', async () => {
   assert.deepEqual((await demo.bookings('upcoming')).value, []);
   assert.equal((await demo.verifyPass('ABCD2345')).status, 404);
   assert.equal((await demo.earnings(7)).value?.days, 7);
+});
+
+test('a patch is kept only with a real code and an https link', () => {
+  const base = { id: 'pat_1', code: 'ABCD2345', url: 'https://bytspot.app/at/ABCD2345', label: 'Front door', place: 'Main room', locationId: 'loc_1', scans: 3 };
+  const patch = revivePatch({ ...base, kind: 'partner', partnerName: 'Hotel Indigo', createdBySeatId: 'seat_1' });
+  assert.equal(patch?.kind, 'partner');
+  assert.equal(patch?.partnerName, 'Hotel Indigo');
+  assert.equal(patch?.scans, 3);
+  assert.equal(patch && 'createdBySeatId' in patch, false);
+  assert.equal(revivePatch({ ...base, kind: 'weird' })?.kind, 'patch');
+  assert.equal(revivePatch({ ...base, url: 'javascript:alert(1)' }), undefined);
+  assert.equal(revivePatch({ ...base, url: 'http://bytspot.app/at/ABCD2345' }), undefined);
+  assert.equal(revivePatch({ ...base, code: 'abc' }), undefined);
+  assert.equal(revivePatches({ patches: [base, { ...base, id: '' }] }).length, 1);
+});
+
+test('a patch needs a place and a label, and a partner link a partner', () => {
+  assert.deepEqual(patchDraftProblems({ kind: 'patch', locationId: 'loc_1', label: 'Door' }), []);
+  assert.deepEqual(patchDraftProblems({ kind: 'patch', locationId: '', label: ' ' }), ['Choose one of your places', 'Say where it goes']);
+  assert.deepEqual(patchDraftProblems({ kind: 'partner', locationId: 'loc_1', label: 'Desk' }), ['Name the partner']);
+});
+
+test('patches go to their API paths, and a partner name is sent only for a partner', async () => {
+  const { authorized, calls } = stubFetch(() => ({
+    status: 200,
+    body: { patches: [], patch: { id: 'pat_1', code: 'ABCD2345', url: 'https://bytspot.app/at/ABCD2345' } },
+  }));
+  const api = httpConsoleTransport(authorized);
+  assert.deepEqual((await api.patches('partner')).value, []);
+  assert.equal((await api.createPatch({ kind: 'patch', locationId: 'loc_1', label: ' Door ', partnerName: 'Ignored' })).value?.code, 'ABCD2345');
+  assert.equal((await api.archivePatch('pat 1', 'patch')).value, true);
+  assert.deepEqual(
+    calls.map((call) => call.path),
+    ['/vendor/patches?kind=partner', '/vendor/patches', '/vendor/patches/pat%201/archive'],
+  );
+  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { kind: 'patch', locationId: 'loc_1', label: 'Door' });
+  assert.deepEqual(JSON.parse(String(calls[2].init?.body)), { kind: 'patch' });
 });

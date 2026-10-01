@@ -82,7 +82,7 @@ import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
 import { canonicalLegalPath } from './utils/nativeHandoffGuard';
 import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
 import { detectBytspotPatchTierFromUrl, detectBytspotTagIntentFromUrl, detectBytspotTagUseModeFromUrl, normalizeBytspotPatchTier, type BytspotPatchTier, type BytspotTagIntent, type BytspotTagUseMode } from './utils/patchTiers';
-import { curatedServiceRecommendationCards, savedServiceRequestToCard } from './utils/vendorExperienceCards';
+import { curatedServiceRecommendationCards, patchCodeFromPath, patchLandingCard, savedServiceRequestToCard } from './utils/vendorExperienceCards';
 import { markCuratedFallbackDiscoverCards, rankDiscoverCardsWithSimplex } from './utils/vendorMatching';
 import { resolveVenuePhoto } from './utils/venuePhoto';
 import type { CardType, DiscoverCard } from './utils/mockData';
@@ -753,6 +753,20 @@ export default function App() {
     // ─── Capacitor Deep Links ─────────────────────────────────────────────
     // When the native app is opened via bytspot:// or a universal link,
     // route to the correct in-app screen.
+    const openVendorPatch = async (code: string) => {
+      window.history.replaceState({}, '', '/');
+      try {
+        const opened = await trpc.inventory.openPatch.mutate({ code });
+        const card = patchLandingCard(opened);
+        setCurrentScreen('main');
+        setActiveTab('discover');
+        if (card) setSelectedSearchVenue(card);
+        else toast(`${opened.sellerName} is not taking requests right now`, { description: opened.place.label });
+      } catch {
+        toast.error('This code is not in use');
+      }
+    };
+
     const handleDeepLink = (url: string) => {
       try {
         const parsed = new URL(url);
@@ -782,6 +796,13 @@ export default function App() {
         // NTAG424 DNA cards/wristbands may also arrive as bytspot.com/BYT424-0301.
         // Backward-compatible NFC tag URL: bytspot.app/t/<unique-serial-number>
         // or query-string variant: bytspot.app/?patch=<id>&venue=<name>
+        // Vendor QR / NFC patch: bytspot.app/at/<code> opens that place's card.
+        const vendorPatchCode = patchCodeFromPath(pathFromName);
+        if (vendorPatchCode) {
+          void openVendorPatch(vendorPatchCode);
+          return;
+        }
+
         const patchDeepLink = extractPatchDeepLink(url);
         if (patchDeepLink) {
           void routePatchTap(patchDeepLink.patchId, patchDeepLink.venueName, patchDeepLink.tier, patchDeepLink.tagUseMode, patchDeepLink.tagIntent, patchDeepLink.referralCode, patchDeepLink.groupSize, patchDeepLink.serviceId);

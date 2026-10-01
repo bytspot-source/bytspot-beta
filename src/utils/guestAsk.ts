@@ -45,7 +45,7 @@ export interface AskStatus {
 /** The slice of the tRPC client the flow uses. */
 export interface AskClient {
   demand: {
-    ask: { mutate: (input: { windowId: string; partySize: number; startsAt: string; note?: string }) => Promise<{ id: string; state: string; expiresAt: string }> };
+    ask: { mutate: (input: { windowId: string; partySize: number; startsAt: string; note?: string; viaPatch?: string }) => Promise<{ id: string; state: string; expiresAt: string }> };
     mine: { query: () => Promise<AskStatus[]> };
     acceptOffer: { mutate: (input: { offerId: string }) => Promise<unknown> };
     payOffer: { mutate: (input: { offerId: string }) => Promise<{ url: string }> };
@@ -135,6 +135,7 @@ export function askTransport(client: AskClient) {
         partySize: draft.partySize,
         startsAt: draft.startsAt,
         ...(draft.note?.trim() ? { note: draft.note.trim() } : {}),
+        ...(ask.viaPatch ? { viaPatch: ask.viaPatch } : {}),
       }),
     /** Undefined once the ask has left the guest's list (expired or finished). */
     read: async (demandId: string): Promise<AskStatus | undefined> =>

@@ -3,11 +3,19 @@ import test from 'node:test';
 import {
   demoConsoleTransport,
   httpConsoleTransport,
+  patchDraftProblems,
+  readPassCode,
   reviveAnalytics,
+  reviveBooking,
+  reviveBookings,
+  reviveEarnings,
+  revivePatch,
+  revivePatches,
   revivePayouts,
   reviveSlots,
   reviveTeam,
   safeDashboardUrl,
+  sameLocalDay,
 } from '../consoleTransport.ts';
 import type { AuthorizedFetch } from '../setupTransport.ts';
 
@@ -111,4 +119,125 @@ test('the demo team starts empty and removing a seat drops it', async () => {
   const invited = await demo.invite({ email: 'a@example.com', role: 'staff', locationIds: [], bookableIds: [] });
   const id = invited.value!.seats[0].id;
   assert.equal((await demo.moveSeat(id, 'REVOKE_SEAT')).value?.seats.length, 0);
+});
+
+test('a booking keeps only what the console shows, and unknown states read as closed', () => {
+  const booking = reviveBooking({
+    id: 'off_1',
+    title: 'Chef counter',
+    where: 'Main room',
+    locationId: 'loc_1',
+    startsAt: '2026-10-02T23:00:00Z',
+    durationMins: 90,
+    partySize: 2,
+    guestName: 'Ada',
+    priceCents: 4000,
+    payAt: 'bytspot',
+    paid: 'paid',
+    state: 'upcoming',
+    pass: 'ISSUED',
+    passCode: 'ABCD2345',
+    guestEmail: 'ada@example.com',
+  });
+  assert.equal(booking?.guestName, 'Ada');
+  assert.equal(booking?.paid, 'paid');
+  assert.equal(booking && 'passCode' in booking, false);
+  assert.equal(booking && 'guestEmail' in booking, false);
+
+  const odd = reviveBooking({ id: 'off_2', startsAt: '2026-10-02T23:00:00Z', state: 'weird', pass: 'weird', paid: 'weird' });
+  assert.equal(odd?.state, 'past');
+  assert.equal(odd?.pass, 'REVOKED');
+  assert.equal(odd?.paid, 'at_venue');
+
+  assert.equal(reviveBooking({ id: 'off_3', startsAt: 'garbage' }), undefined);
+  assert.equal(reviveBookings({ bookings: [{ id: 'x', startsAt: 'garbage' }, { id: 'y', startsAt: '2026-10-02T23:00:00Z' }] }).length, 1);
+});
+
+test('earnings drop days that are not dates', () => {
+  const earnings = reviveEarnings({
+    days: 7,
+    totals: { appNetCents: 4500, venueCents: 4000, bookings: 2 },
+    daily: [{ date: '2026-10-01', appNetCents: 4500, bookings: 1 }, { date: '<script>', venueCents: 1 }],
+    upcomingVenueCents: 8000,
+  });
+  assert.equal(earnings.daily.length, 1);
+  assert.equal(earnings.totals.feeCents, 0);
+  assert.equal(earnings.upcomingVenueCents, 8000);
+});
+
+test('a pass reads the same typed or scanned, and anything else is refused', () => {
+  assert.equal(readPassCode('abcd-2345'), 'ABCD2345');
+  assert.equal(readPassCode('BYTSPOT-PASS:ABCD2345'), 'ABCD2345');
+  assert.equal(readPassCode('https://bytspot.app/p/ABCD2345'), undefined);
+  assert.equal(readPassCode(''), undefined);
+});
+
+test('today is the place\'s today', () => {
+  const lateEvening = new Date('2026-10-02T03:30:00Z');
+  const nextMorning = new Date('2026-10-02T14:00:00Z');
+  assert.equal(sameLocalDay(lateEvening, nextMorning, 'America/New_York'), false);
+  assert.equal(sameLocalDay(lateEvening, nextMorning, 'UTC'), true);
+});
+
+test('bookings, check-in, passes and earnings go to their API paths', async () => {
+  const { authorized, calls } = stubFetch((path) =>
+    path === '/vendor/passes/verify'
+      ? { status: 404, body: { blockers: ['No booking here has that pass'] } }
+      : { status: 200, body: { bookings: [], booking: { id: 'off 1', startsAt: '2026-10-02T23:00:00Z', state: 'checked_in' } } },
+  );
+  const api = httpConsoleTransport(authorized);
+  assert.deepEqual((await api.bookings('past')).value, []);
+  assert.equal((await api.moveBooking('off 1', 'CHECK_IN')).value?.state, 'checked_in');
+  assert.deepEqual((await api.verifyPass('ABCD2345')).blockers, ['No booking here has that pass']);
+  await api.earnings(90);
+  assert.deepEqual(
+    calls.map((call) => call.path),
+    ['/vendor/bookings?when=past', '/vendor/bookings/off%201/state', '/vendor/passes/verify', '/vendor/earnings?days=90'],
+  );
+  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { operation: 'CHECK_IN' });
+  assert.deepEqual(JSON.parse(String(calls[2].init?.body)), { code: 'ABCD2345' });
+});
+
+test('the demo build has no bookings and knows no passes', async () => {
+  const demo = demoConsoleTransport();
+  assert.deepEqual((await demo.bookings('upcoming')).value, []);
+  assert.equal((await demo.verifyPass('ABCD2345')).status, 404);
+  assert.equal((await demo.earnings(7)).value?.days, 7);
+});
+
+test('a patch is kept only with a real code and an https link', () => {
+  const base = { id: 'pat_1', code: 'ABCD2345', url: 'https://bytspot.app/at/ABCD2345', label: 'Front door', place: 'Main room', locationId: 'loc_1', scans: 3 };
+  const patch = revivePatch({ ...base, kind: 'partner', partnerName: 'Hotel Indigo', createdBySeatId: 'seat_1' });
+  assert.equal(patch?.kind, 'partner');
+  assert.equal(patch?.partnerName, 'Hotel Indigo');
+  assert.equal(patch?.scans, 3);
+  assert.equal(patch && 'createdBySeatId' in patch, false);
+  assert.equal(revivePatch({ ...base, kind: 'weird' })?.kind, 'patch');
+  assert.equal(revivePatch({ ...base, url: 'javascript:alert(1)' }), undefined);
+  assert.equal(revivePatch({ ...base, url: 'http://bytspot.app/at/ABCD2345' }), undefined);
+  assert.equal(revivePatch({ ...base, code: 'abc' }), undefined);
+  assert.equal(revivePatches({ patches: [base, { ...base, id: '' }] }).length, 1);
+});
+
+test('a patch needs a place and a label, and a partner link a partner', () => {
+  assert.deepEqual(patchDraftProblems({ kind: 'patch', locationId: 'loc_1', label: 'Door' }), []);
+  assert.deepEqual(patchDraftProblems({ kind: 'patch', locationId: '', label: ' ' }), ['Choose one of your places', 'Say where it goes']);
+  assert.deepEqual(patchDraftProblems({ kind: 'partner', locationId: 'loc_1', label: 'Desk' }), ['Name the partner']);
+});
+
+test('patches go to their API paths, and a partner name is sent only for a partner', async () => {
+  const { authorized, calls } = stubFetch(() => ({
+    status: 200,
+    body: { patches: [], patch: { id: 'pat_1', code: 'ABCD2345', url: 'https://bytspot.app/at/ABCD2345' } },
+  }));
+  const api = httpConsoleTransport(authorized);
+  assert.deepEqual((await api.patches('partner')).value, []);
+  assert.equal((await api.createPatch({ kind: 'patch', locationId: 'loc_1', label: ' Door ', partnerName: 'Ignored' })).value?.code, 'ABCD2345');
+  assert.equal((await api.archivePatch('pat 1', 'patch')).value, true);
+  assert.deepEqual(
+    calls.map((call) => call.path),
+    ['/vendor/patches?kind=partner', '/vendor/patches', '/vendor/patches/pat%201/archive'],
+  );
+  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { kind: 'patch', locationId: 'loc_1', label: 'Door' });
+  assert.deepEqual(JSON.parse(String(calls[2].init?.body)), { kind: 'patch' });
 });

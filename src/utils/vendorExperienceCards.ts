@@ -244,6 +244,32 @@ export function vendorInventoryToCard(
   };
 }
 
+/** What `inventory.openPatch` returns for a scanned QR / NFC patch. */
+export type OpenedVendorPatch = {
+  code: string;
+  sellerName: string;
+  place: { label: string; address: string | null; lat: number; lng: number };
+  cards: VendorInventoryCard[];
+};
+
+/** The patch code in a `/at/<code>` link, or undefined for any other path. */
+export function patchCodeFromPath(path: string): string | undefined {
+  const match = /^\/*at\/([A-Za-z0-9-]{4,20})\/?$/.exec(path);
+  return match ? match[1].toUpperCase() : undefined;
+}
+
+/**
+ * The card a scanned patch opens: the first service there with the seller's
+ * own photos, carrying the code so a request from it is credited to the patch.
+ */
+export function patchLandingCard(opened: OpenedVendorPatch, now: Date = new Date()): DiscoverCard | null {
+  for (const [index, item] of opened.cards.entries()) {
+    const card = vendorInventoryToCard(item, index, now);
+    if (card) return card.ask ? { ...card, ask: { ...card.ask, viaPatch: opened.code } } : card;
+  }
+  return null;
+}
+
 export function vendorServiceToCard(
   service: VendorDiscoveryService,
   index: number,

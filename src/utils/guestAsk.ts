@@ -26,6 +26,9 @@ export interface AskOffer {
   /** Absent from an older API, which only knew paying at the venue. */
   payAt?: 'venue' | 'bytspot';
   payment?: { state: 'paying' | 'paid' | 'refunded'; reason?: string };
+  /** The code shown at the door. Present only on the booking the guest holds. */
+  pass?: string;
+  checkedIn?: boolean;
 }
 
 export interface AskStatus {
@@ -42,7 +45,7 @@ export interface AskStatus {
 /** The slice of the tRPC client the flow uses. */
 export interface AskClient {
   demand: {
-    ask: { mutate: (input: { windowId: string; partySize: number; startsAt: string; note?: string }) => Promise<{ id: string; state: string; expiresAt: string }> };
+    ask: { mutate: (input: { windowId: string; partySize: number; startsAt: string; note?: string; viaPatch?: string }) => Promise<{ id: string; state: string; expiresAt: string }> };
     mine: { query: () => Promise<AskStatus[]> };
     acceptOffer: { mutate: (input: { offerId: string }) => Promise<unknown> };
     payOffer: { mutate: (input: { offerId: string }) => Promise<{ url: string }> };
@@ -132,6 +135,7 @@ export function askTransport(client: AskClient) {
         partySize: draft.partySize,
         startsAt: draft.startsAt,
         ...(draft.note?.trim() ? { note: draft.note.trim() } : {}),
+        ...(ask.viaPatch ? { viaPatch: ask.viaPatch } : {}),
       }),
     /** Undefined once the ask has left the guest's list (expired or finished). */
     read: async (demandId: string): Promise<AskStatus | undefined> =>
@@ -143,6 +147,16 @@ export function askTransport(client: AskClient) {
     pay: async (offerId: string) => (await client.demand.payOffer.mutate({ offerId })).url,
     withdraw: (demandId: string) => client.demand.withdraw.mutate({ demandId }),
   };
+}
+
+/** A pass code as it is read aloud: two groups of four. */
+export function passLabel(code: string): string {
+  return code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
+}
+
+/** What the pass QR encodes. The prefix lets a door scanner ignore every other QR code. */
+export function passQrValue(code: string): string {
+  return `BYTSPOT-PASS:${code}`;
 }
 
 export function formatSlotLabel(startsAt: string, now: Date = new Date()): string {

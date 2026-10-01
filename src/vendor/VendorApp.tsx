@@ -19,7 +19,9 @@ import { DemandFeed } from './DemandFeed';
 import { LocationsView } from './LocationsView';
 import { SeatsView } from './SeatsView';
 import { BusinessView, SettingsView } from './BusinessView';
-import { AnalyticsView, PayoutsView } from './MoneyViews';
+import { AnalyticsView, EarningsView, PayoutsView } from './MoneyViews';
+import { BookingsView, HomeView, ScannerView } from './BookingsView';
+import { PatchesView } from './PatchesView';
 import { demoConsoleTransport, httpConsoleTransport, type ConsoleTransport } from './consoleTransport';
 import { WebhooksView } from './WebhooksView';
 import { AuthGate } from './AuthGate';
@@ -638,6 +640,7 @@ function VendorConsole({
       }}
       consoleApi={consoleApi}
       windows={windows}
+      openRequests={feed.demand.length}
       business={
         <BusinessView
           session={session}
@@ -667,7 +670,7 @@ function VendorConsole({
   );
 }
 
-const BUILT_VIEWS = ['bookables', 'availability', 'demand', 'locations', 'staff', 'webhooks', 'business', 'analytics', 'payouts', 'settings'];
+const BUILT_VIEWS = ['home', 'bookings', 'earnings', 'scanner', 'patches', 'partnerships', 'bookables', 'availability', 'demand', 'locations', 'staff', 'webhooks', 'business', 'analytics', 'payouts', 'settings'];
 
 function ConsoleShell({
   session,
@@ -679,6 +682,7 @@ function ConsoleShell({
   demand,
   consoleApi,
   windows,
+  openRequests,
   business,
   payouts,
 }: {
@@ -693,6 +697,8 @@ function ConsoleShell({
   demand: React.ReactNode;
   consoleApi: ConsoleTransport;
   windows: WindowsTransport;
+  /** Guest requests in the feed right now, for Home. */
+  openRequests: number;
   business: React.ReactNode;
   payouts: React.ReactNode;
 }) {
@@ -770,6 +776,27 @@ function ConsoleShell({
         {gate}
         {gateReplacesConsole ? null : (
           <>
+            {current === 'home' ? (
+              <HomeView
+                session={session}
+                transport={consoleApi}
+                openRequests={openRequests}
+                shortcuts={visible.map((item) => ({ id: item.id, label: item.label }))}
+                onOpen={setView}
+              />
+            ) : null}
+            {current === 'bookings' ? <BookingsView session={session} transport={consoleApi} /> : null}
+            {current === 'earnings' ? <EarningsView transport={consoleApi} /> : null}
+            {current === 'scanner' ? <ScannerView session={session} transport={consoleApi} /> : null}
+            {current === 'patches' || current === 'partnerships' ? (
+              <PatchesView
+                key={current}
+                kind={current === 'partnerships' ? 'partner' : 'patch'}
+                transport={consoleApi}
+                windows={windows}
+                locations={bookables.locations}
+              />
+            ) : null}
             {current === 'bookables' ? <BookablesView viewer={viewer} {...bookables} session={session} /> : null}
             {current === 'availability' ? <AvailabilityGrid session={session} transport={consoleApi} windows={windows} /> : null}
             {current === 'demand' ? demand : null}

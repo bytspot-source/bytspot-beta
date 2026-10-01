@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { PayoutAccount } from './profile';
-import { formatCents, type Analytics, type ConsoleTransport, type Payouts } from './consoleTransport';
+import { formatCents, type Analytics, type ConsoleTransport, type Earnings, type Payouts } from './consoleTransport';
 
 const RANGES = [7, 30, 90] as const;
 
@@ -76,6 +76,87 @@ export function AnalyticsView({ transport }: { transport: ConsoleTransport }) {
               </ul>
             )}
             <p className="vendor-muted">Declined requests: {data.declined}.</p>
+          </section>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function dateLabel(date: string): string {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+/** What the business took in, by day: paid in the app and paid at the venue. */
+export function EarningsView({ transport }: { transport: ConsoleTransport }) {
+  const [days, setDays] = useState<number>(30);
+  const [data, setData] = useState<Earnings | undefined>(undefined);
+  const [problem, setProblem] = useState('');
+
+  useEffect(() => {
+    let live = true;
+    setData(undefined);
+    void transport.earnings(days).then((result) => {
+      if (!live) return;
+      if (result.value) {
+        setData(result.value);
+        setProblem('');
+      } else setProblem(result.blockers?.[0] ?? 'That did not load. Try again');
+    });
+    return () => {
+      live = false;
+    };
+  }, [transport, days]);
+
+  return (
+    <>
+      <nav className="vendor-filters" aria-label="Range">
+        {RANGES.map((range) => (
+          <button
+            key={range}
+            type="button"
+            className={range === days ? 'vendor-chip vendor-chip-on' : 'vendor-chip'}
+            onClick={() => setDays(range)}
+          >
+            Last {range} days
+          </button>
+        ))}
+      </nav>
+      {problem ? <p className="vendor-muted vendor-reason-fixable">{problem}</p> : null}
+      {!data && !problem ? <p className="vendor-muted">Loading…</p> : null}
+      {data ? (
+        <>
+          <section className="vendor-stats">
+            <Tile label="Total" value={formatCents(data.totals.appNetCents + data.totals.venueCents)} />
+            <Tile label="Paid in the app, after the Bytspot fee" value={formatCents(data.totals.appNetCents)} />
+            <Tile label="Paid at the venue" value={formatCents(data.totals.venueCents)} />
+            <Tile label="Bookings" value={String(data.totals.bookings)} />
+            <Tile label="Bytspot fee" value={formatCents(data.totals.feeCents)} />
+            <Tile label="Refunded" value={formatCents(data.totals.refundedCents)} />
+            <Tile label="Still to collect at the venue" value={formatCents(data.upcomingVenueCents)} />
+          </section>
+          <section className="vendor-card">
+            <h2 className="vendor-section-title">By day</h2>
+            {data.daily.length === 0 ? (
+              <p className="vendor-muted">Nothing earned in this range yet.</p>
+            ) : (
+              <ul className="vendor-reasons">
+                {data.daily.map((day) => (
+                  <li key={day.date}>
+                    {dateLabel(day.date)}: {formatCents(day.appNetCents + day.venueCents)} · {day.bookings}{' '}
+                    {day.bookings === 1 ? 'booking' : 'bookings'}
+                    {day.appNetCents && day.venueCents
+                      ? ` (${formatCents(day.appNetCents)} in the app, ${formatCents(day.venueCents)} at the venue)`
+                      : ''}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="vendor-muted">
+              Money paid in the app counts on the day it was paid. Money paid at the venue counts on the day of the visit, at the
+              offered price, and is left out for no-shows.
+            </p>
           </section>
         </>
       ) : null}

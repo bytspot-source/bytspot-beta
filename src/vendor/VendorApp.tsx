@@ -21,6 +21,7 @@ import { SeatsView } from './SeatsView';
 import { BusinessView, SettingsView } from './BusinessView';
 import { AnalyticsView, EarningsView, PayoutsView } from './MoneyViews';
 import { BookingsView, HomeView, ScannerView } from './BookingsView';
+import { PatchesView } from './PatchesView';
 import { demoConsoleTransport, httpConsoleTransport, type ConsoleTransport } from './consoleTransport';
 import { WebhooksView } from './WebhooksView';
 import { AuthGate } from './AuthGate';
@@ -669,7 +670,7 @@ function VendorConsole({
   );
 }
 
-const BUILT_VIEWS = ['home', 'bookings', 'earnings', 'scanner', 'bookables', 'availability', 'demand', 'locations', 'staff', 'webhooks', 'business', 'analytics', 'payouts', 'settings'];
+const BUILT_VIEWS = ['home', 'bookings', 'earnings', 'scanner', 'patches', 'partnerships', 'bookables', 'availability', 'demand', 'locations', 'staff', 'webhooks', 'business', 'analytics', 'payouts', 'settings'];
 
 function ConsoleShell({
   session,
@@ -787,6 +788,15 @@ function ConsoleShell({
             {current === 'bookings' ? <BookingsView session={session} transport={consoleApi} /> : null}
             {current === 'earnings' ? <EarningsView transport={consoleApi} /> : null}
             {current === 'scanner' ? <ScannerView session={session} transport={consoleApi} /> : null}
+            {current === 'patches' || current === 'partnerships' ? (
+              <PatchesView
+                key={current}
+                kind={current === 'partnerships' ? 'partner' : 'patch'}
+                transport={consoleApi}
+                windows={windows}
+                locations={bookables.locations}
+              />
+            ) : null}
             {current === 'bookables' ? <BookablesView viewer={viewer} {...bookables} session={session} /> : null}
             {current === 'availability' ? <AvailabilityGrid session={session} transport={consoleApi} windows={windows} /> : null}
             {current === 'demand' ? demand : null}

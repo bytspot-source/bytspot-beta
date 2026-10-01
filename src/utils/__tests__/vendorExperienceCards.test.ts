@@ -331,3 +331,38 @@ test('a booking pass reads in two groups of four and its QR names itself', async
   assert.equal(passLabel('ODD'), 'ODD');
   assert.equal(passQrValue('ABCD2345'), 'BYTSPOT-PASS:ABCD2345');
 });
+
+test('a /at/ link is a patch code, and nothing else is', async () => {
+  const { patchCodeFromPath } = await import('../vendorExperienceCards.ts');
+  assert.equal(patchCodeFromPath('/at/abcd2345'), 'ABCD2345');
+  assert.equal(patchCodeFromPath('at/ABCD2345/'), 'ABCD2345');
+  assert.equal(patchCodeFromPath('/p/ABCD2345'), undefined);
+  assert.equal(patchCodeFromPath('/at/ABCD2345/extra'), undefined);
+  assert.equal(patchCodeFromPath('/at/<script>'), undefined);
+});
+
+test('a scanned patch opens the first card with photos, and its requests carry the code', async () => {
+  const { patchLandingCard } = await import('../vendorExperienceCards.ts');
+  const now = new Date('2026-09-23T12:00:00Z');
+  const bare = { ...inventoryItem, windowId: 'win_bare', coverUrl: null, galleryUrls: [] };
+  const asking = { ...inventoryItem, intent: 'request' };
+  const card = patchLandingCard({ code: 'ABCD2345', sellerName: 'Peach', place: { label: 'Main', address: null, lat: 0, lng: 0 }, cards: [bare, asking] }, now);
+  assert.equal(card?.ask?.windowId, inventoryItem.windowId);
+  assert.equal(card?.ask?.viaPatch, 'ABCD2345');
+  assert.equal(patchLandingCard({ code: 'ABCD2345', sellerName: 'Peach', place: { label: 'Main', address: null, lat: 0, lng: 0 }, cards: [bare] }, now), null);
+});
+
+test('a request sent from a patch says which patch', async () => {
+  const sent: unknown[] = [];
+  const client = {
+    demand: {
+      ask: { mutate: async (input: unknown) => { sent.push(input); return { id: 'dem_1', state: 'OPEN', expiresAt: 'x' }; } },
+      mine: { query: async () => [] },
+      acceptOffer: { mutate: async () => ({}) },
+      payOffer: { mutate: async () => ({ url: '' }) },
+      withdraw: { mutate: async () => ({}) },
+    },
+  } as AskClient;
+  await askTransport(client).send({ ...ask, viaPatch: 'ABCD2345' }, { partySize: 2, startsAt: ask.slots[0].startsAt });
+  assert.equal((sent[0] as { viaPatch?: string }).viaPatch, 'ABCD2345');
+});

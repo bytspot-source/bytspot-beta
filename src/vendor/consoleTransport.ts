@@ -3,8 +3,8 @@ import type { PayoutAccount } from './profile.ts';
 import type { AuthorizedFetch, SetupResult, VendorWindow } from './setupTransport.ts';
 
 /**
- * Home, Bookings, Pass scanner, Staff, Availability, Analytics, Earnings,
- * Payouts and Settings, against the API.
+ * Home, Bookings, Pass scanner, QR / NFC patches, Partnerships, Staff,
+ * Availability, Analytics, Earnings, Payouts and Settings, against the API.
  *
  * Every screen gets a function, never the token, and every response is
  * revived field by field so a server that started sending more than this
@@ -142,7 +142,40 @@ export interface Earnings {
   upcomingVenueCents: number;
 }
 
+export type PatchKind = 'patch' | 'partner';
+
+export interface Patch {
+  id: string;
+  kind: PatchKind;
+  code: string;
+  /** What the QR code and the NFC tag carry. Only an https link is kept. */
+  url: string;
+  label: string;
+  partnerName?: string;
+  locationId: string;
+  place: string;
+  windowId?: string;
+  service?: string;
+  scans: number;
+  lastScannedAt?: Date;
+  createdAt?: Date;
+  asks: number;
+  bookings: number;
+  bookedCents: number;
+}
+
+export interface PatchDraft {
+  kind: PatchKind;
+  locationId: string;
+  windowId?: string;
+  label: string;
+  partnerName?: string;
+}
+
 export interface ConsoleTransport {
+  patches: (kind: PatchKind) => Promise<SetupResult<Patch[]>>;
+  createPatch: (draft: PatchDraft) => Promise<SetupResult<Patch>>;
+  archivePatch: (id: string, kind: PatchKind) => Promise<SetupResult<true>>;
   bookings: (when: BookingsWhen) => Promise<SetupResult<Booking[]>>;
   moveBooking: (id: string, operation: BookingMoveId) => Promise<SetupResult<Booking>>;
   verifyPass: (code: string) => Promise<SetupResult<Booking>>;
@@ -228,6 +261,51 @@ export function reviveEarnings(json: Json): Earnings {
       })),
     upcomingVenueCents: num(json.upcomingVenueCents),
   };
+}
+
+/** Undefined for a patch without a code or a link that is not https: it would be unsafe to hand out. */
+export function revivePatch(json: Json): Patch | undefined {
+  const url = str(json.url);
+  const code = str(json.code);
+  if (!str(json.id) || !/^[A-Z0-9]{8}$/.test(code)) return undefined;
+  try {
+    if (new URL(url).protocol !== 'https:') return undefined;
+  } catch {
+    return undefined;
+  }
+  return {
+    id: str(json.id),
+    kind: json.kind === 'partner' ? 'partner' : 'patch',
+    code,
+    url,
+    label: str(json.label),
+    partnerName: typeof json.partnerName === 'string' ? json.partnerName : undefined,
+    locationId: str(json.locationId),
+    place: str(json.place),
+    windowId: typeof json.windowId === 'string' ? json.windowId : undefined,
+    service: typeof json.service === 'string' ? json.service : undefined,
+    scans: num(json.scans),
+    lastScannedAt: date(json.lastScannedAt),
+    createdAt: date(json.createdAt),
+    asks: num(json.asks),
+    bookings: num(json.bookings),
+    bookedCents: num(json.bookedCents),
+  };
+}
+
+export function revivePatches(json: Json): Patch[] {
+  const rows = Array.isArray(json.patches) ? (json.patches as Json[]) : [];
+  return rows.map(revivePatch).filter((row): row is Patch => row !== undefined);
+}
+
+/** The refusals the API would give, checked before the round-trip. */
+export function patchDraftProblems(draft: PatchDraft): string[] {
+  const problems: string[] = [];
+  if (!draft.locationId) problems.push('Choose one of your places');
+  if (!draft.label.trim()) problems.push(draft.kind === 'partner' ? 'Say where they will use it' : 'Say where it goes');
+  else if (draft.label.trim().length > 60) problems.push('Keep the label under 60 characters');
+  if (draft.kind === 'partner' && !draft.partnerName?.trim()) problems.push('Name the partner');
+  return problems;
 }
 
 export function reviveTeam(json: Json): Team {
@@ -415,6 +493,20 @@ export function httpConsoleTransport(authorized: AuthorizedFetch): ConsoleTransp
   const booking = (json: Json) => reviveBooking((json.booking ?? {}) as Json);
 
   return {
+    patches: (kind) => send(`/vendor/patches?kind=${encodeURIComponent(kind)}`, get, revivePatches),
+    createPatch: (draft) =>
+      send(
+        '/vendor/patches',
+        post({
+          kind: draft.kind,
+          locationId: draft.locationId,
+          label: draft.label.trim(),
+          ...(draft.windowId ? { windowId: draft.windowId } : {}),
+          ...(draft.kind === 'partner' && draft.partnerName?.trim() ? { partnerName: draft.partnerName.trim() } : {}),
+        }),
+        (json) => revivePatch((json.patch ?? {}) as Json),
+      ),
+    archivePatch: (id, kind) => send(`/vendor/patches/${encodeURIComponent(id)}/archive`, post({ kind }), () => true as const),
     bookings: (when) => send(`/vendor/bookings?when=${encodeURIComponent(when)}`, get, reviveBookings),
     moveBooking: (id, operation) => send(`/vendor/bookings/${encodeURIComponent(id)}/state`, post({ operation }), booking),
     verifyPass: (code) => send('/vendor/passes/verify', post({ code }), booking),
@@ -444,6 +536,9 @@ export function demoConsoleTransport(): ConsoleTransport {
     paidCents: 0, netCents: 0, refunds: 0, payAtVenueCents: 0, top: [],
   };
   return {
+    patches: async () => ({ status: 200, value: [] }),
+    createPatch: async () => ({ status: 409, blockers: ['Patches are not available in the demo build'] }),
+    archivePatch: async () => ({ status: 404, blockers: ['That patch is not here'] }),
     bookings: async () => ({ status: 200, value: [] }),
     moveBooking: async () => ({ status: 404, blockers: ['That booking is not here'] }),
     verifyPass: async () => ({ status: 404, blockers: ['No booking here has that pass'] }),

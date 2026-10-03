@@ -1,5 +1,6 @@
 import XCTest
 import CoreLocation
+import MapKit
 import UIKit
 import SwiftUI
 import Combine
@@ -1866,6 +1867,330 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(mapFallback.destination.localizedCaseInsensitiveContains("Midtown"))
         XCTAssertNil(NativeLocationAwareUIContent.mapHandoffVenue(destination: mapFallback.destination, mode: mapFallback.mode, venues: snapshot.venues))
         XCTAssertNil(NativeLocationAwareUIContent.mapHandoffVenue(destination: unresolved.name, mode: "Smart Parking", venues: snapshot.venues))
+    }
+
+    func testMapAnnotationsProjectExactCoordinatesAndDoNotRepeatSixPositions() throws {
+        let coordinates = [(33.7878, -84.3832), (33.790, -84.389), (33.779, -84.376),
+                           (47.6062, -122.3321), (40.7128, -74.0060), (51.5074, -0.1278),
+                           (-33.8688, 151.2093), (35.6762, 139.6503)]
+        let payloads = try coordinates.enumerated().map { index, point in
+            try XCTUnwrap(NativeMapAnnotationPayload(id: "venue-\(index)", title: "Place", caption: "Address",
+                latitude: point.0, longitude: point.1, selectedID: nil))
+        }
+        for (payload, point) in zip(payloads, coordinates) {
+            XCTAssertEqual(payload.point.coordinate.latitude, point.0)
+            XCTAssertEqual(payload.point.coordinate.longitude, point.1)
+        }
+        let projected = payloads.map { MKMapPoint($0.point.coordinate) }
+        XCTAssertEqual(Set(projected.map { "\($0.x),\($0.y)" }).count, coordinates.count)
+        XCTAssertGreaterThan(projected[0].distance(to: projected[3]), 1_000_000)
+    }
+
+    func testMapAnnotationRejectsMissingInvalidAndNonfiniteCoordinates() {
+        let invalid: [(Double?, Double?)] = [(nil, -84), (33, nil), (nil, nil), (0, 0),
+            (.nan, -84), (33, .nan), (.infinity, -84), (33, -.infinity),
+            (90.001, 0), (-90.001, 0), (0, 180.001), (0, -180.001)]
+        for (latitude, longitude) in invalid {
+            XCTAssertNil(NativeMapAnnotationPayload(id: "invalid", title: "Place", caption: "",
+                latitude: latitude, longitude: longitude, selectedID: "invalid"))
+        }
+        for (latitude, longitude) in [(0.0, 1.0), (1.0, 0.0), (90.0, 180.0), (-90.0, -180.0)] {
+            XCTAssertNotNil(NativeMapAnnotationPayload(id: "valid", title: "Place", caption: "",
+                latitude: latitude, longitude: longitude, selectedID: nil))
+        }
+    }
+
+    func testMapPhotosRequireTheirOwnProvenanceAndSafeURL() throws {
+        let image = try XCTUnwrap(URL(string: "https://media.example/owned.jpg"))
+        let richImage = try XCTUnwrap(URL(string: "https://media.example/party.jpg"))
+        func payload(_ provenance: NativeVenuePhotoProvenance, url: URL?, details: NativeVenueRichDetails? = nil) throws -> NativeMapAnnotationPayload {
+            try XCTUnwrap(NativeMapAnnotationPayload(id: "venue", title: "Place", caption: "Address",
+                latitude: 33.7878, longitude: -84.3832, selectedID: nil,
+                venueImage: url, provenance: provenance, details: details))
+        }
+        for provenance in [NativeVenuePhotoProvenance.bytspotOwned, .partyMedia] {
+            XCTAssertEqual(try payload(provenance, url: image).photoURL, image)
+            XCTAssertNil(try payload(provenance, url: nil).photoURL)
+            XCTAssertNil(try payload(provenance, url: URL(string: "http://media.example/photo.jpg")).photoURL)
+            XCTAssertNil(try payload(provenance, url: URL(string: "file:///photo.jpg")).photoURL)
+        }
+        for value in [nil, "unknown", "google_places", "borrowed"] as [String?] {
+            XCTAssertNil(try payload(NativeVenuePhotoProvenance.parse(value), url: image).photoURL)
+        }
+        var details = NativeVenueRichDetails()
+        details.photoURLs = [richImage]
+        // An owned primary cannot authorize borrowed detail photos, or vice versa.
+        XCTAssertNil(try payload(.bytspotOwned, url: nil, details: details).photoURL)
+        XCTAssertNil(try payload(.borrowed, url: image, details: details).photoURL)
+        details.photoProvenance = .partyMedia
+        XCTAssertEqual(try payload(.borrowed, url: image, details: details).photoURL, richImage)
+        XCTAssertEqual(try payload(.bytspotOwned, url: image, details: details).photoURL, image)
+    }
+
+    func testMapMarkerIdentityAndSelectionDoNotDependOnPhotoOrDisplayName() throws {
+        func payload(_ id: String, selected: String?, photo: Bool) throws -> NativeMapAnnotationPayload {
+            try XCTUnwrap(NativeMapAnnotationPayload(id: id, title: "Same title", caption: "Same caption",
+                latitude: 33.7878, longitude: -84.3832, selectedID: selected,
+                venueImage: photo ? URL(string: "https://media.example/photo.jpg") : nil, provenance: .bytspotOwned))
+        }
+        let neutral = try payload("venue-a", selected: "venue-a", photo: false)
+        let photo = try payload("venue-a", selected: "venue-a", photo: true)
+        XCTAssertEqual(neutral.id, photo.id)
+        XCTAssertEqual(neutral.point, photo.point)
+        XCTAssertTrue(neutral.isSelected)
+        XCTAssertTrue(photo.isSelected)
+        XCTAssertFalse(try payload("venue-b", selected: "venue-a", photo: true).isSelected)
+        XCTAssertFalse(try payload("venue-a", selected: nil, photo: true).isSelected)
+    }
+
+    func testMapCameraCommandsAreConsumedOnceAndPermitExplicitRefocus() {
+        var gate = NativeMapCameraCommandGate()
+        let initial = UUID()
+        XCTAssertFalse(gate.consume(nil))
+        XCTAssertTrue(gate.consume(initial))
+        // Pan observations, filter, selection ring and sheet renders reuse the
+        // command ID. They must not snap back to the last requested region.
+        for _ in 0..<10 { XCTAssertFalse(gate.consume(initial)) }
+        XCTAssertFalse(gate.consume(nil))
+        XCTAssertFalse(gate.consume(initial))
+        XCTAssertTrue(gate.consume(UUID()))
+    }
+
+    func testMapInitialFocusUsesHandoffCoordinateThenPreservesNativeCamera() throws {
+        let destination = CLLocationCoordinate2D(latitude: 47.6062, longitude: -122.3321)
+        let initial = try XCTUnwrap(NativeMapCameraFocusPolicy.initialRegion(on: destination, hasEstablishedCamera: false))
+        XCTAssertEqual(initial.center.latitude, destination.latitude)
+        XCTAssertEqual(initial.center.longitude, destination.longitude)
+        XCTAssertEqual(initial.span.latitudeDelta, NativeMapRegionPresentation.defaultSpanDelta)
+        XCTAssertEqual(initial.span.longitudeDelta, NativeMapRegionPresentation.defaultSpanDelta)
+        XCTAssertNil(NativeMapCameraFocusPolicy.initialRegion(on: destination, hasEstablishedCamera: true))
+
+        // Pinch, +/- buttons and heading tracking all change MapKit's actual
+        // camera, not the obsolete illustration zoom scale. Focus keeps it.
+        for altitude in [240.0, 4_800.0, 90_000.0] {
+            let current = MKMapCamera(lookingAtCenter: CLLocationCoordinate2D(latitude: 33.78, longitude: -84.38),
+                                      fromDistance: altitude, pitch: 0, heading: 73)
+            let focused = NativeMapCameraFocusPolicy.centeredCamera(on: destination, preserving: current)
+            XCTAssertEqual(focused.centerCoordinate.latitude, destination.latitude)
+            XCTAssertEqual(focused.centerCoordinate.longitude, destination.longitude)
+            XCTAssertEqual(focused.altitude, current.altitude, accuracy: 0.001)
+            XCTAssertEqual(focused.heading, current.heading, accuracy: 0.001)
+            XCTAssertEqual(focused.pitch, current.pitch)
+            XCTAssertEqual(current.centerCoordinate.latitude, 33.78, accuracy: 0.000_001)
+            XCTAssertFalse(focused === current)
+        }
+    }
+
+    func testMapInitialLocationFocusDoesNotDependOnAnOpenPanel() {
+        // A first fix must work whether Functions was open at launch or the
+        // guest opened a panel while location was still resolving.
+        XCTAssertFalse(NativeMapCameraFocusPolicy.permitsInitialLocationFocus(
+            hasEstablishedCamera: false, userMovedCamera: false, isTracking: false,
+            hasDestination: false, hasResolvedLocation: false))
+        XCTAssertTrue(NativeMapCameraFocusPolicy.permitsInitialLocationFocus(
+            hasEstablishedCamera: false, userMovedCamera: false, isTracking: false,
+            hasDestination: false, hasResolvedLocation: true))
+        let protectedStates: [(String, Bool, Bool, Bool, Bool, Bool)] = [
+            ("already centered", true, false, false, false, true),
+            ("user pan or zoom", false, true, false, false, true),
+            ("following", false, false, true, false, true),
+            ("selected or pending destination", false, false, false, true, true),
+            ("denied, missing or fallback fix", false, false, false, false, false)
+        ]
+        for (label, established, moved, tracking, destination, location) in protectedStates {
+            XCTAssertFalse(NativeMapCameraFocusPolicy.permitsInitialLocationFocus(
+                hasEstablishedCamera: established, userMovedCamera: moved, isTracking: tracking,
+                hasDestination: destination, hasResolvedLocation: location), label)
+        }
+    }
+
+    func testMapLaunchWiringRetriesPreviewOnlyAfterAValidCandidateArrives() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("App/NativeShellView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        func section(_ start: String, _ end: String) throws -> String {
+            let first = try XCTUnwrap(source.range(of: start))
+            let last = try XCTUnwrap(source.range(of: end, range: first.upperBound..<source.endIndex))
+            return String(source[first.lowerBound..<last.lowerBound])
+        }
+        let preview = try section("    private func applySelectedPinPreviewIfRequested()", "    private static var previewSelectedPinToken:")
+        let resolved = try XCTUnwrap(preview.range(of: "guard let pin = resolved else { return }"))
+        for mutation in ["didApplySelectedPinPreview = true", "didConsumeExplicitMapLaunch = true", "didOpenMapContext = true", "selectedPin = pin", "focusGeographicCamera(on: pin.coordinate)"] {
+            let write = try XCTUnwrap(preview.range(of: mutation))
+            XCTAssertLessThan(resolved.lowerBound, write.lowerBound, mutation)
+        }
+        XCTAssertTrue(preview.contains("!didApplySelectedPinPreview, !userMovedCamera, recenterMode == .off"))
+        XCTAssertTrue(preview.contains("!didConsumeExplicitMapLaunch"))
+        XCTAssertTrue(preview.contains("NativeVenueSummary.hasValidMapCoordinate"))
+        XCTAssertFalse(preview.contains("asyncAfter"))
+        XCTAssertFalse(preview.contains(".samples"))
+        XCTAssertTrue(source.contains(".onChange(of: tabContentStore.snapshot) { _ in applySelectedPinPreviewIfRequested() }"))
+        let updates = try section("    private func handleHeadingLocationChange()", "    private func autoOpenTrafficIntelIfRequested()")
+        XCTAssertEqual(updates.components(separatedBy: "applySelectedPinPreviewIfRequested()").count - 1, 2)
+        let initial = try section("    private func centerOnCurrentLocationIfAppropriate()", "    private func handleHeadingLocationChange()")
+        XCTAssertTrue(initial.contains("NativeMapCameraFocusPolicy.permitsInitialLocationFocus("))
+        XCTAssertTrue(initial.contains("hasResolvedLocation: hasResolvedDeviceLocation"))
+        XCTAssertTrue(initial.contains("directMapRouteStore.pendingRoute != nil"))
+        XCTAssertTrue(initial.contains("NativeMapFocusHandoff.hasPendingFocus"))
+        XCTAssertTrue(initial.contains("handoffMapCenter != nil"))
+        XCTAssertFalse(initial.contains("isPlainMapOpen"))
+        XCTAssertFalse(initial.contains("showFunctionSheet"))
+        XCTAssertFalse(initial.contains(".midtown"))
+    }
+
+    func testMapStartupResetYieldsToTrackingPanCommandsHandoffAndSelection() {
+        let cases: [(String, Bool, Bool, Bool, Bool, Int, Bool)] = [
+            ("off and untouched", true, false, false, false, 7, true),
+            ("retained follow", true, true, false, false, 7, false),
+            ("retained heading", true, true, false, false, 7, false),
+            ("user pan", true, false, true, false, 7, false),
+            ("new camera command", true, false, false, false, 8, false),
+            ("quick recenter then off", true, false, false, false, 10, false),
+            ("pending or consumed handoff", true, false, false, true, 7, false),
+            ("selected destination", false, false, false, false, 7, false)
+        ]
+        for (label, plain, tracking, pan, handoff, generation, expected) in cases {
+            XCTAssertEqual(NativeMapStartupResetPolicy.permitsReset(isPlainMapOpen: plain,
+                isTracking: tracking, userMovedCamera: pan, hasHandoff: handoff,
+                capturedGeneration: 7, currentGeneration: generation), expected, label)
+        }
+    }
+
+    func testMapPhotoBufferRejectsOversizedHeaderButAcceptsUnknownSize() throws {
+        let maximum = NativeMapPhotoBuffer.maximumBytes
+        XCTAssertEqual(maximum, 8 * 1024 * 1024)
+        for size in [-2, -1, 0, 1, Int64(maximum)] {
+            XCTAssertNoThrow(try NativeMapPhotoBuffer(expectedContentLength: size))
+        }
+        for size in [Int64(maximum) + 1, Int64.max] {
+            XCTAssertThrowsError(try NativeMapPhotoBuffer(expectedContentLength: size)) { error in
+                XCTAssertTrue(error is NativeMapPhotoBuffer.Failure)
+            }
+        }
+        let url = try XCTUnwrap(URL(string: "https://media.example/owned.jpg"))
+        for headers in [[:], ["Content-Length": "invalid"], ["Content-Length": "-1"]] {
+            let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: headers))
+            XCTAssertNoThrow(try NativeMapPhotoBuffer(expectedContentLength: response.expectedContentLength))
+        }
+        let oversized = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
+            headerFields: ["Content-Length": String(maximum + 1)]))
+        XCTAssertThrowsError(try NativeMapPhotoBuffer(expectedContentLength: oversized.expectedContentLength))
+    }
+
+    func testMapPhotoBufferBoundsActualBytesAcrossResponseChunks() throws {
+        // An understated header cannot authorize an unbounded body.
+        // Chunk boundaries must not reset the accumulated byte count.
+        var buffer = try NativeMapPhotoBuffer(expectedContentLength: 1)
+        let chunk = [UInt8](repeating: 42, count: 16 * 1024)
+        for _ in 0..<(NativeMapPhotoBuffer.maximumBytes / chunk.count) {
+            for byte in chunk { try buffer.append(byte) }
+        }
+        XCTAssertEqual(buffer.data.count, NativeMapPhotoBuffer.maximumBytes)
+        XCTAssertThrowsError(try buffer.append(43)) { error in
+            XCTAssertTrue(error is NativeMapPhotoBuffer.Failure)
+        }
+        XCTAssertEqual(buffer.data.count, NativeMapPhotoBuffer.maximumBytes)
+        XCTAssertEqual(buffer.data.last, 42)
+    }
+
+    func testMapPhotoCancellationStopsBufferingAndThumbnailDecode() async throws {
+        let task = Task { () -> Bool in
+            var buffer = try NativeMapPhotoBuffer(expectedContentLength: -1)
+            try buffer.append(42)
+            withUnsafeCurrentTask { $0?.cancel() }
+            do {
+                try buffer.append(43)
+                return false
+            } catch is CancellationError {
+                guard buffer.data.count == 1 else { return false }
+            }
+            do {
+                _ = try await NativeMapPhotoLoader.decodeThumbnail(buffer.data)
+                return false
+            } catch is CancellationError {
+                return true
+            }
+        }
+        let cancelled = try await task.value
+        XCTAssertTrue(cancelled)
+        let invalidThumbnail = try await NativeMapPhotoLoader.decodeThumbnail(Data([0, 1, 2]))
+        XCTAssertNil(invalidThumbnail)
+    }
+
+    func testMapCameraAndStartupWiringNeverReplaysObservationAsCommand() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("App/NativeShellView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        func section(_ start: String, _ end: String) throws -> String {
+            let first = try XCTUnwrap(source.range(of: start))
+            let last = try XCTUnwrap(source.range(of: end, range: first.upperBound..<source.endIndex))
+            return String(source[first.lowerBound..<last.lowerBound])
+        }
+        let focus = try section("    private func focusGeographicCamera(on", "    private var visualMarkers:")
+        XCTAssertTrue(focus.contains(".focus(coordinate)"))
+        XCTAssertTrue(focus.contains("cameraActionGeneration += 1"))
+        XCTAssertFalse(focus.contains("mapZoomScale"))
+        XCTAssertFalse(focus.contains("region ="))
+        XCTAssertTrue(source.contains("preserving: map.camera"))
+        XCTAssertTrue(source.contains("coordinator.cameraGate.consume(request.id)"))
+        let observations = try section("        func mapView(_ mapView: MKMapView, regionWillChangeAnimated", "private struct NativeMapExploreView:")
+        XCTAssertFalse(observations.contains("NativeMapCameraRequest("))
+        XCTAssertFalse(observations.contains("focusGeographicCamera("))
+        let startupGate = try section("    private func permitsStartupReset(capturedGeneration:", "    private func resetPlainMapLaunchIfNeeded()")
+        XCTAssertTrue(startupGate.contains("isTracking: recenterMode != .off"))
+        XCTAssertTrue(startupGate.contains("userMovedCamera: userMovedCamera"))
+        XCTAssertTrue(startupGate.contains("hasHandoff: consumedHandoffMapCenter != nil || handoffMapCenter != nil"))
+        let startup = try section("    private func resetPlainMapLaunchIfNeeded()", "    /// Centres the camera on a Clip handoff")
+        let reset = try XCTUnwrap(startup.range(of: "resetPlainMapState()"))
+        let capture = try XCTUnwrap(startup.range(of: "let generation = cameraActionGeneration"))
+        XCTAssertLessThan(reset.lowerBound, capture.lowerBound)
+        XCTAssertTrue(startup.contains("guard permitsStartupReset(capturedGeneration: generation) else { return }"))
+        let deliberateOpen = try section("    private func consumePlainMapOpenIfNeeded()", "    private func resetPlainMapState()")
+        XCTAssertTrue(deliberateOpen.contains("resetPlainMapState()"))
+        XCTAssertFalse(deliberateOpen.contains("permitsStartupReset"))
+        let recenter = try section("    private func cycleRecenterMode()", "    private func dropRecenterModeForUserPan()")
+        XCTAssertTrue(recenter.contains("cameraActionGeneration += 1"))
+    }
+
+    func testMapRenderedLayerUsesMapKitWithoutUnpositionedIllustrations() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("App/NativeShellView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "private struct NativeMapExploreView: View {"))
+        let tail = source[start.upperBound...]
+        let bodyStart = try XCTUnwrap(tail.range(of: "    var body: some View {"))
+        let bodyEnd = try XCTUnwrap(tail.range(of: "    private func startLocationGateIfNeeded()"))
+        let body = String(source[bodyStart.lowerBound..<bodyEnd.lowerBound])
+        XCTAssertTrue(body.contains("NativeGeographicMap(payloads: geographicPayloads"))
+        XCTAssertFalse(body.contains("NativeDarkMapBackdrop("))
+        XCTAssertFalse(body.contains("mapMarkers(in:"))
+        XCTAssertFalse(body.contains("mapMagnificationGesture"))
+        XCTAssertTrue(body.contains("topSearchOverlay"))
+        XCTAssertTrue(body.contains("mapControls"))
+        XCTAssertTrue(body.contains("spatialSheet(maxHeight:"))
+        XCTAssertTrue(body.contains("NativeTrafficIntelSheet(venue: venue, reports: visibleCommunityReports"))
+        XCTAssertTrue(source.contains("guard let url = payload.photoURL else { return }"))
+        XCTAssertTrue(source.contains("self.imageGeneration == generation"))
+        XCTAssertTrue(source.contains("self.representedID == payload.id"))
+        XCTAssertTrue(source.contains("self.requestedURL == url"))
+        let imageStart = try XCTUnwrap(source.range(of: "        imageTask = Task { @MainActor [weak self] in"))
+        let imageEnd = try XCTUnwrap(source.range(of: "    override func traitCollectionDidChange", range: imageStart.upperBound..<source.endIndex))
+        let imageTask = String(source[imageStart.lowerBound..<imageEnd.lowerBound])
+        XCTAssertTrue(imageTask.contains("try await NativeMapPhotoLoader.thumbnail(from: url)"))
+        XCTAssertFalse(imageTask.contains("CGImageSourceCreateThumbnailAtIndex"))
+        XCTAssertFalse(imageTask.contains("URLSession.shared.data(from:"))
+        let loaded = try XCTUnwrap(imageTask.range(of: "try await NativeMapPhotoLoader.thumbnail"))
+        let generationGuard = try XCTUnwrap(imageTask.range(of: "self.imageGeneration == generation"))
+        let assignment = try XCTUnwrap(imageTask.range(of: "self.photo.image = UIImage"))
+        XCTAssertLessThan(loaded.lowerBound, generationGuard.lowerBound)
+        XCTAssertLessThan(generationGuard.lowerBound, assignment.lowerBound)
+        XCTAssertTrue(source.contains("nonisolated static func thumbnail(from url: URL) async throws"))
+        XCTAssertTrue(source.contains("nonisolated static func decodeThumbnail(_ data: Data) async throws"))
+        XCTAssertTrue(source.contains("URLSession.shared.bytes(from: url)"))
+        XCTAssertTrue(source.contains("defer { bytes.task.cancel() }"))
+        XCTAssertTrue(source.contains("for try await byte in bytes { try buffer.append(byte) }"))
+        XCTAssertTrue(source.contains("imageTask?.cancel()"))
+        XCTAssertTrue(source.contains("selectMarker(marker)"))
     }
 
     func testNonAtlantaMapPresentationCentersLocallyAndSuppressesAtlantaSamples() {

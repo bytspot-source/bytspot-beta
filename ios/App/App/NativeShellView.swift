@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import MapKit
+import ImageIO
 import CoreLocation
 import CoreImage
 import CoreImage.CIFilterBuiltins
@@ -14455,6 +14456,400 @@ enum NativeMapSearchRoutePolicy {
     }
 }
 
+/// Render-only payload: geography and media authority never imply booking or access.
+/// Internal so AppTests can exercise the same validation used by MKAnnotation.
+struct NativeMapAnnotationPayload: Equatable, Identifiable {
+    let id: String
+    let title: String
+    let caption: String
+    let point: NativeM2RoutePoint
+    let photoURL: URL?
+    let isSelected: Bool
+
+    init?(id: String, title: String, caption: String, latitude: Double?, longitude: Double?,
+          selectedID: String?, venueImage: URL? = nil,
+          provenance: NativeVenuePhotoProvenance = .borrowed, details: NativeVenueRichDetails? = nil) {
+        guard let point = NativeM2RoutePoint(latitude: latitude, longitude: longitude) else { return nil }
+        self.id = id
+        self.title = title
+        self.caption = caption
+        self.point = point
+        self.isSelected = id == selectedID
+        // Use the existing source-bound authority; never infer ownership from a host/ID.
+        self.photoURL = NativeVenueHeroMedia.heroURLs(venueImage: venueImage, provenance: provenance, details: details)
+            .compactMap { NativeVenueDetailsDTO.safeHTTPSURL($0.absoluteString) }.first
+    }
+}
+
+/// A camera observation is never a command. Identical/nil inputs are no-ops;
+/// a fresh ID also permits an explicit second focus on the same destination.
+struct NativeMapCameraCommandGate {
+    private(set) var lastRequestID: UUID?
+
+    mutating func consume(_ id: UUID?) -> Bool {
+        guard let id, id != lastRequestID else { return false }
+        lastRequestID = id
+        return true
+    }
+}
+
+enum NativeMapCameraFocusPolicy {
+    /// Panels are presentation, not destinations. A first real fix may center
+    /// the map behind them, but never supersede a handoff or user camera action.
+    static func permitsInitialLocationFocus(hasEstablishedCamera: Bool, userMovedCamera: Bool,
+                                           isTracking: Bool, hasDestination: Bool, hasResolvedLocation: Bool) -> Bool {
+        !hasEstablishedCamera && !userMovedCamera && !isTracking && !hasDestination && hasResolvedLocation
+    }
+
+    static func initialRegion(on coordinate: CLLocationCoordinate2D, hasEstablishedCamera: Bool) -> MKCoordinateRegion? {
+        guard !hasEstablishedCamera else { return nil }
+        return MKCoordinateRegion(center: coordinate, span: NativeMapRegionPresentation.span(forZoomScale: 1))
+    }
+
+    static func centeredCamera(on coordinate: CLLocationCoordinate2D, preserving current: MKMapCamera) -> MKMapCamera {
+        let camera = current.copy() as! MKMapCamera
+        camera.centerCoordinate = coordinate
+        return camera
+    }
+}
+
+/// Only startup cleanup uses this gate; deliberate plain opens still reset.
+enum NativeMapStartupResetPolicy {
+    static func permitsReset(isPlainMapOpen: Bool, isTracking: Bool, userMovedCamera: Bool,
+                             hasHandoff: Bool, capturedGeneration: Int, currentGeneration: Int) -> Bool {
+        isPlainMapOpen && !isTracking && !userMovedCamera && !hasHandoff
+            && capturedGeneration == currentGeneration
+    }
+}
+
+private struct NativeMapCameraRequest {
+    enum Action { case focus(CLLocationCoordinate2D), zoom(Double) }
+    let id = UUID()
+    let action: Action
+}
+
+private final class NativeGeographicAnnotation: MKPointAnnotation {
+    var payload: NativeMapAnnotationPayload
+
+    init(_ payload: NativeMapAnnotationPayload) {
+        self.payload = payload
+        super.init()
+        update(payload)
+    }
+
+    func update(_ payload: NativeMapAnnotationPayload) {
+        self.payload = payload
+        if coordinate.latitude != payload.point.latitude || coordinate.longitude != payload.point.longitude {
+            coordinate = payload.point.coordinate
+        }
+        title = payload.title
+        subtitle = payload.caption
+    }
+}
+
+/// Content-Length is an early rejection only; every received byte is bounded.
+struct NativeMapPhotoBuffer {
+    static let maximumBytes = 8 * 1024 * 1024
+    enum Failure: Error { case oversized }
+    private(set) var data = Data()
+
+    init(expectedContentLength: Int64) throws {
+        guard expectedContentLength <= Int64(Self.maximumBytes) else { throw Failure.oversized }
+    }
+
+    mutating func append(_ byte: UInt8) throws {
+        try Task.checkCancellation()
+        guard data.count < Self.maximumBytes else { throw Failure.oversized }
+        data.append(byte)
+    }
+}
+
+enum NativeMapPhotoLoader {
+    // Nonisolated async work runs on the generic executor in this Swift 5 project.
+    nonisolated static func thumbnail(from url: URL) async throws -> CGImage? {
+        try Task.checkCancellation()
+        let (bytes, response) = try await URLSession.shared.bytes(from: url)
+        defer { bytes.task.cancel() }
+        try Task.checkCancellation()
+        guard let response = response as? HTTPURLResponse,
+              (200...299).contains(response.statusCode) else { return nil }
+        var buffer = try NativeMapPhotoBuffer(expectedContentLength: response.expectedContentLength)
+        for try await byte in bytes { try buffer.append(byte) }
+        return try await decodeThumbnail(buffer.data)
+    }
+
+    nonisolated static func decodeThumbnail(_ data: Data) async throws -> CGImage? {
+        try Task.checkCancellation()
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: 156
+        ] as CFDictionary)
+        try Task.checkCancellation()
+        return thumbnail
+    }
+}
+
+/// Reuse owns the request lifetime. Neither loading nor failure substitutes a
+/// provider image, and an old completion cannot paint a new venue's marker.
+private final class NativePhotoMapAnnotationView: MKAnnotationView {
+    private let photo = UIImageView()
+    private let glyph = UIImageView(image: UIImage(systemName: "mappin"))
+    private let nameLabel = UILabel()
+    private let captionLabel = UILabel()
+    private var imageTask: Task<Void, Never>?
+    private var imageGeneration = UUID()
+    private var representedID: String?
+    private var requestedURL: URL?
+
+    override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        canShowCallout = false
+        collisionMode = .rectangle
+        photo.contentMode = .scaleAspectFill
+        photo.clipsToBounds = true
+        photo.layer.cornerRadius = 26
+        photo.backgroundColor = .secondarySystemBackground
+        glyph.contentMode = .scaleAspectFit
+        glyph.tintColor = .secondaryLabel
+        for label in [nameLabel, captionLabel] {
+            label.textAlignment = .center
+            label.numberOfLines = 2
+            label.adjustsFontForContentSizeCategory = true
+            label.backgroundColor = .systemBackground
+            label.layer.cornerRadius = 5
+            label.clipsToBounds = true
+            addSubview(label)
+        }
+        nameLabel.font = .preferredFont(forTextStyle: .caption1)
+        nameLabel.textColor = .label
+        captionLabel.font = .preferredFont(forTextStyle: .caption2)
+        captionLabel.textColor = .secondaryLabel
+        addSubview(photo)
+        addSubview(glyph)
+        isAccessibilityElement = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        cancelImage()
+        representedID = nil
+        requestedURL = nil
+    }
+
+    func cancelImage() {
+        imageGeneration = UUID()
+        imageTask?.cancel()
+        imageTask = nil
+        photo.image = nil
+        glyph.isHidden = false
+    }
+
+    func configure(_ payload: NativeMapAnnotationPayload) {
+        nameLabel.text = payload.title
+        captionLabel.text = payload.caption
+        accessibilityLabel = [payload.title, payload.caption].filter { !$0.isEmpty }.joined(separator: ", ")
+        accessibilityIdentifier = "native-map-pin-\(payload.id)"
+        accessibilityTraits = payload.isSelected ? [.button, .selected] : [.button]
+        photo.layer.borderWidth = payload.isSelected ? 4 : 2
+        photo.layer.borderColor = (payload.isSelected ? UIColor.systemBlue : UIColor.separator).resolvedColor(with: traitCollection).cgColor
+        displayPriority = payload.isSelected ? .required : .defaultHigh
+        zPriority = payload.isSelected ? .max : .defaultUnselected
+        let width: CGFloat = 160
+        let nameHeight = nameLabel.sizeThatFits(CGSize(width: width, height: 100)).height
+        let captionHeight = captionLabel.sizeThatFits(CGSize(width: width, height: 100)).height
+        bounds = CGRect(x: 0, y: 0, width: width, height: 58 + nameHeight + captionHeight + 4)
+        photo.frame = CGRect(x: (width - 52) / 2, y: 0, width: 52, height: 52)
+        glyph.frame = photo.frame.insetBy(dx: 14, dy: 14)
+        nameLabel.frame = CGRect(x: 0, y: 58, width: width, height: nameHeight)
+        captionLabel.frame = CGRect(x: 0, y: 60 + nameHeight, width: width, height: captionHeight)
+        // Anchor the circle, not its caption, to the exact coordinate.
+        centerOffset = CGPoint(x: 0, y: bounds.height / 2 - 26)
+        guard representedID != payload.id || requestedURL != payload.photoURL else { return }
+        cancelImage()
+        representedID = payload.id
+        requestedURL = payload.photoURL
+        guard let url = payload.photoURL else { return } // Denied media never starts I/O.
+        let generation = imageGeneration
+        imageTask = Task { @MainActor [weak self] in
+            do {
+                let thumbnail = try await NativeMapPhotoLoader.thumbnail(from: url)
+                guard !Task.isCancelled, let thumbnail,
+                      let self, self.imageGeneration == generation,
+                      self.representedID == payload.id, self.requestedURL == url else { return }
+                self.photo.image = UIImage(cgImage: thumbnail)
+                self.glyph.isHidden = true
+            } catch { /* Keep the neutral marker. No fallback request. */ }
+        }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if let annotation = annotation as? NativeGeographicAnnotation { configure(annotation.payload) }
+    }
+
+    deinit { imageTask?.cancel() }
+}
+
+private struct NativeGeographicMap: UIViewRepresentable {
+    let payloads: [NativeMapAnnotationPayload]
+    let cameraRequest: NativeMapCameraRequest?
+    let recenterMode: NativeMapRecenterMode
+    let locationAuthorized: Bool
+    let reduceMotion: Bool
+    let darkAppearance: Bool
+    let onSelect: (String) -> Void
+    let onUserPan: () -> Void
+    let onRegionChange: (MKCoordinateRegion) -> Void
+    let onTrackingChange: (NativeMapRecenterMode) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> MKMapView {
+        let map = MKMapView()
+        map.delegate = context.coordinator
+        map.pointOfInterestFilter = .excludingAll
+        map.isPitchEnabled = false
+        map.showsCompass = true
+        map.layoutMargins = UIEdgeInsets(top: 64, left: 12, bottom: 12, right: 76)
+        // No location permission/fix is invented by the renderer. Until an
+        // explicit focus or a real device fix arrives, show geographic context.
+        map.setVisibleMapRect(.world, animated: false)
+        map.register(NativePhotoMapAnnotationView.self, forAnnotationViewWithReuseIdentifier: "bytspot-photo-pin")
+        return map
+    }
+
+    func updateUIView(_ map: MKMapView, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.parent = self
+        coordinator.isUpdating = true
+        defer { coordinator.isUpdating = false }
+        map.overrideUserInterfaceStyle = darkAppearance ? .dark : .light
+        map.showsUserLocation = locationAuthorized
+        coordinator.syncAnnotations(on: map)
+        let tracking: MKUserTrackingMode = !locationAuthorized || recenterMode == .off ? .none
+            : recenterMode == .follow ? .follow : .followWithHeading
+        if tracking != coordinator.requestedTracking {
+            coordinator.requestedTracking = tracking
+            if tracking != .none { coordinator.hasEstablishedCamera = true }
+            map.setUserTrackingMode(tracking, animated: !reduceMotion)
+        }
+        // Commands, not a two-way region binding: delegate observations and
+        // ordinary sheet/filter/media updates can never replay a camera move.
+        if let request = cameraRequest, coordinator.cameraGate.consume(request.id) {
+            switch request.action {
+            case .focus(let coordinate):
+                coordinator.focus(on: coordinate, map: map)
+            case .zoom(let factor):
+                let camera = map.camera.copy() as! MKMapCamera
+                camera.altitude = min(40_000_000, max(80, camera.altitude * factor))
+                map.setCamera(camera, animated: !reduceMotion)
+            }
+            coordinator.hasEstablishedCamera = true
+        }
+    }
+
+    static func dismantleUIView(_ map: MKMapView, coordinator: Coordinator) {
+        map.delegate = nil
+        map.showsUserLocation = false
+        for annotation in map.annotations {
+            (map.view(for: annotation) as? NativePhotoMapAnnotationView)?.cancelImage()
+        }
+    }
+
+    final class Coordinator: NSObject, MKMapViewDelegate {
+        var parent: NativeGeographicMap
+        var annotations: [String: NativeGeographicAnnotation] = [:]
+        var cameraGate = NativeMapCameraCommandGate()
+        var hasEstablishedCamera = false
+        var requestedTracking: MKUserTrackingMode = .none
+        var isUpdating = false
+        init(_ parent: NativeGeographicMap) { self.parent = parent }
+
+        func focus(on coordinate: CLLocationCoordinate2D, map: MKMapView) {
+            if let initial = NativeMapCameraFocusPolicy.initialRegion(on: coordinate, hasEstablishedCamera: hasEstablishedCamera) {
+                map.setRegion(initial, animated: !parent.reduceMotion)
+            } else {
+                let camera = NativeMapCameraFocusPolicy.centeredCamera(on: coordinate, preserving: map.camera)
+                map.setCamera(camera, animated: !parent.reduceMotion)
+            }
+        }
+
+        func syncAnnotations(on map: MKMapView) {
+            let ids = Set(parent.payloads.map(\.id))
+            for id in Array(annotations.keys) where !ids.contains(id) {
+                if let annotation = annotations.removeValue(forKey: id) {
+                    (map.view(for: annotation) as? NativePhotoMapAnnotationView)?.cancelImage()
+                    map.removeAnnotation(annotation)
+                }
+            }
+            for payload in parent.payloads {
+                if let annotation = annotations[payload.id] {
+                    annotation.update(payload)
+                    (map.view(for: annotation) as? NativePhotoMapAnnotationView)?.configure(payload)
+                } else {
+                    let annotation = NativeGeographicAnnotation(payload)
+                    annotations[payload.id] = annotation
+                    map.addAnnotation(annotation)
+                }
+            }
+        }
+
+        func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            guard let annotation = annotation as? NativeGeographicAnnotation else { return nil }
+            let view = mapView.dequeueReusableAnnotationView(withIdentifier: "bytspot-photo-pin", for: annotation) as! NativePhotoMapAnnotationView
+            view.configure(annotation.payload)
+            return view
+        }
+
+        func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
+            guard let annotation = view.annotation as? NativeGeographicAnnotation else { return }
+            // Selection ring is payload-driven; deselection permits repeated
+            // taps to reopen the existing action without a second state machine.
+            mapView.deselectAnnotation(annotation, animated: false)
+            parent.onSelect(annotation.payload.id)
+        }
+
+        func mapView(_ mapView: MKMapView, regionWillChangeAnimated animated: Bool) {
+            func isInteracting(_ view: UIView) -> Bool {
+                if (view.gestureRecognizers ?? []).contains(where: { $0.state == .began || $0.state == .changed }) { return true }
+                return view.subviews.contains(where: isInteracting)
+            }
+            guard !isUpdating, isInteracting(mapView) else { return }
+            hasEstablishedCamera = true
+            let commandID = cameraGate.lastRequestID
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.parent.cameraRequest?.id == commandID else { return }
+                self.parent.onUserPan()
+            }
+        }
+
+        func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            DispatchQueue.main.async { [weak self, weak mapView] in
+                guard let mapView else { return }
+                self?.parent.onRegionChange(mapView.region)
+            }
+        }
+
+        func mapView(_ mapView: MKMapView, didChange mode: MKUserTrackingMode, animated: Bool) {
+            guard !isUpdating else { return }
+            let commandID = cameraGate.lastRequestID
+            let requested = requestedTracking
+            let observed: NativeMapRecenterMode = mode == .followWithHeading ? .followWithHeading : mode == .follow ? .follow : .off
+            DispatchQueue.main.async { [weak self, weak mapView] in
+                guard let self, mapView?.userTrackingMode == mode,
+                      self.parent.cameraRequest?.id == commandID,
+                      self.requestedTracking == requested else { return }
+                self.parent.onTrackingChange(observed)
+            }
+        }
+    }
+}
+
 private struct NativeMapExploreView: View {
     let openHybrid: (BytspotHybridRoute) -> Void
     let openNativeTab: (BytspotNativeTab) -> Void
@@ -14478,6 +14873,7 @@ private struct NativeMapExploreView: View {
     @State private var activeRoutePinID: String?
     @State private var directRoutePinID: String?
     @State private var didConsumeExplicitMapLaunch = false
+    @State private var didApplySelectedPinPreview = false
     @State private var didOpenMapContext = false
     @State private var consumedPlainOpenGeneration = 0
     @State private var suppressPlainOpenHandoffs = false
@@ -14505,6 +14901,12 @@ private struct NativeMapExploreView: View {
     @State private var recenterMode: NativeMapRecenterMode = .off
     @State private var mapZoomScale: CGFloat = 1
     @State private var pinchStartZoomScale: CGFloat = 1
+    @State private var cameraRequest: NativeMapCameraRequest?
+    @State private var cameraActionGeneration = 0
+    @State private var didResolveInitialCamera = false
+    @State private var userMovedCamera = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMapMotion
+    @Environment(\.colorScheme) private var mapColorScheme
     @State private var pairedPatchVenueID: String? = Self.previewPairedPatchVenueID
     @State private var guestMapPromptTitle: String?
     @State private var guestMapPromptSubtitle = "Sign in to keep this map pick, route, and parking context synced."
@@ -14554,8 +14956,10 @@ private struct NativeMapExploreView: View {
     }
 
     private var hasResolvedDeviceLocation: Bool {
-        guard let location = headingProvider.userLocation ?? locationStore.lastLocation else { return false }
-        return location.horizontalAccuracy >= 0
+        guard locationStore.authorizationState == .allowed,
+              let location = headingProvider.userLocation ?? locationStore.lastLocation else { return false }
+        return location.horizontalAccuracy.isFinite && location.horizontalAccuracy >= 0
+            && NativeVenueSummary.hasValidMapCoordinate(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude)
     }
 
     private var hasResolvedRegionContext: Bool {
@@ -14822,27 +15226,36 @@ private struct NativeMapExploreView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            ZStack(alignment: .bottom) {
-                NativeDarkMapBackdrop(labels: NativeMapRegionPresentation.backdropLabels(for: regionLocation, hasResolvedLocation: hasResolvedRegionContext))
-                    .ignoresSafeArea(edges: .top)
-                    .scaleEffect(mapZoomScale)
-                    .contentShape(Rectangle())
-                    .simultaneousGesture(DragGesture(minimumDistance: 12).onChanged { _ in dropRecenterModeForUserPan() })
-                    .simultaneousGesture(mapMagnificationGesture)
-                mapChromeWash.allowsHitTesting(false)
-                mapMarkers(in: proxy.size)
-                topSearchOverlay
-                    .padding(.leading, NativePolish.mapSearchLeadingInset)
-                    .padding(.trailing, NativePolish.mapSearchTrailingInset)
-                    .padding(.top, NativePolish.mapSearchTopInset)
-                    .frame(maxHeight: .infinity, alignment: .top)
-                mapControls
-                    .padding(.trailing, NativePolish.mapActionTrailingInset)
-                    .padding(.top, NativePolish.mapActionTopInset)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            VStack(spacing: 0) {
+                ZStack(alignment: .top) {
+                    // The illustration, six fixed positions and unpositioned
+                    // report/decorative markers are deliberately not rendered.
+                    NativeGeographicMap(payloads: geographicPayloads, cameraRequest: cameraRequest,
+                        recenterMode: recenterMode, locationAuthorized: locationStore.authorizationState == .allowed,
+                        reduceMotion: reduceMapMotion, darkAppearance: mapColorScheme == .dark,
+                        onSelect: selectGeographicPin, onUserPan: {
+                            userMovedCamera = true
+                            dropRecenterModeForUserPan()
+                        }, onRegionChange: { region = $0 }, onTrackingChange: {
+                            recenterMode = $0
+                            if $0 == .off { headingProvider.stop() }
+                        })
+                    topSearchOverlay
+                        .padding(.leading, NativePolish.mapSearchLeadingInset)
+                        .padding(.trailing, NativePolish.mapSearchTrailingInset)
+                        .padding(.top, NativePolish.mapSearchTopInset)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                    mapControls
+                        .padding(.trailing, NativePolish.mapActionTrailingInset)
+                        .padding(.top, NativePolish.mapActionTopInset)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                }
+                .frame(maxHeight: .infinity)
                 if shouldShowSpatialSheet {
-                    spatialSheet(maxHeight: proxy.size.height * NativeMapInteractionContract.functionSheetMaxHeightFraction)
-                        .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.985, anchor: .bottom)), removal: .move(edge: .bottom).combined(with: .opacity)))
+                    // Keep MapKit's own attribution outside the sheet. Reserve
+                    // a usable map viewport rather than covering legal controls.
+                    spatialSheet(maxHeight: min(proxy.size.height * NativeMapInteractionContract.functionSheetMaxHeightFraction, max(80, proxy.size.height - 300)))
+                        .transition(reduceMapMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
             }
             .background(NativePolish.mapBaseSurface.ignoresSafeArea())
@@ -14899,8 +15312,11 @@ private struct NativeMapExploreView: View {
         .sheet(isPresented: Binding(get: { guestMapPromptTitle != nil }, set: { if !$0 { guestMapPromptTitle = nil } })) {
             NativeGuestSavePromptSheet(title: guestMapPromptTitle ?? "Save this spot?", subtitle: guestMapPromptSubtitle, ctaTitle: guestMapPromptCTA, onSignIn: openNativeAuth)
         }
-        .animation(.interpolatingSpring(mass: 0.82, stiffness: 420, damping: 38, initialVelocity: 0), value: showFunctionSheet)
-        .animation(.interpolatingSpring(mass: 0.82, stiffness: 420, damping: 38, initialVelocity: 0), value: selectedPin?.id)
+        .animation(reduceMapMotion ? nil : .interpolatingSpring(mass: 0.82, stiffness: 420, damping: 38, initialVelocity: 0), value: showFunctionSheet)
+        .animation(reduceMapMotion ? nil : .interpolatingSpring(mass: 0.82, stiffness: 420, damping: 38, initialVelocity: 0), value: selectedPin?.id)
+        .onChange(of: selectedPin?.id) { _ in
+            if let pin = selectedPin { focusGeographicCamera(on: pin.coordinate) }
+        }
         .accessibilityIdentifier("native-map-explore")
         .onAppear { handleMapAppear() }
         .onChange(of: plainOpenGeneration) { _ in consumePlainMapOpenIfNeeded() }
@@ -14911,7 +15327,8 @@ private struct NativeMapExploreView: View {
         .onChange(of: directMapRouteStore.pendingRoute?.id) { _ in _ = applyDirectMapRouteIfRequested() }
         .onChange(of: headingProvider.userLocation?.timestamp) { _ in handleHeadingLocationChange() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in handleMapLocationChange() }
-        .onDisappear { headingProvider.stopLocating() }
+        .onChange(of: tabContentStore.snapshot) { _ in applySelectedPinPreviewIfRequested() }
+        .onDisappear { headingProvider.stopLocating(); headingProvider.stop() }
     }
 
     private func startLocationGateIfNeeded() {
@@ -14990,9 +15407,14 @@ private struct NativeMapExploreView: View {
 
     private func applySelectedPinPreviewIfRequested() {
         guard let token = Self.previewSelectedPinToken, selectedPin == nil else { return }
-        didConsumeExplicitMapLaunch = true
-        didOpenMapContext = true
-        let lookup = pins
+        guard !didApplySelectedPinPreview, !userMovedCamera, recenterMode == .off,
+              !didConsumeExplicitMapLaunch, handoffMapCenter == nil,
+              !NativeMapFocusHandoff.hasPendingFocus,
+              onboardingMapDestination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              directMapRouteStore.pendingRoute == nil else { return }
+        let lookup = pins.filter {
+            NativeVenueSummary.hasValidMapCoordinate(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude)
+        }
         let lower = token.lowercased()
         let resolved: NativeMapPin? = {
             if let exact = lookup.first(where: { $0.id.lowercased() == lower }) { return exact }
@@ -15003,11 +15425,15 @@ private struct NativeMapExploreView: View {
             default: return lookup.first(where: { $0.title.lowercased().contains(lower) })
             }
         }()
+        // A missing candidate is still pending, not a consumed launch. Retry
+        // on real location/content arrival; never invent a partner or location.
         guard let pin = resolved else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            selectedPin = pin
-            showFunctionSheet = false
-        }
+        didApplySelectedPinPreview = true
+        didConsumeExplicitMapLaunch = true
+        didOpenMapContext = true
+        selectedPin = pin
+        focusGeographicCamera(on: pin.coordinate)
+        showFunctionSheet = false
     }
 
     private static var previewSelectedPinToken: String? {
@@ -15033,9 +15459,9 @@ private struct NativeMapExploreView: View {
             selectedMode = mode
             selectedPin = resolved
             if let coordinate = resolved?.coordinate {
-                region.center = coordinate
-            } else if let currentLocation = headingProvider.userLocation ?? locationStore.lastLocation {
-                region.center = currentLocation.coordinate
+                focusGeographicCamera(on: coordinate)
+            } else if hasResolvedDeviceLocation {
+                focusGeographicCamera(on: currentMapCoordinate)
             }
             showFunctionSheet = false
         }
@@ -15055,7 +15481,7 @@ private struct NativeMapExploreView: View {
         activeRoutePinID = focused.id
         directRoutePinID = focused.id
         selectedPin = focused
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { region.center = focused.coordinate }
+        focusGeographicCamera(on: focused.coordinate)
         showFunctionSheet = false
         return true
     }
@@ -15118,7 +15544,7 @@ private struct NativeMapExploreView: View {
         activeRoutePinID = resolvedMode == "Route" ? focused.id : nil
         if focused.kind == .parking { showParking = true }
         selectedPin = focused
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { region.center = focused.coordinate }
+        focusGeographicCamera(on: focused.coordinate)
         showFunctionSheet = false
         NativeMapFocusHandoff.clear()
     }
@@ -15133,7 +15559,7 @@ private struct NativeMapExploreView: View {
         selectedMode = "Nearby"
         routeFocusedPinID = nil
         activeRoutePinID = nil
-        region.center = currentMapCoordinate
+        if hasResolvedDeviceLocation { focusGeographicCamera(on: currentMapCoordinate) }
         showFunctionSheet = false
     }
 
@@ -15154,16 +15580,22 @@ private struct NativeMapExploreView: View {
         }
         if routeFocusedPinID == staleID { routeFocusedPinID = nil }
         if activeRoutePinID == staleID { activeRoutePinID = nil }
-        if !locationStore.coordinate.isFallback {
-            region.center = CLLocationCoordinate2D(latitude: locationStore.coordinate.latitude, longitude: locationStore.coordinate.longitude)
-        }
+        // Invalidating stale content is not a camera command.
+    }
+
+    private func permitsStartupReset(capturedGeneration: Int) -> Bool {
+        NativeMapStartupResetPolicy.permitsReset(isPlainMapOpen: isPlainMapOpen,
+            isTracking: recenterMode != .off, userMovedCamera: userMovedCamera,
+            hasHandoff: consumedHandoffMapCenter != nil || handoffMapCenter != nil,
+            capturedGeneration: capturedGeneration, currentGeneration: cameraActionGeneration)
     }
 
     private func resetPlainMapLaunchIfNeeded() {
-        guard isPlainMapOpen else { return }
+        guard permitsStartupReset(capturedGeneration: cameraActionGeneration) else { return }
         resetPlainMapState()
+        let generation = cameraActionGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            guard isPlainMapOpen else { return }
+            guard permitsStartupReset(capturedGeneration: generation) else { return }
             resetPlainMapState()
         }
     }
@@ -15172,11 +15604,10 @@ private struct NativeMapExploreView: View {
     /// re-render cannot yank the camera back after the guest has panned away.
     @discardableResult
     private func consumeHandoffMapCenterIfNeeded() -> Bool {
-        guard let handoffMapCenter, handoffMapCenter != consumedHandoffMapCenter else { return false }
+        guard let handoffMapCenter, handoffMapCenter != consumedHandoffMapCenter,
+              NativeVenueSummary.hasValidMapCoordinate(latitude: handoffMapCenter.latitude, longitude: handoffMapCenter.longitude) else { return false }
         consumedHandoffMapCenter = handoffMapCenter
-        withAnimation(.easeInOut(duration: 0.4)) {
-            region = NativeMapRegionPresentation.region(for: handoffMapCenter)
-        }
+        focusGeographicCamera(on: CLLocationCoordinate2D(latitude: handoffMapCenter.latitude, longitude: handoffMapCenter.longitude))
         return true
     }
 
@@ -15204,7 +15635,7 @@ private struct NativeMapExploreView: View {
         directRoutePinID = nil
         didOpenMapContext = false
         showFunctionSheet = false
-        region.center = currentMapCoordinate
+        if hasResolvedDeviceLocation { focusGeographicCamera(on: currentMapCoordinate) }
     }
 
     private var currentMapCoordinate: CLLocationCoordinate2D {
@@ -15213,14 +15644,22 @@ private struct NativeMapExploreView: View {
     }
 
     private func centerOnCurrentLocationIfAppropriate() {
-        guard isPlainMapOpen || recenterMode != .off else { return }
-        region.center = currentMapCoordinate
+        let hasDestination = didConsumeExplicitMapLaunch || selectedPin != nil || focusedHandoffPin != nil
+            || consumedHandoffMapCenter != nil || handoffMapCenter != nil
+            || directMapRouteStore.pendingRoute != nil || NativeMapFocusHandoff.hasPendingFocus
+            || !onboardingMapDestination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard NativeMapCameraFocusPolicy.permitsInitialLocationFocus(
+            hasEstablishedCamera: didResolveInitialCamera, userMovedCamera: userMovedCamera,
+            isTracking: recenterMode != .off, hasDestination: hasDestination,
+            hasResolvedLocation: hasResolvedDeviceLocation) else { return }
+        focusGeographicCamera(on: currentMapCoordinate)
     }
 
     private func handleHeadingLocationChange() {
         refreshProximityLatch()
-        guard recenterMode != .off else { return }
-        region.center = currentMapCoordinate
+        applySelectedPinPreviewIfRequested()
+        centerOnCurrentLocationIfAppropriate()
+        // MapKit owns follow/heading; sensor updates never replay a region.
     }
 
     private func handleMapLocationChange() {
@@ -15243,10 +15682,8 @@ private struct NativeMapExploreView: View {
             selectedMode = "Nearby"
             showFunctionSheet = false
         }
-        if focusedHandoffPin == nil, !locationStore.coordinate.isFallback {
-            region.center = CLLocationCoordinate2D(latitude: locationStore.coordinate.latitude, longitude: locationStore.coordinate.longitude)
-        }
         refreshProximityLatch()
+        applySelectedPinPreviewIfRequested()
         centerOnCurrentLocationIfAppropriate()
     }
 
@@ -15336,8 +15773,7 @@ private struct NativeMapExploreView: View {
 
     private func focusMapSearchVenue(_ venue: NativeVenueSummary) {
         let existing = pins.first(where: { $0.id == venue.id })
-        let kind = NativeMapPinKind.forVenue(venue)
-        let pin = existing ?? NativeMapPin(id: venue.id, title: venue.name, subtitle: venue.address, distance: venue.distance, coordinate: CLLocationCoordinate2D(latitude: venue.latitude, longitude: venue.longitude), color: kind.mapColor, kind: kind, crowdLevel: venue.crowd?.level)
+        let pin = existing ?? NativeMapPin(venue: venue)
         focusedHandoffPin = pin
         focusedHandoffOrigin = locationStore.coordinate
         focusedHandoffIsLocationScoped = true
@@ -15878,7 +16314,7 @@ private struct NativeMapExploreView: View {
         selectedMode = "Route"
         routeFocusedPinID = pin.id
         selectedPin = pin
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { region.center = pin.coordinate }
+        focusGeographicCamera(on: pin.coordinate)
     }
 
     private func activateRoute(to pin: NativeMapPin) {
@@ -16470,6 +16906,32 @@ private struct NativeMapExploreView: View {
         }
     }
 
+    private var geographicPayloads: [NativeMapAnnotationPayload] {
+        var seen = Set<String>()
+        return pins.compactMap { pin in
+            guard shouldShow(pin), seen.insert(pin.id).inserted else { return nil }
+            return NativeMapAnnotationPayload(id: pin.id, title: pin.title, caption: pin.subtitle,
+                latitude: pin.coordinate.latitude, longitude: pin.coordinate.longitude, selectedID: selectedPin?.id,
+                venueImage: pin.venue?.imageUrl, provenance: pin.venue?.photoProvenance ?? .borrowed,
+                details: pin.venue?.richDetails)
+        }
+    }
+
+    private func selectGeographicPin(_ id: String) {
+        // Reuse the original dispatch, including parking/high-crowd Traffic
+        // Intel priority and its existing candidate fallback. No booking change.
+        guard let marker = visualMarkers.first(where: { $0.pinID == id }) else { return }
+        selectMarker(marker)
+    }
+
+    private func focusGeographicCamera(on coordinate: CLLocationCoordinate2D) {
+        guard NativeVenueSummary.hasValidMapCoordinate(latitude: coordinate.latitude, longitude: coordinate.longitude) else { return }
+        didResolveInitialCamera = true
+        cameraActionGeneration += 1
+        dropRecenterModeForUserPan()
+        cameraRequest = NativeMapCameraRequest(action: .focus(coordinate))
+    }
+
     private var visualMarkers: [NativeMapVisualMarker] {
         let live = pins.enumerated().compactMap { index, pin -> NativeMapVisualMarker? in
             guard shouldShow(pin) else { return nil }
@@ -16576,11 +17038,17 @@ private struct NativeMapExploreView: View {
     }
 
     private func cycleRecenterMode() {
+        cameraActionGeneration += 1
         requestMapLocationPermissionIfNeeded()
+        guard locationStore.authorizationState == .allowed else {
+            dropRecenterModeForUserPan()
+            nativeImpactLight()
+            return
+        }
         switch recenterMode {
         case .off:
+            didResolveInitialCamera = true
             recenterMode = .follow
-            region.center = currentMapCoordinate
             didOpenMapContext = false
             selectedPin = nil
             showFunctionSheet = false
@@ -16609,8 +17077,16 @@ private struct NativeMapExploreView: View {
             }
     }
 
-    private func zoomIn() { setMapZoom(mapZoomScale * 1.25) }
-    private func zoomOut() { setMapZoom(mapZoomScale / 1.25) }
+    private func zoomIn() { zoomGeographicCamera(by: 0.8) }
+    private func zoomOut() { zoomGeographicCamera(by: 1.25) }
+
+    private func zoomGeographicCamera(by factor: Double) {
+        cameraActionGeneration += 1
+        userMovedCamera = true
+        dropRecenterModeForUserPan()
+        cameraRequest = NativeMapCameraRequest(action: .zoom(factor))
+        nativeImpactLight()
+    }
 
     private func setMapZoom(_ proposedScale: CGFloat) {
         applyMapZoom(proposedScale)
@@ -18594,6 +19070,7 @@ final class NativeMapHeadingProvider: NSObject, ObservableObject, CLLocationMana
 }
 
 private struct NativeMapRecenterButton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let mode: NativeMapRecenterMode
     let size: CGFloat
     var heading: Double = 0
@@ -18627,7 +19104,7 @@ private struct NativeMapRecenterButton: View {
             if mode == .followWithHeading {
                 headingWedge
                     .rotationEffect(.degrees(heading))
-                    .animation(.easeOut(duration: 0.20), value: heading)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.20), value: heading)
             }
             Image(systemName: symbolName)
                 .font(.system(size: 20, weight: .black))
@@ -18667,6 +19144,7 @@ private struct NativeMapRecenterButton: View {
 enum NativeTrafficIntelFABState { case calm, aware, active }
 
 private struct NativeTrafficIntelFAB: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let state: NativeTrafficIntelFABState
     let size: CGFloat
     @State private var pulse: Bool = false
@@ -18683,6 +19161,7 @@ private struct NativeTrafficIntelFAB: View {
             .shadow(color: shadowColor, radius: shadowRadius, x: 0, y: shadowY)
             .onAppear { startPulseIfAware() }
             .onChange(of: state) { _ in startPulseIfAware() }
+            .onChange(of: reduceMotion) { _ in startPulseIfAware() }
             .accessibilityLabel(accessibilityText)
             .accessibilityIdentifier("native-map-traffic-intel-fab")
     }
@@ -18696,7 +19175,7 @@ private struct NativeTrafficIntelFAB: View {
     }
 
     @ViewBuilder private var awarePulseRing: some View {
-        if state == .aware {
+        if state == .aware && !reduceMotion {
             Circle()
                 .stroke(NativeTheme.cyan.opacity(pulse ? 0.55 : 0.18), lineWidth: pulse ? 2.5 : 1.0)
                 .scaleEffect(pulse ? 1.18 : 1.0)
@@ -18733,7 +19212,7 @@ private struct NativeTrafficIntelFAB: View {
     }
 
     private func startPulseIfAware() {
-        guard state == .aware else { pulse = false; return }
+        guard state == .aware, !reduceMotion else { pulse = false; return }
         withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { pulse = true }
     }
 }
@@ -18997,6 +19476,8 @@ enum NativeMapPinKind: Equatable { case partner, parking, access, venue
 
 private struct NativeMapPin: Identifiable {
     let id: String; let title: String; let subtitle: String; let distance: String; let coordinate: CLLocationCoordinate2D; let color: Color; let kind: NativeMapPinKind; let crowdLevel: Int?
+    // Preserve source-bound photo provenance through direct/search handoffs.
+    private(set) var venue: NativeVenueSummary?
     static let samples = [
         NativeMapPin(id: "partner-colony", title: "Colony Square", subtitle: "Verified Tap Zone · Dining + access", distance: "0.4 mi", coordinate: CLLocationCoordinate2D(latitude: 33.7878, longitude: -84.3832), color: NativeTheme.cyan, kind: .partner, crowdLevel: 2),
         NativeMapPin(id: "parking-midtown", title: "Midtown Smart Parking", subtitle: "18 spots · covered · $8/hr", distance: "0.6 mi", coordinate: CLLocationCoordinate2D(latitude: 33.790, longitude: -84.389), color: NativeTheme.emerald, kind: .parking, crowdLevel: 1),
@@ -19011,6 +19492,7 @@ private struct NativeMapPin: Identifiable {
         let kind = NativeMapPinKind.forVenue(venue)
         let subtitle = kind == .partner ? "Verified Tap Zone · \(venue.crowd?.label ?? "Open")" : kind == .parking ? (venue.parking.isKnown ? "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)" : venue.parking.priceLabel) : venue.address
         self.init(id: venue.id, title: venue.name, subtitle: subtitle, distance: venue.distance, coordinate: CLLocationCoordinate2D(latitude: venue.latitude, longitude: venue.longitude), color: kind.mapColor, kind: kind, crowdLevel: venue.crowd?.level)
+        self.venue = venue
     }
 }
 

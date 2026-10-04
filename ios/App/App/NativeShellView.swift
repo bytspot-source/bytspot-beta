@@ -11621,12 +11621,19 @@ private struct NativeDiscoverView: View {
                 Button("No options in this category yet. Explore all") { selectedFilter = nil }
                     .font(.headline).foregroundColor(.white).frame(minHeight: 44)
             } else {
-                if #available(iOS 17.0, *) {
-                    NativeDiscoverCardPager(ids: rankedCards.map(\.browseID), index: $discoverCardIndex) { offset in
-                        discoverFeatureCard(rankedCards[offset])
+                if let card = rankedCards.indices.contains(discoverCardIndex) ? rankedCards[discoverCardIndex] : rankedCards.first {
+                    if #available(iOS 18.0, *) {
+                        NativeDiscoverSwipeCard(
+                            canAdvance: discoverCardIndex < rankedCards.count - 1,
+                            advance: { moveDiscoverCard(1) },
+                            openDetails: { openDiscoverDetails(card) }
+                        ) {
+                            discoverFeatureCard(card)
+                        }
+                        .id(card.browseID)
+                    } else {
+                        discoverFeatureCard(card).id(card.browseID)
                     }
-                } else if let card = rankedCards.indices.contains(discoverCardIndex) ? rankedCards[discoverCardIndex] : rankedCards.first {
-                    discoverFeatureCard(card).id(card.browseID)
                 }
                 discoverCardPager
             }
@@ -11640,24 +11647,7 @@ private struct NativeDiscoverView: View {
                         transaction: card.offering.flatMap { transactions.transaction(for: $0, userID: catalogUserID) },
                         requestReady: transactions.userID == catalogUserID && transactions.hasLoaded && !transactions.isLoading && !transactions.failed,
                         openAuth: openNativeAuth,
-                        openDetails: {
-                            if card.nearbyParty != nil { openNearbyInvitation(card); return }
-                            if let offering = card.offering {
-                                guard catalog.rows(for: catalogUserID).contains(offering) else {
-                                    discoverStatusMessage = "This option changed. Refresh Discover and try again."
-                                    return
-                                }
-                                if offering.sourceKind == .party {
-                                    offeringDetail = offering
-                                } else {
-                                    detailOffering = offering
-                                    detailVenue = venueForDetail(card)
-                                }
-                            } else {
-                                detailOffering = nil
-                                detailVenue = venueForDetail(card)
-                            }
-                        },
+                        openDetails: { openDiscoverDetails(card) },
                         primaryAction: {
                             if card.nearbyParty != nil { openNearbyInvitation(card); return }
                             if let offering = card.offering,
@@ -11677,6 +11667,25 @@ private struct NativeDiscoverView: View {
                             }
                         },
                         addToPlan: { beginPlanSelection(card, requestCoffee: false) })
+    }
+
+    private func openDiscoverDetails(_ card: DiscoverCardSpec) {
+        if card.nearbyParty != nil { openNearbyInvitation(card); return }
+        if let offering = card.offering {
+            guard catalog.rows(for: catalogUserID).contains(offering) else {
+                discoverStatusMessage = "This option changed. Refresh Discover and try again."
+                return
+            }
+            if offering.sourceKind == .party {
+                offeringDetail = offering
+            } else {
+                detailOffering = offering
+                detailVenue = venueForDetail(card)
+            }
+        } else {
+            detailOffering = nil
+            detailVenue = venueForDetail(card)
+        }
     }
 
     private var discoverCardPager: some View {
@@ -11911,59 +11920,106 @@ private struct NativeDiscoverView: View {
 
 }
 
-/// Native horizontal paging for the Discover deck. A UIKit-backed scroll view
-/// arbitrates the gestures: a sideways drag pages and cancels the card's tap,
-/// and a vertical drag passes through to the page's scroll view.
-@available(iOS 17.0, *)
-private struct NativeDiscoverCardPager<Card: View>: View {
-    let ids: [String]
-    @Binding var index: Int
-    let card: (Int) -> Card
-    @State private var position: String?
+/// Decides what a finished sideways swipe on the Discover card does.
+/// Left advances to the next card; right always opens the card's details.
+enum NativeDiscoverSwipePolicy {
+    enum Outcome: Equatable { case advance, openDetails, settle }
 
-    init(ids: [String], index: Binding<Int>, @ViewBuilder card: @escaping (Int) -> Card) {
-        self.ids = ids
-        _index = index
-        self.card = card
-        _position = State(initialValue: ids.indices.contains(index.wrappedValue) ? ids[index.wrappedValue] : ids.first)
+    static let threshold: CGFloat = 84
+
+    static func outcome(translation: CGFloat, velocity: CGFloat, canAdvance: Bool) -> Outcome {
+        let projected = translation + velocity * 0.15
+        if projected <= -threshold { return canAdvance ? .advance : .settle }
+        if projected >= threshold { return .openDetails }
+        return .settle
     }
 
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(alignment: .top, spacing: 0) {
-                ForEach(Array(ids.enumerated()), id: \.element) { offset, id in
-                    card(offset).containerRelativeFrame(.horizontal).id(id)
-                }
-            }
-            .scrollTargetLayout()
-        }
-        .modifier(NativeDiscoverPagingBehavior())
-        .scrollPosition(id: $position)
-        .onChange(of: position) { _, new in
-            if let new, let offset = ids.firstIndex(of: new), offset != index { index = offset }
-        }
-        .onChange(of: index) { _, new in
-            let target = id(at: new)
-            if target != position { withAnimation(.easeOut(duration: 0.22)) { position = target } }
-        }
-        .onChange(of: ids) { _, new in
-            if position.map({ !new.contains($0) }) ?? true { position = id(at: index) }
-        }
-    }
-
-    private func id(at offset: Int) -> String? {
-        ids.indices.contains(offset) ? ids[offset] : ids.first
+    /// Only a clearly sideways drag starts the swipe, so vertical drags scroll the page.
+    static func isHorizontal(_ motion: CGPoint) -> Bool {
+        abs(motion.x) > abs(motion.y) * 1.2
     }
 }
 
-/// iOS 18+ aligns to each card and advances at most one card per swipe.
-@available(iOS 17.0, *)
-private struct NativeDiscoverPagingBehavior: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 18.0, *) {
-            content.scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne))
-        } else {
-            content.scrollTargetBehavior(.paging)
+/// The Discover card follows a sideways drag. A UIKit pan that only begins
+/// for horizontal motion arbitrates with the page's scroll view and cancels
+/// the card's tap once it recognizes.
+@available(iOS 18.0, *)
+private struct NativeDiscoverSwipeCard<Card: View>: View {
+    let canAdvance: Bool
+    let advance: () -> Void
+    let openDetails: () -> Void
+    @ViewBuilder let card: () -> Card
+    @State private var offset: CGFloat = 0
+    @State private var width: CGFloat = 400
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        card()
+            .offset(x: offset)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            .gesture(NativeDiscoverSwipeGesture(changed: drag, ended: finish))
+    }
+
+    private func drag(_ translation: CGFloat) {
+        if translation < 0 { offset = canAdvance ? translation : translation / 3 }
+        else { offset = translation * 0.6 }
+    }
+
+    private func finish(_ translation: CGFloat, _ velocity: CGFloat) {
+        let settle = Animation.spring(response: 0.32, dampingFraction: 0.82)
+        switch NativeDiscoverSwipePolicy.outcome(translation: translation, velocity: velocity, canAdvance: canAdvance) {
+        case .advance:
+            if reduceMotion { advance(); return }
+            withAnimation(.easeIn(duration: 0.16)) { offset = -width } completion: { advance() }
+        case .openDetails:
+            withAnimation(settle) { offset = 0 }
+            openDetails()
+        case .settle:
+            withAnimation(settle) { offset = 0 }
+        }
+    }
+}
+
+@available(iOS 18.0, *)
+private struct NativeDiscoverSwipeGesture: UIGestureRecognizerRepresentable {
+    let changed: (CGFloat) -> Void
+    let ended: (_ translation: CGFloat, _ velocity: CGFloat) -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let pan = UIPanGestureRecognizer()
+        pan.delegate = context.coordinator
+        return pan
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        switch recognizer.state {
+        case .changed:
+            changed(recognizer.translation(in: recognizer.view).x)
+        case .ended:
+            ended(recognizer.translation(in: recognizer.view).x, recognizer.velocity(in: recognizer.view).x)
+        case .cancelled, .failed:
+            ended(0, 0)
+        default:
+            break
+        }
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
+            let velocity = pan.velocity(in: pan.view)
+            let motion = velocity == .zero ? pan.translation(in: pan.view) : velocity
+            return NativeDiscoverSwipePolicy.isHorizontal(motion)
+        }
+
+        /// The page's scroll view waits for this pan to fail, so a sideways
+        /// swipe never also scrolls the page.
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+            guard let scrollView = other.view as? UIScrollView else { return false }
+            return other === scrollView.panGestureRecognizer
         }
     }
 }

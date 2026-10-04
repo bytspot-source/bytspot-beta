@@ -7631,3 +7631,34 @@ final class NativeLaunchRoutingTests: XCTestCase {
         XCTAssertTrue(NativeIncomingURLCenter.drain().isEmpty)
     }
 }
+
+final class NativeDiscoverSwipePolicyTests: XCTestCase {
+    func testSwipeLeftPastThresholdAdvances() {
+        XCTAssertEqual(NativeDiscoverSwipePolicy.outcome(translation: -120, velocity: 0, canAdvance: true), .advance)
+    }
+
+    func testSwipeLeftOnLastCardSettles() {
+        XCTAssertEqual(NativeDiscoverSwipePolicy.outcome(translation: -200, velocity: -900, canAdvance: false), .settle)
+    }
+
+    func testSwipeRightAlwaysOpensDetailsAndNeverGoesBack() {
+        XCTAssertEqual(NativeDiscoverSwipePolicy.outcome(translation: 120, velocity: 0, canAdvance: true), .openDetails)
+        XCTAssertEqual(NativeDiscoverSwipePolicy.outcome(translation: 120, velocity: 0, canAdvance: false), .openDetails)
+    }
+
+    func testShortSlowDragSettles() {
+        XCTAssertEqual(NativeDiscoverSwipePolicy.outcome(translation: -40, velocity: -50, canAdvance: true), .settle)
+        XCTAssertEqual(NativeDiscoverSwipePolicy.outcome(translation: 40, velocity: 50, canAdvance: true), .settle)
+    }
+
+    func testFlickCountsEvenWhenShort() {
+        XCTAssertEqual(NativeDiscoverSwipePolicy.outcome(translation: -30, velocity: -600, canAdvance: true), .advance)
+        XCTAssertEqual(NativeDiscoverSwipePolicy.outcome(translation: 30, velocity: 600, canAdvance: true), .openDetails)
+    }
+
+    func testOnlyClearlySidewaysMotionStartsTheSwipe() {
+        XCTAssertTrue(NativeDiscoverSwipePolicy.isHorizontal(CGPoint(x: 300, y: 40)))
+        XCTAssertFalse(NativeDiscoverSwipePolicy.isHorizontal(CGPoint(x: 40, y: 300)))
+        XCTAssertFalse(NativeDiscoverSwipePolicy.isHorizontal(CGPoint(x: 100, y: 95)))
+    }
+}

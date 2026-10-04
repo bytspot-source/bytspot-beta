@@ -268,6 +268,15 @@ final class NativeM5DetailTests: XCTestCase {
                                   to: "private struct NativeDiscoverFilterChip: View {")
         let card = try region(in: shell, from: "private struct NativeDiscoverFeatureCard: View {",
                              to: "private struct NativeSpecialDiscoverCard: View {")
+        let invitationPath = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("App/NativePartyInvitationDetail.swift")
+        let invitation = try String(contentsOf: invitationPath, encoding: .utf8)
+        // The detail opens inside a sheet NavigationView that inherits the
+        // shell's ground-drawn flag; without its own ground, white text sits
+        // on a white navigation background and the page reads blank.
+        XCTAssertFalse(invitation.contains(".background(NativeDeepSpaceGround())"))
+        XCTAssertEqual(invitation.components(separatedBy: "NativeDeepSpaceGround().environment(\\.nativeDeepSpaceGroundDrawn, false)").count - 1, 2)
+        XCTAssertTrue(invitation.contains(".preferredColorScheme(.dark)"))
         for (surface, sheet) in [(home, "homePartyInvitation"), (discover, "nearbyInvitationDetail")] {
             XCTAssertTrue(surface.contains(".sheet(item: $\(sheet))"))
             XCTAssertTrue(surface.contains("NativePartyInvitationDetail(partyID: party.partyID"))

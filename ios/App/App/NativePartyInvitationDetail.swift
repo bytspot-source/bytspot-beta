@@ -126,7 +126,10 @@ struct NativePartyInvitationDetail: View {
             .padding(20)
         }
         .foregroundColor(NativeTheme.textPrimary)
-        .background(NativeDeepSpaceGround())
+        // Always presented inside a sheet's NavigationView, which inherits the
+        // shell's ground-drawn flag but not its ground. Draw one here.
+        .background(NativeDeepSpaceGround().environment(\.nativeDeepSpaceGroundDrawn, false))
+        .preferredColorScheme(.dark)
         .navigationTitle("Party details")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
@@ -313,7 +316,7 @@ struct NativePartyInvitationDetail: View {
             if !shareMessage.isEmpty { Text(shareMessage).font(.footnote) }
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
-        .background(NativeDeepSpaceGround())
+        .background(NativeDeepSpaceGround().environment(\.nativeDeepSpaceGroundDrawn, false))
     }
 
     private func refresh() {

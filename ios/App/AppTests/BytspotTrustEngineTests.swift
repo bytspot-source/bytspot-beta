@@ -6,6 +6,171 @@ import SwiftUI
 import Combine
 @testable import App
 
+final class NativeMapOpenLifecycleTests: XCTestCase {
+    /// A fresh reader on each mount, with no child-owned acknowledgement.
+    /// This exercises the production value through the same Binding lifetime;
+    /// the full Home → Map SwiftUI presentation still needs a simulator check.
+    private struct MapMount {
+        @Binding var openState: NativeMapOpenState
+        func consumePlainOpen() -> Bool { openState.consumePlainOpen() }
+    }
+
+    func testConsumedPlainOpenDoesNotReplayWhenMapRemountsForExplicitEntry() {
+        var shellState = NativeMapOpenState()
+        let binding = Binding(get: { shellState }, set: { shellState = $0 })
+        shellState.requestPlainOpen()
+        XCTAssertTrue(MapMount(openState: binding).consumePlainOpen())
+        XCTAssertEqual(shellState.consumedPlainOpenGeneration, 1)
+        // Back destroys Map, not the shell. Find stages an explicit entry.
+        shellState.acknowledgeExplicitEntry()
+        let remountedMap = MapMount(openState: binding)
+        XCTAssertFalse(remountedMap.openState.hasUnconsumedPlainOpen)
+        XCTAssertFalse(remountedMap.consumePlainOpen())
+        XCTAssertEqual(shellState.plainOpenGeneration, 1)
+    }
+
+    func testExplicitEntrySupersedesAnUnconsumedOldPlainOpen() {
+        var shellState = NativeMapOpenState(initialPlainOpen: true)
+        let binding = Binding(get: { shellState }, set: { shellState = $0 })
+        XCTAssertTrue(shellState.hasUnconsumedPlainOpen)
+        shellState.acknowledgeExplicitEntry()
+        XCTAssertFalse(MapMount(openState: binding).consumePlainOpen())
+        XCTAssertFalse(shellState.hasUnconsumedPlainOpen)
+        XCTAssertEqual(shellState.plainOpenGeneration, shellState.consumedPlainOpenGeneration)
+    }
+
+    func testRepeatedPlainBackFindEntriesShareAcknowledgementAcrossMounts() {
+        var shellState = NativeMapOpenState()
+        let binding = Binding(get: { shellState }, set: { shellState = $0 })
+        for generation in 1...5 {
+            shellState.requestPlainOpen()
+            XCTAssertTrue(MapMount(openState: binding).consumePlainOpen())
+            shellState.acknowledgeExplicitEntry()
+            XCTAssertFalse(MapMount(openState: binding).consumePlainOpen())
+            XCTAssertFalse(shellState.hasUnconsumedPlainOpen, "Old reset must not hide the explicit card")
+            XCTAssertEqual(shellState.plainOpenGeneration, generation)
+            XCTAssertEqual(shellState.consumedPlainOpenGeneration, generation)
+        }
+    }
+
+    func testGenuineFreshPlainOpenResetsOnceEvenOnRetainedMap() {
+        var shellState = NativeMapOpenState()
+        let binding = Binding(get: { shellState }, set: { shellState = $0 })
+        let retainedMap = MapMount(openState: binding)
+        XCTAssertFalse(retainedMap.consumePlainOpen())
+        shellState.acknowledgeExplicitEntry()
+        for generation in 1...3 {
+            shellState.requestPlainOpen()
+            XCTAssertTrue(retainedMap.openState.hasUnconsumedPlainOpen)
+            XCTAssertTrue(retainedMap.consumePlainOpen())
+            XCTAssertFalse(retainedMap.consumePlainOpen())
+            XCTAssertFalse(MapMount(openState: binding).consumePlainOpen())
+            XCTAssertEqual(shellState.consumedPlainOpenGeneration, generation)
+        }
+    }
+
+    func testFreshRouteRemainsPendingImmediatelyAfterDeliberateOpenAndAcrossRemount() throws {
+        let suiteName = "NativeMapOpenLifecycleTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let venue = NativeVenueSummary(id: "find-place", name: "Selected Find Place", category: "coffee",
+            address: "1 Pike St", distance: "Selected", rating: nil, latitude: 47.61, longitude: -122.33,
+            crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "—"), verifiedPatchId: nil, imageUrl: nil)
+        var shellState = NativeMapOpenState()
+        let binding = Binding(get: { shellState }, set: { shellState = $0 })
+        for consumeBeforeFind in [true, false, true] {
+            shellState.requestPlainOpen()
+            if consumeBeforeFind { XCTAssertTrue(MapMount(openState: binding).consumePlainOpen()) }
+            // No sleep/clock advance: a fresh destination must work even in the
+            // former 250 ms suppression window, or before an old Map appeared.
+            NativeMapFocusHandoff.store(venue: venue, modeOverride: "Route", defaults: defaults)
+            let requestID = try XCTUnwrap(defaults.string(forKey: NativeMapFocusHandoff.requestIDKey))
+            XCTAssertFalse(requestID.isEmpty)
+            shellState.acknowledgeExplicitEntry()
+            let remountedMap = MapMount(openState: binding)
+            XCTAssertFalse(remountedMap.consumePlainOpen())
+            XCTAssertFalse(remountedMap.openState.hasUnconsumedPlainOpen)
+            XCTAssertTrue(NativeMapFocusHandoff.hasPendingFocus(in: defaults))
+            XCTAssertEqual(defaults.string(forKey: NativeMapFocusHandoff.requestIDKey), requestID)
+            XCTAssertEqual(defaults.string(forKey: NativeMapFocusHandoff.idKey), venue.id)
+            XCTAssertEqual(defaults.string(forKey: NativeMapFocusHandoff.titleKey), venue.name)
+            XCTAssertEqual(defaults.double(forKey: NativeMapFocusHandoff.latitudeKey), venue.latitude)
+            XCTAssertEqual(defaults.double(forKey: NativeMapFocusHandoff.longitudeKey), venue.longitude)
+            XCTAssertEqual(defaults.string(forKey: NativeMapFocusHandoff.modeKey), "Route")
+            XCTAssertEqual(defaults.string(forKey: NativeMapFocusHandoff.sourceKey), NativeMapFocusHandoff.explicitSource)
+            XCTAssertTrue(NativeMapFocusHandoff.canConsume(at: .midtown, defaults: defaults))
+            XCTAssertTrue(NativeMapFocusHandoff.canConsume(at: .verifiedMidtown, defaults: defaults))
+        }
+    }
+
+    func testProductionWiresShellLifetimeAndExplicitEntryBeforeTabCommit() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("App/NativeShellView.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        func section(_ start: String, _ end: String) throws -> String {
+            let first = try XCTUnwrap(source.range(of: start))
+            let last = try XCTUnwrap(source.range(of: end, range: first.upperBound..<source.endIndex))
+            return String(source[first.lowerBound..<last.lowerBound])
+        }
+        let shell = try section("struct BytspotNativeShellView: View {", "private struct BytspotNativeBottomTabBar:")
+        XCTAssertTrue(shell.contains("@State private var mapOpenState = NativeMapOpenState(initialPlainOpen: Self.previewInitialTab == .map)"))
+        XCTAssertEqual(shell.components(separatedBy: "NativeMapExploreView(").count - 1, 1)
+        XCTAssertTrue(shell.contains("mapOpenState: $mapOpenState"))
+        for entry in [try section("    private func selectNativeTab(", "    /// Map is a full-screen destination"),
+                      try section("    private func applyRequestedTab(", "    private var hasExplicitMapHandoff:"),
+                      try section("        case .mapPicks:", "        case .savePicks:")] {
+            let acknowledge = try XCTUnwrap(entry.range(of: "mapOpenState.acknowledgeExplicitEntry()"))
+            let commit = try XCTUnwrap(entry.range(of: "commitSelectedTab("))
+            XCTAssertLessThan(acknowledge.lowerBound, commit.lowerBound)
+        }
+        let explicit = try section("    private var hasExplicitMapHandoff:", "    private func openDiscoverFilter(")
+        for signal in ["directMapRouteStore.hasPendingRoute", "NativeOnboardingMapHandoff.hasFreshDestination",
+                       "NativeMapFocusHandoff.hasPendingFocus", "navigation.requestedMapCenter != nil"] {
+            XCTAssertTrue(explicit.contains(signal), signal)
+        }
+        let plain = try section("    private func preparePlainMapOpen()", "    private func openNativeProfile()")
+        XCTAssertTrue(plain.contains("mapOpenState.requestPlainOpen()"))
+        XCTAssertTrue(plain.contains("NativeOnboardingMapHandoff.clear()"))
+        XCTAssertTrue(plain.contains("NativeMapFocusHandoff.clear()"))
+        let find = try section("    private func handleFindSelection(", "    private func handleHomeSearchSuggestion(")
+        let store = try XCTUnwrap(find.range(of: "NativeMapFocusHandoff.store(venue: venue, modeOverride: \"Route\")"))
+        let open = try XCTUnwrap(find.range(of: "openNativeTab(.map)"))
+        XCTAssertLessThan(store.lowerBound, open.lowerBound)
+
+        let map = String(source[try XCTUnwrap(source.range(of: "private struct NativeMapExploreView: View {")).lowerBound...])
+        XCTAssertTrue(map.contains("@Binding var mapOpenState: NativeMapOpenState"))
+        XCTAssertFalse(map.contains("@State private var consumedPlainOpenGeneration"))
+        XCTAssertTrue(map.contains(".onChange(of: mapOpenState.plainOpenGeneration) { _ in consumePlainMapOpenIfNeeded() }"))
+        let visibility = try section("    private var shouldShowSpatialSheet:", "    private var isPlainMapOpen:")
+        XCTAssertTrue(visibility.contains("if hasUnconsumedPlainMapOpen { return false }"))
+        XCTAssertTrue(visibility.contains("mapOpenState.hasUnconsumedPlainOpen"))
+        let consume = try section("    private func consumePlainMapOpenIfNeeded()", "    private func resetPlainMapState()")
+        XCTAssertTrue(consume.contains("mapOpenState.consumePlainOpen()"))
+        XCTAssertTrue(consume.contains("resetPlainMapState()"))
+        XCTAssertFalse(consume.contains("permitsStartupReset"))
+        XCTAssertFalse(consume.contains("asyncAfter"))
+        XCTAssertFalse(source.contains("suppressPlainOpenHandoffs"))
+        for accepted in [try section("    private func applyOnboardingMapHandoffIfRequested()", "    @discardableResult\n    private func applyDirectMapRouteIfRequested()"),
+                         try section("    private func applyDirectMapRouteIfRequested()", "    private func applyNativeMapFocusHandoffIfRequested()"),
+                         try section("    private func applyNativeMapFocusHandoffIfRequested()", "    private func rejectPendingNativeMapFocusHandoff()"),
+                         try section("    private func consumeHandoffMapCenterIfNeeded()", "    @discardableResult\n    private func consumePlainMapOpenIfNeeded()")] {
+            XCTAssertTrue(accepted.contains("mapOpenState.acknowledgeExplicitEntry()"))
+        }
+        let focus = try section("    private func applyNativeMapFocusHandoffIfRequested()", "    private func rejectPendingNativeMapFocusHandoff()")
+        XCTAssertTrue(focus.contains("hasMatchingRequestID(requestID, storedRequestID: NativeMapFocusHandoff.requestID())"))
+        XCTAssertTrue(focus.contains("NativeMapFocusHandoff.canConsume(at: locationStore.coordinate)"))
+        XCTAssertTrue(focus.contains("focusedHandoffPin = focused"))
+        XCTAssertTrue(focus.contains("selectedPin = focused"))
+        XCTAssertTrue(focus.contains("routeFocusedPinID = resolvedMode == \"Route\" ? focused.id : nil"))
+        XCTAssertTrue(focus.contains("activeRoutePinID = resolvedMode == \"Route\" ? focused.id : nil"))
+        XCTAssertFalse(focus.contains("asyncAfter"))
+        XCTAssertFalse(focus.contains("startTurnByTurn"))
+        let location = try section("    private func handleMapLocationChange()", "    private func autoOpenTrafficIntelIfRequested()")
+        XCTAssertTrue(location.contains("focusedHandoffIsLocationScoped"))
+        XCTAssertTrue(location.contains("focusedHandoffPin?.id != selectedPin.id"))
+    }
+}
+
 final class NativeDiscoverM6BrowseTests: XCTestCase {
     private func offering(_ sourceID: String = "spot-a", kind: NativePlanBookableSelection.SourceKind = .coffeeSpot,
                           category: String = "coffee", capability: String = "request", title: String = "Same title",

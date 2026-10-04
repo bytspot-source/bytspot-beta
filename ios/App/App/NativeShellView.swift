@@ -290,6 +290,29 @@ final class NativePatchPairingStore: ObservableObject {
     }
 }
 
+/// Request and acknowledgement share the shell lifetime, not the disposable Map view.
+struct NativeMapOpenState {
+    private(set) var plainOpenGeneration: Int
+    private(set) var consumedPlainOpenGeneration = 0
+
+    init(initialPlainOpen: Bool = false) {
+        plainOpenGeneration = initialPlainOpen ? 1 : 0
+    }
+
+    var hasUnconsumedPlainOpen: Bool { plainOpenGeneration > consumedPlainOpenGeneration }
+
+    mutating func requestPlainOpen() { plainOpenGeneration += 1 }
+
+    /// Explicit destination entry supersedes any older reset without consuming its handoff.
+    mutating func acknowledgeExplicitEntry() { consumedPlainOpenGeneration = plainOpenGeneration }
+
+    mutating func consumePlainOpen() -> Bool {
+        guard hasUnconsumedPlainOpen else { return false }
+        consumedPlainOpenGeneration = plainOpenGeneration
+        return true
+    }
+}
+
 struct BytspotNativeShellView: View {
     @ObservedObject var bridgeStore: NativeBridgeStore
     @ObservedObject var navigation: NativeNavigationCoordinator
@@ -305,7 +328,7 @@ struct BytspotNativeShellView: View {
     @State private var contextualDestination: NativeContextualDestination?
     @State private var pendingProfilePanel: NativeProfilePanel?
     @State private var pendingDiscoverFilter: String?
-    @State private var plainMapOpenGeneration = Self.previewInitialTab == .map ? 1 : 0
+    @State private var mapOpenState = NativeMapOpenState(initialPlainOpen: Self.previewInitialTab == .map)
     @State private var showHostStudio = false
     @State private var hostStudioCircles: [NativeSocialCircle] = []
     @State private var mapReturnTab: BytspotNativeTab = .home
@@ -417,7 +440,7 @@ struct BytspotNativeShellView: View {
                     case .discover:
                         NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
-                        NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membershipTier: membershipStore.tier, plainOpenGeneration: plainMapOpenGeneration, handoffMapCenter: navigation.requestedMapCenter)
+                        NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membershipTier: membershipStore.tier, mapOpenState: $mapOpenState, handoffMapCenter: navigation.requestedMapCenter)
                             .environmentObject(pairingStore)
                             .environmentObject(directMapRouteStore)
                     case .concierge:
@@ -652,7 +675,7 @@ struct BytspotNativeShellView: View {
 
     private func preparePlainMapOpen() {
         clearMapHandoffsForPlainTabOpen()
-        plainMapOpenGeneration += 1
+        mapOpenState.requestPlainOpen()
     }
 
     private func clearMapHandoffsForPlainTabOpen() {
@@ -738,6 +761,7 @@ struct BytspotNativeShellView: View {
         case .mapPicks:
             requestLocationForNearbyContentIfNeeded(.map)
             NativeHomeDashboardView.storeLaunchMapHandoff(snapshot: tabContentStore.snapshot(for: locationStore.coordinate), location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
+            mapOpenState.acknowledgeExplicitEntry()
             commitSelectedTab(.map)
         case .savePicks:
             forceHomeAfterSavePicksAuth()
@@ -798,8 +822,9 @@ struct BytspotNativeShellView: View {
         nativeImpactLight()
         cancelPostAuthHomeHold()
         requestLocationForNearbyContentIfNeeded(tab)
-        if tab == .map && !hasExplicitMapHandoff {
-            preparePlainMapOpen()
+        if tab == .map {
+            if hasExplicitMapHandoff { mapOpenState.acknowledgeExplicitEntry() }
+            else { preparePlainMapOpen() }
         }
         // Immediate state change: the tab bar highlight must respond on the
         // same frame as the tap. The content crossfade is animated separately
@@ -892,11 +917,12 @@ struct BytspotNativeShellView: View {
 
     private func applyRequestedTab(_ tab: BytspotNativeTab) {
         requestLocationForNearbyContentIfNeeded(tab)
-        selectedTab = tab
+        if tab == .map && hasExplicitMapHandoff { mapOpenState.acknowledgeExplicitEntry() }
+        commitSelectedTab(tab)
     }
 
     private var hasExplicitMapHandoff: Bool {
-        directMapRouteStore.hasPendingRoute || NativeOnboardingMapHandoff.hasFreshDestination || NativeMapFocusHandoff.hasPendingFocus
+        directMapRouteStore.hasPendingRoute || NativeOnboardingMapHandoff.hasFreshDestination || NativeMapFocusHandoff.hasPendingFocus || navigation.requestedMapCenter != nil
     }
 
     private func openDiscoverFilter(_ filter: String) {
@@ -14862,7 +14888,7 @@ private struct NativeMapExploreView: View {
     let activeTier: BytspotTier
     /// Canonical membership tier that gates Platinum Map Functions.
     var membershipTier: BytspotTier = .green
-    var plainOpenGeneration: Int = 0
+    @Binding var mapOpenState: NativeMapOpenState
     /// Venue point carried over by an App Clip handoff. Centres the camera once.
     var handoffMapCenter: NativeLocationCoordinate?
     @State private var region = NativeMapRegionPresentation.region(for: .midtown)
@@ -14875,8 +14901,6 @@ private struct NativeMapExploreView: View {
     @State private var didConsumeExplicitMapLaunch = false
     @State private var didApplySelectedPinPreview = false
     @State private var didOpenMapContext = false
-    @State private var consumedPlainOpenGeneration = 0
-    @State private var suppressPlainOpenHandoffs = false
     /// Native Venue Details (WS-C). Presented from the non-partner peek card's
     /// "Details" action — an L0 read-only surface (viewVenue) that replaces the
     /// former coarse openHybrid(.discover) handoff. nil ⇒ no detail presented.
@@ -15319,7 +15343,7 @@ private struct NativeMapExploreView: View {
         }
         .accessibilityIdentifier("native-map-explore")
         .onAppear { handleMapAppear() }
-        .onChange(of: plainOpenGeneration) { _ in consumePlainMapOpenIfNeeded() }
+        .onChange(of: mapOpenState.plainOpenGeneration) { _ in consumePlainMapOpenIfNeeded() }
         .onAppear { consumeHandoffMapCenterIfNeeded() }
         .onChange(of: handoffMapCenter) { _ in consumeHandoffMapCenterIfNeeded() }
         .onChange(of: onboardingMapDestination) { _ in applyOnboardingMapHandoffIfRequested() }
@@ -15383,7 +15407,7 @@ private struct NativeMapExploreView: View {
     }
 
     private var hasUnconsumedPlainMapOpen: Bool {
-        plainOpenGeneration > consumedPlainOpenGeneration &&
+        mapOpenState.hasUnconsumedPlainOpen &&
         Self.previewSelectedPinToken == nil &&
         !Self.previewShowsFunctionSheet
     }
@@ -15442,11 +15466,11 @@ private struct NativeMapExploreView: View {
 
     private func applyOnboardingMapHandoffIfRequested() {
         guard !hasActiveDirectMapRoute else { NativeOnboardingMapHandoff.clear(); return }
-        guard !suppressPlainOpenHandoffs else { NativeOnboardingMapHandoff.clear(); return }
         guard !NativeMapFocusHandoff.hasPendingFocus else { NativeOnboardingMapHandoff.clear(); return }
         let destination = onboardingMapDestination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !destination.isEmpty else { return }
         guard NativeOnboardingMapHandoff.isFresh else { NativeOnboardingMapHandoff.clear(); return }
+        mapOpenState.acknowledgeExplicitEntry()
         didConsumeExplicitMapLaunch = true
         didOpenMapContext = true
         let mode = onboardingMapMode.isEmpty ? "Route" : onboardingMapMode
@@ -15470,6 +15494,7 @@ private struct NativeMapExploreView: View {
     @discardableResult
     private func applyDirectMapRouteIfRequested() -> Bool {
         guard let route = directMapRouteStore.consumeRoute() else { return false }
+        mapOpenState.acknowledgeExplicitEntry()
         let focused = NativeMapPin(venue: route.venue)
         didConsumeExplicitMapLaunch = true
         didOpenMapContext = true
@@ -15487,7 +15512,6 @@ private struct NativeMapExploreView: View {
     }
 
     private func applyNativeMapFocusHandoffIfRequested() {
-        guard !suppressPlainOpenHandoffs else { NativeMapFocusHandoff.clear(); return }
         let requestID = mapFocusRequestID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard NativeMapHandoffPrecedencePolicy.hasMatchingRequestID(requestID, storedRequestID: NativeMapFocusHandoff.requestID()) else {
             discardPendingNativeMapFocusHandoff()
@@ -15534,6 +15558,7 @@ private struct NativeMapExploreView: View {
             NativeMapFocusHandoff.clear()
             return
         }
+        mapOpenState.acknowledgeExplicitEntry()
         directRoutePinID = nil
         focusedHandoffPin = focused
         focusedHandoffOrigin = locationScopeOrigin
@@ -15606,6 +15631,7 @@ private struct NativeMapExploreView: View {
     private func consumeHandoffMapCenterIfNeeded() -> Bool {
         guard let handoffMapCenter, handoffMapCenter != consumedHandoffMapCenter,
               NativeVenueSummary.hasValidMapCoordinate(latitude: handoffMapCenter.latitude, longitude: handoffMapCenter.longitude) else { return false }
+        mapOpenState.acknowledgeExplicitEntry()
         consumedHandoffMapCenter = handoffMapCenter
         focusGeographicCamera(on: CLLocationCoordinate2D(latitude: handoffMapCenter.latitude, longitude: handoffMapCenter.longitude))
         return true
@@ -15613,17 +15639,10 @@ private struct NativeMapExploreView: View {
 
     @discardableResult
     private func consumePlainMapOpenIfNeeded() -> Bool {
-        guard hasUnconsumedPlainMapOpen else { return false }
-        consumedPlainOpenGeneration = plainOpenGeneration
-        suppressPlainOpenHandoffs = true
+        guard hasUnconsumedPlainMapOpen, mapOpenState.consumePlainOpen() else { return false }
         NativeOnboardingMapHandoff.clear()
         NativeMapFocusHandoff.clear()
         resetPlainMapState()
-        let generation = plainOpenGeneration
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            guard consumedPlainOpenGeneration == generation else { return }
-            suppressPlainOpenHandoffs = false
-        }
         return true
     }
 

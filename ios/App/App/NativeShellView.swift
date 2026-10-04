@@ -11663,7 +11663,7 @@ private struct NativeDiscoverView: View {
                         },
                         addToPlan: { beginPlanSelection(card, requestCoffee: false) })
                         .id(card.browseID)
-                        .gesture(discoverCardSwipe)
+                        .simultaneousGesture(discoverCardSwipe)
                     discoverCardPager
             }
         }
@@ -11671,11 +11671,13 @@ private struct NativeDiscoverView: View {
     }
 
     private var discoverCardSwipe: some Gesture {
-        DragGesture(minimumDistance: 24, coordinateSpace: .local)
+        DragGesture(minimumDistance: 28, coordinateSpace: .local)
             .onEnded { value in
                 let horizontal = value.translation.width
                 let vertical = value.translation.height
-                guard abs(horizontal) > abs(vertical), abs(horizontal) >= 72 else { return }
+                // A mostly vertical drag belongs to the page ScrollView.
+                // Only a clearly sideways drag changes the Discover card.
+                guard abs(horizontal) > abs(vertical) * 1.5, abs(horizontal) >= 84 else { return }
                 moveDiscoverCard(horizontal < 0 ? 1 : -1)
             }
     }

@@ -11913,7 +11913,8 @@ private struct NativeDiscoverView: View {
 
 /// Native horizontal paging for the Discover deck. A UIKit-backed scroll view
 /// arbitrates the gestures: a sideways drag pages and cancels the card's tap,
-/// and a vertical drag passes through to the page's scroll view.
+/// and a vertical drag passes through to the page's scroll view. Every card is
+/// laid out so the deck takes the tallest card's height and none is clipped.
 @available(iOS 17.0, *)
 private struct NativeDiscoverCardPager<Card: View>: View {
     let ids: [String]
@@ -11930,7 +11931,7 @@ private struct NativeDiscoverCardPager<Card: View>: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(alignment: .top, spacing: 0) {
+            HStack(alignment: .top, spacing: 0) {
                 ForEach(Array(ids.enumerated()), id: \.element) { offset, id in
                     card(offset).containerRelativeFrame(.horizontal).id(id)
                 }

@@ -11918,8 +11918,15 @@ private struct NativeDiscoverView: View {
 private struct NativeDiscoverCardPager<Card: View>: View {
     let ids: [String]
     @Binding var index: Int
-    @ViewBuilder let card: (Int) -> Card
+    let card: (Int) -> Card
     @State private var position: String?
+
+    init(ids: [String], index: Binding<Int>, @ViewBuilder card: @escaping (Int) -> Card) {
+        self.ids = ids
+        _index = index
+        self.card = card
+        _position = State(initialValue: ids.indices.contains(index.wrappedValue) ? ids[index.wrappedValue] : ids.first)
+    }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -11930,9 +11937,8 @@ private struct NativeDiscoverCardPager<Card: View>: View {
             }
             .scrollTargetLayout()
         }
-        .scrollTargetBehavior(.paging)
+        .modifier(NativeDiscoverPagingBehavior())
         .scrollPosition(id: $position)
-        .onAppear { position = id(at: index) }
         .onChange(of: position) { _, new in
             if let new, let offset = ids.firstIndex(of: new), offset != index { index = offset }
         }
@@ -11940,11 +11946,25 @@ private struct NativeDiscoverCardPager<Card: View>: View {
             let target = id(at: new)
             if target != position { withAnimation(.easeOut(duration: 0.22)) { position = target } }
         }
-        .onChange(of: ids) { _, _ in position = id(at: index) }
+        .onChange(of: ids) { _, new in
+            if position.map({ !new.contains($0) }) ?? true { position = id(at: index) }
+        }
     }
 
     private func id(at offset: Int) -> String? {
         ids.indices.contains(offset) ? ids[offset] : ids.first
+    }
+}
+
+/// iOS 18+ aligns to each card and advances at most one card per swipe.
+@available(iOS 17.0, *)
+private struct NativeDiscoverPagingBehavior: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne))
+        } else {
+            content.scrollTargetBehavior(.paging)
+        }
     }
 }
 

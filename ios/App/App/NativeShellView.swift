@@ -6656,7 +6656,13 @@ private struct NativeHomeDashboardView: View {
                     NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: { openNativeAuth(.login, nil) }, openNativeAccess: openNativeAccess)
                 }
             }
-            if #available(iOS 16.0, *) {
+            if #available(iOS 16.4, *) {
+                detail
+                    .presentationDetents([.large])
+                    .presentationContentInteraction(.scrolls)
+                    .presentationDragIndicator(.visible)
+                    .presentationBackgroundInteraction(.disabled)
+            } else if #available(iOS 16.0, *) {
                 detail
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
@@ -11473,7 +11479,13 @@ private struct NativeDiscoverView: View {
         .onChange(of: handoffFilter ?? "") { _ in applyShellFilterHandoffIfRequested() }
         .sheet(item: $detailVenue) { venue in
             let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess, onRideBookingCompleted: onRideBookingCompleted, offering: detailOffering, offeringUserID: catalogUserID)
-            if #available(iOS 16.0, *) {
+            if #available(iOS 16.4, *) {
+                detail
+                    .presentationDetents([.large])
+                    .presentationContentInteraction(.scrolls)
+                    .presentationDragIndicator(.visible)
+                    .presentationBackgroundInteraction(.disabled)
+            } else if #available(iOS 16.0, *) {
                 detail
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)

@@ -33,11 +33,10 @@ extension EnvironmentValues {
 struct NativeDeepSpaceGround: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.nativeDeepSpaceGroundDrawn) private var alreadyDrawn
-    /// The suppression flag propagates into sheet content along with the rest of
-    /// the environment, which would leave every sheet presented from inside the
-    /// shell with no ground at all. A presented view is its own window-level
-    /// surface and always draws one.
-    @Environment(\.isPresented) private var isPresented
+    /// The suppression flag propagates into presented content. A sheet or
+    /// full-screen cover is its own surface and must always draw one ground.
+    /// `isPresented` is not reliable for every presentation container.
+    @Environment(\.presentationMode) private var presentationMode
 
     /// Fixed field, generated once from a constant seed. Stars must not
     /// reshuffle on every redraw or the sky crawls while you scroll.
@@ -53,7 +52,7 @@ struct NativeDeepSpaceGround: View {
     }()
 
     var body: some View {
-        if alreadyDrawn && !isPresented { Color.clear } else { ground }
+        if alreadyDrawn && !presentationMode.wrappedValue.isPresented { Color.clear } else { ground }
     }
 
     private var ground: some View {

@@ -11620,7 +11620,22 @@ private struct NativeDiscoverView: View {
             if rankedCards.isEmpty {
                 Button("No options in this category yet. Explore all") { selectedFilter = nil }
                     .font(.headline).foregroundColor(.white).frame(minHeight: 44)
-            } else if let card = rankedCards.indices.contains(discoverCardIndex) ? rankedCards[discoverCardIndex] : rankedCards.first {
+            } else {
+                if #available(iOS 17.0, *) {
+                    NativeDiscoverCardPager(ids: rankedCards.map(\.browseID), index: $discoverCardIndex) { offset in
+                        discoverFeatureCard(rankedCards[offset])
+                    }
+                } else if let card = rankedCards.indices.contains(discoverCardIndex) ? rankedCards[discoverCardIndex] : rankedCards.first {
+                    discoverFeatureCard(card).id(card.browseID)
+                }
+                discoverCardPager
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("native-discover-card-deck")
+    }
+
+    private func discoverFeatureCard(_ card: DiscoverCardSpec) -> some View {
                     NativeDiscoverFeatureCard(card: card, venue: venueForDetail(card),
                         transaction: card.offering.flatMap { transactions.transaction(for: $0, userID: catalogUserID) },
                         requestReady: transactions.userID == catalogUserID && transactions.hasLoaded && !transactions.isLoading && !transactions.failed,
@@ -11662,24 +11677,6 @@ private struct NativeDiscoverView: View {
                             }
                         },
                         addToPlan: { beginPlanSelection(card, requestCoffee: false) })
-                        .id(card.browseID)
-                        .simultaneousGesture(discoverCardSwipe)
-                    discoverCardPager
-            }
-        }
-        .accessibilityIdentifier("native-discover-card-deck")
-    }
-
-    private var discoverCardSwipe: some Gesture {
-        DragGesture(minimumDistance: 28, coordinateSpace: .local)
-            .onEnded { value in
-                let horizontal = value.translation.width
-                let vertical = value.translation.height
-                // A mostly vertical drag belongs to the page ScrollView.
-                // Only a clearly sideways drag changes the Discover card.
-                guard abs(horizontal) > abs(vertical) * 1.5, abs(horizontal) >= 84 else { return }
-                moveDiscoverCard(horizontal < 0 ? 1 : -1)
-            }
     }
 
     private var discoverCardPager: some View {
@@ -11912,6 +11909,63 @@ private struct NativeDiscoverView: View {
         Self.filterValue(for: label) == selectedFilter
     }
 
+}
+
+/// Native horizontal paging for the Discover deck. A UIKit-backed scroll view
+/// arbitrates the gestures: a sideways drag pages and cancels the card's tap,
+/// and a vertical drag passes through to the page's scroll view.
+@available(iOS 17.0, *)
+private struct NativeDiscoverCardPager<Card: View>: View {
+    let ids: [String]
+    @Binding var index: Int
+    let card: (Int) -> Card
+    @State private var position: String?
+
+    init(ids: [String], index: Binding<Int>, @ViewBuilder card: @escaping (Int) -> Card) {
+        self.ids = ids
+        _index = index
+        self.card = card
+        _position = State(initialValue: ids.indices.contains(index.wrappedValue) ? ids[index.wrappedValue] : ids.first)
+    }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(alignment: .top, spacing: 0) {
+                ForEach(Array(ids.enumerated()), id: \.element) { offset, id in
+                    card(offset).containerRelativeFrame(.horizontal).id(id)
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .modifier(NativeDiscoverPagingBehavior())
+        .scrollPosition(id: $position)
+        .onChange(of: position) { _, new in
+            if let new, let offset = ids.firstIndex(of: new), offset != index { index = offset }
+        }
+        .onChange(of: index) { _, new in
+            let target = id(at: new)
+            if target != position { withAnimation(.easeOut(duration: 0.22)) { position = target } }
+        }
+        .onChange(of: ids) { _, new in
+            if position.map({ !new.contains($0) }) ?? true { position = id(at: index) }
+        }
+    }
+
+    private func id(at offset: Int) -> String? {
+        ids.indices.contains(offset) ? ids[offset] : ids.first
+    }
+}
+
+/// iOS 18+ aligns to each card and advances at most one card per swipe.
+@available(iOS 17.0, *)
+private struct NativeDiscoverPagingBehavior: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne))
+        } else {
+            content.scrollTargetBehavior(.paging)
+        }
+    }
 }
 
 private struct NativeDiscoverFilterChip: View {

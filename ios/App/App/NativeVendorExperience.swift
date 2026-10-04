@@ -60,8 +60,8 @@ enum NativeVenueSlotCopy {
     /// 4.77:1 here and 4.73:1 on utility, against 11.6:1 supplied, so the
     /// secondary tier still reads at a glance. Do not trim it toward the line.
     static let unsuppliedOpacity = 0.55
-    static let heroEmptyTitle = "No photograph supplied"
-    static let heroEmptyDetail = "A photograph appears here when this place or a host supplies one."
+    static let heroEmptyTitle = "No Bytspot photo yet"
+    static let heroEmptyDetail = "Listing photos are shown for browsing only. A photo appears here once this place or a host adds its own."
     static let vibeEmptyTitle = "No vibe recorded"
     static let vibeEmptyDetail = "A recorded walkthrough appears here when this place supplies one."
     static let descriptionEmpty = "No description provided by this place."

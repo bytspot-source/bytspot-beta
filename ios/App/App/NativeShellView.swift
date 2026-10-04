@@ -11371,6 +11371,7 @@ private struct NativeDiscoverView: View {
     var handoffFilter: String? = nil
     var consumeHandoffFilter: () -> Void = {}
     @State private var selectedFilter: String? = Self.previewFilter
+    @State private var discoverCardIndex = 0
     @State private var catalog = NativeDiscoverCatalogState()
     @State private var catalogReloadID = UUID()
     @State private var planSelection: NativeDiscoverPlanSelection?
@@ -11477,6 +11478,10 @@ private struct NativeDiscoverView: View {
             Task { await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate) }
         }
         .onChange(of: handoffFilter ?? "") { _ in applyShellFilterHandoffIfRequested() }
+        .onChange(of: selectedFilter) { _ in discoverCardIndex = 0 }
+        .onChange(of: rankedCards.map(\.browseID)) { ids in
+            discoverCardIndex = min(discoverCardIndex, max(ids.count - 1, 0))
+        }
         .sheet(item: $detailVenue) { venue in
             let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess, onRideBookingCompleted: onRideBookingCompleted, offering: detailOffering, offeringUserID: catalogUserID)
             if #available(iOS 16.4, *) {
@@ -11610,13 +11615,12 @@ private struct NativeDiscoverView: View {
     }
 
     private var discoverDeck: some View {
-        LazyVStack(spacing: 24) {
+        VStack(spacing: 24) {
             NativeWindowAskRail(coordinate: locationStore.coordinate, openAuth: openNativeAuth)
             if rankedCards.isEmpty {
                 Button("No options in this category yet. Explore all") { selectedFilter = nil }
                     .font(.headline).foregroundColor(.white).frame(minHeight: 44)
-            } else {
-                ForEach(rankedCards, id: \.browseID) { card in
+            } else if let card = rankedCards.indices.contains(discoverCardIndex) ? rankedCards[discoverCardIndex] : rankedCards.first {
                     NativeDiscoverFeatureCard(card: card, venue: venueForDetail(card),
                         transaction: card.offering.flatMap { transactions.transaction(for: $0, userID: catalogUserID) },
                         requestReady: transactions.userID == catalogUserID && transactions.hasLoaded && !transactions.isLoading && !transactions.failed,
@@ -11658,10 +11662,51 @@ private struct NativeDiscoverView: View {
                             }
                         },
                         addToPlan: { beginPlanSelection(card, requestCoffee: false) })
-                }
+                        .id(card.browseID)
+                        .gesture(discoverCardSwipe)
+                    discoverCardPager
             }
         }
         .accessibilityIdentifier("native-discover-card-deck")
+    }
+
+    private var discoverCardSwipe: some Gesture {
+        DragGesture(minimumDistance: 24, coordinateSpace: .local)
+            .onEnded { value in
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+                guard abs(horizontal) > abs(vertical), abs(horizontal) >= 72 else { return }
+                moveDiscoverCard(horizontal < 0 ? 1 : -1)
+            }
+    }
+
+    private var discoverCardPager: some View {
+        HStack {
+            Button { moveDiscoverCard(-1) } label: {
+                Label("Previous", systemImage: "chevron.left").labelStyle(.iconOnly)
+                    .frame(width: 44, height: 44)
+            }
+            .disabled(discoverCardIndex == 0)
+            .accessibilityLabel("Previous Discover card")
+            Spacer()
+            Text("\(min(discoverCardIndex + 1, rankedCards.count)) of \(rankedCards.count)")
+                .font(.footnote.weight(.semibold)).foregroundColor(.white.opacity(0.72))
+                .accessibilityIdentifier("native-discover-card-position")
+            Spacer()
+            Button { moveDiscoverCard(1) } label: {
+                Label("Next", systemImage: "chevron.right").labelStyle(.iconOnly)
+                    .frame(width: 44, height: 44)
+            }
+            .disabled(discoverCardIndex >= rankedCards.count - 1)
+            .accessibilityLabel("Next Discover card")
+        }
+        .buttonStyle(.plain).foregroundColor(.white)
+    }
+
+    private func moveDiscoverCard(_ delta: Int) {
+        let next = min(max(discoverCardIndex + delta, 0), max(rankedCards.count - 1, 0))
+        guard next != discoverCardIndex else { return }
+        withAnimation(.easeOut(duration: 0.22)) { discoverCardIndex = next }
     }
 
     private func refreshDiscoverFeedOnOpen() async {

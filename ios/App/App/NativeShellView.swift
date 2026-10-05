@@ -11936,7 +11936,7 @@ enum NativeDiscoverSwipePolicy {
 
     /// Only a clearly sideways drag starts the swipe, so vertical drags scroll the page.
     static func isHorizontal(_ motion: CGPoint) -> Bool {
-        abs(motion.x) > abs(motion.y) * 1.2
+        abs(motion.x) > abs(motion.y) * 2
     }
 }
 
@@ -12009,9 +12009,7 @@ private struct NativeDiscoverSwipeGesture: UIGestureRecognizerRepresentable {
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
-            let velocity = pan.velocity(in: pan.view)
-            let motion = velocity == .zero ? pan.translation(in: pan.view) : velocity
-            return NativeDiscoverSwipePolicy.isHorizontal(motion)
+            return NativeDiscoverSwipePolicy.isHorizontal(pan.translation(in: pan.view))
         }
 
         /// The page's scroll view waits for this pan to fail, so a sideways

@@ -7660,5 +7660,6 @@ final class NativeDiscoverSwipePolicyTests: XCTestCase {
         XCTAssertTrue(NativeDiscoverSwipePolicy.isHorizontal(CGPoint(x: 300, y: 40)))
         XCTAssertFalse(NativeDiscoverSwipePolicy.isHorizontal(CGPoint(x: 40, y: 300)))
         XCTAssertFalse(NativeDiscoverSwipePolicy.isHorizontal(CGPoint(x: 100, y: 95)))
+        XCTAssertFalse(NativeDiscoverSwipePolicy.isHorizontal(CGPoint(x: 12, y: -9)))
     }
 }

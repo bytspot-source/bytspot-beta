@@ -11995,6 +11995,14 @@ private struct NativeDiscoverSwipeGesture: UIGestureRecognizerRepresentable {
 
     func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
         switch recognizer.state {
+        case .began:
+            // Once the swipe is recognized, stop the page from scrolling with it.
+            var ancestor = recognizer.view?.superview
+            while let view = ancestor, !(view is UIScrollView) { ancestor = view.superview }
+            if let scrollPan = (ancestor as? UIScrollView)?.panGestureRecognizer {
+                scrollPan.isEnabled = false
+                scrollPan.isEnabled = true
+            }
         case .changed:
             changed(recognizer.translation(in: recognizer.view).x)
         case .ended:
@@ -12012,10 +12020,10 @@ private struct NativeDiscoverSwipeGesture: UIGestureRecognizerRepresentable {
             return NativeDiscoverSwipePolicy.isHorizontal(pan.translation(in: pan.view))
         }
 
-        /// The page's scroll view waits for this pan to fail, so a sideways
-        /// swipe never also scrolls the page.
+        /// The page's scroll view never waits for the swipe, so a vertical
+        /// drag scrolls immediately.
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
-                               shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
             guard let scrollView = other.view as? UIScrollView else { return false }
             return other === scrollView.panGestureRecognizer
         }

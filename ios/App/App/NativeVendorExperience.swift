@@ -377,6 +377,17 @@ enum NativeM5DetailPolicy {
     static let activityUnknown = "Activity unknown · no live update provided"
     static let addToPlanTitle = "Add to Plan"
     static let planDisclaimer = "Adding to a Plan does not book or request anything."
+    static let googleSourceNote = "Place details and photos from Google. Contact the place to confirm details."
+
+    /// Only a venue the Bytspot team approved, or Bytspot's own catalog supply,
+    /// gets the Bytspot display. Every other place is listed.
+    static func usesBytspotDisplay(_ venue: NativeVenueSummary, isCatalogSource: Bool) -> Bool {
+        isCatalogSource || venue.control == .bytspot
+    }
+
+    static func googlePhotoCredit(_ photo: NativeGooglePhoto) -> String {
+        photo.attribution.map { "Photo: \($0) · Google" } ?? "Photo from Google"
+    }
 
     static func canValidateVisit(_ venue: NativeVenueSummary) -> Bool {
         guard let id = venue.checkInVenueID, !id.isEmpty,

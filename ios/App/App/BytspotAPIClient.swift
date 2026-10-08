@@ -2358,6 +2358,12 @@ enum NativeDiscoverCategoryNormalizer {
 
 /// Supplied descriptive facts only. None of these fields grants booking,
 /// check-in, vendor control, or live-availability authority.
+/// A Google photograph with the photographer credit Google requires beside it.
+struct NativeGooglePhoto: Equatable {
+    let url: URL
+    let attribution: String?
+}
+
 struct NativeVenueRichDetails: Equatable {
     enum Source: Equatable {
         case venue
@@ -2386,6 +2392,9 @@ struct NativeVenueRichDetails: Equatable {
     /// label so the button always names where the guest is going.
     var tableBookingURL: URL? = nil
     var tableBookingProvider: String? = nil
+    /// Set only from places.details. A listed place shows these as its cover;
+    /// a Bytspot-controlled venue never does.
+    var googlePhotos: [NativeGooglePhoto]? = nil
 
     var phoneURL: URL? { NativeVenueDetailsDTO.safePhoneURL(phone) }
     var hasGoogleFacts: Bool {
@@ -2402,6 +2411,7 @@ struct NativeVenueRichDetails: Equatable {
         result.description = description ?? extra.description
         result.photoURLs = photoURLs ?? extra.photoURLs
         result.photoProvenance = photoURLs == nil ? extra.photoProvenance : photoProvenance
+        result.googlePhotos = googlePhotos ?? extra.googlePhotos
         result.phone = phone ?? extra.phone
         result.websiteURL = websiteURL ?? extra.websiteURL
         result.hours = hours ?? extra.hours
@@ -2495,6 +2505,7 @@ enum NativeVenueDetailsDTO {
         var details = NativeVenueRichDetails(source: .googlePlaces(placeID: googlePlaceID))
         details.description = text(place["editorialSummary"])
         details.photoURLs = photos(place["photoUrls"])
+        details.googlePhotos = googlePhotos(place["photoUrls"], attributions: place["photoAttributions"])
         details.websiteURL = safeHTTPSURL(place["websiteUri"] as? String)
         details.phone = safePhoneURL(place["phone"] as? String) == nil ? nil : text(place["phone"])
         details.hours = strings(place["openingHours"])
@@ -2541,6 +2552,18 @@ enum NativeVenueDetailsDTO {
         guard let values = value as? [String] else { return nil }
         let urls = values.compactMap { safeHTTPSURL($0) }
         return urls.isEmpty ? nil : urls
+    }
+
+    /// Credits are paired by position before any URL is dropped, so a refused
+    /// URL can never shift a photographer's name onto someone else's photo.
+    static func googlePhotos(_ value: Any?, attributions: Any?) -> [NativeGooglePhoto]? {
+        guard let values = value as? [String] else { return nil }
+        let credits = attributions as? [Any] ?? []
+        let result = values.enumerated().compactMap { index, raw -> NativeGooglePhoto? in
+            guard let url = safeHTTPSURL(raw) else { return nil }
+            return NativeGooglePhoto(url: url, attribution: index < credits.count ? text(credits[index]) : nil)
+        }
+        return result.isEmpty ? nil : result
     }
 }
 

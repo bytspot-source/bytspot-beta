@@ -11736,7 +11736,8 @@ private struct NativeDiscoverView: View {
             HStack(spacing: 12) {
                 NativeDiscoverNearbyThumbnail(url: card.imageUrl, icon: card.icon)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(card.title).font(.subheadline.weight(.semibold)).foregroundColor(.white).lineLimit(1)
+                    Text(card.title).font(.subheadline.weight(.semibold)).foregroundColor(.white).lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text([NativeDiscoverMoreNearbyPolicy.rowCategory(card.categoryLabel), NativeDiscoverBrowsePolicy.referenceSubtitle(card.subtitle)].compactMap { $0 }.joined(separator: " · "))
                         .font(.caption).foregroundColor(.white.opacity(0.68)).lineLimit(1)
                     if let distance {
@@ -12697,33 +12698,13 @@ private struct NativeVenueDetailView: View {
     private var detailHorizontalPadding: CGFloat { UIScreen.main.bounds.width < 380 ? 14 : 18 }
     private var stayDetailHeroHeight: CGFloat { min(max(UIScreen.main.bounds.height * 0.24, 180), 228) }
 
+    private var usesBytspotDisplay: Bool {
+        NativeM5DetailPolicy.usesBytspotDisplay(venue, isCatalogSource: offering != nil)
+    }
+
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 20) {
-                placeHeader
-                if let transaction = currentTransaction { transactionPanel(transaction) }
-                else if exactOffering?.sourceKind == .coffeeSpot && !requestStatusReady {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(transactions.failed ? "Your request status is unavailable." : "Checking your requests…").font(.subheadline)
-                        if transactions.failed {
-                            placeButton("Retry request status", icon: "arrow.clockwise") { Task { await refreshDetailTransactions() } }
-                        }
-                    }
-                }
-                if let statusMessage {
-                    Text(statusMessage).font(.subheadline)
-                        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.white.opacity(0.08))
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                }
-                offeringSection
-                placeFacts
-                arrivalModule
-                vendorInformation
-                Text(NativeM5DetailPolicy.planDisclaimer)
-                    .font(.footnote).foregroundColor(.white.opacity(0.72))
-            }
-            .padding(20)
+            if usesBytspotDisplay { bytspotContent } else { listedContent }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { placeBottomActions }
         .foregroundColor(.white)
@@ -12813,7 +12794,7 @@ private struct NativeVenueDetailView: View {
         await transactions.refresh(userID: userID, api: NativePlanAPI(client: client))
     }
     private func loadSuppliedDetails() async {
-        guard offering == nil, venue.googlePlaceID != nil else { return }
+        guard !usesBytspotDisplay, venue.googlePlaceID != nil else { return }
         detailsLoading = true; detailsFailed = false
         defer { detailsLoading = false }
         do {
@@ -12827,14 +12808,7 @@ private struct NativeVenueDetailView: View {
         VStack(alignment: .leading, spacing: 16) {
             ZStack(alignment: .top) {
                 placeHero
-                HStack(spacing: 12) {
-                    heroControl("Back", icon: "chevron.left") { dismiss() }
-                    Spacer(minLength: 8)
-                    ForEach(NativeM5DetailPolicy.compactActions(for: venue, offering: exactOffering, isCatalogSource: offering != nil).filter { $0.id != "checkIn" }) { action in
-                        heroControl(action.id == "save" && isSaved ? "Saved" : action.title,
-                            icon: action.id == "save" && isSaved ? "heart.fill" : action.systemImage) { handle(action) }
-                    }
-                }.padding(12)
+                heroControls.padding(12)
             }
             .overlay(alignment: .bottomLeading) { vibeSlot }
             if dynamicTypeSize.isAccessibilitySize {
@@ -13230,6 +13204,193 @@ private struct NativeVenueDetailView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
+    }
+
+    private var bytspotContent: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            placeHeader
+            if let transaction = currentTransaction { transactionPanel(transaction) }
+            else if exactOffering?.sourceKind == .coffeeSpot && !requestStatusReady {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(transactions.failed ? "Your request status is unavailable." : "Checking your requests…").font(.subheadline)
+                    if transactions.failed {
+                        placeButton("Retry request status", icon: "arrow.clockwise") { Task { await refreshDetailTransactions() } }
+                    }
+                }
+            }
+            statusMessageBanner
+            offeringSection
+            placeFacts
+            arrivalModule
+            vendorInformation
+            Text(NativeM5DetailPolicy.planDisclaimer)
+                .font(.footnote).foregroundColor(.white.opacity(0.72))
+        }
+        .padding(20)
+        .accessibilityIdentifier("native-venue-detail-bytspot")
+    }
+
+    @ViewBuilder private var statusMessageBanner: some View {
+        if let statusMessage {
+            Text(statusMessage).font(.subheadline)
+                .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.white.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+    }
+
+    /// A listed place: Google's photos and details with Check in, Route, Plan
+    /// and its booking link. None of the Bytspot display's slots appear here.
+    private var listedContent: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            listedHeader
+            statusMessageBanner
+            listedFacts
+            VStack(alignment: .leading, spacing: 6) {
+                if details?.hasGoogleFacts == true {
+                    Text(NativeM5DetailPolicy.googleSourceNote)
+                }
+                Text(NativeM5DetailPolicy.planDisclaimer)
+            }
+            .font(.footnote).foregroundColor(.white.opacity(0.72))
+        }
+        .padding(20)
+        .accessibilityIdentifier("native-venue-detail-listed")
+    }
+
+    private var listedPhotos: [NativeGooglePhoto] { details?.googlePhotos ?? [] }
+
+    private var heroControls: some View {
+        HStack(spacing: 12) {
+            heroControl("Back", icon: "chevron.left") { dismiss() }
+            Spacer(minLength: 8)
+            ForEach(NativeM5DetailPolicy.compactActions(for: venue, offering: exactOffering, isCatalogSource: offering != nil).filter { $0.id != "checkIn" }) { action in
+                heroControl(action.id == "save" && isSaved ? "Saved" : action.title,
+                    icon: action.id == "save" && isSaved ? "heart.fill" : action.systemImage) { handle(action) }
+            }
+        }
+    }
+
+    private var listedHeader: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if listedPhotos.isEmpty {
+                heroControls
+            } else {
+                let photo = listedPhotos[min(heroPhotoIndex, listedPhotos.count - 1)]
+                VStack(alignment: .leading, spacing: 8) {
+                    ZStack(alignment: .top) {
+                        heroPhoto(photo.url)
+                            .frame(height: 280)
+                            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                            .accessibilityLabel("Photo of \(venue.name)")
+                            .accessibilityIdentifier("native-listed-cover-photo")
+                        heroControls.padding(12)
+                    }
+                    Text(NativeM5DetailPolicy.googlePhotoCredit(photo))
+                        .font(.caption).foregroundColor(.white.opacity(0.72))
+                        .accessibilityIdentifier("native-listed-photo-credit")
+                    if listedPhotos.count > 1 { listedThumbnails }
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(venue.name).font(.largeTitle.weight(.bold))
+                    .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
+                Text(NativeDiscoverBrowsePolicy.categoryLabel(NativeDiscoverBookablePresentation.referenceRail(type: venue.discoverType, sourceCategory: venue.sourceCategory ?? venue.category) ?? venue.discoverType))
+                    .font(.subheadline.weight(.semibold)).foregroundColor(.white.opacity(0.80))
+                Text(NativeM5DetailPolicy.address(for: venue)).font(.body).foregroundColor(.white.opacity(0.80))
+                if let rating = venue.rating {
+                    Label(String(format: "%.1f", rating), systemImage: "star.fill").font(.footnote)
+                }
+                if let distance = NativeM5DetailPolicy.distance(to: venue, location: locationStore.lastLocation,
+                    authorized: locationStore.authorizationState == .allowed) {
+                    Label(distance, systemImage: "location").font(.footnote)
+                }
+                if let description = details?.description {
+                    Text(description).font(.body).foregroundColor(.white.opacity(0.80))
+                }
+            }
+            if NativeM5DetailPolicy.canValidateVisit(venue) {
+                NativeVenueCheckInChip(venue: venue, openAuth: { openNativeAuth?() })
+            }
+            listedLinks
+            if detailsLoading { ProgressView("Loading place details…").tint(.white) }
+            if detailsFailed {
+                Text("Additional place details couldn't be loaded.").font(.footnote)
+                placeButton("Retry details", icon: "arrow.clockwise") { Task { await loadSuppliedDetails() } }
+            }
+        }
+    }
+
+    private var listedThumbnails: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(Array(listedPhotos.enumerated()), id: \.offset) { index, photo in
+                    Button { heroPhotoIndex = index } label: {
+                        heroPhoto(photo.url)
+                            .frame(width: 72, height: 56)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(Color.white.opacity(index == heroPhotoIndex ? 0.85 : 0.18),
+                                            lineWidth: index == heroPhotoIndex ? 2 : 1)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Photograph \(index + 1) of \(listedPhotos.count)")
+                    .accessibilityAddTraits(index == heroPhotoIndex ? [.isSelected] : [])
+                }
+            }
+        }
+        .accessibilityIdentifier("native-listed-thumbnails")
+    }
+
+    /// Only links the place actually has. Route stays here when the bottom bar
+    /// is taken by a booking link.
+    private var listedLinks: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if NativeM5DetailPolicy.primaryAction(for: placePresentation) != .route {
+                    listedLink("Route", icon: "arrow.triangle.turn.up.right") { showRoute = true }
+                        .accessibilityIdentifier("native-listed-route")
+                }
+                if let url = details?.phoneURL {
+                    listedLink("Call", icon: "phone") { openListedURL(url, title: "Call") }
+                        .accessibilityIdentifier("native-listed-call")
+                }
+                if let url = details?.websiteURL {
+                    listedLink("Site ↗", icon: "globe") { openListedURL(url, title: "Site") }
+                        .accessibilityIdentifier("native-listed-site")
+                }
+            }
+        }
+    }
+
+    private func listedLink(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon).font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14).frame(minHeight: 44)
+                .background(Color.white.opacity(0.10)).clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func openListedURL(_ url: URL, title: String) {
+        handoffURL(url) { accepted in
+            if !accepted { statusMessage = "Could not open \(title). Please try again." }
+        }
+    }
+
+    @ViewBuilder private var listedFacts: some View {
+        if details?.hours != nil || details?.price != nil {
+            VStack(alignment: .leading, spacing: 16) {
+                if let hours = details?.hours { suppliedFacts("Opening hours", values: hours) }
+                if let price = details?.price { suppliedFacts("Price level", values: [price]) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16).background(Color.white.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .accessibilityIdentifier("native-listed-facts")
+        }
     }
 
     private func performPlacePrimaryAction() {

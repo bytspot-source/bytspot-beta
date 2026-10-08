@@ -11644,8 +11644,8 @@ private struct NativeDiscoverView: View {
         .accessibilityIdentifier("native-discover-card-deck")
     }
 
-    /// The other ranked cards as compact rows, closest first when a fresh
-    /// location is available. A row opens the same details as its card.
+    /// The other ranked cards as compact rows, in Discover's order. A row
+    /// opens the same details as its card.
     @ViewBuilder private var discoverMoreNearby: some View {
         let cards = rankedCards
         let origin = NativeDiscoverMoreNearbyPolicy.origin(location: locationStore.lastLocation,

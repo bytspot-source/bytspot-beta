@@ -11644,13 +11644,15 @@ private struct NativeDiscoverView: View {
         .accessibilityIdentifier("native-discover-card-deck")
     }
 
-    /// The other ranked cards as compact rows, in Discover's order. A row
-    /// opens the same details as its card.
+    /// The other ranked cards within walking distance, closest first, as
+    /// thumbnail rows. Hidden without a fresh location. A row opens the same
+    /// details as its card.
     @ViewBuilder private var discoverMoreNearby: some View {
         let cards = rankedCards
         let origin = NativeDiscoverMoreNearbyPolicy.origin(location: locationStore.lastLocation,
                                                            authorized: locationStore.authorizationState == .allowed)
-        let indices = NativeDiscoverMoreNearbyPolicy.indices(count: cards.count, current: discoverCardIndex)
+        let miles = cards.map { origin?.distanceMiles(toLatitude: $0.latitude, longitude: $0.longitude) }
+        let indices = NativeDiscoverMoreNearbyPolicy.indices(miles: miles, current: discoverCardIndex)
         if !indices.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Text("More nearby").font(.headline).foregroundColor(.white)
@@ -11671,10 +11673,7 @@ private struct NativeDiscoverView: View {
             openDiscoverDetails(card)
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: card.icon).font(.system(size: 16, weight: .semibold)).foregroundColor(.white)
-                    .frame(width: 40, height: 40)
-                    .background(Color.white.opacity(0.10))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                NativeDiscoverNearbyThumbnail(url: card.imageUrl, icon: card.icon)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(card.title).font(.subheadline.weight(.semibold)).foregroundColor(.white).lineLimit(1)
                     Text([NativeDiscoverMoreNearbyPolicy.rowCategory(card.categoryLabel), NativeDiscoverBrowsePolicy.referenceSubtitle(card.subtitle)].compactMap { $0 }.joined(separator: " · "))
@@ -11686,9 +11685,10 @@ private struct NativeDiscoverView: View {
                 }
                 Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundColor(.white.opacity(0.45))
             }
-            .padding(.horizontal, 12)
-            .frame(minHeight: 60)
-            .background(NativeVendorSurface())
+            .padding(8)
+            .padding(.trailing, 4)
+            .frame(minHeight: NativeDiscoverNearbyThumbnail.size + 16)
+            .background(NativeDiscoverNearbyRowSurface())
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
             .contentShape(Rectangle())
@@ -11999,15 +11999,20 @@ private struct NativeDiscoverView: View {
 }
 
 /// Which ranked cards the "More nearby" list shows under the Discover card:
-/// every card except the one on screen, in Discover's own order. Distance is
-/// shown on each row but never reorders them.
+/// those within walking distance of a fresh location, closest first, except
+/// the one on screen. Ties keep Discover's order.
 enum NativeDiscoverMoreNearbyPolicy {
     static let limit = 6
+    static let radiusMiles = 1.0
     /// Browsing tolerates an older fix than check-in does (60 s).
     static let maxLocationAge: TimeInterval = 15 * 60
 
-    static func indices(count: Int, current: Int) -> [Int] {
-        Array((0..<count).filter { $0 != current }.prefix(limit))
+    static func indices(miles: [Double?], current: Int) -> [Int] {
+        let nearby = miles.indices.compactMap { index -> (index: Int, miles: Double)? in
+            guard index != current, let value = miles[index], value <= radiusMiles else { return nil }
+            return (index, value)
+        }
+        return Array(nearby.sorted { ($0.miles, $0.index) < ($1.miles, $1.index) }.prefix(limit).map { $0.index })
     }
 
     static func origin(location: CLLocation?, authorized: Bool, now: Date = Date()) -> NativeLocationCoordinate? {
@@ -12024,6 +12029,38 @@ enum NativeDiscoverMoreNearbyPolicy {
     static func rowCategory(_ label: String) -> String? {
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty || trimmed.caseInsensitiveCompare("Nearby") == .orderedSame ? nil : trimmed
+    }
+}
+
+/// A square place photo for a "More nearby" row, or the card's icon when
+/// the place has no photo.
+private struct NativeDiscoverNearbyThumbnail: View {
+    static let size: CGFloat = 64
+    let url: URL?
+    let icon: String
+
+    var body: some View {
+        ZStack {
+            Color.white.opacity(0.06)
+            Image(systemName: icon).font(.system(size: 18, weight: .semibold)).foregroundColor(.white.opacity(0.70))
+            if let url {
+                AsyncImage(url: url, transaction: Transaction(animation: nil)) { phase in
+                    if let image = phase.image { image.resizable().scaledToFill() } else { Color.clear }
+                }
+            }
+        }
+        .frame(width: Self.size, height: Self.size)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityHidden(true)
+    }
+}
+
+/// A thin tint so the starfield shows through each row; solid when the user
+/// asks for reduced transparency.
+private struct NativeDiscoverNearbyRowSurface: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    var body: some View {
+        if reduceTransparency { NativeVendorSurface() } else { Color.white.opacity(0.05) }
     }
 }
 

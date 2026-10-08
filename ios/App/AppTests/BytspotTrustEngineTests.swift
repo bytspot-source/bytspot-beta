@@ -2745,11 +2745,12 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(NativeMapControlsFit.fits(mapHeight: NativeMapPanelDetent.nearFullMapReserve, fullStack: false))
     }
 
-    func testDiscoverMoreNearbyKeepsDiscoverOrderAndSkipsTheCurrentCard() {
-        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(count: 5, current: 0), [1, 2, 3, 4])
-        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(count: 4, current: 2), [0, 1, 3])
-        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(count: 1, current: 0), [])
-        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(count: 20, current: 3).count, NativeDiscoverMoreNearbyPolicy.limit)
+    func testDiscoverMoreNearbyListsCardsWithinAMileClosestFirst() {
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(miles: [0.2, 0.8, 0.1, 0.5], current: 0), [2, 3, 1])
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(miles: [nil, 1.0, 1.01, 0.3], current: 2), [3, 1])
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(miles: [0.4, 0.4, 0.4], current: 1), [0, 2])
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(miles: [nil, nil], current: 0), [])
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(miles: Array(repeating: 0.5, count: 20), current: 3).count, NativeDiscoverMoreNearbyPolicy.limit)
         XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.rowCategory("Nearby"), nil)
         XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.rowCategory(" "), nil)
         XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.rowCategory("Coffee"), "Coffee")

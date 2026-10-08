@@ -11668,33 +11668,33 @@ private struct NativeDiscoverView: View {
     }
 
     private func discoverMoreNearbyRow(_ card: DiscoverCardSpec, distance: String?) -> some View {
-        Button {
-            nativeImpactLight()
-            openDiscoverDetails(card)
-        } label: {
-            HStack(spacing: 12) {
-                NativeDiscoverNearbyThumbnail(url: card.imageUrl, icon: card.icon)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(card.title).font(.subheadline.weight(.semibold)).foregroundColor(.white).lineLimit(1)
-                    Text([NativeDiscoverMoreNearbyPolicy.rowCategory(card.categoryLabel), NativeDiscoverBrowsePolicy.referenceSubtitle(card.subtitle)].compactMap { $0 }.joined(separator: " · "))
-                        .font(.caption).foregroundColor(.white.opacity(0.68)).lineLimit(1)
-                }
-                Spacer(minLength: 8)
-                if let distance {
-                    Text(distance).font(.caption.weight(.semibold)).foregroundColor(.white.opacity(0.72))
-                }
-                Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundColor(.white.opacity(0.45))
+        let open = { nativeImpactLight(); openDiscoverDetails(card) }
+        // A tap, not a Button: a Button inside the page's scroll view still
+        // fires after a sideways drag, while a tap fails once the finger moves.
+        return HStack(spacing: 12) {
+            NativeDiscoverNearbyThumbnail(url: card.imageUrl, icon: card.icon)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(card.title).font(.subheadline.weight(.semibold)).foregroundColor(.white).lineLimit(1)
+                Text([NativeDiscoverMoreNearbyPolicy.rowCategory(card.categoryLabel), NativeDiscoverBrowsePolicy.referenceSubtitle(card.subtitle)].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption).foregroundColor(.white.opacity(0.68)).lineLimit(1)
             }
-            .padding(8)
-            .padding(.trailing, 4)
-            .frame(minHeight: NativeDiscoverNearbyThumbnail.size + 16)
-            .background(NativeDiscoverNearbyRowSurface())
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
-            .contentShape(Rectangle())
+            Spacer(minLength: 8)
+            if let distance {
+                Text(distance).font(.caption.weight(.semibold)).foregroundColor(.white.opacity(0.72))
+            }
+            Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundColor(.white.opacity(0.45))
         }
-        .buttonStyle(.plain)
+        .padding(8)
+        .padding(.trailing, 4)
+        .frame(minHeight: NativeDiscoverNearbyThumbnail.size + 16)
+        .background(NativeDiscoverNearbyRowSurface())
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture(perform: open)
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { open() }
         .accessibilityLabel([card.title, NativeDiscoverMoreNearbyPolicy.rowCategory(card.categoryLabel), distance.map { "\($0) straight-line distance" }].compactMap { $0 }.joined(separator: ", "))
         .accessibilityHint("Opens details")
         .accessibilityIdentifier("native-discover-more-nearby-\(card.browseID)")

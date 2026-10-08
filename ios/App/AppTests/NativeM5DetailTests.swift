@@ -737,6 +737,10 @@ final class NativeM5DetailTests: XCTestCase {
         let shell = try shellSource()
         let detail = try region(in: shell, from: "private struct NativeVenueDetailView: View {", to: "private struct NativeEventRideBookingSheet: View {")
         XCTAssertTrue(detail.contains("if usesBytspotDisplay { bytspotContent } else { listedContent }"))
+        // Container ids must not replace their children's ids.
+        for id in ["native-venue-detail", "native-venue-detail-bytspot", "native-venue-detail-listed"] {
+            XCTAssertTrue(detail.contains(".accessibilityElement(children: .contain)\n        .accessibilityIdentifier(\"\(id)\")"), id)
+        }
         // A controlled venue shows only Bytspot details, never Google's.
         XCTAssertTrue(detail.contains("guard !usesBytspotDisplay, venue.googlePlaceID != nil else { return }"))
         let listed = try region(in: detail, from: "    private var listedContent: some View {", to: "    @ViewBuilder private var listedFacts: some View {")

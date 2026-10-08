@@ -12710,6 +12710,7 @@ private struct NativeVenueDetailView: View {
         .foregroundColor(.white)
         .background(NativeDeepSpaceGround())
         .preferredColorScheme(.dark)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("native-venue-detail")
         .sheet(isPresented: $showGuestSavePrompt) {
             NativeGuestSavePromptSheet(title: guestPromptTitle, subtitle: guestPromptSubtitle, ctaTitle: guestPromptCTA, onSignIn: continueGuestPromptSignIn)
@@ -13227,6 +13228,7 @@ private struct NativeVenueDetailView: View {
                 .font(.footnote).foregroundColor(.white.opacity(0.72))
         }
         .padding(20)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("native-venue-detail-bytspot")
     }
 
@@ -13255,6 +13257,7 @@ private struct NativeVenueDetailView: View {
             .font(.footnote).foregroundColor(.white.opacity(0.72))
         }
         .padding(20)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("native-venue-detail-listed")
     }
 

@@ -15492,33 +15492,34 @@ private struct NativeMapExploreView: View {
     var body: some View {
         GeometryReader { proxy in
             VStack(spacing: 0) {
-                ZStack(alignment: .top) {
-                    // The illustration, six fixed positions and unpositioned
-                    // report/decorative markers are deliberately not rendered.
-                    NativeGeographicMap(payloads: geographicPayloads, cameraRequest: cameraRequest,
-                        recenterMode: recenterMode, locationAuthorized: locationStore.authorizationState == .allowed,
-                        reduceMotion: reduceMapMotion, darkAppearance: mapColorScheme == .dark,
-                        onSelect: selectGeographicPin, onUserPan: {
-                            userMovedCamera = true
-                            dropRecenterModeForUserPan()
-                        }, onRegionChange: { region = $0 }, onTrackingChange: {
-                            recenterMode = $0
-                            if $0 == .off { headingProvider.stop() }
-                        })
+                // The illustration, six fixed positions and unpositioned
+                // report/decorative markers are deliberately not rendered.
+                NativeGeographicMap(payloads: geographicPayloads, cameraRequest: cameraRequest,
+                    recenterMode: recenterMode, locationAuthorized: locationStore.authorizationState == .allowed,
+                    reduceMotion: reduceMapMotion, darkAppearance: mapColorScheme == .dark,
+                    onSelect: selectGeographicPin, onUserPan: {
+                        userMovedCamera = true
+                        dropRecenterModeForUserPan()
+                    }, onRegionChange: { region = $0 }, onTrackingChange: {
+                        recenterMode = $0
+                        if $0 == .off { headingProvider.stop() }
+                    })
+                .frame(minHeight: 0, maxHeight: .infinity)
+                .overlay(alignment: .top) {
                     topSearchOverlay
                         .padding(.leading, NativePolish.mapSearchLeadingInset)
                         .padding(.trailing, NativePolish.mapSearchTrailingInset)
                         .padding(.top, NativePolish.mapSearchTopInset)
-                        .frame(maxHeight: .infinity, alignment: .top)
+                }
+                .overlay(alignment: .topTrailing) {
                     mapControls
                         .padding(.trailing, NativePolish.mapActionTrailingInset)
                         .padding(.top, NativePolish.mapActionTopInset)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                         .opacity(isMapPanelNearFull ? 0 : 1)
                         .allowsHitTesting(!isMapPanelNearFull)
                         .accessibilityHidden(isMapPanelNearFull)
                 }
-                .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
+                .clipped()
                 if shouldShowSpatialSheet {
                     // Keep MapKit's own attribution outside the sheet. Reserve
                     // a usable map viewport rather than covering legal controls.
@@ -16364,6 +16365,7 @@ private struct NativeMapExploreView: View {
         .shadow(color: NativeTheme.panelShadow, radius: 24, x: 0, y: -6)
         .padding(.horizontal, NativePolish.mapSheetHorizontalInset)
         .padding(.bottom, NativePolish.mapSheetBottomInset)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("native-map-functions-sheet")
     }
 

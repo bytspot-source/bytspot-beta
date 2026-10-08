@@ -2708,6 +2708,35 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertLessThan(NativeMapInteractionContract.functionSheetMaxHeightFraction, 1.0)
     }
 
+    func testMapPanelRestsAtPeekHalfAndNearFullWithHalfMatchingTheOriginalHeight() {
+        let available: CGFloat = 700
+        let peek = NativeMapPanelDetent.peek.height(available: available)
+        let half = NativeMapPanelDetent.half.height(available: available)
+        let nearFull = NativeMapPanelDetent.nearFull.height(available: available)
+        XCTAssertEqual(half, min(available * NativeMapInteractionContract.functionSheetMaxHeightFraction, max(80, available - 300)))
+        XCTAssertLessThan(peek, half)
+        XCTAssertLessThan(half, nearFull)
+        XCTAssertEqual(nearFull, available - NativeMapPanelDetent.nearFullMapReserve)
+        XCTAssertLessThanOrEqual(NativeMapPanelDetent.peek.height(available: 300), NativeMapPanelDetent.half.height(available: 300))
+        XCTAssertGreaterThanOrEqual(NativeMapPanelDetent.nearFull.height(available: 300), NativeMapPanelDetent.half.height(available: 300))
+    }
+
+    func testMapPanelHandleDragSnapsToTheClosestHeightAndFlicksOneStep() {
+        let available: CGFloat = 700
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .half, translation: -20, predictedTranslation: -30, available: available), .half)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .half, translation: -40, predictedTranslation: -300, available: available), .nearFull)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .half, translation: 40, predictedTranslation: 300, available: available), .peek)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .peek, translation: -30, predictedTranslation: -150, available: available), .half)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .nearFull, translation: 20, predictedTranslation: 150, available: available), .half)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .peek, translation: 30, predictedTranslation: 200, available: available), .peek)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .nearFull, translation: -30, predictedTranslation: -200, available: available), .nearFull)
+        XCTAssertEqual(NativeMapPanelDetent.liveHeight(from: .nearFull, translation: -500, available: available), NativeMapPanelDetent.nearFull.height(available: available))
+        XCTAssertEqual(NativeMapPanelDetent.liveHeight(from: .peek, translation: 500, available: available), NativeMapPanelDetent.peek.height(available: available))
+        XCTAssertEqual(NativeMapPanelDetent.half.larger, .nearFull)
+        XCTAssertEqual(NativeMapPanelDetent.nearFull.larger, .nearFull)
+        XCTAssertEqual(NativeMapPanelDetent.peek.smaller, .peek)
+    }
+
     func testRegionalMapFocusHandoffExpiresOutsideItsOriginWhileExplicitFocusRemainsValid() {
         let suiteName = "NativeRegionalMapFocusHandoffTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else { return XCTFail("Could not create isolated defaults") }

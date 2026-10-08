@@ -7324,6 +7324,20 @@ final class NativeVenueRichDetailsTests: XCTestCase {
         XCTAssertFalse(NativeDiscoverCardControl.isControlled(venue: canonical))
     }
 
+    func testVenueIsBytspotControlledOnlyWhenTheAPISaysSo() throws {
+        XCTAssertEqual(try XCTUnwrap(NativeTabContentStore.canonicalVenue(from: sparseVenue)).control, .listed)
+        for (raw, expected) in [("bytspot", NativeVenueControl.bytspot), (" Bytspot ", .bytspot), ("listed", .listed), ("vendor", .listed), ("", .listed)] {
+            var row = sparseVenue
+            row["control"] = raw
+            let venue = try XCTUnwrap(NativeTabContentStore.canonicalVenue(from: row))
+            XCTAssertEqual(venue.control, expected, raw)
+            XCTAssertEqual(venue.withDistance("0.2 mi").control, expected, raw)
+        }
+        var row = sparseVenue
+        row["control"] = 1
+        XCTAssertEqual(try XCTUnwrap(NativeTabContentStore.canonicalVenue(from: row)).control, .listed)
+    }
+
     func testCanonicalCheckInNeverUsesAliasesOrMalformedDisplayIDs() throws {
         for id in ["", " internal-venue", "internal-venue ", "internal venue", "internal\nvenue"] {
             var row = sparseVenue

@@ -24,6 +24,7 @@ type ListedPlace = {
   booking: TableBooking | null; checkedAt: string | null; listedAt: string | null;
   numbers: { checkIns: Count; bookingTaps: Count; planAdds: Count; bookedByGuests: Count };
 };
+type VenueControlRow = { venueId: string; name: string; address: string; category: string; control: 'bytspot' | 'listed'; controlledAt: string | null };
 type Candidate = { placeId: string; name: string; address: string; suggestedCategory: Category; listed: boolean };
 type Draft = { placeId: string; name: string; address: string; provider: Provider; url: string; category: Category; opened: boolean };
 type Vendor = {
@@ -170,6 +171,66 @@ function Numbers({ label, count }: { label: string; count: Count }) {
   );
 }
 
+/** The team's approval: only a controlled venue gets the Bytspot display and curated media. */
+function ControlledVenues() {
+  const [venues, setVenues] = useState<VenueControlRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const result = await trpc.admin.places.venues.query();
+      setVenues(result.venues);
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const setControlled = async (v: VenueControlRow, controlled: boolean) => {
+    setBusy(v.venueId); setError(null);
+    try {
+      await trpc.admin.places.setControlled.mutate({ venueId: v.venueId, controlled });
+      await load();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Card>
+      <h2>Bytspot-controlled venues</h2>
+      <p className="admin-muted">Approved venues show only Bytspot photos, videos and details. Everything else is listed and shows Google details.</p>
+      {error && <p className="admin-warn">{error}</p>}
+      {venues === null ? <p className="admin-muted">Loading…</p> : venues.length === 0 ? (
+        <p className="admin-muted">No venues yet.</p>
+      ) : (
+        <ul className="admin-list">
+          {venues.map((v) => (
+            <li key={v.venueId}>
+              <div className="admin-row" style={{ alignItems: 'flex-start' }}>
+                <div>
+                  <p className="admin-strong">
+                    {v.name}
+                    <span className="admin-tag">{v.control === 'bytspot' ? `Bytspot-controlled since ${dateLabel(v.controlledAt)}` : 'Listed'}</span>
+                  </p>
+                  <p className="admin-muted">{v.address}</p>
+                </div>
+                <Button kind={v.control === 'bytspot' ? 'quiet' : 'primary'} disabled={busy === v.venueId}
+                  onClick={() => setControlled(v, v.control !== 'bytspot')}>
+                  {v.control === 'bytspot' ? 'Return to listed' : 'Approve as Bytspot-controlled'}
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
 function PlacesTab() {
   const [query, setQuery] = useState('');
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
@@ -283,6 +344,8 @@ function PlacesTab() {
           </ul>
         )}
       </Card>
+
+      <ControlledVenues />
     </div>
   );
 }

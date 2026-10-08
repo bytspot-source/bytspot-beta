@@ -70,6 +70,21 @@ enum NativeVenueSlotCopy {
     static func utilityEmpty(_ title: String) -> String { "\(title) not provided" }
 }
 
+/// A Bytspot-controlled venue was approved by the Bytspot team and shows only
+/// Bytspot-curated media and details. Anything else is listed. A value that
+/// cannot be read is listed, so the Bytspot display fails closed.
+enum NativeVenueControl: String, Equatable {
+    case bytspot
+    case listed
+
+    static func parse(_ value: Any?) -> NativeVenueControl {
+        guard let raw = value as? String,
+              let parsed = NativeVenueControl(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        else { return .listed }
+        return parsed
+    }
+}
+
 /// Borrowed listing imagery never reaches the hero, so a place that has not
 /// supplied media keeps the empty frame until it does.
 enum NativeVenueHeroMedia {

@@ -2610,9 +2610,12 @@ struct NativeVenueSummary: Identifiable, Equatable {
     /// Supplied by the venues contract. Absent reads as borrowed, which keeps
     /// `imageUrl` out of the hero until provenance is actually asserted.
     var photoProvenance: NativeVenuePhotoProvenance = .borrowed
+    /// Supplied by the venues contract. Absent reads as listed, so only a venue
+    /// the Bytspot team approved gets the Bytspot display.
+    var control: NativeVenueControl = .listed
 
     func withDistance(_ distance: String) -> NativeVenueSummary {
-        NativeVenueSummary(id: id, name: name, category: category, address: address, distance: distance, rating: rating, latitude: latitude, longitude: longitude, crowd: crowd, parking: parking, verifiedPatchId: verifiedPatchId, imageUrl: imageUrl, checkInVenueID: checkInVenueID, googlePlaceID: googlePlaceID, richDetails: richDetails, sourceCategory: sourceCategory, photoProvenance: photoProvenance)
+        NativeVenueSummary(id: id, name: name, category: category, address: address, distance: distance, rating: rating, latitude: latitude, longitude: longitude, crowd: crowd, parking: parking, verifiedPatchId: verifiedPatchId, imageUrl: imageUrl, checkInVenueID: checkInVenueID, googlePlaceID: googlePlaceID, richDetails: richDetails, sourceCategory: sourceCategory, photoProvenance: photoProvenance, control: control)
     }
 
     var discoverType: String {
@@ -4186,7 +4189,8 @@ final class NativeTabContentStore: ObservableObject {
             imageUrl: url(item, ["imageUrl", "image_url", "photoUrl", "image", "heroImage"]),
             googlePlaceID: NativeVenueDetailsDTO.exactGooglePlaceID(item["googlePlaceId"]),
             richDetails: NativeVenueDetailsDTO.venueDetails(from: item),
-            photoProvenance: NativeVenuePhotoProvenance.parse(item["photoProvenance"] ?? item["photo_provenance"])
+            photoProvenance: NativeVenuePhotoProvenance.parse(item["photoProvenance"] ?? item["photo_provenance"]),
+            control: NativeVenueControl.parse(item["control"])
         )
     }
 

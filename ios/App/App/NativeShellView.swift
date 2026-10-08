@@ -11695,7 +11695,7 @@ private struct NativeDiscoverView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { open() }
-        .accessibilityLabel([card.title, NativeDiscoverMoreNearbyPolicy.rowCategory(card.categoryLabel), distance.map { "\($0) straight-line distance" }].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityLabel([card.title, NativeDiscoverMoreNearbyPolicy.rowCategory(card.categoryLabel), distance.map { $0 == "Here" ? "Here" : "\($0) straight-line distance" }].compactMap { $0 }.joined(separator: ", "))
         .accessibilityHint("Opens details")
         .accessibilityIdentifier("native-discover-more-nearby-\(card.browseID)")
     }

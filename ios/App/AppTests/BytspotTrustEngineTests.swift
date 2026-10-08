@@ -327,9 +327,14 @@ final class NativeDiscoverM6BrowseTests: XCTestCase {
         let start = try XCTUnwrap(source.range(of: "private struct NativeDiscoverView: View {"))
         let end = try XCTUnwrap(source.range(of: "private struct NativeSpecialDiscoverCard: View {"))
         let browse = String(source[start.lowerBound..<end.lowerBound])
-        for forbidden in ["entryFilter", "sortBy", "savedOnly", "savedCardIDs", "skippedCardIDs", "NativeDiscoverIntroCard", "liveSourceStrip", "Prime Path", "toggleFavorite", "skipCard", "heroContrastWash", "cardFulfillment", ".onTapGesture", ".gesture(DragGesture", "LinearGradient", "RadialGradient", "NativeTheme.purple", "NativeTheme.cyan", "NativeRemoteImage"] {
+        for forbidden in ["entryFilter", "sortBy", "savedOnly", "savedCardIDs", "skippedCardIDs", "NativeDiscoverIntroCard", "liveSourceStrip", "Prime Path", "toggleFavorite", "skipCard", "heroContrastWash", "cardFulfillment", ".gesture(DragGesture", "LinearGradient", "RadialGradient", "NativeTheme.purple", "NativeTheme.cyan", "NativeRemoteImage"] {
             XCTAssertFalse(browse.contains(forbidden), "Discover reintroduced obsolete browse behavior: \(forbidden)")
         }
+        // The only tap gesture is the More nearby row's, which must not fire after a sideways drag.
+        let row = try XCTUnwrap(browse.range(of: "private func discoverMoreNearbyRow("))
+        let rowEnd = try XCTUnwrap(browse.range(of: "private func discoverFeatureCard(", range: row.upperBound..<browse.endIndex))
+        XCTAssertEqual(browse.components(separatedBy: ".onTapGesture").count - 1, 1)
+        XCTAssertTrue(browse[row.lowerBound..<rowEnd.lowerBound].contains(".onTapGesture(perform: open)"))
         XCTAssertTrue(browse.contains("Button(action: openDetails)"))
         XCTAssertTrue(browse.contains("Button(action: primaryAction)"))
         XCTAssertTrue(browse.contains("Button(action: addToPlan)"))

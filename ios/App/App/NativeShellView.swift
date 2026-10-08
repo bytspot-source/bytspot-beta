@@ -15518,7 +15518,7 @@ private struct NativeMapExploreView: View {
                         .allowsHitTesting(!isMapPanelNearFull)
                         .accessibilityHidden(isMapPanelNearFull)
                 }
-                .frame(maxHeight: .infinity)
+                .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
                 if shouldShowSpatialSheet {
                     // Keep MapKit's own attribution outside the sheet. Reserve
                     // a usable map viewport rather than covering legal controls.
@@ -15588,6 +15588,7 @@ private struct NativeMapExploreView: View {
         .onChange(of: selectedPin?.id) { _ in
             if let pin = selectedPin { focusGeographicCamera(on: pin.coordinate) }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("native-map-explore")
         .onAppear { handleMapAppear() }
         .onChange(of: mapOpenState.plainOpenGeneration) { _ in consumePlainMapOpenIfNeeded() }

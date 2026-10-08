@@ -11200,6 +11200,12 @@ enum NativeDiscoverBrowsePolicy {
         return "Request"
     }
 
+    /// Discover lists only places that belong to one of its categories.
+    /// Offices and other uncategorised places (shown as "Other") stay out.
+    static func hasDiscoverCategory(type: String, sourceCategory: String?) -> Bool {
+        NativeDiscoverBookablePresentation.referenceRail(type: type, sourceCategory: sourceCategory) != nil
+    }
+
     static func categoryLabel(_ category: String) -> String {
         guard let rail = NativeDiscoverBookablePresentation.rail(category: category),
               let index = NativeDiscoverBookablePresentation.railTokens.firstIndex(of: rail) else { return "Other" }
@@ -11372,7 +11378,10 @@ private struct NativeDiscoverView: View {
     var consumeHandoffFilter: () -> Void = {}
     @State private var selectedFilter: String? = Self.previewFilter
     @State private var discoverCardIndex = 0
+    @State private var nearbyBookings: [String: NativeDiscoverNearbyBooking] = [:]
+    @State private var checkedNearbyBookingPlaceIDs: Set<String> = []
     @Environment(\.accessibilityReduceMotion) private var reduceDiscoverMotion
+    @Environment(\.openURL) private var openURL
     @State private var catalog = NativeDiscoverCatalogState()
     @State private var catalogReloadID = UUID()
     @State private var planSelection: NativeDiscoverPlanSelection?
@@ -11653,6 +11662,7 @@ private struct NativeDiscoverView: View {
                                                            authorized: locationStore.authorizationState == .allowed)
         let miles = cards.map { origin?.distanceMiles(toLatitude: $0.latitude, longitude: $0.longitude) }
         let indices = NativeDiscoverMoreNearbyPolicy.indices(miles: miles, current: discoverCardIndex)
+        let placeIDs = indices.compactMap { venueForDetail(cards[$0]).googlePlaceID }
         if !indices.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Text("More nearby").font(.headline).foregroundColor(.white)
@@ -11664,25 +11674,94 @@ private struct NativeDiscoverView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("native-discover-more-nearby")
+            .task(id: placeIDs) { await loadNearbyBookings(placeIDs) }
         }
+    }
+
+    /// Looks up the OpenTable or Resy link for the places listed, once each.
+    private func loadNearbyBookings(_ placeIDs: [String]) async {
+        let missing = placeIDs.filter { !checkedNearbyBookingPlaceIDs.contains($0) }
+        guard !missing.isEmpty else { return }
+        let api = NativeVenueDetailsAPI(client: BytspotAPIClient())
+        await withTaskGroup(of: (String, NativeVenueRichDetails?)?.self) { group in
+            for placeID in missing {
+                group.addTask {
+                    do { return (placeID, try await api.details(googlePlaceID: placeID)) } catch { return nil }
+                }
+            }
+            for await result in group {
+                guard let (placeID, details) = result else { continue }
+                checkedNearbyBookingPlaceIDs.insert(placeID)
+                if let url = details?.tableBookingURL, let label = details?.tableBookingProvider {
+                    nearbyBookings[placeID] = NativeDiscoverNearbyBooking(url: url, label: label)
+                }
+            }
+        }
+    }
+
+    private func openNearbyBooking(_ booking: NativeDiscoverNearbyBooking, placeID: String) {
+        nativeImpactLight()
+        let client = BytspotAPIClient(tokenProvider: { [credential = sessionStore.token] in credential })
+        Task { await NativeTableBookingTapAPI(client: client).record(placeID: placeID, surface: .venue) }
+        openURL(booking.url)
     }
 
     private func discoverMoreNearbyRow(_ card: DiscoverCardSpec, distance: String?) -> some View {
         let open = { nativeImpactLight(); openDiscoverDetails(card) }
-        // A tap, not a Button: a Button inside the page's scroll view still
-        // fires after a sideways drag, while a tap fails once the finger moves.
-        return HStack(spacing: 12) {
-            NativeDiscoverNearbyThumbnail(url: card.imageUrl, icon: card.icon)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(card.title).font(.subheadline.weight(.semibold)).foregroundColor(.white).lineLimit(1)
-                Text([NativeDiscoverMoreNearbyPolicy.rowCategory(card.categoryLabel), NativeDiscoverBrowsePolicy.referenceSubtitle(card.subtitle)].compactMap { $0 }.joined(separator: " · "))
-                    .font(.caption).foregroundColor(.white.opacity(0.68)).lineLimit(1)
+        let venue = venueForDetail(card)
+        let placeID = venue.googlePlaceID
+        let action = NativeDiscoverMoreNearbyPolicy.action(
+            canCheckIn: NativeM5DetailPolicy.canValidateVisit(venue),
+            isAtPlace: NativeVendorExperience.isAtVenue(
+                NativeVenueVisitLocation.freshCoordinate(location: locationStore.lastLocation,
+                                                         authorized: locationStore.authorizationState == .allowed),
+                venue: venue),
+            booking: placeID.flatMap { nearbyBookings[$0] })
+        return HStack(spacing: 10) {
+            // A tap, not a Button: a Button inside the page's scroll view still
+            // fires after a sideways drag, while a tap fails once the finger moves.
+            HStack(spacing: 12) {
+                NativeDiscoverNearbyThumbnail(url: card.imageUrl, icon: card.icon)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(card.title).font(.subheadline.weight(.semibold)).foregroundColor(.white).lineLimit(1)
+                    Text([NativeDiscoverMoreNearbyPolicy.rowCategory(card.categoryLabel), NativeDiscoverBrowsePolicy.referenceSubtitle(card.subtitle)].compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption).foregroundColor(.white.opacity(0.68)).lineLimit(1)
+                    if let distance {
+                        Text(distance).font(.caption.weight(.semibold)).foregroundColor(.white.opacity(0.72))
+                    }
+                }
+                Spacer(minLength: 4)
+                if action == .none {
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundColor(.white.opacity(0.45))
+                }
             }
-            Spacer(minLength: 8)
-            if let distance {
-                Text(distance).font(.caption.weight(.semibold)).foregroundColor(.white.opacity(0.72))
+            .contentShape(Rectangle())
+            .onTapGesture(perform: open)
+            .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { open() }
+            .accessibilityLabel([card.title, NativeDiscoverMoreNearbyPolicy.rowCategory(card.categoryLabel), distance.map { $0 == "Here" ? "Here" : "\($0) straight-line distance" }].compactMap { $0 }.joined(separator: ", "))
+            .accessibilityHint("Opens details")
+            .accessibilityIdentifier("native-discover-more-nearby-\(card.browseID)")
+            switch action {
+            case .checkIn:
+                NativeVenueCheckInChip(venue: venue, openAuth: openNativeAuth)
+                    .fixedSize()
+            case .book(let booking):
+                if let placeID {
+                    Button { openNearbyBooking(booking, placeID: placeID) } label: {
+                        Text("Book ↗").font(.subheadline.weight(.semibold)).foregroundColor(.white)
+                            .padding(.horizontal, 12).frame(minHeight: 44)
+                            .background(Color.white.opacity(0.10)).clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Book on \(booking.label)")
+                    .accessibilityHint("Opens \(booking.label)")
+                    .accessibilityIdentifier("native-discover-more-nearby-book-\(card.browseID)")
+                }
+            case .none:
+                EmptyView()
             }
-            Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundColor(.white.opacity(0.45))
         }
         .padding(8)
         .padding(.trailing, 4)
@@ -11690,14 +11769,6 @@ private struct NativeDiscoverView: View {
         .background(NativeDiscoverNearbyRowSurface())
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
-        .contentShape(Rectangle())
-        .onTapGesture(perform: open)
-        .accessibilityElement(children: .ignore)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { open() }
-        .accessibilityLabel([card.title, NativeDiscoverMoreNearbyPolicy.rowCategory(card.categoryLabel), distance.map { $0 == "Here" ? "Here" : "\($0) straight-line distance" }].compactMap { $0 }.joined(separator: ", "))
-        .accessibilityHint("Opens details")
-        .accessibilityIdentifier("native-discover-more-nearby-\(card.browseID)")
     }
 
     private func discoverFeatureCard(_ card: DiscoverCardSpec) -> some View {
@@ -11817,6 +11888,7 @@ private struct NativeDiscoverView: View {
         let references = NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot, matching: nil)
             .filter {
                 NativeVendorExperience.isDiscoveryReference(id: $0.id) &&
+                NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: $0.type, sourceCategory: $0.categoryLabel) &&
                 NativeDiscoverBookablePresentation.matchesCategory($0.type, filter: selectedFilter, sourceCategory: $0.categoryLabel)
             }
             .map(Self.spec(from:))
@@ -12025,11 +12097,31 @@ enum NativeDiscoverMoreNearbyPolicy {
                                         longitude: location.coordinate.longitude, isFallback: false)
     }
 
+    enum Action: Equatable {
+        case checkIn
+        case book(NativeDiscoverNearbyBooking)
+        case none
+    }
+
+    /// One action per row: Check in when the guest is at a place that supports
+    /// it, otherwise Book with the place's OpenTable or Resy link, otherwise none.
+    static func action(canCheckIn: Bool, isAtPlace: Bool, booking: NativeDiscoverNearbyBooking?) -> Action {
+        if canCheckIn && isAtPlace { return .checkIn }
+        if let booking { return .book(booking) }
+        return .none
+    }
+
     /// "Nearby" repeats the section header, so the row omits it.
     static func rowCategory(_ label: String) -> String? {
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty || trimmed.caseInsensitiveCompare("Nearby") == .orderedSame ? nil : trimmed
     }
+}
+
+/// A place's hand-checked OpenTable or Resy link, labelled with the provider.
+struct NativeDiscoverNearbyBooking: Equatable {
+    let url: URL
+    let label: String
 }
 
 /// A square place photo for a "More nearby" row, or the card's icon when

@@ -2761,6 +2761,26 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.rowCategory("Coffee"), "Coffee")
     }
 
+    func testDiscoverMoreNearbyRowOffersCheckInAtThePlaceOtherwiseBook() {
+        let booking = NativeDiscoverNearbyBooking(url: URL(string: "https://resy.com/cities/atl/venues/example")!, label: "Resy")
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.action(canCheckIn: true, isAtPlace: true, booking: booking), .checkIn)
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.action(canCheckIn: true, isAtPlace: false, booking: booking), .book(booking))
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.action(canCheckIn: false, isAtPlace: true, booking: booking), .book(booking))
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.action(canCheckIn: true, isAtPlace: false, booking: nil), NativeDiscoverMoreNearbyPolicy.Action.none)
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.action(canCheckIn: false, isAtPlace: false, booking: nil), NativeDiscoverMoreNearbyPolicy.Action.none)
+    }
+
+    func testDiscoverLeavesOutPlacesWithoutADiscoverCategory() {
+        XCTAssertFalse(NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: "real_estate_agency", sourceCategory: "real_estate_agency"))
+        XCTAssertFalse(NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: "accounting", sourceCategory: "Other"))
+        XCTAssertFalse(NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: "venue", sourceCategory: nil))
+        XCTAssertTrue(NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: "dining", sourceCategory: "Dining"))
+        XCTAssertTrue(NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: "venue", sourceCategory: "museum"))
+        for card in NativeTabContentSnapshot.fallback.discoverCards {
+            XCTAssertTrue(NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: card.type, sourceCategory: card.categoryLabel), card.id)
+        }
+    }
+
     func testDiscoverMoreNearbyUsesLocationReadingsUpToFifteenMinutesOld() {
         let now = Date()
         func reading(age: TimeInterval, accuracy: CLLocationAccuracy = 20) -> CLLocation {

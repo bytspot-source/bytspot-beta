@@ -24,7 +24,7 @@ type ListedPlace = {
   booking: TableBooking | null; checkedAt: string | null; listedAt: string | null;
   numbers: { checkIns: Count; bookingTaps: Count; planAdds: Count; bookedByGuests: Count };
 };
-type VenueControlRow = { venueId: string; name: string; address: string; category: string; control: 'bytspot' | 'listed'; controlledAt: string | null };
+type VenueControlRow = { venueId: string; name: string; address: string; category: string; control: 'bytspot' | 'listed'; controlledAt: string | null; placeId: string | null };
 type Candidate = { placeId: string; name: string; address: string; suggestedCategory: Category; listed: boolean };
 type Draft = { placeId: string; name: string; address: string; provider: Provider; url: string; category: Category; opened: boolean };
 type Vendor = {
@@ -171,11 +171,81 @@ function Numbers({ label, count }: { label: string; count: Count }) {
   );
 }
 
+type SearchResult = { placeId: string; name: string; address: string; venueId: string | null };
+
+/** The admin finds the venue on Google and confirms it; guests then see its Google photos and details. */
+function GoogleLink({ venue, onLinked, onCancel }: { venue: VenueControlRow; onLinked: () => void; onCancel: () => void }) {
+  const [query, setQuery] = useState(`${venue.name} ${venue.address}`);
+  const [results, setResults] = useState<SearchResult[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const search = async (event: FormEvent) => {
+    event.preventDefault();
+    if (query.trim().length < 2) return;
+    setBusy(true); setError(null);
+    try {
+      const result = await trpc.admin.places.search.query({ query: query.trim() });
+      setResults(result.places);
+      if (result.source === 'unavailable') setError('Google search is unavailable right now. Try again shortly.');
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const link = async (placeId: string) => {
+    setBusy(true); setError(null);
+    try {
+      await trpc.admin.places.linkGoogle.mutate({ venueId: venue.venueId, placeId });
+      onLinked();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="admin-stack">
+      <form onSubmit={search} className="admin-inline" style={{ flexWrap: 'nowrap' }}>
+        <input className={input} placeholder="Name and address on Google" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <Button type="submit" disabled={busy || query.trim().length < 2}>Search Google</Button>
+        <Button kind="quiet" onClick={onCancel}>Cancel</Button>
+      </form>
+      {error && <p className="admin-warn">{error}</p>}
+      {results && (
+        <ul className="admin-list">
+          {results.length === 0 && <li className="admin-muted">No matches. Try the name as Google shows it.</li>}
+          {results.map((r) => {
+            const elsewhere = r.venueId !== null && r.venueId !== venue.venueId;
+            return (
+              <li key={r.placeId} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <p className="admin-strong">{r.name}</p>
+                  <p className="admin-muted">{r.address}</p>
+                </div>
+                {elsewhere ? <span className="admin-tag">Linked to another venue</span> : (
+                  <Button disabled={busy || r.placeId === venue.placeId} onClick={() => link(r.placeId)}>
+                    {r.placeId === venue.placeId ? 'Linked' : 'This is the place'}
+                  </Button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** The team's approval: only a controlled venue gets the Bytspot display and curated media. */
 function ControlledVenues() {
   const [venues, setVenues] = useState<VenueControlRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [linking, setLinking] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -199,10 +269,22 @@ function ControlledVenues() {
     }
   };
 
+  const unlink = async (v: VenueControlRow) => {
+    setBusy(v.venueId); setError(null);
+    try {
+      await trpc.admin.places.linkGoogle.mutate({ venueId: v.venueId, placeId: null });
+      await load();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <Card>
       <h2>Bytspot-controlled venues</h2>
-      <p className="admin-muted">Approved venues show only Bytspot photos, videos and details. Everything else is listed and shows Google details.</p>
+      <p className="admin-muted">Approved venues show only Bytspot photos, videos and details. Everything else is listed and shows Google details, once it is linked to its Google place.</p>
       {error && <p className="admin-warn">{error}</p>}
       {venues === null ? <p className="admin-muted">Loading…</p> : venues.length === 0 ? (
         <p className="admin-muted">No venues yet.</p>
@@ -217,12 +299,22 @@ function ControlledVenues() {
                     <span className="admin-tag">{v.control === 'bytspot' ? `Bytspot-controlled since ${dateLabel(v.controlledAt)}` : 'Listed'}</span>
                   </p>
                   <p className="admin-muted">{v.address}</p>
+                  <p className="admin-muted">{v.placeId ? 'Google place linked' : 'Not linked to Google: guests see no Google photos or details'}</p>
                 </div>
-                <Button kind={v.control === 'bytspot' ? 'quiet' : 'primary'} disabled={busy === v.venueId}
-                  onClick={() => setControlled(v, v.control !== 'bytspot')}>
-                  {v.control === 'bytspot' ? 'Return to listed' : 'Approve as Bytspot-controlled'}
-                </Button>
+                <div className="admin-inline">
+                  <Button kind="quiet" disabled={busy === v.venueId} onClick={() => setLinking(linking === v.venueId ? null : v.venueId)}>
+                    {v.placeId ? 'Change Google place' : 'Link Google place'}
+                  </Button>
+                  {v.placeId && <Button kind="quiet" disabled={busy === v.venueId} onClick={() => unlink(v)}>Unlink</Button>}
+                  <Button kind={v.control === 'bytspot' ? 'quiet' : 'primary'} disabled={busy === v.venueId}
+                    onClick={() => setControlled(v, v.control !== 'bytspot')}>
+                    {v.control === 'bytspot' ? 'Return to listed' : 'Approve as Bytspot-controlled'}
+                  </Button>
+                </div>
               </div>
+              {linking === v.venueId && (
+                <GoogleLink venue={v} onCancel={() => setLinking(null)} onLinked={() => { setLinking(null); void load(); }} />
+              )}
             </li>
           ))}
         </ul>

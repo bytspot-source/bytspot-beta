@@ -14607,6 +14607,8 @@ enum NativeMapPanelDetent: Int, CaseIterable, Equatable {
     static let nearFullMapReserve: CGFloat = 180
     static let peekFraction: CGFloat = 0.28
     static let minimumPeek: CGFloat = 170
+    /// A selected place's card shows through its primary Navigate/Reserve action at peek.
+    static let routeCardPeek: CGFloat = 270
 
     var title: String {
         switch self {
@@ -14616,10 +14618,10 @@ enum NativeMapPanelDetent: Int, CaseIterable, Equatable {
         }
     }
 
-    func height(available: CGFloat) -> CGFloat {
+    func height(available: CGFloat, peekMinimum: CGFloat = minimumPeek) -> CGFloat {
         let half = min(available * NativeMapInteractionContract.functionSheetMaxHeightFraction, max(80, available - 300))
         switch self {
-        case .peek: return min(half, max(Self.minimumPeek, available * Self.peekFraction))
+        case .peek: return min(half, max(peekMinimum, available * Self.peekFraction))
         case .half: return half
         case .nearFull: return max(half, available - Self.nearFullMapReserve)
         }
@@ -14628,22 +14630,41 @@ enum NativeMapPanelDetent: Int, CaseIterable, Equatable {
     var smaller: NativeMapPanelDetent { NativeMapPanelDetent(rawValue: rawValue - 1) ?? self }
     var larger: NativeMapPanelDetent { NativeMapPanelDetent(rawValue: rawValue + 1) ?? self }
 
+    /// Never rests below `lowest`; an active route keeps its card at half or above.
+    func atLeast(_ lowest: NativeMapPanelDetent) -> NativeMapPanelDetent { rawValue < lowest.rawValue ? lowest : self }
+
     /// Snaps a drag of the handle (negative = up) to the closest resting
     /// height, using the projected end so a quick flick moves one step.
-    static func snapped(from start: NativeMapPanelDetent, translation: CGFloat, predictedTranslation: CGFloat, available: CGFloat) -> NativeMapPanelDetent {
-        let target = start.height(available: available) - predictedTranslation
-        let closest = allCases.min { abs($0.height(available: available) - target) < abs($1.height(available: available) - target) } ?? start
+    static func snapped(from start: NativeMapPanelDetent, translation: CGFloat, predictedTranslation: CGFloat, available: CGFloat,
+                        peekMinimum: CGFloat = minimumPeek, lowest: NativeMapPanelDetent = .peek) -> NativeMapPanelDetent {
+        let start = start.atLeast(lowest)
+        let target = start.height(available: available, peekMinimum: peekMinimum) - predictedTranslation
+        let allowed = allCases.filter { $0.rawValue >= lowest.rawValue }
+        let closest = allowed.min { abs($0.height(available: available, peekMinimum: peekMinimum) - target) < abs($1.height(available: available, peekMinimum: peekMinimum) - target) } ?? start
         if closest == start, abs(predictedTranslation) > 120, abs(translation) > 12 {
-            return predictedTranslation < 0 ? start.larger : start.smaller
+            return (predictedTranslation < 0 ? start.larger : start.smaller).atLeast(lowest)
         }
         return closest
     }
 
-    /// Height while the handle is being dragged, kept between peek and near-full.
-    static func liveHeight(from start: NativeMapPanelDetent, translation: CGFloat, available: CGFloat) -> CGFloat {
-        let proposed = start.height(available: available) - translation
-        return min(max(proposed, NativeMapPanelDetent.peek.height(available: available)), NativeMapPanelDetent.nearFull.height(available: available))
+    /// Height while the handle is being dragged, kept between the lowest allowed height and near-full.
+    static func liveHeight(from start: NativeMapPanelDetent, translation: CGFloat, available: CGFloat,
+                           peekMinimum: CGFloat = minimumPeek, lowest: NativeMapPanelDetent = .peek) -> CGFloat {
+        let proposed = start.atLeast(lowest).height(available: available, peekMinimum: peekMinimum) - translation
+        return min(max(proposed, lowest.height(available: available, peekMinimum: peekMinimum)), NativeMapPanelDetent.nearFull.height(available: available))
     }
+}
+
+/// Whether the floating map buttons fit in the map area left above the panel.
+/// They fade out rather than being cut off by, or drawn over, a growing panel.
+enum NativeMapControlsFit {
+    static func requiredHeight(fullStack: Bool) -> CGFloat {
+        let primary = 2 * NativePolish.mapActionPrimarySize + NativePolish.mapActionStackSpacing
+        let secondary = fullStack ? 4 * (NativePolish.mapActionSecondarySize + NativePolish.mapActionStackSpacing) : 0
+        return NativePolish.mapActionTopInset + primary + secondary + 12
+    }
+
+    static func fits(mapHeight: CGFloat, fullStack: Bool) -> Bool { mapHeight >= requiredHeight(fullStack: fullStack) }
 }
 
 struct NativeMapFocusPinCandidate {
@@ -15505,6 +15526,8 @@ private struct NativeMapExploreView: View {
                         if $0 == .off { headingProvider.stop() }
                     })
                 .frame(minHeight: 0, maxHeight: .infinity)
+                .clipped()
+                .overlay(alignment: .top) { mapSearchScrim }
                 .overlay(alignment: .top) {
                     topSearchOverlay
                         .padding(.leading, NativePolish.mapSearchLeadingInset)
@@ -15512,24 +15535,25 @@ private struct NativeMapExploreView: View {
                         .padding(.top, NativePolish.mapSearchTopInset)
                 }
                 .overlay(alignment: .topTrailing) {
+                    let fits = mapControlsFit(available: proxy.size.height)
                     mapControls
                         .padding(.trailing, NativePolish.mapActionTrailingInset)
                         .padding(.top, NativePolish.mapActionTopInset)
-                        .opacity(isMapPanelNearFull ? 0 : 1)
-                        .allowsHitTesting(!isMapPanelNearFull)
-                        .accessibilityHidden(isMapPanelNearFull)
+                        .opacity(fits ? 1 : 0)
+                        .animation(reduceMapMotion ? nil : .easeOut(duration: 0.16), value: fits)
+                        .allowsHitTesting(fits)
+                        .accessibilityHidden(!fits)
                 }
-                .clipped()
                 if shouldShowSpatialSheet {
                     // Keep MapKit's own attribution outside the sheet. Reserve
                     // a usable map viewport rather than covering legal controls.
-                    spatialSheet(maxHeight: mapPanelDragTranslation.map { NativeMapPanelDetent.liveHeight(from: mapPanelDetent, translation: $0, available: proxy.size.height) }
-                        ?? mapPanelDetent.height(available: proxy.size.height), available: proxy.size.height)
+                    spatialSheet(maxHeight: mapPanelHeight(available: proxy.size.height), available: proxy.size.height)
                         .transition(reduceMapMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
             }
             .background(NativeDeepSpaceGround())
             .onChange(of: shouldShowSpatialSheet) { _ in mapPanelDetent = .half }
+            .onChange(of: mapPanelLowestDetent) { lowest in mapPanelDetent = mapPanelDetent.atLeast(lowest) }
             .onChange(of: selectedPin?.id) { _ in mapPanelDetent = .half }
         }
         .sheet(item: $trafficIntelVenue) { venue in
@@ -16254,10 +16278,35 @@ private struct NativeMapExploreView: View {
         }
     }
 
-    private var isMapPanelNearFull: Bool { shouldShowSpatialSheet && mapPanelDetent == .nearFull && mapPanelDragTranslation == nil }
+    private var mapPanelPeekMinimum: CGFloat { selectedPin == nil ? NativeMapPanelDetent.minimumPeek : NativeMapPanelDetent.routeCardPeek }
+    private var mapPanelLowestDetent: NativeMapPanelDetent { selectedPin.map { isRouteActive($0) } == true ? .half : .peek }
+    private var restingMapPanelDetent: NativeMapPanelDetent { mapPanelDetent.atLeast(mapPanelLowestDetent) }
+
+    private func mapPanelHeight(available: CGFloat) -> CGFloat {
+        mapPanelDragTranslation.map {
+            NativeMapPanelDetent.liveHeight(from: restingMapPanelDetent, translation: $0, available: available,
+                                            peekMinimum: mapPanelPeekMinimum, lowest: mapPanelLowestDetent)
+        } ?? restingMapPanelDetent.height(available: available, peekMinimum: mapPanelPeekMinimum)
+    }
+
+    private func mapControlsFit(available: CGFloat) -> Bool {
+        guard shouldShowSpatialSheet else { return true }
+        let panel = mapPanelHeight(available: available) + NativePolish.mapSheetInnerTopPadding + NativePolish.mapSheetInnerBottomPadding + NativePolish.mapSheetBottomInset
+        return NativeMapControlsFit.fits(mapHeight: available - panel, fullStack: showFullRightActionStack)
+    }
+
+    /// A soft fade from the starfield navy at the map's top edge, so map labels
+    /// never sit under the search text. Not a capsule: the map stays the surface.
+    private var mapSearchScrim: some View {
+        LinearGradient(colors: [NativePolish.mapBaseSurface.opacity(0.78), NativePolish.mapBaseSurface.opacity(0.38), .clear], startPoint: .top, endPoint: .bottom)
+            .frame(height: NativePolish.mapSearchTopInset + NativePolish.mapSearchHeight + 28)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
 
     private func setMapPanelDetent(_ detent: NativeMapPanelDetent) {
-        guard detent != mapPanelDetent else { return }
+        let detent = detent.atLeast(mapPanelLowestDetent)
+        guard detent != restingMapPanelDetent else { return }
         nativeImpactLight()
         withAnimation(reduceMapMotion ? nil : .interpolatingSpring(mass: 0.8, stiffness: 380, damping: 34, initialVelocity: 0)) {
             mapPanelDetent = detent
@@ -16268,16 +16317,16 @@ private struct NativeMapExploreView: View {
         Capsule().fill(NativeTheme.textTertiary.opacity(0.58)).frame(width: 48, height: 6)
             .frame(maxWidth: .infinity, minHeight: 22)
             .contentShape(Rectangle())
-            .onTapGesture { setMapPanelDetent(mapPanelDetent == .nearFull ? .half : mapPanelDetent.larger) }
+            .onTapGesture { setMapPanelDetent(restingMapPanelDetent == .nearFull ? .half : restingMapPanelDetent.larger) }
             .accessibilityElement()
             .accessibilityLabel("Map panel")
-            .accessibilityValue(mapPanelDetent.title)
+            .accessibilityValue(restingMapPanelDetent.title)
             .accessibilityHint("Swipe up or down to resize")
             .accessibilityAddTraits(.isButton)
             .accessibilityAdjustableAction { direction in
                 switch direction {
-                case .increment: setMapPanelDetent(mapPanelDetent.larger)
-                case .decrement: setMapPanelDetent(mapPanelDetent.smaller)
+                case .increment: setMapPanelDetent(restingMapPanelDetent.larger)
+                case .decrement: setMapPanelDetent(restingMapPanelDetent.smaller)
                 @unknown default: break
                 }
             }
@@ -16292,9 +16341,10 @@ private struct NativeMapExploreView: View {
             }
             .onEnded { value in
                 guard mapPanelDragTranslation != nil else { return }
-                let target = NativeMapPanelDetent.snapped(from: mapPanelDetent, translation: value.translation.height,
-                                                          predictedTranslation: value.predictedEndTranslation.height, available: available)
-                if target != mapPanelDetent { nativeImpactLight() }
+                let target = NativeMapPanelDetent.snapped(from: restingMapPanelDetent, translation: value.translation.height,
+                                                          predictedTranslation: value.predictedEndTranslation.height, available: available,
+                                                          peekMinimum: mapPanelPeekMinimum, lowest: mapPanelLowestDetent)
+                if target != restingMapPanelDetent { nativeImpactLight() }
                 withAnimation(reduceMapMotion ? nil : .interpolatingSpring(mass: 0.8, stiffness: 380, damping: 34, initialVelocity: 0)) {
                     mapPanelDetent = target
                     mapPanelDragTranslation = nil
@@ -16512,7 +16562,7 @@ private struct NativeMapExploreView: View {
                         .foregroundColor(NativeTheme.textPrimary.opacity(0.92))
                         .frame(maxWidth: .infinity)
                         .frame(height: 36)
-                        .background(NativePolish.mapPanelSurface.opacity(0.82))
+                        .background(NativePolish.mapPanelCardSurface)
                         .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
                         .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                     }
@@ -16522,7 +16572,7 @@ private struct NativeMapExploreView: View {
             }
         }
         .padding(14)
-        .background(LinearGradient(colors: [verdictTint.opacity(0.05), NativePolish.mapPanelSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .background(LinearGradient(colors: [verdictTint.opacity(0.05), NativePolish.mapPanelCardSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(verdictTint.opacity(0.20), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .accessibilityIdentifier("native-map-nonpartner-peek-card")
@@ -16556,7 +16606,7 @@ private struct NativeMapExploreView: View {
                         .foregroundColor(NativeTheme.textPrimary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 36)
-                        .background(NativePolish.mapPanelSurface.opacity(0.88))
+                        .background(NativePolish.mapPanelCardSurface)
                         .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                 }
                 .buttonStyle(.plain)
@@ -16715,7 +16765,7 @@ private struct NativeMapExploreView: View {
             patchPairedFooter(isPaired: isPaired)
         }
         .padding(14)
-        .background(LinearGradient(colors: [NativeTheme.cyan.opacity(0.06), NativePolish.mapPanelSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .background(LinearGradient(colors: [NativeTheme.cyan.opacity(0.06), NativePolish.mapPanelCardSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NativeTheme.cyan.opacity(0.22), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .accessibilityIdentifier("native-map-partner-peek-card")
@@ -16759,7 +16809,7 @@ private struct NativeMapExploreView: View {
                     .padding(.horizontal, 12)
                     .frame(maxWidth: .infinity)
                     .frame(height: 48)
-                    .background(NativePolish.mapPanelSurface.opacity(0.86))
+                    .background(NativePolish.mapPanelCardSurface)
                     .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
@@ -16831,7 +16881,7 @@ private struct NativeMapExploreView: View {
             mapFunctionButton(icon: "bookmark", title: "Routes") { openRoutes() }
         }
         .padding(NativePolish.mapFunctionGridPadding)
-        .background(NativePolish.mapPanelSurface.opacity(0.74))
+        .background(NativePolish.mapPanelCardSurface)
         .overlay(Rectangle().stroke(NativePolish.softBorder, lineWidth: 1))
     }
 
@@ -16848,7 +16898,7 @@ private struct NativeMapExploreView: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: NativePolish.mapFunctionButtonHeight)
-            .background(LinearGradient(colors: [NativeTheme.surfaceHighlight, NativePolish.mapPanelSurface.opacity(0.82)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .background(LinearGradient(colors: [NativeTheme.surfaceHighlight, NativePolish.mapPanelCardSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
             .overlay(RoundedRectangle(cornerRadius: NativePolish.mapFunctionButtonRadius, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1.1))
             .clipShape(RoundedRectangle(cornerRadius: NativePolish.mapFunctionButtonRadius, style: .continuous))
         }
@@ -16857,16 +16907,16 @@ private struct NativeMapExploreView: View {
 
     private var functionFeatureRows: some View {
         VStack(spacing: NativePolish.mapFunctionRowGap) {
-            functionFeatureRow(icon: "car.fill", title: Self.functionRowCopy[0][0], subtitle: Self.functionRowCopy[0][1], colors: [NativeTheme.pink.opacity(0.10), NativeTheme.purple.opacity(0.06), NativePolish.mapPanelSurface], accent: NativeTheme.pink) {
+            functionFeatureRow(icon: "car.fill", title: Self.functionRowCopy[0][0], subtitle: Self.functionRowCopy[0][1], colors: [NativeTheme.pink.opacity(0.10), NativeTheme.purple.opacity(0.06), NativePolish.mapPanelCardSurface], accent: NativeTheme.pink) {
                 selectedMode = "Smart Parking"
                 showFunctionSheet = false
                 selectedPin = pins.first(where: { $0.kind == .parking })
             }
-            functionFeatureRow(icon: "waveform.path.ecg", title: Self.functionRowCopy[1][0], subtitle: Self.functionRowCopy[1][1], colors: [NativeTheme.cyan.opacity(0.10), NativePolish.mapPanelSurface], accent: NativeTheme.cyan) {
+            functionFeatureRow(icon: "waveform.path.ecg", title: Self.functionRowCopy[1][0], subtitle: Self.functionRowCopy[1][1], colors: [NativeTheme.cyan.opacity(0.10), NativePolish.mapPanelCardSurface], accent: NativeTheme.cyan) {
                 selectedMode = "Nearby"
                 showFunctionSheet = false
             }
-            functionFeatureRow(icon: "arrow.up.right", title: Self.functionRowCopy[2][0], subtitle: Self.functionRowCopy[2][1], colors: [NativeTheme.orange.opacity(0.10), NativePolish.mapPanelSurface], accent: NativeTheme.orange) {
+            functionFeatureRow(icon: "arrow.up.right", title: Self.functionRowCopy[2][0], subtitle: Self.functionRowCopy[2][1], colors: [NativeTheme.orange.opacity(0.10), NativePolish.mapPanelCardSurface], accent: NativeTheme.orange) {
                 openTrafficIntel()
             }
             intelligenceFunctionsHeader
@@ -16911,7 +16961,7 @@ private struct NativeMapExploreView: View {
                     .clipShape(Capsule())
             }
             .padding(12)
-            .background(LinearGradient(colors: [NativeTheme.emerald.opacity(0.10), NativePolish.mapPanelSurface], startPoint: .leading, endPoint: .trailing))
+            .background(LinearGradient(colors: [NativeTheme.emerald.opacity(0.10), NativePolish.mapPanelCardSurface], startPoint: .leading, endPoint: .trailing))
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativeTheme.emerald.opacity(0.25), lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
@@ -16983,7 +17033,7 @@ private struct NativeMapExploreView: View {
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
             .frame(height: NativePolish.mapFunctionRowHeight)
-            .background(LinearGradient(colors: [function.accent.opacity(0.12), NativePolish.mapPanelSurface], startPoint: .leading, endPoint: .trailing))
+            .background(LinearGradient(colors: [function.accent.opacity(0.12), NativePolish.mapPanelCardSurface], startPoint: .leading, endPoint: .trailing))
             .overlay(Rectangle().stroke(NativePolish.softBorder, lineWidth: 1.1))
         }
         .buttonStyle(.plain)
@@ -17060,7 +17110,7 @@ private struct NativeMapExploreView: View {
             Image(systemName: "chevron.right").font(.system(size: 18, weight: .black)).foregroundColor(NativeTheme.textTertiary)
         }
         .padding(14)
-        .background(LinearGradient(colors: [NativeTheme.purple.opacity(0.12), NativePolish.mapPanelSurface], startPoint: .leading, endPoint: .trailing))
+        .background(LinearGradient(colors: [NativeTheme.purple.opacity(0.12), NativePolish.mapPanelCardSurface], startPoint: .leading, endPoint: .trailing))
         .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous).stroke(NativePolish.strongBorder, lineWidth: 1.5))
     }
 
@@ -17070,7 +17120,7 @@ private struct NativeMapExploreView: View {
             Text("Ask Concierge to locate verified access, parking, or services.").nativeBody(size: 12, color: NativeTheme.textSecondary)
         }
         .padding(14)
-        .background(NativePolish.mapPanelSurface.opacity(0.82))
+        .background(NativePolish.mapPanelCardSurface)
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
@@ -17121,7 +17171,7 @@ private struct NativeMapExploreView: View {
             }
         }
         .padding(12)
-        .background(NativePolish.mapPanelSurface.opacity(0.72))
+        .background(NativePolish.mapPanelCardSurface)
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityIdentifier("native-map-scanner-access")
@@ -17166,7 +17216,7 @@ private struct NativeMapExploreView: View {
             }
         }
         .padding(12)
-        .background(NativePolish.mapPanelSurface.opacity(0.72))
+        .background(NativePolish.mapPanelCardSurface)
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityIdentifier("native-map-intelligence-filters")
@@ -17192,7 +17242,7 @@ private struct NativeMapExploreView: View {
             }
         }
         .padding(10)
-        .background(NativePolish.mapPanelSurface.opacity(0.72))
+        .background(NativePolish.mapPanelCardSurface)
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityIdentifier("native-map-layer-summary")
@@ -19035,6 +19085,9 @@ enum NativePolish {
     // surface. The map is dark in both appearances for the same reason.
     static let mapBaseSurface = Color.adaptive(lightHex: lightBaseHex, darkHex: mapBaseHex)
     static let mapPanelSurface = Color.adaptive(lightHex: lightPanelHex, darkHex: mapPanelHex, lightAlpha: 0.90, darkAlpha: 0.94)
+    // Cards inside the Map panel. The panel itself is a thin tint over the
+    // starfield; a near-opaque card on top of it would read as a slab.
+    static let mapPanelCardSurface = Color.adaptive(lightHex: lightPanelHex, darkHex: mapPanelHex, lightAlpha: 0.42, darkAlpha: 0.46)
     static let mapControlSurface = Color.adaptive(lightHex: lightElevatedHex, darkHex: mapPanelHex, lightAlpha: 0.94, darkAlpha: 0.94)
     static let mapRoadSurface = Color.adaptive(lightHex: 0x232A50, darkHex: mapPanelHex, lightAlpha: 0.90, darkAlpha: 0.96)
     // Dark measured flatter than Light once Light was converted -- roads 1.39:1

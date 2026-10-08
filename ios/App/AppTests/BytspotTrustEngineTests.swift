@@ -2721,6 +2721,30 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(NativeMapPanelDetent.nearFull.height(available: 300), NativeMapPanelDetent.half.height(available: 300))
     }
 
+    func testMapPanelKeepsTheRouteCardVisibleAndAnActiveRouteAtHalfOrAbove() {
+        let available: CGFloat = 700
+        let half = NativeMapPanelDetent.half.height(available: available)
+        XCTAssertEqual(NativeMapPanelDetent.peek.height(available: available, peekMinimum: NativeMapPanelDetent.routeCardPeek), NativeMapPanelDetent.routeCardPeek)
+        XCTAssertGreaterThan(NativeMapPanelDetent.routeCardPeek, NativeMapPanelDetent.peek.height(available: available))
+        XCTAssertLessThanOrEqual(NativeMapPanelDetent.peek.height(available: 320, peekMinimum: NativeMapPanelDetent.routeCardPeek), NativeMapPanelDetent.half.height(available: 320))
+        XCTAssertEqual(NativeMapPanelDetent.peek.atLeast(.half), .half)
+        XCTAssertEqual(NativeMapPanelDetent.nearFull.atLeast(.half), .nearFull)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .half, translation: 40, predictedTranslation: 300, available: available, lowest: .half), .half)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .peek, translation: -10, predictedTranslation: -10, available: available, lowest: .half), .half)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .nearFull, translation: 200, predictedTranslation: 400, available: available, lowest: .half), .half)
+        XCTAssertEqual(NativeMapPanelDetent.liveHeight(from: .half, translation: 500, available: available, lowest: .half), half)
+    }
+
+    func testFloatingMapButtonsHideWhenTheMapAreaAboveThePanelIsTooShort() {
+        let compact = NativeMapControlsFit.requiredHeight(fullStack: false)
+        let full = NativeMapControlsFit.requiredHeight(fullStack: true)
+        XCTAssertGreaterThan(full, compact)
+        XCTAssertGreaterThan(compact, NativePolish.mapActionTopInset + 2 * NativePolish.mapActionPrimarySize)
+        XCTAssertTrue(NativeMapControlsFit.fits(mapHeight: compact, fullStack: false))
+        XCTAssertFalse(NativeMapControlsFit.fits(mapHeight: compact - 1, fullStack: false))
+        XCTAssertFalse(NativeMapControlsFit.fits(mapHeight: NativeMapPanelDetent.nearFullMapReserve, fullStack: false))
+    }
+
     func testMapPanelHandleDragSnapsToTheClosestHeightAndFlicksOneStep() {
         let available: CGFloat = 700
         XCTAssertEqual(NativeMapPanelDetent.snapped(from: .half, translation: -20, predictedTranslation: -30, available: available), .half)

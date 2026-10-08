@@ -8,6 +8,7 @@ import {
   MEDIA_REFUSALS,
   planPickedVideo,
   planUpload,
+  reviewLabel,
   vendorCanEditMedia,
 } from '../media.ts';
 import { openSession, type Seat, type Seller, type VendorSession } from '../seller.ts';
@@ -125,4 +126,13 @@ test('the picker hangs on a real place id and a window id from demand supply', (
   // to POST against. Demand supply is the live window id.
   const grid = readFileSync(new URL('../AvailabilityGrid.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(grid, /MediaPicker/);
+});
+
+test('a vendor reads whether Bytspot is still reviewing a file or turned it down', () => {
+  assert.equal(reviewLabel({ reviewStatus: 'pending' }), 'Waiting for Bytspot review');
+  assert.equal(reviewLabel({ reviewStatus: 'rejected', reviewNote: 'Blurry' }), 'Not approved: Blurry');
+  assert.equal(reviewLabel({ reviewStatus: 'rejected', reviewNote: null }), 'Not approved');
+  assert.equal(reviewLabel({ reviewStatus: 'approved' }), null);
+  assert.equal(reviewLabel({}), null);
+  assert.equal(MEDIA_REFUSALS['video-needs-hosting'], 'Video hosting is a paid Bytspot plan. Ask Bytspot to switch it on.');
 });

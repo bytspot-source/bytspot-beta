@@ -7,7 +7,9 @@ import {
   MEDIA_REFUSALS,
   planPickedVideo,
   planUpload,
+  reviewLabel,
   vendorCanEditMedia,
+  VIDEO_HOSTING_NOTE,
   type MediaKind,
   type MediaParent,
   type VendorMediaItem,
@@ -266,6 +268,7 @@ export function MediaPicker({ session, transport, parent, parentId, authorizedFe
                         alt=""
                       />
                     )}
+                    {reviewLabel(item) ? <p className="vendor-muted">{reviewLabel(item)}</p> : null}
                     {canEdit ? (
                       <button
                         type="button"
@@ -283,6 +286,9 @@ export function MediaPicker({ session, transport, parent, parentId, authorizedFe
           </section>
         );
       })}
+
+      {parent === 'location' && !videoAvailable ? <p className="vendor-muted">{VIDEO_HOSTING_NOTE}</p> : null}
+      <p className="vendor-muted">Bytspot reviews every new photo, menu and video before guests see it.</p>
 
       {blockers.length > 0 ? (
         <ul className="vendor-reasons">

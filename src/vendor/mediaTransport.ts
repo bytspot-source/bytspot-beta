@@ -75,6 +75,9 @@ function reviveItem(raw: unknown): VendorMediaItem | undefined {
     mimeType: entry.mimeType,
     byteSize: Number(entry.byteSize),
     url: entry.url,
+    ...(entry.reviewStatus === 'pending' || entry.reviewStatus === 'approved' || entry.reviewStatus === 'rejected'
+      ? { reviewStatus: entry.reviewStatus, reviewNote: typeof entry.reviewNote === 'string' ? entry.reviewNote : null }
+      : {}),
   };
 }
 

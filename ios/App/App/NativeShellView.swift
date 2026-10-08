@@ -11637,10 +11637,67 @@ private struct NativeDiscoverView: View {
                     }
                 }
                 discoverCardPager
+                discoverMoreNearby
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("native-discover-card-deck")
+    }
+
+    /// The other ranked cards as compact rows, closest first when a fresh
+    /// location is available. A row opens the same details as its card.
+    @ViewBuilder private var discoverMoreNearby: some View {
+        let cards = rankedCards
+        let origin = NativeDiscoverMoreNearbyPolicy.origin(location: locationStore.lastLocation,
+                                                           authorized: locationStore.authorizationState == .allowed)
+        let indices = NativeDiscoverMoreNearbyPolicy.indices(count: cards.count, current: discoverCardIndex)
+        if !indices.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("More nearby").font(.headline).foregroundColor(.white)
+                    .accessibilityAddTraits(.isHeader)
+                ForEach(indices, id: \.self) { index in
+                    discoverMoreNearbyRow(cards[index], distance: origin?.distanceLabel(toLatitude: cards[index].latitude, longitude: cards[index].longitude))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("native-discover-more-nearby")
+        }
+    }
+
+    private func discoverMoreNearbyRow(_ card: DiscoverCardSpec, distance: String?) -> some View {
+        Button {
+            nativeImpactLight()
+            openDiscoverDetails(card)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: card.icon).font(.system(size: 16, weight: .semibold)).foregroundColor(.white)
+                    .frame(width: 40, height: 40)
+                    .background(Color.white.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(card.title).font(.subheadline.weight(.semibold)).foregroundColor(.white).lineLimit(1)
+                    Text([NativeDiscoverMoreNearbyPolicy.rowCategory(card.categoryLabel), NativeDiscoverBrowsePolicy.referenceSubtitle(card.subtitle)].compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption).foregroundColor(.white.opacity(0.68)).lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                if let distance {
+                    Text(distance).font(.caption.weight(.semibold)).foregroundColor(.white.opacity(0.72))
+                }
+                Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundColor(.white.opacity(0.45))
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 60)
+            .background(NativeVendorSurface())
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([card.title, NativeDiscoverMoreNearbyPolicy.rowCategory(card.categoryLabel), distance.map { "\($0) straight-line distance" }].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityHint("Opens details")
+        .accessibilityIdentifier("native-discover-more-nearby-\(card.browseID)")
     }
 
     private func discoverFeatureCard(_ card: DiscoverCardSpec) -> some View {
@@ -11939,6 +11996,35 @@ private struct NativeDiscoverView: View {
         Self.filterValue(for: label) == selectedFilter
     }
 
+}
+
+/// Which ranked cards the "More nearby" list shows under the Discover card:
+/// every card except the one on screen, in Discover's own order. Distance is
+/// shown on each row but never reorders them.
+enum NativeDiscoverMoreNearbyPolicy {
+    static let limit = 6
+    /// Browsing tolerates an older fix than check-in does (60 s).
+    static let maxLocationAge: TimeInterval = 15 * 60
+
+    static func indices(count: Int, current: Int) -> [Int] {
+        Array((0..<count).filter { $0 != current }.prefix(limit))
+    }
+
+    static func origin(location: CLLocation?, authorized: Bool, now: Date = Date()) -> NativeLocationCoordinate? {
+        guard authorized, let location,
+              (0...maxLocationAge).contains(now.timeIntervalSince(location.timestamp)),
+              (0...250).contains(location.horizontalAccuracy),
+              NativeVenueSummary.hasValidMapCoordinate(latitude: location.coordinate.latitude,
+                                                       longitude: location.coordinate.longitude) else { return nil }
+        return NativeLocationCoordinate(latitude: location.coordinate.latitude,
+                                        longitude: location.coordinate.longitude, isFallback: false)
+    }
+
+    /// "Nearby" repeats the section header, so the row omits it.
+    static func rowCategory(_ label: String) -> String? {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || trimmed.caseInsensitiveCompare("Nearby") == .orderedSame ? nil : trimmed
+    }
 }
 
 /// Decides what a finished sideways swipe on the Discover card does.

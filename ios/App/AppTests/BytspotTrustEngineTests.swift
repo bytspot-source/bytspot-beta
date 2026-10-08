@@ -2745,6 +2745,30 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(NativeMapControlsFit.fits(mapHeight: NativeMapPanelDetent.nearFullMapReserve, fullStack: false))
     }
 
+    func testDiscoverMoreNearbyKeepsDiscoverOrderAndSkipsTheCurrentCard() {
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(count: 5, current: 0), [1, 2, 3, 4])
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(count: 4, current: 2), [0, 1, 3])
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(count: 1, current: 0), [])
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(count: 20, current: 3).count, NativeDiscoverMoreNearbyPolicy.limit)
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.rowCategory("Nearby"), nil)
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.rowCategory(" "), nil)
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.rowCategory("Coffee"), "Coffee")
+    }
+
+    func testDiscoverMoreNearbyUsesLocationReadingsUpToFifteenMinutesOld() {
+        let now = Date()
+        func reading(age: TimeInterval, accuracy: CLLocationAccuracy = 20) -> CLLocation {
+            CLLocation(coordinate: CLLocationCoordinate2D(latitude: 33.7838, longitude: -84.383), altitude: 0,
+                       horizontalAccuracy: accuracy, verticalAccuracy: 10, timestamp: now.addingTimeInterval(-age))
+        }
+        XCTAssertNotNil(NativeDiscoverMoreNearbyPolicy.origin(location: reading(age: 5 * 60), authorized: true, now: now))
+        XCTAssertNotNil(NativeDiscoverMoreNearbyPolicy.origin(location: reading(age: 15 * 60), authorized: true, now: now))
+        XCTAssertNil(NativeDiscoverMoreNearbyPolicy.origin(location: reading(age: 15 * 60 + 1), authorized: true, now: now))
+        XCTAssertNil(NativeDiscoverMoreNearbyPolicy.origin(location: reading(age: 60), authorized: false, now: now))
+        XCTAssertNil(NativeDiscoverMoreNearbyPolicy.origin(location: reading(age: 60, accuracy: 900), authorized: true, now: now))
+        XCTAssertNil(NativeVenueVisitLocation.freshCoordinate(location: reading(age: 5 * 60), authorized: true, now: now))
+    }
+
     func testMapPanelHandleDragSnapsToTheClosestHeightAndFlicksOneStep() {
         let available: CGFloat = 700
         XCTAssertEqual(NativeMapPanelDetent.snapped(from: .half, translation: -20, predictedTranslation: -30, available: available), .half)

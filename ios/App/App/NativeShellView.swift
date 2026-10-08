@@ -11382,6 +11382,7 @@ private struct NativeDiscoverView: View {
     @State private var checkedNearbyBookingPlaceIDs: Set<String> = []
     @Environment(\.accessibilityReduceMotion) private var reduceDiscoverMotion
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     @State private var catalog = NativeDiscoverCatalogState()
     @State private var catalogReloadID = UUID()
     @State private var planSelection: NativeDiscoverPlanSelection?
@@ -11467,6 +11468,7 @@ private struct NativeDiscoverView: View {
         }
         .onAppear { locationStore.startIfAuthorized(); applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested() }
         .task { await refreshDiscoverFeedOnOpen() }
+        .task(id: scenePhase) { await refreshLocationWhileOpen() }
         .task(id: catalogTaskID) { await loadBookables() }
         .task(id: transactions.accountRevision) { await refreshTransactions() }
         .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidChange)) { _ in
@@ -11675,6 +11677,17 @@ private struct NativeDiscoverView: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("native-discover-more-nearby")
             .task(id: placeIDs) { await loadNearbyBookings(placeIDs) }
+        }
+    }
+
+    /// Keeps the fix fresh enough for Check in while Discover is on screen, so
+    /// More nearby updates as the guest walks without reopening the tab.
+    private func refreshLocationWhileOpen() async {
+        guard scenePhase == .active else { return }
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: UInt64(NativeDiscoverMoreNearbyPolicy.locationRefreshInterval * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            locationStore.startIfAuthorized()
         }
     }
 
@@ -12078,6 +12091,8 @@ enum NativeDiscoverMoreNearbyPolicy {
     static let radiusMiles = 1.0
     /// Browsing tolerates an older fix than check-in does (60 s).
     static let maxLocationAge: TimeInterval = 15 * 60
+    /// Half the check-in freshness limit, so a reading never ages out on screen.
+    static let locationRefreshInterval: TimeInterval = 30
 
     static func indices(miles: [Double?], current: Int) -> [Int] {
         let nearby = miles.indices.compactMap { index -> (index: Int, miles: Double)? in

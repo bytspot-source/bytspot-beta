@@ -2795,6 +2795,11 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertNil(NativeVenueVisitLocation.freshCoordinate(location: reading(age: 5 * 60), authorized: true, now: now))
     }
 
+    func testDiscoverRefreshesLocationWithinTheCheckInFreshnessLimit() {
+        XCTAssertGreaterThan(NativeDiscoverMoreNearbyPolicy.locationRefreshInterval, 0)
+        XCTAssertLessThan(NativeDiscoverMoreNearbyPolicy.locationRefreshInterval, NativeLocationStore.rideBookingMaximumLocationAge)
+    }
+
     func testMapPanelHandleDragSnapsToTheClosestHeightAndFlicksOneStep() {
         let available: CGFloat = 700
         XCTAssertEqual(NativeMapPanelDetent.snapped(from: .half, translation: -20, predictedTranslation: -30, available: available), .half)

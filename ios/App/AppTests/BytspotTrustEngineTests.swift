@@ -2127,6 +2127,38 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertGreaterThan(NativeMapPinFocusStyle.alpha(isDimmed: true), 0.3, "Faded pins must stay visible and tappable.")
     }
 
+    func testRouteLineAppearsOnlyWhenAskedAndFitsAboveThePanel() throws {
+        let here = CLLocationCoordinate2D(latitude: 33.78101, longitude: -84.38302)
+        let venue = CLLocationCoordinate2D(latitude: 33.7878, longitude: -84.3832)
+        XCTAssertNil(NativeMapRoutePolicy.key(origin: nil, destination: venue), "No device fix, no invented route.")
+        XCTAssertNil(NativeMapRoutePolicy.key(origin: here, destination: nil), "No route asked for, no line.")
+        let key = try XCTUnwrap(NativeMapRoutePolicy.key(origin: here, destination: venue))
+        let nudged = CLLocationCoordinate2D(latitude: 33.78104, longitude: -84.38299)
+        XCTAssertEqual(NativeMapRoutePolicy.key(origin: nudged, destination: venue), key, "A few metres of drift must not re-route.")
+        let elsewhere = CLLocationCoordinate2D(latitude: 33.7700, longitude: -84.3900)
+        XCTAssertNotEqual(NativeMapRoutePolicy.key(origin: here, destination: elsewhere), key)
+
+        let margins = NativeMapViewportPolicy.margins(panelFootprint: 300)
+        let padding = try XCTUnwrap(NativeMapRoutePolicy.fitPadding(margins: margins, mapHeight: 800))
+        XCTAssertGreaterThan(padding.bottom, margins.bottom, "The route sits above the panel, not under it.")
+        XCTAssertGreaterThan(padding.top, margins.top)
+        XCTAssertNil(NativeMapRoutePolicy.fitPadding(margins: NativeMapViewportPolicy.margins(panelFootprint: 650), mapHeight: 800))
+
+        XCTAssertEqual(NativeMapRoutePolicy.etaLabel(seconds: 10), "1 min")
+        XCTAssertEqual(NativeMapRoutePolicy.etaLabel(seconds: 720), "12 min")
+        XCTAssertEqual(NativeMapRoutePolicy.etaLabel(seconds: 3600), "1 hr")
+        XCTAssertEqual(NativeMapRoutePolicy.etaLabel(seconds: 3900), "1 hr 5 min")
+
+        XCTAssertLessThan(NativeMapPinFocusStyle.alpha(isDimmed: true, isRouteMode: true), NativeMapPinFocusStyle.alpha(isDimmed: true))
+        XCTAssertEqual(NativeMapPinFocusStyle.alpha(isDimmed: false, isRouteMode: true), 1, "The destination never fades.")
+        let other = try XCTUnwrap(NativeMapAnnotationPayload(id: "b", title: "Place", caption: "", latitude: 33.78, longitude: -84.38,
+                                                             selectedID: "a", isRouteMode: true))
+        XCTAssertTrue(other.isDimmed)
+        XCTAssertTrue(other.isRouteMode)
+        XCTAssertFalse(try XCTUnwrap(NativeMapAnnotationPayload(id: "b", title: "Place", caption: "", latitude: 33.78, longitude: -84.38,
+                                                                selectedID: nil, isRouteMode: true)).isRouteMode)
+    }
+
     func testMapCameraCommandsAreConsumedOnceAndPermitExplicitRefocus() {
         var gate = NativeMapCameraCommandGate()
         let initial = UUID()

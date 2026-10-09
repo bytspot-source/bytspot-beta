@@ -124,7 +124,7 @@ final class NativeMapOpenLifecycleTests: XCTestCase {
             XCTAssertLessThan(acknowledge.lowerBound, commit.lowerBound)
         }
         let explicit = try section("    private var hasExplicitMapHandoff:", "    private func openDiscoverFilter(")
-        for signal in ["directMapRouteStore.hasPendingRoute", "NativeOnboardingMapHandoff.hasFreshDestination",
+        for signal in ["saleMeetStore.card != nil", "directMapRouteStore.hasPendingRoute", "NativeOnboardingMapHandoff.hasFreshDestination",
                        "NativeMapFocusHandoff.hasPendingFocus", "navigation.requestedMapCenter != nil"] {
             XCTAssertTrue(explicit.contains(signal), signal)
         }
@@ -2817,7 +2817,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         let body = String(source[bodyStart.lowerBound..<bodyEnd.lowerBound])
         XCTAssertTrue(body.contains("ZStack(alignment: .bottom) {"), "The panel floats over the map.")
         XCTAssertFalse(body.contains("NativeDeepSpaceGround()"), "No starfield behind the map.")
-        XCTAssertTrue(body.contains("panelFootprint: shouldShowSpatialSheet ? mapPanelFootprint(available: proxy.size.height) : 0"))
+        XCTAssertTrue(body.contains("panelFootprint: saleMeetStore.card != nil ? saleMeetCardHeight : shouldShowSpatialSheet ? mapPanelFootprint(available: proxy.size.height) : 0"))
         XCTAssertTrue(source.contains("NativeMapGlass(shape: RoundedRectangle(cornerRadius: NativePolish.mapSheetRadius, style: .continuous))"))
         XCTAssertTrue(source.contains("map.layoutMargins = NativeMapViewportPolicy.margins(panelFootprint: panelFootprint)"))
 
@@ -5374,6 +5374,85 @@ final class NativeProfileDataAPITests: XCTestCase {
     func testPlanInviteLinkBypassesLaunchSuppressionSoAColdStartPresents() {
         XCTAssertTrue(BytspotNativeShellView.destinationBypassesLaunchSuppression(.plan(planId: "pl-1", token: "tok")))
         XCTAssertTrue(NativeAuthLaunchContract.bypassesLaunchFlow(for: .plan(planId: "pl-1", token: "tok")))
+    }
+
+    @MainActor
+    func testPrivateSaleLinkOpensTheSaleOverTheCurrentTab() throws {
+        for raw in ["https://bytspot.app/sale/sale-1", "bytspot://sale/sale-1"] {
+            let coordinator = NativeNavigationCoordinator()
+            XCTAssertTrue(coordinator.handle(url: try XCTUnwrap(URL(string: raw))), raw)
+            XCTAssertNil(coordinator.requestedTab, raw)
+            XCTAssertEqual(coordinator.requestedDestination, .sale(saleID: "sale-1"), raw)
+        }
+        for raw in ["https://bytspot.app/sale", "https://bytspot.app/sale/a/b", "https://example.com/sale/x",
+                    "https://bytspot.app/sale/" + String(repeating: "x", count: 65)] {
+            XCTAssertNil(NativePrivateSaleRoute(url: try XCTUnwrap(URL(string: raw))), raw)
+        }
+        XCTAssertTrue(BytspotNativeShellView.destinationBypassesLaunchSuppression(.sale(saleID: "sale-1")))
+        XCTAssertTrue(NativeAuthLaunchContract.bypassesLaunchFlow(for: .sale(saleID: "sale-1")))
+    }
+
+    func testPrivateSaleBuyerSeesOnlyWhatTheServerSends() throws {
+        let listing = try JSONDecoder().decode(NativeSaleListing.self, from: Data("""
+        {"saleId":"s1","title":"Desk lamp","priceCents":2500,"sellerName":"Ada","windowStart":"2026-10-09T18:00:00.000Z",
+         "windowEnd":"2026-10-09T19:00:00.000Z","areaLabel":null,"isSeller":false,"myRequest":null}
+        """.utf8))
+        XCTAssertNil(listing.areaLabel)
+        XCTAssertNotNil(listing.windowStartDate)
+        func listing(seller: Bool = false, request: String?) -> NativeSaleListing {
+            NativeSaleListing(saleId: "s1", title: "t", priceCents: 1, sellerName: "Ada", windowStart: "", windowEnd: "",
+                              areaLabel: nil, isSeller: seller, myRequest: request)
+        }
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: false, listing: listing(request: "approved")), .signedOut)
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: listing(seller: true, request: nil)), .ownSale)
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: listing(request: nil)), .canAsk)
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: listing(request: "pending")), .waiting)
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: listing(request: "approved")), .approved)
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: listing(request: "declined")), .declined)
+
+        let card = try JSONDecoder().decode(NativeSaleBuyerCard.self, from: Data("""
+        {"saleId":"s1","title":"Desk lamp","priceCents":2500,"sellerName":"Ada",
+         "meetPoint":{"lat":33.757,"lng":-84.364,"placeName":"Krog Street Market","areaLabel":"Inman Park"},
+         "windowStart":"2026-10-09T18:00:00.000Z","windowEnd":"2026-10-09T19:00:00.000Z","arrivedAt":null,
+         "pay":[{"provider":"venmo","handle":"Ada-L","displayName":"Ada","confirmedAt":"2026-10-01T00:00:00.000Z",
+                 "url":"https://venmo.com/u/Ada-L","label":"Seller-confirmed handle","reminder":"Pay only after you see the item."}]}
+        """.utf8))
+        XCTAssertEqual(card.meetName, "Krog Street Market")
+        XCTAssertEqual(card.pay.map(\.provider), [.venmo])
+        XCTAssertEqual(NativePrivateSalePolicy.reminders(card.pay + card.pay), ["Pay only after you see the item."])
+        let point = try XCTUnwrap(card.meetRoutePoint)
+        XCTAssertEqual(NativePrivateSalePolicy.directionsURL(to: point)?.absoluteString,
+                       "https://maps.apple.com/?daddr=33.757,-84.364&dirflg=d")
+
+        let start = try XCTUnwrap(card.windowStartDate), end = try XCTUnwrap(card.windowEndDate)
+        XCTAssertFalse(NativePrivateSalePolicy.canSayArrived(start: start, end: end, now: start.addingTimeInterval(-31 * 60)))
+        XCTAssertTrue(NativePrivateSalePolicy.canSayArrived(start: start, end: end, now: start.addingTimeInterval(-29 * 60)))
+        XCTAssertFalse(NativePrivateSalePolicy.canSayArrived(start: start, end: end, now: end))
+        XCTAssertTrue(NativePrivateSalePolicy.isUnavailable(BytspotAPIClient.APIError.server(status: 404, body: "")))
+        XCTAssertFalse(NativePrivateSalePolicy.isUnavailable(BytspotAPIClient.APIError.server(status: 500, body: "")))
+    }
+
+    @MainActor
+    func testPrivateSaleMeetStaysInMemoryAndNeedsAMeetPoint() throws {
+        let store = NativePrivateSaleMeetStore()
+        let card = NativeSaleBuyerCard(saleId: "s1", title: "t", priceCents: 1, sellerName: "Ada",
+                                       meetPoint: NativeSaleMeetPoint(lat: 33.757, lng: -84.364, placeName: nil, areaLabel: "Inman Park"),
+                                       windowStart: "", windowEnd: "", arrivedAt: nil, pay: [])
+        store.show(card)
+        XCTAssertEqual(store.card, card)
+        XCTAssertEqual(card.meetName, "Inman Park")
+        store.show(NativeSaleBuyerCard(saleId: "s2", title: "t", priceCents: 1, sellerName: "Ada",
+                                       meetPoint: NativeSaleMeetPoint(lat: 0, lng: 0, placeName: nil, areaLabel: nil),
+                                       windowStart: "", windowEnd: "", arrivedAt: nil, pay: []))
+        XCTAssertNil(store.card, "No usable meet point, nothing on the Map.")
+        store.show(card); store.clear()
+        XCTAssertNil(store.card)
+
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("App/NativePrivateSales.swift"), encoding: .utf8)
+        let storeSource = String(source[try XCTUnwrap(source.range(of: "final class NativePrivateSaleMeetStore"))...].prefix(600))
+        XCTAssertFalse(storeSource.contains("UserDefaults"))
+        XCTAssertFalse(storeSource.contains("AppStorage"))
     }
 
     // MARK: - Coffee (Phase 2 iOS surface)

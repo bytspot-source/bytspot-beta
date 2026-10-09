@@ -346,6 +346,8 @@ struct BytspotNativeShellView: View {
     @AppStorage("bytspot_native_pending_post_auth_intent") private var pendingPostAuthIntentRaw = ""
     @StateObject private var pairingStore = NativePatchPairingStore()
     @StateObject private var directMapRouteStore = NativeDirectMapRouteStore()
+    @StateObject private var saleMeetStore = NativePrivateSaleMeetStore()
+    @State private var pendingSaleAuthID: String?
     @State private var isPlanSaving = false
     /// Canonical Green/Platinum/Black membership resolved by the backend-backed store.
     @EnvironmentObject private var membershipStore: NativeMembershipTierStore
@@ -443,6 +445,7 @@ struct BytspotNativeShellView: View {
                         NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membershipTier: membershipStore.tier, mapOpenState: $mapOpenState, handoffMapCenter: navigation.requestedMapCenter)
                             .environmentObject(pairingStore)
                             .environmentObject(directMapRouteStore)
+                            .environmentObject(saleMeetStore)
                     case .concierge:
                         NativeConciergeView(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) })
                     case .profile:
@@ -522,7 +525,7 @@ struct BytspotNativeShellView: View {
             synchronizePlaceAccount(forceReset: true)
             resolvePendingPostAuthIntentIfReady(); presentWelcomeBannerIfNeeded()
         }
-        .onChange(of: sessionStore.authenticatedUserID) { _ in synchronizePlaceAccount() }
+        .onChange(of: sessionStore.authenticatedUserID) { _ in synchronizePlaceAccount(); saleMeetStore.clear() }
         .onChange(of: authCoordinator.status) { status in if case .signedIn = status { resolvePendingPostAuthIntentIfReady(); presentWelcomeBannerIfNeeded() } }
         .onReceive(navigation.$requestedDestination.compactMap { $0 }) { destination in
             // Launch suppression exists to swallow stale *tab* restoration, not
@@ -551,7 +554,7 @@ struct BytspotNativeShellView: View {
                 .preferredColorScheme(.dark)
         }
         .sheet(item: $contextualDestination) { destination in
-            NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }, openNativeProfilePanel: { panel in openNativeProfile(panel: panel) }, requestNetworkAuthentication: { openNativeAuth(mode: .login, pendingIntent: .network) }, openAccess: { openNativeEquivalent(for: .access) })
+            NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }, openNativeProfilePanel: { panel in openNativeProfile(panel: panel) }, requestNetworkAuthentication: { openNativeAuth(mode: .login, pendingIntent: .network) }, openAccess: { openNativeEquivalent(for: .access) }, requestSaleAuthentication: { saleID in pendingSaleAuthID = saleID; openNativeAuth(mode: .login) }, showSaleOnMap: showSaleOnMap)
             .preferredColorScheme(effectivePreferredColorScheme)
         }
         .sheet(isPresented: $showValetPreviewSheet) {
@@ -729,6 +732,20 @@ struct BytspotNativeShellView: View {
             NotificationCenter.default.post(name: .nativeAuthenticationCancelled, object: nil)
         }
         nativeAuthDismissalHandled = false
+        // Signed in or not, the buyer goes back to the sale they were reading.
+        if let saleID = pendingSaleAuthID {
+            pendingSaleAuthID = nil
+            contextualDestination = .sale(saleID: saleID)
+        }
+    }
+
+    private func showSaleOnMap(_ card: NativeSaleBuyerCard) {
+        guard !isPlanSaving else { return }
+        contextualDestination = nil
+        saleMeetStore.show(card)
+        requestLocationForNearbyContentIfNeeded(.map)
+        mapOpenState.acknowledgeExplicitEntry()
+        commitSelectedTab(.map)
     }
 
     private func presentWelcomeBannerIfNeeded() {
@@ -797,7 +814,7 @@ struct BytspotNativeShellView: View {
     /// dropped by the launch/post-auth suppression window.
     static func destinationBypassesLaunchSuppression(_ destination: NativeContextualDestination) -> Bool {
         switch destination {
-        case .party, .patch, .plan: return true
+        case .party, .patch, .plan, .sale: return true
         case .profile, .accessWallet, .booking, .legal: return false
         }
     }
@@ -922,7 +939,7 @@ struct BytspotNativeShellView: View {
     }
 
     private var hasExplicitMapHandoff: Bool {
-        directMapRouteStore.hasPendingRoute || NativeOnboardingMapHandoff.hasFreshDestination || NativeMapFocusHandoff.hasPendingFocus || navigation.requestedMapCenter != nil
+        saleMeetStore.card != nil || directMapRouteStore.hasPendingRoute || NativeOnboardingMapHandoff.hasFreshDestination || NativeMapFocusHandoff.hasPendingFocus || navigation.requestedMapCenter != nil
     }
 
     private func openDiscoverFilter(_ filter: String) {
@@ -1141,6 +1158,8 @@ private struct NativeContextualDestinationView: View {
     let openNativeProfilePanel: (NativeProfilePanel?) -> Void
     let requestNetworkAuthentication: () -> Void
     let openAccess: () -> Void
+    var requestSaleAuthentication: (String) -> Void = { _ in }
+    var showSaleOnMap: (NativeSaleBuyerCard) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
@@ -1183,6 +1202,9 @@ private struct NativeContextualDestinationView: View {
                         .environmentObject(sessionStore)
                 } else if case .plan(let planId, let token) = destination {
                     NativePlanJoinView(planId: planId, token: token)
+                        .environmentObject(sessionStore)
+                } else if case .sale(let saleID) = destination {
+                    NativePrivateSaleBuyerView(saleID: saleID, requestAuthentication: { requestSaleAuthentication(saleID) }, showOnMap: showSaleOnMap)
                         .environmentObject(sessionStore)
                 } else if case .booking(_, _, let ride) = destination, let ride {
                     NativeMobilityHandoffConfirmationCard(ride: ride, openAccess: openAccess)
@@ -15831,6 +15853,10 @@ private struct NativeMapExploreView: View {
     @EnvironmentObject private var tabContentStore: NativeTabContentStore
     @EnvironmentObject private var pairingStore: NativePatchPairingStore
     @EnvironmentObject private var directMapRouteStore: NativeDirectMapRouteStore
+    @EnvironmentObject private var saleMeetStore: NativePrivateSaleMeetStore
+    @State private var saleMeetTravelSeconds: TimeInterval?
+    @State private var saleMeetCardHeight: CGFloat = 0
+    @State private var focusedSaleMeetID: String?
     @EnvironmentObject private var locationStore: NativeLocationStore
     @AppStorage(NativeOnboardingMapHandoff.destinationKey) private var onboardingMapDestination = ""
     @AppStorage(NativeOnboardingMapHandoff.modeKey) private var onboardingMapMode = ""
@@ -16155,16 +16181,21 @@ private struct NativeMapExploreView: View {
                 NativeGeographicMap(payloads: geographicPayloads, cameraRequest: cameraRequest,
                     recenterMode: recenterMode, locationAuthorized: locationStore.authorizationState == .allowed,
                     reduceMotion: reduceMapMotion, darkAppearance: mapColorScheme == .dark,
-                    panelFootprint: shouldShowSpatialSheet ? mapPanelFootprint(available: proxy.size.height) : 0,
-                    routeOrigin: routeDestinationPin == nil ? nil : routeOrigin,
-                    routeDestination: routeDestinationPin?.coordinate,
-                    onSelect: selectGeographicPin, onUserPan: {
+                    panelFootprint: saleMeetStore.card != nil ? saleMeetCardHeight : shouldShowSpatialSheet ? mapPanelFootprint(available: proxy.size.height) : 0,
+                    routeOrigin: saleMeetPoint == nil && routeDestinationPin == nil ? nil : routeOrigin,
+                    routeDestination: saleMeetPoint?.coordinate ?? routeDestinationPin?.coordinate,
+                    onSelect: { id in
+                        // Other places stay in the background while a meet is showing.
+                        guard saleMeetStore.card == nil else { return }
+                        selectGeographicPin(id)
+                    }, onUserPan: {
                         userMovedCamera = true
                         dropRecenterModeForUserPan()
                     }, onRegionChange: { region = $0 }, onTrackingChange: {
                         recenterMode = $0
                         if $0 == .off { headingProvider.stop() }
                     }, onRouteTravelTime: { seconds in
+                        if saleMeetStore.card != nil { saleMeetTravelSeconds = seconds; return }
                         if let seconds = seconds, let pin = routeDestinationPin { routeTravelTime = (pinID: pin.id, seconds: seconds) } else { routeTravelTime = nil }
                     })
                 .frame(minHeight: 0, maxHeight: .infinity)
@@ -16186,7 +16217,18 @@ private struct NativeMapExploreView: View {
                         .allowsHitTesting(fits)
                         .accessibilityHidden(!fits)
                 }
-                if shouldShowSpatialSheet {
+                if let card = saleMeetStore.card {
+                    NativePrivateSaleMapCard(card: card, travelSeconds: saleMeetTravelSeconds,
+                                             onUpdate: { saleMeetStore.show($0) }, onClose: { saleMeetStore.clear() })
+                        .padding(.horizontal, NativePolish.mapSheetHorizontalInset)
+                        .padding(.bottom, NativePolish.mapSheetBottomInset)
+                        .background(GeometryReader { geometry in
+                            Color.clear
+                                .onAppear { saleMeetCardHeight = geometry.size.height }
+                                .onChange(of: geometry.size.height) { saleMeetCardHeight = $0 }
+                        })
+                        .transition(reduceMapMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                } else if shouldShowSpatialSheet {
                     // The sheet floats over the map as glass. MapKit's legal
                     // label stays above it through the map's layout margins.
                     spatialSheet(maxHeight: mapPanelHeight(available: proxy.size.height), available: proxy.size.height)
@@ -16264,6 +16306,9 @@ private struct NativeMapExploreView: View {
         .onChange(of: onboardingMapDestination) { _ in applyOnboardingMapHandoffIfRequested() }
         .onChange(of: mapFocusRequestID) { _ in applyNativeMapFocusHandoffIfRequested() }
         .onChange(of: directMapRouteStore.pendingRoute?.id) { _ in _ = applyDirectMapRouteIfRequested() }
+        .onAppear { focusSaleMeetIfNeeded() }
+        .onChange(of: saleMeetStore.card?.saleId) { _ in focusSaleMeetIfNeeded() }
+        .animation(reduceMapMotion ? nil : .interpolatingSpring(mass: 0.82, stiffness: 420, damping: 38, initialVelocity: 0), value: saleMeetStore.card?.saleId)
         .onChange(of: headingProvider.userLocation?.timestamp) { _ in handleHeadingLocationChange() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in handleMapLocationChange() }
         .onChange(of: tabContentStore.snapshot) { _ in applySelectedPinPreviewIfRequested() }
@@ -16328,6 +16373,7 @@ private struct NativeMapExploreView: View {
     }
 
     private var isPlainMapOpen: Bool {
+        saleMeetStore.card == nil &&
         !didConsumeExplicitMapLaunch &&
         !didOpenMapContext &&
         selectedPin == nil &&
@@ -16578,7 +16624,7 @@ private struct NativeMapExploreView: View {
     }
 
     private func centerOnCurrentLocationIfAppropriate() {
-        let hasDestination = didConsumeExplicitMapLaunch || selectedPin != nil || focusedHandoffPin != nil
+        let hasDestination = saleMeetStore.card != nil || didConsumeExplicitMapLaunch || selectedPin != nil || focusedHandoffPin != nil
             || consumedHandoffMapCenter != nil || handoffMapCenter != nil
             || directMapRouteStore.pendingRoute != nil || NativeMapFocusHandoff.hasPendingFocus
             || !onboardingMapDestination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -17939,14 +17985,35 @@ private struct NativeMapExploreView: View {
 
     private var geographicPayloads: [NativeMapAnnotationPayload] {
         var seen = Set<String>()
-        return pins.compactMap { pin in
+        let meet = saleMeetStore.card
+        let selectedID = meet == nil ? selectedPin?.id : NativePrivateSaleMeetStore.markerID
+        var payloads = pins.compactMap { pin -> NativeMapAnnotationPayload? in
             guard shouldShow(pin), seen.insert(pin.id).inserted else { return nil }
             return NativeMapAnnotationPayload(id: pin.id, title: pin.title, caption: pin.subtitle,
-                latitude: pin.coordinate.latitude, longitude: pin.coordinate.longitude, selectedID: selectedPin?.id,
-                isRouteMode: routeDestinationPin != nil,
+                latitude: pin.coordinate.latitude, longitude: pin.coordinate.longitude, selectedID: selectedID,
+                isRouteMode: meet != nil || routeDestinationPin != nil,
                 glow: NativeMapLookPolicy.glow(kind: pin.kind, crowdLevel: pin.crowdLevel), venueImage: pin.venue?.imageUrl, provenance: pin.venue?.photoProvenance ?? .borrowed,
                 details: pin.venue?.richDetails)
         }
+        if let meet, let payload = NativeMapAnnotationPayload(id: NativePrivateSaleMeetStore.markerID, title: meet.meetName, caption: meet.title,
+            latitude: meet.meetPoint.lat, longitude: meet.meetPoint.lng, selectedID: selectedID, isRouteMode: true) {
+            payloads.append(payload)
+        }
+        return payloads
+    }
+
+    private var saleMeetPoint: NativeM2RoutePoint? { saleMeetStore.card?.meetRoutePoint }
+
+    /// Centres on a meet once per sale, so a re-render cannot pull the camera back.
+    private func focusSaleMeetIfNeeded() {
+        guard let card = saleMeetStore.card else { focusedSaleMeetID = nil; saleMeetTravelSeconds = nil; return }
+        guard card.saleId != focusedSaleMeetID, let point = card.meetRoutePoint else { return }
+        focusedSaleMeetID = card.saleId
+        saleMeetTravelSeconds = nil
+        selectedPin = nil
+        showFunctionSheet = false
+        mapOpenState.acknowledgeExplicitEntry()
+        focusGeographicCamera(on: point.coordinate)
     }
 
     private func selectGeographicPin(_ id: String) {

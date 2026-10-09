@@ -1,3 +1,4 @@
+import CoreLocation
 import SwiftUI
 import UIKit
 
@@ -98,6 +99,55 @@ struct NativeOwnSaleList: Codable {
 }
 
 struct NativeSaleCreated: Codable { let saleId: String; let shareUrl: String }
+
+/// What a share link shows. `areaLabel` and `myRequest` only when signed in; never the meet point.
+struct NativeSaleListing: Codable, Equatable {
+    let saleId: String
+    let title: String
+    let priceCents: Int
+    let sellerName: String
+    let windowStart: String
+    let windowEnd: String
+    let areaLabel: String?
+    let isSeller: Bool
+    let myRequest: String?
+
+    var windowStartDate: Date? { ISO8601DateFormatter.partyControlDate(from: windowStart) }
+    var windowEndDate: Date? { ISO8601DateFormatter.partyControlDate(from: windowEnd) }
+}
+
+struct NativeSalePayHandle: Codable, Equatable, Identifiable {
+    let provider: NativeSalePaymentProvider
+    let handle: String
+    let displayName: String
+    let url: String
+    let label: String
+    let reminder: String
+    var id: String { provider.rawValue }
+}
+
+/// The approved buyer's card: meet point, window and the seller's handles.
+struct NativeSaleBuyerCard: Codable, Equatable, Identifiable {
+    let saleId: String
+    let title: String
+    let priceCents: Int
+    let sellerName: String
+    let meetPoint: NativeSaleMeetPoint
+    let windowStart: String
+    let windowEnd: String
+    let arrivedAt: String?
+    let pay: [NativeSalePayHandle]
+    var id: String { saleId }
+
+    var windowStartDate: Date? { ISO8601DateFormatter.partyControlDate(from: windowStart) }
+    var windowEndDate: Date? { ISO8601DateFormatter.partyControlDate(from: windowEnd) }
+    var meetRoutePoint: NativeM2RoutePoint? { NativeM2RoutePoint(latitude: meetPoint.lat, longitude: meetPoint.lng) }
+    var meetName: String { meetPoint.placeName ?? meetPoint.areaLabel ?? "The meet point" }
+}
+
+enum NativeSaleBuyerStage: Equatable {
+    case signedOut, ownSale, canAsk, waiting, declined, approved
+}
 
 /// Mirrors the server's rules so the seller hears about a problem before sending.
 enum NativePrivateSalePolicy {
@@ -202,6 +252,44 @@ enum NativePrivateSalePolicy {
         }
     }
 
+    static func buyerStage(signedIn: Bool, listing: NativeSaleListing) -> NativeSaleBuyerStage {
+        guard signedIn else { return .signedOut }
+        if listing.isSeller { return .ownSale }
+        switch listing.myRequest {
+        case nil: return .canAsk
+        case "pending": return .waiting
+        case "approved": return .approved
+        default: return .declined
+        }
+    }
+
+    static func windowLabel(start: Date?, end: Date?) -> String? {
+        guard let start, let end else { return nil }
+        return "\(start.formatted(date: .abbreviated, time: .shortened)) – \(end.formatted(date: .omitted, time: .shortened))"
+    }
+
+    /// "I'm here" makes sense from a little before the window until it ends.
+    static func canSayArrived(start: Date?, end: Date?, now: Date = Date()) -> Bool {
+        guard let start, let end else { return false }
+        return now >= start.addingTimeInterval(-30 * 60) && now < end
+    }
+
+    /// Apple Maps directions, matching the Map's own hand-off.
+    static func directionsURL(to point: NativeM2RoutePoint) -> URL? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "maps.apple.com"
+        components.path = "/"
+        components.queryItems = [URLQueryItem(name: "daddr", value: point.queryValue), URLQueryItem(name: "dirflg", value: "d")]
+        return components.url
+    }
+
+    /// Missing, ended, sold, cancelled and not-approved all read as one answer from the server.
+    static func isUnavailable(_ error: Error) -> Bool {
+        guard case let BytspotAPIClient.APIError.server(status, _) = error else { return false }
+        return status == 404
+    }
+
     static func requestLabel(_ status: String) -> String {
         switch status {
         case "approved": return "Approved"
@@ -275,6 +363,36 @@ struct NativePrivateSalesAPI {
     func decide(requestID: String, approve: Bool) async throws {
         _ = try await client.trpcPayload(path: approve ? "/trpc/sales.approve" : "/trpc/sales.decline", method: "POST", input: ["requestId": requestID])
     }
+
+    func view(saleID: String) async throws -> NativeSaleListing {
+        try decode(NativeSaleListing.self, try await client.trpcQueryPayload(path: "/trpc/sales.view", input: ["saleId": saleID]))
+    }
+
+    func request(saleID: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/sales.request", method: "POST", input: ["saleId": saleID])
+    }
+
+    func buyerCard(saleID: String) async throws -> NativeSaleBuyerCard {
+        try decode(NativeSaleBuyerCard.self, try await client.trpcQueryPayload(path: "/trpc/sales.buyerCard", input: ["saleId": saleID]))
+    }
+
+    func arrived(saleID: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/sales.arrived", method: "POST", input: ["saleId": saleID])
+    }
+}
+
+/// The approved buyer's meet, shown on the Map. Memory only: the meet point is
+/// never written to disk and goes with sign-out.
+@MainActor
+final class NativePrivateSaleMeetStore: ObservableObject {
+    static let markerID = "private-sale-meet"
+    @Published private(set) var card: NativeSaleBuyerCard?
+
+    func show(_ card: NativeSaleBuyerCard) {
+        self.card = card.meetRoutePoint == nil ? nil : card
+    }
+
+    func clear() { card = nil }
 }
 
 // MARK: - Shared look
@@ -1042,5 +1160,356 @@ struct NativePrivateSaleManageView: View {
             message = NativePrivateSaleFailure.message(for: error, fallback: "The sale couldn't close.")
         }
         await reload()
+    }
+}
+
+// MARK: - Buyer
+
+extension NativePrivateSalePolicy {
+    /// Each different reminder once, in handle order.
+    static func reminders(_ pay: [NativeSalePayHandle]) -> [String] {
+        var seen = Set<String>()
+        return pay.map(\.reminder).filter { seen.insert($0).inserted }
+    }
+}
+
+private struct NativeSaleMeetSummary: View {
+    let card: NativeSaleBuyerCard
+    var travelSeconds: TimeInterval?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(card.meetName, systemImage: "mappin.circle.fill").font(.system(size: 15, weight: .black))
+                .foregroundColor(NativeTheme.textPrimary)
+            if let area = card.meetPoint.areaLabel, area != card.meetName {
+                Text(area).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+            }
+            if let window = NativePrivateSalePolicy.windowLabel(start: card.windowStartDate, end: card.windowEndDate) {
+                Label(window, systemImage: "clock").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+            }
+            if let travelSeconds {
+                Label("\(NativeMapRoutePolicy.etaLabel(seconds: travelSeconds)) drive", systemImage: "car.fill")
+                    .font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.cyan)
+            }
+        }
+    }
+}
+
+private struct NativeSalePayList: View {
+    let pay: [NativeSalePayHandle]
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if pay.isEmpty {
+                Text("The seller has no payment handle on this sale. Agree how to pay when you meet.")
+                    .font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(pay) { handle in
+                Button(action: {
+                    nativeImpactLight()
+                    if let url = NativePrivateSalePolicy.handleURL(handle.provider, handle.handle) { openURL(url) }
+                }) {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Pay on \(handle.provider.title)").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                            Text("\(handle.displayName) · \(handle.label)").font(.system(size: 11, weight: .bold))
+                                .foregroundColor(NativeTheme.textSecondary).lineLimit(1)
+                        }
+                        Spacer()
+                        Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan)
+                    }
+                    .padding(.horizontal, 12).frame(minHeight: 52)
+                    .background(Color.white.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-private-sale-pay-\(handle.provider.rawValue)")
+            }
+            ForEach(NativePrivateSalePolicy.reminders(pay), id: \.self) { reminder in
+                Text(reminder).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+private struct NativeSaleSecondaryButton: View {
+    let title: String
+    let icon: String
+    let action: () -> Void
+    var body: some View {
+        Button(action: { nativeImpactLight(); action() }) {
+            Label(title, systemImage: icon).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                .lineLimit(1).minimumScaleFactor(0.8)
+                .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 44)
+                .background(Color.white.opacity(0.1)).clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Opens a sale from its share link. Signed out: title and price. Signed in:
+/// the area too, and the buyer can ask. Only an approved buyer gets the meet point.
+struct NativePrivateSaleBuyerView: View {
+    let saleID: String
+    let requestAuthentication: () -> Void
+    let showOnMap: (NativeSaleBuyerCard) -> Void
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @State private var listing: NativeSaleListing?
+    @State private var card: NativeSaleBuyerCard?
+    @State private var unavailable = false
+    @State private var busy = false
+    @State private var message = ""
+
+    private var token: String? { sessionStore.isAuthenticated ? sessionStore.token : nil }
+    private var api: NativePrivateSalesAPI {
+        let token = token
+        return NativePrivateSalesAPI(client: BytspotAPIClient(tokenProvider: { token }))
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                if unavailable {
+                    unavailableCard
+                } else if let listing {
+                    summary(listing)
+                    let stage = NativePrivateSalePolicy.buyerStage(signedIn: token != nil, listing: listing)
+                    if stage == .approved, let card {
+                        meetCard(card)
+                        payCard(card)
+                    } else {
+                        stageCard(stage, listing: listing)
+                    }
+                    Text("Meet in the public place, check the item, then pay. Bytspot doesn't hold, move or protect money.")
+                        .font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ProgressView().tint(NativeTheme.cyan).frame(maxWidth: .infinity).padding(.vertical, 30)
+                }
+                if !message.isEmpty {
+                    Text(message).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.orange)
+                }
+            }
+            .padding(20)
+        }
+        .foregroundColor(NativeTheme.textPrimary)
+        .background(NativeDeepSpaceGround())
+        .accessibilityIdentifier("native-private-sale-buyer")
+        .task(id: token != nil) { await load() }
+    }
+
+    private var unavailableCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            NativeSaleLabel(text: "Private Sale", color: NativeTheme.purple)
+            Text("This sale is not available").font(.system(size: 20, weight: .black))
+            Text("It may have ended, sold or been cancelled.").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+            NativeSalePrimaryButton(title: "Back to Bytspot") { dismiss() }
+        }
+        .saleCard()
+    }
+
+    private func summary(_ listing: NativeSaleListing) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NativeSaleLabel(text: "Private Sale", color: NativeTheme.purple)
+            Text(listing.title).font(.system(size: 22, weight: .black)).accessibilityAddTraits(.isHeader)
+            Text("\(NativePrivateSalePolicy.priceLabel(cents: listing.priceCents)) · from \(listing.sellerName)")
+                .font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.cyan)
+            if let window = NativePrivateSalePolicy.windowLabel(start: listing.windowStartDate, end: listing.windowEndDate) {
+                Label(window, systemImage: "clock").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+            }
+            if let area = listing.areaLabel {
+                Label("Meet near \(area)", systemImage: "mappin.and.ellipse").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+            }
+        }
+        .saleCard()
+    }
+
+    @ViewBuilder private func stageCard(_ stage: NativeSaleBuyerStage, listing: NativeSaleListing) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            switch stage {
+            case .signedOut:
+                stageText("The seller shares the meet point only with buyers they approve. Sign in to ask.")
+                NativeSalePrimaryButton(title: "Sign in to ask", action: requestAuthentication)
+                    .accessibilityIdentifier("native-private-sale-sign-in")
+            case .ownSale:
+                stageText("This is your sale. Manage requests in Profile → Network → Hosting.")
+            case .canAsk:
+                stageText("Ask \(listing.sellerName) for the meet point. They see your first name.")
+                NativeSalePrimaryButton(title: "Ask for the meet point", busy: busy) { Task { await ask() } }
+                    .disabled(busy)
+                    .accessibilityIdentifier("native-private-sale-ask")
+            case .waiting:
+                stageText("Waiting for \(listing.sellerName) to approve you. Open this link again to check.")
+                NativeSaleSecondaryButton(title: "Check again", icon: "arrow.clockwise") { Task { await load() } }
+                    .disabled(busy)
+            case .declined:
+                stageText("\(listing.sellerName) didn't approve this request.")
+            case .approved:
+                stageText("You're approved. Getting the meet point…")
+                NativeSaleSecondaryButton(title: "Try again", icon: "arrow.clockwise") { Task { await load() } }
+            }
+        }
+        .saleCard()
+    }
+
+    private func stageText(_ text: String) -> some View {
+        Text(text).font(.system(size: 13.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func meetCard(_ card: NativeSaleBuyerCard) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            NativeSaleLabel(text: "Meet point")
+            NativeSaleMeetSummary(card: card)
+            if card.meetRoutePoint != nil {
+                NativeSalePrimaryButton(title: "Show on Map") { showOnMap(card) }
+                    .accessibilityIdentifier("native-private-sale-show-on-map")
+            }
+            HStack(spacing: 8) {
+                if let point = card.meetRoutePoint, let url = NativePrivateSalePolicy.directionsURL(to: point) {
+                    NativeSaleSecondaryButton(title: "Directions", icon: "arrow.triangle.turn.up.right.diamond.fill") { openURL(url) }
+                }
+                arrivedControl(card)
+            }
+        }
+        .saleCard()
+    }
+
+    @ViewBuilder private func arrivedControl(_ card: NativeSaleBuyerCard) -> some View {
+        if card.arrivedAt != nil {
+            Label("Seller knows you're here", systemImage: "checkmark.circle.fill").font(.system(size: 12, weight: .black))
+                .foregroundColor(NativeTheme.emerald).frame(maxWidth: .infinity, minHeight: 44)
+        } else if NativePrivateSalePolicy.canSayArrived(start: card.windowStartDate, end: card.windowEndDate) {
+            NativeSaleSecondaryButton(title: "I'm here", icon: "hand.wave.fill") { Task { await markArrived() } }
+                .disabled(busy)
+                .accessibilityIdentifier("native-private-sale-arrived")
+        }
+    }
+
+    private func payCard(_ card: NativeSaleBuyerCard) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            NativeSaleLabel(text: "Pay \(card.sellerName)")
+            NativeSalePayList(pay: card.pay)
+        }
+        .saleCard()
+    }
+
+    @MainActor private func load() async {
+        busy = true; defer { busy = false }
+        do {
+            let listing = try await api.view(saleID: saleID)
+            self.listing = listing
+            card = NativePrivateSalePolicy.buyerStage(signedIn: token != nil, listing: listing) == .approved
+                ? try await api.buyerCard(saleID: saleID) : nil
+            message = ""
+        } catch {
+            if NativePrivateSalePolicy.isUnavailable(error) { unavailable = true; return }
+            message = NativePrivateSaleFailure.message(for: error, fallback: "This sale couldn't load.")
+        }
+    }
+
+    @MainActor private func ask() async {
+        busy = true
+        do { try await api.request(saleID: saleID); message = "" } catch {
+            message = NativePrivateSaleFailure.message(for: error, fallback: "Your request couldn't be sent.")
+        }
+        busy = false
+        await load()
+    }
+
+    @MainActor private func markArrived() async {
+        busy = true
+        do { try await api.arrived(saleID: saleID); message = "" } catch {
+            message = NativePrivateSaleFailure.message(for: error, fallback: "The seller couldn't be told.")
+        }
+        busy = false
+        await load()
+    }
+}
+
+/// The approved buyer's card floating over the Map, in the Map's glass.
+struct NativePrivateSaleMapCard: View {
+    let card: NativeSaleBuyerCard
+    let travelSeconds: TimeInterval?
+    let onUpdate: (NativeSaleBuyerCard) -> Void
+    let onClose: () -> Void
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @Environment(\.openURL) private var openURL
+    @State private var showsPay = false
+    @State private var busy = false
+    @State private var message = ""
+
+    private var api: NativePrivateSalesAPI? {
+        guard sessionStore.isAuthenticated, let token = sessionStore.token else { return nil }
+        return NativePrivateSalesAPI(client: BytspotAPIClient(tokenProvider: { token }))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    NativeSaleLabel(text: "Private Sale · Meet", color: NativeTheme.purple)
+                    Text(card.title).font(.system(size: 18, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
+                    Text("\(NativePrivateSalePolicy.priceLabel(cents: card.priceCents)) · from \(card.sellerName)")
+                        .font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineLimit(1)
+                }
+                Spacer()
+                Button(action: { nativeImpactLight(); onClose() }) {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 25, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close meet")
+                .accessibilityIdentifier("native-private-sale-map-close")
+            }
+            NativeSaleMeetSummary(card: card, travelSeconds: travelSeconds)
+            HStack(spacing: 8) {
+                if let point = card.meetRoutePoint, let url = NativePrivateSalePolicy.directionsURL(to: point) {
+                    NativeSaleSecondaryButton(title: "Start", icon: "location.fill") { openURL(url) }
+                }
+                if card.arrivedAt != nil {
+                    Label("Seller knows", systemImage: "checkmark.circle.fill").font(.system(size: 12, weight: .black))
+                        .foregroundColor(NativeTheme.emerald).frame(maxWidth: .infinity, minHeight: 44)
+                } else if NativePrivateSalePolicy.canSayArrived(start: card.windowStartDate, end: card.windowEndDate) {
+                    NativeSaleSecondaryButton(title: "I'm here", icon: "hand.wave.fill") { Task { await markArrived() } }
+                        .disabled(busy)
+                }
+                NativeSaleSecondaryButton(title: "Pay", icon: showsPay ? "chevron.down" : "creditcard") {
+                    withAnimation(.easeOut(duration: 0.2)) { showsPay.toggle() }
+                }
+                .accessibilityIdentifier("native-private-sale-map-pay")
+            }
+            if showsPay { NativeSalePayList(pay: card.pay) }
+            if !message.isEmpty {
+                Text(message).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.orange)
+            }
+        }
+        .saleCard()
+        .shadow(color: Color.black.opacity(0.3), radius: 20, x: 0, y: -4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("native-private-sale-map-card")
+        .task(id: card.saleId) { await refresh() }
+    }
+
+    /// A sale that ended, sold or was cancelled leaves the Map.
+    @MainActor private func refresh() async {
+        guard let api else { onClose(); return }
+        do { onUpdate(try await api.buyerCard(saleID: card.saleId)) } catch {
+            if NativePrivateSalePolicy.isUnavailable(error) { onClose() }
+        }
+    }
+
+    @MainActor private func markArrived() async {
+        guard let api else { return }
+        busy = true; defer { busy = false }
+        do { try await api.arrived(saleID: card.saleId); message = "" } catch {
+            message = NativePrivateSaleFailure.message(for: error, fallback: "The seller couldn't be told.")
+        }
+        await refresh()
     }
 }

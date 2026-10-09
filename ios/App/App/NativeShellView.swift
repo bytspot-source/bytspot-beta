@@ -15041,11 +15041,44 @@ enum NativeMapPanelDetent: Int, CaseIterable, Equatable {
         return closest
     }
 
+    /// Spring start speed after a release, as a fraction of the remaining
+    /// distance per second, so the panel carries on at the finger's speed.
+    static func releaseVelocity(translation: CGFloat, predictedTranslation: CGFloat,
+                                liveHeight: CGFloat, targetHeight: CGFloat) -> Double {
+        let remaining = targetHeight - liveHeight
+        guard abs(remaining) > 1 else { return 0 }
+        // SwiftUI's prediction is about a quarter second of travel at release speed.
+        let heightSpeed = -(predictedTranslation - translation) * 4
+        return Double(min(12, max(0, heightSpeed / remaining)))
+    }
+
+    /// Below near-full the whole panel resizes; at near-full its content scrolls.
+    static func contentScrolls(at detent: NativeMapPanelDetent) -> Bool { detent == .nearFull }
+
     /// Height while the handle is being dragged, kept between the lowest allowed height and near-full.
     static func liveHeight(from start: NativeMapPanelDetent, translation: CGFloat, available: CGFloat,
                            peekMinimum: CGFloat = minimumPeek, lowest: NativeMapPanelDetent = .peek) -> CGFloat {
         let proposed = start.atLeast(lowest).height(available: available, peekMinimum: peekMinimum) - translation
         return min(max(proposed, lowest.height(available: available, peekMinimum: peekMinimum)), NativeMapPanelDetent.nearFull.height(available: available))
+    }
+}
+
+/// iOS 16+: below near-full, dragging anywhere on the panel resizes it, so a
+/// swipe up on a card opens the panel the way it does in Apple Maps; at
+/// near-full the content scrolls and the handle resizes. iOS 15 keeps the
+/// handle-only resize with the content always scrolling.
+private struct NativeMapPanelContentDrag<G: Gesture>: ViewModifier {
+    let contentScrolls: Bool
+    let resize: G
+
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content
+                .scrollDisabled(!contentScrolls)
+                .simultaneousGesture(resize, including: contentScrolls ? .subviews : .all)
+        } else {
+            content
+        }
     }
 }
 
@@ -16991,7 +17024,11 @@ private struct NativeMapExploreView: View {
                                                           predictedTranslation: value.predictedEndTranslation.height, available: available,
                                                           peekMinimum: mapPanelPeekMinimum, lowest: mapPanelLowestDetent)
                 if target != restingMapPanelDetent { nativeImpactLight() }
-                withAnimation(reduceMapMotion ? nil : .interpolatingSpring(mass: 0.8, stiffness: 380, damping: 34, initialVelocity: 0)) {
+                let velocity = NativeMapPanelDetent.releaseVelocity(
+                    translation: value.translation.height, predictedTranslation: value.predictedEndTranslation.height,
+                    liveHeight: mapPanelHeight(available: available),
+                    targetHeight: target.height(available: available, peekMinimum: mapPanelPeekMinimum))
+                withAnimation(reduceMapMotion ? nil : .interpolatingSpring(mass: 0.8, stiffness: 380, damping: 34, initialVelocity: velocity)) {
                     mapPanelDetent = target
                     mapPanelDragTranslation = nil
                 }
@@ -17053,6 +17090,8 @@ private struct NativeMapExploreView: View {
                 }
                 .padding(.bottom, 4)
             }
+            .modifier(NativeMapPanelContentDrag(contentScrolls: NativeMapPanelDetent.contentScrolls(at: restingMapPanelDetent),
+                                                resize: mapPanelResizeGesture(available: available)))
         }
         .frame(height: maxHeight, alignment: .top)
         .padding(.horizontal, NativePolish.mapSheetInnerHorizontalPadding)

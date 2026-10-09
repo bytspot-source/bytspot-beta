@@ -2936,6 +2936,32 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeMapPanelDetent.peek.smaller, .peek)
     }
 
+    func testMapPanelOpensAllTheWayScrollsAtNearFullAndKeepsAMapStrip() throws {
+        XCTAssertFalse(NativeMapPanelDetent.contentScrolls(at: .peek), "Below near-full a swipe on a card resizes the panel.")
+        XCTAssertFalse(NativeMapPanelDetent.contentScrolls(at: .half))
+        XCTAssertTrue(NativeMapPanelDetent.contentScrolls(at: .nearFull), "Every card is reachable by scrolling at near-full.")
+
+        let chrome = NativePolish.mapSheetInnerTopPadding + NativePolish.mapSheetInnerBottomPadding + NativePolish.mapSheetBottomInset
+        for available: CGFloat in [300, 520, 700, 852, 1100] {
+            let strip = available - NativeMapPanelDetent.nearFull.height(available: available) - chrome
+            XCTAssertGreaterThanOrEqual(strip, NativePolish.mapSearchHeight + 40,
+                                        "A strip of map with the legal label stays visible at near-full (\(available) pt).")
+        }
+
+        // A flick carries its speed into the snap; a slow release or a reversal starts from rest.
+        let flick = NativeMapPanelDetent.releaseVelocity(translation: -60, predictedTranslation: -260, liveHeight: 400, targetHeight: 600)
+        XCTAssertEqual(flick, 4, accuracy: 1e-9)
+        XCTAssertEqual(NativeMapPanelDetent.releaseVelocity(translation: -60, predictedTranslation: -60, liveHeight: 400, targetHeight: 600), 0)
+        XCTAssertEqual(NativeMapPanelDetent.releaseVelocity(translation: -60, predictedTranslation: 200, liveHeight: 400, targetHeight: 600), 0)
+        XCTAssertEqual(NativeMapPanelDetent.releaseVelocity(translation: 0, predictedTranslation: -4000, liveHeight: 400, targetHeight: 410), 12)
+        XCTAssertEqual(NativeMapPanelDetent.releaseVelocity(translation: 0, predictedTranslation: -400, liveHeight: 400, targetHeight: 400.5), 0)
+
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("App/NativeShellView.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains(".modifier(NativeMapPanelContentDrag(contentScrolls: NativeMapPanelDetent.contentScrolls(at: restingMapPanelDetent),"))
+        XCTAssertTrue(source.contains(".simultaneousGesture(resize, including: contentScrolls ? .subviews : .all)"))
+    }
+
     func testRegionalMapFocusHandoffExpiresOutsideItsOriginWhileExplicitFocusRemainsValid() {
         let suiteName = "NativeRegionalMapFocusHandoffTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else { return XCTFail("Could not create isolated defaults") }

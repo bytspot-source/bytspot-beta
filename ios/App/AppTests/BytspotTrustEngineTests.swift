@@ -2113,6 +2113,20 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(try payload("venue-a", selected: nil, photo: true).isSelected)
     }
 
+    func testSelectedPinIsHighlightedAndTheOthersStepBack() throws {
+        func payload(_ id: String, selected: String?) throws -> NativeMapAnnotationPayload {
+            try XCTUnwrap(NativeMapAnnotationPayload(id: id, title: "Place", caption: "",
+                latitude: 33.7878, longitude: -84.3832, selectedID: selected))
+        }
+        XCTAssertFalse(try payload("venue-a", selected: "venue-a").isDimmed)
+        XCTAssertTrue(try payload("venue-b", selected: "venue-a").isDimmed)
+        XCTAssertFalse(try payload("venue-b", selected: nil).isDimmed, "With nothing selected, no pin fades.")
+        XCTAssertGreaterThan(NativeMapPinFocusStyle.photoSize(isSelected: true), NativeMapPinFocusStyle.photoSize(isSelected: false))
+        XCTAssertEqual(NativeMapPinFocusStyle.alpha(isDimmed: false), 1)
+        XCTAssertLessThan(NativeMapPinFocusStyle.alpha(isDimmed: true), 0.5)
+        XCTAssertGreaterThan(NativeMapPinFocusStyle.alpha(isDimmed: true), 0.3, "Faded pins must stay visible and tappable.")
+    }
+
     func testMapCameraCommandsAreConsumedOnceAndPermitExplicitRefocus() {
         var gate = NativeMapCameraCommandGate()
         let initial = UUID()

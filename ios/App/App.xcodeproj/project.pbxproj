@@ -62,6 +62,7 @@
 		A13F14012D00000000001401 /* NativeDiscoverListing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F14002D00000000001400 /* NativeDiscoverListing.swift */; };
 		D92400012026092400000001 /* NativePartyInvitationDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92400022026092400000001 /* NativePartyInvitationDetail.swift */; };
 		D92400112026092400000001 /* NativePartyCommerce.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92400122026092400000001 /* NativePartyCommerce.swift */; };
+		D92410012026100900000001 /* NativePrivateSales.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92410022026100900000001 /* NativePrivateSales.swift */; };
 		D92400212026092400000001 /* NativePartyLineup.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92400222026092400000001 /* NativePartyLineup.swift */; };
 		D92400312026092400000001 /* NativePartySessionAuthoring.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92400322026092400000001 /* NativePartySessionAuthoring.swift */; };
 		D92400412026092400000001 /* NativePartyCommerceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92400422026092400000001 /* NativePartyCommerceTests.swift */; };
@@ -166,6 +167,7 @@
 		A13F14002D00000000001400 /* NativeDiscoverListing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiscoverListing.swift; sourceTree = "<group>"; };
 		D92400022026092400000001 /* NativePartyInvitationDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyInvitationDetail.swift; sourceTree = "<group>"; };
 		D92400122026092400000001 /* NativePartyCommerce.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyCommerce.swift; sourceTree = "<group>"; };
+		D92410022026100900000001 /* NativePrivateSales.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePrivateSales.swift; sourceTree = "<group>"; };
 		D92400222026092400000001 /* NativePartyLineup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyLineup.swift; sourceTree = "<group>"; };
 		D92400322026092400000001 /* NativePartySessionAuthoring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartySessionAuthoring.swift; sourceTree = "<group>"; };
 		D92400422026092400000001 /* NativePartyCommerceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyCommerceTests.swift; sourceTree = "<group>"; };
@@ -274,6 +276,7 @@
 				A13F14002D00000000001400 /* NativeDiscoverListing.swift */,
 				D92400022026092400000001 /* NativePartyInvitationDetail.swift */,
 				D92400122026092400000001 /* NativePartyCommerce.swift */,
+				D92410022026100900000001 /* NativePrivateSales.swift */,
 				D92400222026092400000001 /* NativePartyLineup.swift */,
 				D92400322026092400000001 /* NativePartySessionAuthoring.swift */,
 				D52000122026091000000001 /* NativeM2RouteSheet.swift */,
@@ -512,6 +515,7 @@
 				A13F14012D00000000001401 /* NativeDiscoverListing.swift in Sources */,
 				D92400012026092400000001 /* NativePartyInvitationDetail.swift in Sources */,
 				D92400112026092400000001 /* NativePartyCommerce.swift in Sources */,
+				D92410012026100900000001 /* NativePrivateSales.swift in Sources */,
 				D92400212026092400000001 /* NativePartyLineup.swift in Sources */,
 				D92400312026092400000001 /* NativePartySessionAuthoring.swift in Sources */,
 				D52000112026091000000001 /* NativeM2RouteSheet.swift in Sources */,

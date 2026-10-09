@@ -15173,6 +15173,31 @@ struct NativeMapCameraCommandGate {
     }
 }
 
+/// The panel floats over the map, so the usable map is the part above it.
+/// MapKit keeps its legal label and compass inside the layout margins, and a
+/// focused place is centred in that visible part rather than behind the panel.
+enum NativeMapViewportPolicy {
+    static let baseMargins = UIEdgeInsets(top: 64, left: 12, bottom: 12, right: 76)
+
+    static func margins(panelFootprint: CGFloat) -> UIEdgeInsets {
+        var margins = baseMargins
+        margins.bottom += max(0, panelFootprint)
+        return margins
+    }
+
+    /// How far above the view's centre the visible centre sits, in points.
+    static func visibleCenterLift(margins: UIEdgeInsets) -> CGFloat { (margins.bottom - margins.top) / 2 }
+
+    /// Moves a region's centre south so its focus lands in the visible centre.
+    static func liftedRegion(_ region: MKCoordinateRegion, mapHeight: CGFloat, margins: UIEdgeInsets) -> MKCoordinateRegion {
+        guard mapHeight > 0 else { return region }
+        var lifted = region
+        let shift = region.span.latitudeDelta * Double(visibleCenterLift(margins: margins) / mapHeight)
+        lifted.center.latitude = min(85, max(-85, region.center.latitude - shift))
+        return lifted
+    }
+}
+
 enum NativeMapCameraFocusPolicy {
     /// Panels are presentation, not destinations. A first real fix may center
     /// the map behind them, but never supersede a handoff or user camera action.
@@ -15382,6 +15407,8 @@ private struct NativeGeographicMap: UIViewRepresentable {
     let locationAuthorized: Bool
     let reduceMotion: Bool
     let darkAppearance: Bool
+    /// Height of the panel floating over the bottom of the map; 0 when closed.
+    let panelFootprint: CGFloat
     let onSelect: (String) -> Void
     let onUserPan: () -> Void
     let onRegionChange: (MKCoordinateRegion) -> Void
@@ -15395,7 +15422,7 @@ private struct NativeGeographicMap: UIViewRepresentable {
         map.pointOfInterestFilter = .excludingAll
         map.isPitchEnabled = false
         map.showsCompass = true
-        map.layoutMargins = UIEdgeInsets(top: 64, left: 12, bottom: 12, right: 76)
+        map.layoutMargins = NativeMapViewportPolicy.margins(panelFootprint: panelFootprint)
         // No location permission/fix is invented by the renderer. Until an
         // explicit focus or a real device fix arrives, show geographic context.
         map.setVisibleMapRect(.world, animated: false)
@@ -15409,6 +15436,8 @@ private struct NativeGeographicMap: UIViewRepresentable {
         coordinator.isUpdating = true
         defer { coordinator.isUpdating = false }
         map.overrideUserInterfaceStyle = darkAppearance ? .dark : .light
+        let margins = NativeMapViewportPolicy.margins(panelFootprint: panelFootprint)
+        if map.layoutMargins != margins { map.layoutMargins = margins }
         map.showsUserLocation = locationAuthorized
         coordinator.syncAnnotations(on: map)
         let tracking: MKUserTrackingMode = !locationAuthorized || recenterMode == .off ? .none
@@ -15452,9 +15481,20 @@ private struct NativeGeographicMap: UIViewRepresentable {
 
         func focus(on coordinate: CLLocationCoordinate2D, map: MKMapView) {
             if let initial = NativeMapCameraFocusPolicy.initialRegion(on: coordinate, hasEstablishedCamera: hasEstablishedCamera) {
-                map.setRegion(initial, animated: !parent.reduceMotion)
+                let lifted = NativeMapViewportPolicy.liftedRegion(initial, mapHeight: map.bounds.height, margins: map.layoutMargins)
+                map.setRegion(lifted, animated: !parent.reduceMotion)
             } else {
                 let camera = NativeMapCameraFocusPolicy.centeredCamera(on: coordinate, preserving: map.camera)
+                let lift = NativeMapViewportPolicy.visibleCenterLift(margins: map.layoutMargins)
+                if lift != 0, map.bounds.height > 0 {
+                    // The current camera's own projection, so heading and zoom are honoured.
+                    let middle = CGPoint(x: map.bounds.midX, y: map.bounds.midY)
+                    let from = map.convert(middle, toCoordinateFrom: map)
+                    let to = map.convert(CGPoint(x: middle.x, y: middle.y + lift), toCoordinateFrom: map)
+                    camera.centerCoordinate = CLLocationCoordinate2D(
+                        latitude: min(85, max(-85, coordinate.latitude + (to.latitude - from.latitude))),
+                        longitude: coordinate.longitude + (to.longitude - from.longitude))
+                }
                 map.setCamera(camera, animated: !parent.reduceMotion)
             }
         }
@@ -15906,12 +15946,13 @@ private struct NativeMapExploreView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            VStack(spacing: 0) {
+            ZStack(alignment: .bottom) {
                 // The illustration, six fixed positions and unpositioned
                 // report/decorative markers are deliberately not rendered.
                 NativeGeographicMap(payloads: geographicPayloads, cameraRequest: cameraRequest,
                     recenterMode: recenterMode, locationAuthorized: locationStore.authorizationState == .allowed,
                     reduceMotion: reduceMapMotion, darkAppearance: mapColorScheme == .dark,
+                    panelFootprint: shouldShowSpatialSheet ? mapPanelFootprint(available: proxy.size.height) : 0,
                     onSelect: selectGeographicPin, onUserPan: {
                         userMovedCamera = true
                         dropRecenterModeForUserPan()
@@ -15939,13 +15980,13 @@ private struct NativeMapExploreView: View {
                         .accessibilityHidden(!fits)
                 }
                 if shouldShowSpatialSheet {
-                    // Keep MapKit's own attribution outside the sheet. Reserve
-                    // a usable map viewport rather than covering legal controls.
+                    // The sheet floats over the map as glass. MapKit's legal
+                    // label stays above it through the map's layout margins.
                     spatialSheet(maxHeight: mapPanelHeight(available: proxy.size.height), available: proxy.size.height)
                         .transition(reduceMapMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .background(NativeDeepSpaceGround())
+            .background(NativePolish.mapBaseSurface)
             .onChange(of: shouldShowSpatialSheet) { _ in mapPanelDetent = .half }
             .onChange(of: mapPanelLowestDetent) { lowest in mapPanelDetent = mapPanelDetent.atLeast(lowest) }
             .onChange(of: selectedPin?.id) { _ in mapPanelDetent = .half }
@@ -16683,10 +16724,14 @@ private struct NativeMapExploreView: View {
         } ?? restingMapPanelDetent.height(available: available, peekMinimum: mapPanelPeekMinimum)
     }
 
+    /// Everything the panel covers, from the bottom of the map to its top edge.
+    private func mapPanelFootprint(available: CGFloat) -> CGFloat {
+        mapPanelHeight(available: available) + NativePolish.mapSheetInnerTopPadding + NativePolish.mapSheetInnerBottomPadding + NativePolish.mapSheetBottomInset
+    }
+
     private func mapControlsFit(available: CGFloat) -> Bool {
         guard shouldShowSpatialSheet else { return true }
-        let panel = mapPanelHeight(available: available) + NativePolish.mapSheetInnerTopPadding + NativePolish.mapSheetInnerBottomPadding + NativePolish.mapSheetBottomInset
-        return NativeMapControlsFit.fits(mapHeight: available - panel, fullStack: showFullRightActionStack)
+        return NativeMapControlsFit.fits(mapHeight: available - mapPanelFootprint(available: available), fullStack: showFullRightActionStack)
     }
 
     /// A soft fade from the starfield navy at the map's top edge, so map labels
@@ -16746,8 +16791,10 @@ private struct NativeMapExploreView: View {
             }
     }
 
-    /// A thin tint, so the window's starfield continues through the panel.
-    private var mapPanelGround: some View { NativePolish.mapPanelSurface.opacity(0.5) }
+    /// Blurred map behind, starfield inside at night, daylight glow by day.
+    private var mapPanelGround: some View {
+        NativeMapGlass(shape: RoundedRectangle(cornerRadius: NativePolish.mapSheetRadius, style: .continuous))
+    }
 
     private func spatialSheet(maxHeight: CGFloat, available: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: NativePolish.mapSheetContentSpacing) {
@@ -19483,6 +19530,9 @@ enum NativePolish {
     // starfield; a near-opaque card on top of it would read as a slab.
     static let mapPanelCardSurface = Color.adaptive(lightHex: lightPanelHex, darkHex: mapPanelHex, lightAlpha: 0.42, darkAlpha: 0.46)
     static let mapControlSurface = Color.adaptive(lightHex: lightElevatedHex, darkHex: mapPanelHex, lightAlpha: 0.94, darkAlpha: 0.94)
+    // In front of the blurred map in `NativeMapGlass`: dense enough that light
+    // text holds over any map tile, thin enough that the map still shows.
+    static let mapGlassTint = Color.adaptive(lightHex: lightPanelHex, darkHex: mapPanelHex, lightAlpha: 0.52, darkAlpha: 0.48)
     static let mapRoadSurface = Color.adaptive(lightHex: 0x232A50, darkHex: mapPanelHex, lightAlpha: 0.90, darkAlpha: 0.96)
     // Dark measured flatter than Light once Light was converted -- roads 1.39:1
     // and grid 1.26:1 against the base, which is a map you cannot read. The dark

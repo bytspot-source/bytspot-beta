@@ -2713,6 +2713,52 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertLessThan(NativeMapInteractionContract.functionSheetMaxHeightFraction, 1.0)
     }
 
+    func testMapViewportKeepsTheLegalLabelAndTheFocusAboveTheFloatingPanel() {
+        let closed = NativeMapViewportPolicy.margins(panelFootprint: 0)
+        XCTAssertEqual(closed, NativeMapViewportPolicy.baseMargins)
+        XCTAssertEqual(NativeMapViewportPolicy.margins(panelFootprint: -20), closed)
+        let open = NativeMapViewportPolicy.margins(panelFootprint: 400)
+        XCTAssertEqual(open.bottom, NativeMapViewportPolicy.baseMargins.bottom + 400)
+        XCTAssertEqual(open.top, NativeMapViewportPolicy.baseMargins.top)
+        XCTAssertEqual(NativeMapViewportPolicy.visibleCenterLift(margins: open), (open.bottom - open.top) / 2)
+
+        let region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 33.7875, longitude: -84.3835),
+                                        span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08))
+        let lifted = NativeMapViewportPolicy.liftedRegion(region, mapHeight: 800, margins: open)
+        let expectedShift = 0.08 * Double(NativeMapViewportPolicy.visibleCenterLift(margins: open) / 800)
+        XCTAssertEqual(lifted.center.latitude, region.center.latitude - expectedShift, accuracy: 1e-9)
+        XCTAssertEqual(lifted.center.longitude, region.center.longitude)
+        XCTAssertEqual(lifted.span.latitudeDelta, region.span.latitudeDelta)
+        XCTAssertEqual(NativeMapViewportPolicy.liftedRegion(region, mapHeight: 0, margins: open).center.latitude, region.center.latitude)
+    }
+
+    func testMapCardsAreGlassOverTheMapWithTheStarfieldInsideNotBehind() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent("App/NativeShellView.swift"), encoding: .utf8)
+        let design = try String(contentsOf: root.appendingPathComponent("App/NativeShellDesignSystem.swift"), encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "private struct NativeMapExploreView: View {"))
+        let tail = source[start.upperBound...]
+        let bodyStart = try XCTUnwrap(tail.range(of: "    var body: some View {"))
+        let bodyEnd = try XCTUnwrap(tail.range(of: "    private func startLocationGateIfNeeded()"))
+        let body = String(source[bodyStart.lowerBound..<bodyEnd.lowerBound])
+        XCTAssertTrue(body.contains("ZStack(alignment: .bottom) {"), "The panel floats over the map.")
+        XCTAssertFalse(body.contains("NativeDeepSpaceGround()"), "No starfield behind the map.")
+        XCTAssertTrue(body.contains("panelFootprint: shouldShowSpatialSheet ? mapPanelFootprint(available: proxy.size.height) : 0"))
+        XCTAssertTrue(source.contains("NativeMapGlass(shape: RoundedRectangle(cornerRadius: NativePolish.mapSheetRadius, style: .continuous))"))
+        XCTAssertTrue(source.contains("map.layoutMargins = NativeMapViewportPolicy.margins(panelFootprint: panelFootprint)"))
+
+        let glass = try XCTUnwrap(design.range(of: "struct NativeMapGlass<S: Shape>: View {"))
+        let glassEnd = try XCTUnwrap(design.range(of: "struct BytspotNativeBackground: View {", range: glass.upperBound..<design.endIndex))
+        let glassBody = String(design[glass.lowerBound..<glassEnd.lowerBound])
+        XCTAssertTrue(glassBody.contains("if reduceTransparency {"))
+        XCTAssertTrue(glassBody.contains(".fill(.ultraThinMaterial).environment(\\.colorScheme, .dark)"))
+        XCTAssertTrue(glassBody.contains("NativeGlassSky(daylight: colorScheme == .light).clipShape(shape)"))
+        let sky = try XCTUnwrap(design.range(of: "struct NativeGlassSky: View {"))
+        let skyBody = String(design[sky.lowerBound..<glass.lowerBound])
+        XCTAssertTrue(skyBody.contains("if reduceMotion {"), "Stars hold still under Reduce Motion.")
+        XCTAssertTrue(skyBody.contains("NativeDeepSpaceGround.draw(in: context, size: size, time: 0, twinkling: false)"))
+    }
+
     func testMapPanelRestsAtPeekHalfAndNearFullWithHalfMatchingTheOriginalHeight() {
         let available: CGFloat = 700
         let peek = NativeMapPanelDetent.peek.height(available: available)

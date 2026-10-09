@@ -15145,6 +15145,8 @@ struct NativeMapAnnotationPayload: Equatable, Identifiable {
     let point: NativeM2RoutePoint
     let photoURL: URL?
     let isSelected: Bool
+    /// Another place is selected, so this one steps back.
+    let isDimmed: Bool
 
     init?(id: String, title: String, caption: String, latitude: Double?, longitude: Double?,
           selectedID: String?, venueImage: URL? = nil,
@@ -15155,6 +15157,7 @@ struct NativeMapAnnotationPayload: Equatable, Identifiable {
         self.caption = caption
         self.point = point
         self.isSelected = id == selectedID
+        self.isDimmed = selectedID != nil && id != selectedID
         // Use the existing source-bound authority; never infer ownership from a host/ID.
         self.photoURL = NativeVenueHeroMedia.heroURLs(venueImage: venueImage, provenance: provenance, details: details)
             .compactMap { NativeVenueDetailsDTO.safeHTTPSURL($0.absoluteString) }.first
@@ -15297,9 +15300,18 @@ enum NativeMapPhotoLoader {
     }
 }
 
+/// The selected place grows and gains a ring and halo; the rest step back so
+/// it reads first. Dimmed pins stay tappable and are the first to collapse.
+enum NativeMapPinFocusStyle {
+    static let haloInset: CGFloat = 8
+    static func photoSize(isSelected: Bool) -> CGFloat { isSelected ? 64 : 52 }
+    static func alpha(isDimmed: Bool) -> CGFloat { isDimmed ? 0.42 : 1 }
+}
+
 /// Reuse owns the request lifetime. Neither loading nor failure substitutes a
 /// provider image, and an old completion cannot paint a new venue's marker.
 private final class NativePhotoMapAnnotationView: MKAnnotationView {
+    private let halo = UIView()
     private let photo = UIImageView()
     private let glyph = UIImageView(image: UIImage(systemName: "mappin"))
     private let nameLabel = UILabel()
@@ -15315,7 +15327,6 @@ private final class NativePhotoMapAnnotationView: MKAnnotationView {
         collisionMode = .rectangle
         photo.contentMode = .scaleAspectFill
         photo.clipsToBounds = true
-        photo.layer.cornerRadius = 26
         photo.backgroundColor = .secondarySystemBackground
         glyph.contentMode = .scaleAspectFit
         glyph.tintColor = .secondaryLabel
@@ -15328,6 +15339,8 @@ private final class NativePhotoMapAnnotationView: MKAnnotationView {
             label.clipsToBounds = true
             addSubview(label)
         }
+        halo.isUserInteractionEnabled = false
+        addSubview(halo)
         nameLabel.font = .preferredFont(forTextStyle: .caption1)
         nameLabel.textColor = .label
         captionLabel.font = .preferredFont(forTextStyle: .caption2)
@@ -15344,6 +15357,8 @@ private final class NativePhotoMapAnnotationView: MKAnnotationView {
         cancelImage()
         representedID = nil
         requestedURL = nil
+        alpha = 1
+        halo.alpha = 0
     }
 
     func cancelImage() {
@@ -15360,20 +15375,36 @@ private final class NativePhotoMapAnnotationView: MKAnnotationView {
         accessibilityLabel = [payload.title, payload.caption].filter { !$0.isEmpty }.joined(separator: ", ")
         accessibilityIdentifier = "native-map-pin-\(payload.id)"
         accessibilityTraits = payload.isSelected ? [.button, .selected] : [.button]
+        let accent = UIColor(NativeTheme.cyan)
         photo.layer.borderWidth = payload.isSelected ? 4 : 2
-        photo.layer.borderColor = (payload.isSelected ? UIColor.systemBlue : UIColor.separator).resolvedColor(with: traitCollection).cgColor
-        displayPriority = payload.isSelected ? .required : .defaultHigh
+        photo.layer.borderColor = (payload.isSelected ? accent : UIColor.separator).resolvedColor(with: traitCollection).cgColor
+        displayPriority = payload.isSelected ? .required : payload.isDimmed ? .defaultLow : .defaultHigh
         zPriority = payload.isSelected ? .max : .defaultUnselected
+        let size = NativeMapPinFocusStyle.photoSize(isSelected: payload.isSelected)
+        let haloInset = NativeMapPinFocusStyle.haloInset
         let width: CGFloat = 160
         let nameHeight = nameLabel.sizeThatFits(CGSize(width: width, height: 100)).height
         let captionHeight = captionLabel.sizeThatFits(CGSize(width: width, height: 100)).height
-        bounds = CGRect(x: 0, y: 0, width: width, height: 58 + nameHeight + captionHeight + 4)
-        photo.frame = CGRect(x: (width - 52) / 2, y: 0, width: 52, height: 52)
-        glyph.frame = photo.frame.insetBy(dx: 14, dy: 14)
-        nameLabel.frame = CGRect(x: 0, y: 58, width: width, height: nameHeight)
-        captionLabel.frame = CGRect(x: 0, y: 60 + nameHeight, width: width, height: captionHeight)
-        // Anchor the circle, not its caption, to the exact coordinate.
-        centerOffset = CGPoint(x: 0, y: bounds.height / 2 - 26)
+        let changes: () -> Void = { [self] in
+            bounds = CGRect(x: 0, y: 0, width: width, height: haloInset + size + 6 + nameHeight + captionHeight + 4)
+            photo.frame = CGRect(x: (width - size) / 2, y: haloInset, width: size, height: size)
+            photo.layer.cornerRadius = size / 2
+            halo.frame = photo.frame.insetBy(dx: -haloInset, dy: -haloInset)
+            halo.layer.cornerRadius = halo.frame.width / 2
+            halo.backgroundColor = accent.withAlphaComponent(0.28)
+            halo.alpha = payload.isSelected ? 1 : 0
+            glyph.frame = photo.frame.insetBy(dx: size * 0.27, dy: size * 0.27)
+            nameLabel.frame = CGRect(x: 0, y: haloInset + size + 6, width: width, height: nameHeight)
+            captionLabel.frame = CGRect(x: 0, y: haloInset + size + 8 + nameHeight, width: width, height: captionHeight)
+            // Anchor the circle, not its caption, to the exact coordinate.
+            centerOffset = CGPoint(x: 0, y: bounds.height / 2 - haloInset - size / 2)
+            alpha = NativeMapPinFocusStyle.alpha(isDimmed: payload.isDimmed)
+        }
+        if window != nil, !UIAccessibility.isReduceMotionEnabled {
+            UIView.animate(withDuration: 0.22, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: changes)
+        } else {
+            changes()
+        }
         guard representedID != payload.id || requestedURL != payload.photoURL else { return }
         cancelImage()
         representedID = payload.id

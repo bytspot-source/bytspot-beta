@@ -4207,7 +4207,6 @@ private struct NativeNetworkHubView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
-    @EnvironmentObject private var membershipStore: NativeMembershipTierStore
     @State private var segment: NativeNetworkSegment = .people
     @State private var circleSnapshot: NativeSocialCircleSnapshot
     @State private var invitations: [NativeSocialInvitation] = []
@@ -4217,7 +4216,6 @@ private struct NativeNetworkHubView: View {
     @State private var newCircleName = ""
     @State private var statusMessage = ""
     @State private var isWorking = false
-    @State private var showHostStudio = false
     @State private var hostedParties: [NativeHostedParty] = []
     @State private var closedParties: [NativeHostedParty] = []
     @State private var attendedRooms: [NativeAttendedRoom] = []
@@ -4266,9 +4264,6 @@ private struct NativeNetworkHubView: View {
         .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-network-hub")
         .task(id: sessionStore.isAuthenticated) { await refreshNetwork() }
-        .fullScreenCover(isPresented: $showHostStudio) {
-            NativeHostStudioView(circles: circleSnapshot.groups, membershipTier: membershipStore.tier)
-        }
         .sheet(item: $hostedControlTarget) { target in
             NativePartyControlView(partyID: target.id).environmentObject(sessionStore)
         }
@@ -4281,33 +4276,6 @@ private struct NativeNetworkHubView: View {
                 Task { await refreshRoomsAfterControl() }
             }
         }
-        .onChange(of: showHostStudio) { isOpen in
-            if !isOpen, sessionStore.isAuthenticated {
-                Task { await refreshHostedRooms() }
-            }
-        }
-    }
-
-    private var hostStudioCard: some View {
-        Button(action: {
-            nativeImpactLight()
-            if sessionStore.isAuthenticated { showHostStudio = true }
-            else { beginAuthentication() }
-        }) {
-            ZStack(alignment: .topTrailing) {
-                LinearGradient(colors: [NativeTheme.purple.opacity(0.94), NativeTheme.slate950, NativeTheme.cyan.opacity(0.48)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                Text("🪩").font(.system(size: 82)).opacity(0.18).offset(x: 12, y: -15)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("HOST STUDIO · THE BACKSTAGE").font(.system(size: 9.5, weight: .black)).tracking(1.5).foregroundColor(.white.opacity(0.68))
-                    Text("Turn a vibe into a night.").font(.system(size: 25, weight: .black, design: .rounded)).foregroundColor(.white).frame(maxWidth: 235, alignment: .leading)
-                    Text("Spark it. Invite your people. Drop the Party Pass.").font(.system(size: 11.5, weight: .semibold)).foregroundColor(.white.opacity(0.66)).frame(maxWidth: 240, alignment: .leading)
-                    Label(sessionStore.isAuthenticated ? "Create a Moment" : "Sign in to create", systemImage: "sparkles").font(.system(size: 12, weight: .black)).foregroundColor(.black).padding(.horizontal, 13).frame(height: 35).background(Color.white).clipShape(Capsule())
-                }.frame(maxWidth: .infinity, alignment: .leading).padding(18)
-            }
-            .frame(minHeight: 190).clipShape(RoundedRectangle(cornerRadius: 25, style: .continuous)).overlay(RoundedRectangle(cornerRadius: 25).stroke(NativeTheme.pink.opacity(0.34)))
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("native-host-studio-launch")
     }
 
     private struct HostedControlTarget: Identifiable, Equatable {
@@ -4330,11 +4298,10 @@ private struct NativeNetworkHubView: View {
     }
 
     /// Everything the host needs and nothing a guest browsing People has to
-    /// scroll past. These two used to render above the segment control, so a
-    /// segmented view was teaching that its own tabs did not govern it.
+    /// scroll past. Host Studio itself lives in the tab bar.
     @ViewBuilder private var hostingContent: some View {
-        hostStudioCard
         hostedRooms
+        NativePrivateSalesCard(requestAuthentication: beginAuthentication)
     }
 
     @ViewBuilder private var hostedRooms: some View {

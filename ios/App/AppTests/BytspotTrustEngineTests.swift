@@ -2936,6 +2936,58 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeMapPanelDetent.peek.smaller, .peek)
     }
 
+    func testPrivateSaleSellerRulesMatchTheServer() throws {
+        XCTAssertEqual(NativePrivateSalePolicy.normalizedHandle(.paypal, "https://www.paypal.me/JaneDoe/10"), "JaneDoe")
+        XCTAssertEqual(NativePrivateSalePolicy.normalizedHandle(.cashapp, "$jane_doe"), "jane_doe")
+        XCTAssertEqual(NativePrivateSalePolicy.normalizedHandle(.cashapp, "cash.app/$jane"), "jane")
+        XCTAssertNil(NativePrivateSalePolicy.normalizedHandle(.cashapp, "$12345"), "A cashtag needs a letter.")
+        XCTAssertEqual(NativePrivateSalePolicy.normalizedHandle(.venmo, "@Jane-Doe"), "Jane-Doe")
+        XCTAssertEqual(NativePrivateSalePolicy.normalizedHandle(.venmo, "venmo.com/u/Jane-Doe"), "Jane-Doe")
+        XCTAssertNil(NativePrivateSalePolicy.normalizedHandle(.venmo, "@jd"))
+        XCTAssertNil(NativePrivateSalePolicy.normalizedHandle(.paypal, "jane doe"))
+        XCTAssertEqual(NativePrivateSalePolicy.handleURL(.cashapp, "jane"), URL(string: "https://cash.app/$jane"))
+        XCTAssertEqual(NativePrivateSalePolicy.handleURL(.venmo, "Jane-Doe"), URL(string: "https://venmo.com/u/Jane-Doe"))
+
+        XCTAssertEqual(NativePrivateSalePolicy.priceCents(from: "$1,200"), 120_000)
+        XCTAssertEqual(NativePrivateSalePolicy.priceCents(from: "12.5"), 1250)
+        XCTAssertEqual(NativePrivateSalePolicy.priceCents(from: "0"), 0)
+        XCTAssertNil(NativePrivateSalePolicy.priceCents(from: "12.345"))
+        XCTAssertNil(NativePrivateSalePolicy.priceCents(from: "abc"))
+        XCTAssertNil(NativePrivateSalePolicy.priceCents(from: "100001"))
+
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertNil(NativePrivateSalePolicy.windowProblem(start: now.addingTimeInterval(3600), end: now.addingTimeInterval(4 * 3600 + 3600), now: now))
+        XCTAssertNotNil(NativePrivateSalePolicy.windowProblem(start: now.addingTimeInterval(-600), end: now.addingTimeInterval(600), now: now))
+        XCTAssertNotNil(NativePrivateSalePolicy.windowProblem(start: now.addingTimeInterval(8 * 86_400), end: now.addingTimeInterval(8 * 86_400 + 600), now: now))
+        XCTAssertNotNil(NativePrivateSalePolicy.windowProblem(start: now.addingTimeInterval(600), end: now.addingTimeInterval(600), now: now))
+        XCTAssertNotNil(NativePrivateSalePolicy.windowProblem(start: now, end: now.addingTimeInterval(4 * 3600 + 1), now: now))
+        let start = NativePrivateSalePolicy.defaultStart(now: now)
+        XCTAssertGreaterThanOrEqual(start.timeIntervalSince(now), 3600)
+        XCTAssertEqual(start.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 900), 0)
+        XCTAssertTrue(NativePrivateSalePolicy.windowLengths.allSatisfy { NativePrivateSalePolicy.windowProblem(start: start, end: start.addingTimeInterval(TimeInterval($0 * 60)), now: now) == nil })
+
+        XCTAssertEqual(NativePrivateSalePolicy.areaLabel(fromAddress: "123 Peachtree St, Atlanta, GA 30303"), "Atlanta")
+        XCTAssertNil(NativePrivateSalePolicy.areaLabel(fromAddress: "Atlanta, GA"))
+
+        let list = try JSONDecoder().decode(NativeOwnSaleList.self, from: Data("""
+        {"limits":{"tier":"green","openSales":1,"buyersPerSale":1},"sales":[{"saleId":"s1","title":"Bike","priceCents":12000,"state":"open","shareUrl":"https://bytspot.app/sale/s1","meetPoint":{"lat":33.78,"lng":-84.38,"placeName":"Cafe","areaLabel":null},"windowStart":"2026-10-10T18:00:00.000Z","windowEnd":"2026-10-10T19:00:00.000Z","buyerLimit":1,"providers":["venmo"],"requests":[{"requestId":"r1","buyerName":"Sam","status":"pending","arrivedAt":null,"createdAt":"2026-10-09T18:00:00.000Z"}]}]}
+        """.utf8))
+        XCTAssertEqual(list.sales[0].shareURL, URL(string: "https://bytspot.app/sale/s1"))
+        XCTAssertEqual(list.sales[0].pendingCount, 1)
+        XCTAssertNotNil(list.sales[0].windowStartDate)
+        XCTAssertFalse(NativePrivateSalePolicy.canOpenAnother(limits: list.limits, sales: list.sales), "Green allows 1 open sale.")
+        XCTAssertEqual(NativePrivateSalePolicy.buyerLimitRange(list.limits), 1...1)
+        let black = NativeSaleLimits(tier: "black", openSales: nil, buyersPerSale: 5)
+        XCTAssertTrue(NativePrivateSalePolicy.canOpenAnother(limits: black, sales: list.sales))
+        XCTAssertEqual(NativePrivateSalePolicy.buyerLimitRange(black), 1...5)
+        XCTAssertEqual(NativePrivateSalePolicy.priceLabel(cents: 12000), "$120")
+
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("App/NativeShellView.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("NativePrivateSalesCard(requestAuthentication: beginAuthentication)"))
+        XCTAssertFalse(source.contains("native-host-studio-launch"), "Host Studio lives in the tab bar, not again in Hosting.")
+    }
+
     func testMapPanelOpensAllTheWayScrollsAtNearFullAndKeepsAMapStrip() throws {
         XCTAssertFalse(NativeMapPanelDetent.contentScrolls(at: .peek), "Below near-full a swipe on a card resizes the panel.")
         XCTAssertFalse(NativeMapPanelDetent.contentScrolls(at: .half))

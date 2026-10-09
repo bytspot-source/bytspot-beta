@@ -11200,6 +11200,12 @@ enum NativeDiscoverBrowsePolicy {
         return "Request"
     }
 
+    /// Discover lists only places that belong to one of its categories.
+    /// Offices and other uncategorised places (shown as "Other") stay out.
+    static func hasDiscoverCategory(type: String, sourceCategory: String?) -> Bool {
+        NativeDiscoverBookablePresentation.referenceRail(type: type, sourceCategory: sourceCategory) != nil
+    }
+
     static func categoryLabel(_ category: String) -> String {
         guard let rail = NativeDiscoverBookablePresentation.rail(category: category),
               let index = NativeDiscoverBookablePresentation.railTokens.firstIndex(of: rail) else { return "Other" }
@@ -11372,6 +11378,11 @@ private struct NativeDiscoverView: View {
     var consumeHandoffFilter: () -> Void = {}
     @State private var selectedFilter: String? = Self.previewFilter
     @State private var discoverCardIndex = 0
+    @State private var nearbyBookings: [String: NativeDiscoverNearbyBooking] = [:]
+    @State private var checkedNearbyBookingPlaceIDs: Set<String> = []
+    @Environment(\.accessibilityReduceMotion) private var reduceDiscoverMotion
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     @State private var catalog = NativeDiscoverCatalogState()
     @State private var catalogReloadID = UUID()
     @State private var planSelection: NativeDiscoverPlanSelection?
@@ -11457,6 +11468,7 @@ private struct NativeDiscoverView: View {
         }
         .onAppear { locationStore.startIfAuthorized(); applyFilterHandoffIfRequested(); applyShellFilterHandoffIfRequested() }
         .task { await refreshDiscoverFeedOnOpen() }
+        .task(id: scenePhase) { await refreshLocationWhileOpen() }
         .task(id: catalogTaskID) { await loadBookables() }
         .task(id: transactions.accountRevision) { await refreshTransactions() }
         .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidChange)) { _ in
@@ -11636,10 +11648,141 @@ private struct NativeDiscoverView: View {
                     }
                 }
                 discoverCardPager
+                discoverMoreNearby
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("native-discover-card-deck")
+    }
+
+    /// The other ranked cards within walking distance, closest first, as
+    /// thumbnail rows. Hidden without a fresh location. A row opens the same
+    /// details as its card.
+    @ViewBuilder private var discoverMoreNearby: some View {
+        let cards = rankedCards
+        let origin = NativeDiscoverMoreNearbyPolicy.origin(location: locationStore.lastLocation,
+                                                           authorized: locationStore.authorizationState == .allowed)
+        let miles = cards.map { origin?.distanceMiles(toLatitude: $0.latitude, longitude: $0.longitude) }
+        let indices = NativeDiscoverMoreNearbyPolicy.indices(miles: miles, current: discoverCardIndex)
+        let placeIDs = indices.compactMap { venueForDetail(cards[$0]).googlePlaceID }
+        if !indices.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("More nearby").font(.headline).foregroundColor(.white)
+                    .accessibilityAddTraits(.isHeader)
+                ForEach(indices, id: \.self) { index in
+                    discoverMoreNearbyRow(cards[index], distance: origin?.distanceLabel(toLatitude: cards[index].latitude, longitude: cards[index].longitude))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("native-discover-more-nearby")
+            .task(id: placeIDs) { await loadNearbyBookings(placeIDs) }
+        }
+    }
+
+    /// Keeps the fix fresh enough for Check in while Discover is on screen, so
+    /// More nearby updates as the guest walks without reopening the tab.
+    private func refreshLocationWhileOpen() async {
+        guard scenePhase == .active else { return }
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: UInt64(NativeDiscoverMoreNearbyPolicy.locationRefreshInterval * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            locationStore.startIfAuthorized()
+        }
+    }
+
+    /// Looks up the OpenTable or Resy link for the places listed, once each.
+    private func loadNearbyBookings(_ placeIDs: [String]) async {
+        let missing = placeIDs.filter { !checkedNearbyBookingPlaceIDs.contains($0) }
+        guard !missing.isEmpty else { return }
+        let api = NativeVenueDetailsAPI(client: BytspotAPIClient())
+        await withTaskGroup(of: (String, NativeVenueRichDetails?)?.self) { group in
+            for placeID in missing {
+                group.addTask {
+                    do { return (placeID, try await api.details(googlePlaceID: placeID)) } catch { return nil }
+                }
+            }
+            for await result in group {
+                guard let (placeID, details) = result else { continue }
+                checkedNearbyBookingPlaceIDs.insert(placeID)
+                if let url = details?.tableBookingURL, let label = details?.tableBookingProvider {
+                    nearbyBookings[placeID] = NativeDiscoverNearbyBooking(url: url, label: label)
+                }
+            }
+        }
+    }
+
+    private func openNearbyBooking(_ booking: NativeDiscoverNearbyBooking, placeID: String) {
+        nativeImpactLight()
+        let client = BytspotAPIClient(tokenProvider: { [credential = sessionStore.token] in credential })
+        Task { await NativeTableBookingTapAPI(client: client).record(placeID: placeID, surface: .venue) }
+        openURL(booking.url)
+    }
+
+    private func discoverMoreNearbyRow(_ card: DiscoverCardSpec, distance: String?) -> some View {
+        let open = { nativeImpactLight(); openDiscoverDetails(card) }
+        let venue = venueForDetail(card)
+        let placeID = venue.googlePlaceID
+        let action = NativeDiscoverMoreNearbyPolicy.action(
+            canCheckIn: NativeM5DetailPolicy.canValidateVisit(venue),
+            isAtPlace: NativeVendorExperience.isAtVenue(
+                NativeVenueVisitLocation.freshCoordinate(location: locationStore.lastLocation,
+                                                         authorized: locationStore.authorizationState == .allowed),
+                venue: venue),
+            booking: placeID.flatMap { nearbyBookings[$0] })
+        return HStack(spacing: 10) {
+            // A tap, not a Button: a Button inside the page's scroll view still
+            // fires after a sideways drag, while a tap fails once the finger moves.
+            HStack(spacing: 12) {
+                NativeDiscoverNearbyThumbnail(url: card.imageUrl, icon: card.icon)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(card.title).font(.subheadline.weight(.semibold)).foregroundColor(.white).lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text([NativeDiscoverMoreNearbyPolicy.rowCategory(card.categoryLabel), NativeDiscoverBrowsePolicy.referenceSubtitle(card.subtitle)].compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption).foregroundColor(.white.opacity(0.68)).lineLimit(1)
+                    if let distance {
+                        Text(distance).font(.caption.weight(.semibold)).foregroundColor(.white.opacity(0.72))
+                    }
+                }
+                Spacer(minLength: 4)
+                if action == .none {
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundColor(.white.opacity(0.45))
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture(perform: open)
+            .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { open() }
+            .accessibilityLabel([card.title, NativeDiscoverMoreNearbyPolicy.rowCategory(card.categoryLabel), distance.map { $0 == "Here" ? "Here" : "\($0) straight-line distance" }].compactMap { $0 }.joined(separator: ", "))
+            .accessibilityHint("Opens details")
+            .accessibilityIdentifier("native-discover-more-nearby-\(card.browseID)")
+            switch action {
+            case .checkIn:
+                NativeVenueCheckInChip(venue: venue, openAuth: openNativeAuth)
+                    .fixedSize()
+            case .book(let booking):
+                if let placeID {
+                    Button { openNearbyBooking(booking, placeID: placeID) } label: {
+                        Text("Book ↗").font(.subheadline.weight(.semibold)).foregroundColor(.white)
+                            .padding(.horizontal, 12).frame(minHeight: 44)
+                            .background(Color.white.opacity(0.10)).clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Book on \(booking.label)")
+                    .accessibilityHint("Opens \(booking.label)")
+                    .accessibilityIdentifier("native-discover-more-nearby-book-\(card.browseID)")
+                }
+            case .none:
+                EmptyView()
+            }
+        }
+        .padding(8)
+        .padding(.trailing, 4)
+        .frame(minHeight: NativeDiscoverNearbyThumbnail.size + 16)
+        .background(NativeDiscoverNearbyRowSurface())
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
     }
 
     private func discoverFeatureCard(_ card: DiscoverCardSpec) -> some View {
@@ -11688,6 +11831,28 @@ private struct NativeDiscoverView: View {
         }
     }
 
+    private var discoverCardPosition: some View {
+        let current = min(discoverCardIndex + 1, rankedCards.count)
+        return Group {
+            if rankedCards.count <= NativeDiscoverSwipePolicy.maxPositionDots {
+                HStack(spacing: 6) {
+                    ForEach(rankedCards.indices, id: \.self) { index in
+                        Capsule()
+                            .fill(Color.white.opacity(index == discoverCardIndex ? 0.92 : 0.28))
+                            .frame(width: index == discoverCardIndex ? 16 : 6, height: 6)
+                    }
+                }
+                .animation(reduceDiscoverMotion ? nil : .spring(response: 0.3, dampingFraction: 0.85), value: discoverCardIndex)
+            } else {
+                Text("\(current) of \(rankedCards.count)")
+                    .font(.caption2.weight(.semibold)).foregroundColor(.white.opacity(0.6))
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Card \(current) of \(rankedCards.count)")
+        .accessibilityIdentifier("native-discover-card-position")
+    }
+
     private var discoverCardPager: some View {
         HStack {
             Button { moveDiscoverCard(-1) } label: {
@@ -11697,9 +11862,7 @@ private struct NativeDiscoverView: View {
             .disabled(discoverCardIndex == 0)
             .accessibilityLabel("Previous Discover card")
             Spacer()
-            Text("\(min(discoverCardIndex + 1, rankedCards.count)) of \(rankedCards.count)")
-                .font(.footnote.weight(.semibold)).foregroundColor(.white.opacity(0.72))
-                .accessibilityIdentifier("native-discover-card-position")
+            discoverCardPosition
             Spacer()
             Button { moveDiscoverCard(1) } label: {
                 Label("Next", systemImage: "chevron.right").labelStyle(.iconOnly)
@@ -11739,6 +11902,7 @@ private struct NativeDiscoverView: View {
         let references = NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot, matching: nil)
             .filter {
                 NativeVendorExperience.isDiscoveryReference(id: $0.id) &&
+                NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: $0.type, sourceCategory: $0.categoryLabel) &&
                 NativeDiscoverBookablePresentation.matchesCategory($0.type, filter: selectedFilter, sourceCategory: $0.categoryLabel)
             }
             .map(Self.spec(from:))
@@ -11920,12 +12084,101 @@ private struct NativeDiscoverView: View {
 
 }
 
+/// Which ranked cards the "More nearby" list shows under the Discover card:
+/// those within walking distance of a fresh location, closest first, except
+/// the one on screen. Ties keep Discover's order.
+enum NativeDiscoverMoreNearbyPolicy {
+    static let limit = 6
+    static let radiusMiles = 1.0
+    /// Browsing tolerates an older fix than check-in does (60 s).
+    static let maxLocationAge: TimeInterval = 15 * 60
+    /// Half the check-in freshness limit, so a reading never ages out on screen.
+    static let locationRefreshInterval: TimeInterval = 30
+
+    static func indices(miles: [Double?], current: Int) -> [Int] {
+        let nearby = miles.indices.compactMap { index -> (index: Int, miles: Double)? in
+            guard index != current, let value = miles[index], value <= radiusMiles else { return nil }
+            return (index, value)
+        }
+        return Array(nearby.sorted { ($0.miles, $0.index) < ($1.miles, $1.index) }.prefix(limit).map { $0.index })
+    }
+
+    static func origin(location: CLLocation?, authorized: Bool, now: Date = Date()) -> NativeLocationCoordinate? {
+        guard authorized, let location,
+              (0...maxLocationAge).contains(now.timeIntervalSince(location.timestamp)),
+              (0...250).contains(location.horizontalAccuracy),
+              NativeVenueSummary.hasValidMapCoordinate(latitude: location.coordinate.latitude,
+                                                       longitude: location.coordinate.longitude) else { return nil }
+        return NativeLocationCoordinate(latitude: location.coordinate.latitude,
+                                        longitude: location.coordinate.longitude, isFallback: false)
+    }
+
+    enum Action: Equatable {
+        case checkIn
+        case book(NativeDiscoverNearbyBooking)
+        case none
+    }
+
+    /// One action per row: Check in when the guest is at a place that supports
+    /// it, otherwise Book with the place's OpenTable or Resy link, otherwise none.
+    static func action(canCheckIn: Bool, isAtPlace: Bool, booking: NativeDiscoverNearbyBooking?) -> Action {
+        if canCheckIn && isAtPlace { return .checkIn }
+        if let booking { return .book(booking) }
+        return .none
+    }
+
+    /// "Nearby" repeats the section header, so the row omits it.
+    static func rowCategory(_ label: String) -> String? {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || trimmed.caseInsensitiveCompare("Nearby") == .orderedSame ? nil : trimmed
+    }
+}
+
+/// A place's hand-checked OpenTable or Resy link, labelled with the provider.
+struct NativeDiscoverNearbyBooking: Equatable {
+    let url: URL
+    let label: String
+}
+
+/// A square place photo for a "More nearby" row, or the card's icon when
+/// the place has no photo.
+private struct NativeDiscoverNearbyThumbnail: View {
+    static let size: CGFloat = 64
+    let url: URL?
+    let icon: String
+
+    var body: some View {
+        ZStack {
+            Color.white.opacity(0.06)
+            Image(systemName: icon).font(.system(size: 18, weight: .semibold)).foregroundColor(.white.opacity(0.70))
+            if let url {
+                AsyncImage(url: url, transaction: Transaction(animation: nil)) { phase in
+                    if let image = phase.image { image.resizable().scaledToFill() } else { Color.clear }
+                }
+            }
+        }
+        .frame(width: Self.size, height: Self.size)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityHidden(true)
+    }
+}
+
+/// A thin tint so the starfield shows through each row; solid when the user
+/// asks for reduced transparency.
+private struct NativeDiscoverNearbyRowSurface: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    var body: some View {
+        if reduceTransparency { NativeVendorSurface() } else { Color.white.opacity(0.05) }
+    }
+}
+
 /// Decides what a finished sideways swipe on the Discover card does.
 /// Left advances to the next card; right always opens the card's details.
 enum NativeDiscoverSwipePolicy {
     enum Outcome: Equatable { case advance, openDetails, settle }
 
     static let threshold: CGFloat = 84
+    static let maxPositionDots = 10
 
     static func outcome(translation: CGFloat, velocity: CGFloat, canAdvance: Bool) -> Outcome {
         let projected = translation + velocity * 0.15
@@ -12445,38 +12698,19 @@ private struct NativeVenueDetailView: View {
     private var detailHorizontalPadding: CGFloat { UIScreen.main.bounds.width < 380 ? 14 : 18 }
     private var stayDetailHeroHeight: CGFloat { min(max(UIScreen.main.bounds.height * 0.24, 180), 228) }
 
+    private var usesBytspotDisplay: Bool {
+        NativeM5DetailPolicy.usesBytspotDisplay(venue, isCatalogSource: offering != nil)
+    }
+
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 20) {
-                placeHeader
-                if let transaction = currentTransaction { transactionPanel(transaction) }
-                else if exactOffering?.sourceKind == .coffeeSpot && !requestStatusReady {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(transactions.failed ? "Your request status is unavailable." : "Checking your requests…").font(.subheadline)
-                        if transactions.failed {
-                            placeButton("Retry request status", icon: "arrow.clockwise") { Task { await refreshDetailTransactions() } }
-                        }
-                    }
-                }
-                if let statusMessage {
-                    Text(statusMessage).font(.subheadline)
-                        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.white.opacity(0.08))
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                }
-                offeringSection
-                placeFacts
-                arrivalModule
-                vendorInformation
-                Text(NativeM5DetailPolicy.planDisclaimer)
-                    .font(.footnote).foregroundColor(.white.opacity(0.72))
-            }
-            .padding(20)
+            if usesBytspotDisplay { bytspotContent } else { listedContent }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { placeBottomActions }
         .foregroundColor(.white)
         .background(NativeDeepSpaceGround())
         .preferredColorScheme(.dark)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("native-venue-detail")
         .sheet(isPresented: $showGuestSavePrompt) {
             NativeGuestSavePromptSheet(title: guestPromptTitle, subtitle: guestPromptSubtitle, ctaTitle: guestPromptCTA, onSignIn: continueGuestPromptSignIn)
@@ -12561,7 +12795,7 @@ private struct NativeVenueDetailView: View {
         await transactions.refresh(userID: userID, api: NativePlanAPI(client: client))
     }
     private func loadSuppliedDetails() async {
-        guard offering == nil, venue.googlePlaceID != nil else { return }
+        guard !usesBytspotDisplay, venue.googlePlaceID != nil else { return }
         detailsLoading = true; detailsFailed = false
         defer { detailsLoading = false }
         do {
@@ -12575,14 +12809,7 @@ private struct NativeVenueDetailView: View {
         VStack(alignment: .leading, spacing: 16) {
             ZStack(alignment: .top) {
                 placeHero
-                HStack(spacing: 12) {
-                    heroControl("Back", icon: "chevron.left") { dismiss() }
-                    Spacer(minLength: 8)
-                    ForEach(NativeM5DetailPolicy.compactActions(for: venue, offering: exactOffering, isCatalogSource: offering != nil).filter { $0.id != "checkIn" }) { action in
-                        heroControl(action.id == "save" && isSaved ? "Saved" : action.title,
-                            icon: action.id == "save" && isSaved ? "heart.fill" : action.systemImage) { handle(action) }
-                    }
-                }.padding(12)
+                heroControls.padding(12)
             }
             .overlay(alignment: .bottomLeading) { vibeSlot }
             if dynamicTypeSize.isAccessibilitySize {
@@ -12978,6 +13205,195 @@ private struct NativeVenueDetailView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
+    }
+
+    private var bytspotContent: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            placeHeader
+            if let transaction = currentTransaction { transactionPanel(transaction) }
+            else if exactOffering?.sourceKind == .coffeeSpot && !requestStatusReady {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(transactions.failed ? "Your request status is unavailable." : "Checking your requests…").font(.subheadline)
+                    if transactions.failed {
+                        placeButton("Retry request status", icon: "arrow.clockwise") { Task { await refreshDetailTransactions() } }
+                    }
+                }
+            }
+            statusMessageBanner
+            offeringSection
+            placeFacts
+            arrivalModule
+            vendorInformation
+            Text(NativeM5DetailPolicy.planDisclaimer)
+                .font(.footnote).foregroundColor(.white.opacity(0.72))
+        }
+        .padding(20)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("native-venue-detail-bytspot")
+    }
+
+    @ViewBuilder private var statusMessageBanner: some View {
+        if let statusMessage {
+            Text(statusMessage).font(.subheadline)
+                .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.white.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+    }
+
+    /// A listed place: Google's photos and details with Check in, Route, Plan
+    /// and its booking link. None of the Bytspot display's slots appear here.
+    private var listedContent: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            listedHeader
+            statusMessageBanner
+            listedFacts
+            VStack(alignment: .leading, spacing: 6) {
+                if details?.hasGoogleFacts == true {
+                    Text(NativeM5DetailPolicy.googleSourceNote)
+                }
+                Text(NativeM5DetailPolicy.planDisclaimer)
+            }
+            .font(.footnote).foregroundColor(.white.opacity(0.72))
+        }
+        .padding(20)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("native-venue-detail-listed")
+    }
+
+    private var listedPhotos: [NativeGooglePhoto] { details?.googlePhotos ?? [] }
+
+    private var heroControls: some View {
+        HStack(spacing: 12) {
+            heroControl("Back", icon: "chevron.left") { dismiss() }
+            Spacer(minLength: 8)
+            ForEach(NativeM5DetailPolicy.compactActions(for: venue, offering: exactOffering, isCatalogSource: offering != nil).filter { $0.id != "checkIn" }) { action in
+                heroControl(action.id == "save" && isSaved ? "Saved" : action.title,
+                    icon: action.id == "save" && isSaved ? "heart.fill" : action.systemImage) { handle(action) }
+            }
+        }
+    }
+
+    private var listedHeader: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if listedPhotos.isEmpty {
+                heroControls
+            } else {
+                let photo = listedPhotos[min(heroPhotoIndex, listedPhotos.count - 1)]
+                VStack(alignment: .leading, spacing: 8) {
+                    ZStack(alignment: .top) {
+                        heroPhoto(photo.url)
+                            .frame(height: 280)
+                            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                            .accessibilityLabel("Photo of \(venue.name)")
+                            .accessibilityIdentifier("native-listed-cover-photo")
+                        heroControls.padding(12)
+                    }
+                    Text(NativeM5DetailPolicy.googlePhotoCredit(photo))
+                        .font(.caption).foregroundColor(.white.opacity(0.72))
+                        .accessibilityIdentifier("native-listed-photo-credit")
+                    if listedPhotos.count > 1 { listedThumbnails }
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(venue.name).font(.largeTitle.weight(.bold))
+                    .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
+                Text(NativeDiscoverBrowsePolicy.categoryLabel(NativeDiscoverBookablePresentation.referenceRail(type: venue.discoverType, sourceCategory: venue.sourceCategory ?? venue.category) ?? venue.discoverType))
+                    .font(.subheadline.weight(.semibold)).foregroundColor(.white.opacity(0.80))
+                Text(NativeM5DetailPolicy.address(for: venue)).font(.body).foregroundColor(.white.opacity(0.80))
+                if let rating = venue.rating {
+                    Label(String(format: "%.1f", rating), systemImage: "star.fill").font(.footnote)
+                }
+                if let distance = NativeM5DetailPolicy.distance(to: venue, location: locationStore.lastLocation,
+                    authorized: locationStore.authorizationState == .allowed) {
+                    Label(distance, systemImage: "location").font(.footnote)
+                }
+                if let description = details?.description {
+                    Text(description).font(.body).foregroundColor(.white.opacity(0.80))
+                }
+            }
+            if NativeM5DetailPolicy.canValidateVisit(venue) {
+                NativeVenueCheckInChip(venue: venue, openAuth: { openNativeAuth?() })
+            }
+            listedLinks
+            if detailsLoading { ProgressView("Loading place details…").tint(.white) }
+            if detailsFailed {
+                Text("Additional place details couldn't be loaded.").font(.footnote)
+                placeButton("Retry details", icon: "arrow.clockwise") { Task { await loadSuppliedDetails() } }
+            }
+        }
+    }
+
+    private var listedThumbnails: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(Array(listedPhotos.enumerated()), id: \.offset) { index, photo in
+                    Button { heroPhotoIndex = index } label: {
+                        heroPhoto(photo.url)
+                            .frame(width: 72, height: 56)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(Color.white.opacity(index == heroPhotoIndex ? 0.85 : 0.18),
+                                            lineWidth: index == heroPhotoIndex ? 2 : 1)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Photograph \(index + 1) of \(listedPhotos.count)")
+                    .accessibilityAddTraits(index == heroPhotoIndex ? [.isSelected] : [])
+                }
+            }
+        }
+        .accessibilityIdentifier("native-listed-thumbnails")
+    }
+
+    /// Only links the place actually has. Route stays here when the bottom bar
+    /// is taken by a booking link.
+    private var listedLinks: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if NativeM5DetailPolicy.primaryAction(for: placePresentation) != .route {
+                    listedLink("Route", icon: "arrow.triangle.turn.up.right") { showRoute = true }
+                        .accessibilityIdentifier("native-listed-route")
+                }
+                if let url = details?.phoneURL {
+                    listedLink("Call", icon: "phone") { openListedURL(url, title: "Call") }
+                        .accessibilityIdentifier("native-listed-call")
+                }
+                if let url = details?.websiteURL {
+                    listedLink("Site ↗", icon: "globe") { openListedURL(url, title: "Site") }
+                        .accessibilityIdentifier("native-listed-site")
+                }
+            }
+        }
+    }
+
+    private func listedLink(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon).font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14).frame(minHeight: 44)
+                .background(Color.white.opacity(0.10)).clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func openListedURL(_ url: URL, title: String) {
+        handoffURL(url) { accepted in
+            if !accepted { statusMessage = "Could not open \(title). Please try again." }
+        }
+    }
+
+    @ViewBuilder private var listedFacts: some View {
+        if details?.hours != nil || details?.price != nil {
+            VStack(alignment: .leading, spacing: 16) {
+                if let hours = details?.hours { suppliedFacts("Opening hours", values: hours) }
+                if let price = details?.price { suppliedFacts("Price level", values: [price]) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16).background(Color.white.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .accessibilityIdentifier("native-listed-facts")
+        }
     }
 
     private func performPlacePrimaryAction() {
@@ -14576,6 +14992,75 @@ enum NativeMapInteractionContract {
     static let functionSheetMaxHeightFraction: CGFloat = 0.78
 }
 
+/// The Map's bottom panel rests at one of three heights. Half is the panel's
+/// original height, so it stays the default.
+enum NativeMapPanelDetent: Int, CaseIterable, Equatable {
+    case peek, half, nearFull
+
+    /// Near-full still leaves this much map visible, including MapKit's legal label.
+    static let nearFullMapReserve: CGFloat = 180
+    static let peekFraction: CGFloat = 0.28
+    static let minimumPeek: CGFloat = 170
+    /// A selected place's card shows through its primary Navigate/Reserve action at peek.
+    static let routeCardPeek: CGFloat = 270
+
+    var title: String {
+        switch self {
+        case .peek: return "Collapsed"
+        case .half: return "Half height"
+        case .nearFull: return "Expanded"
+        }
+    }
+
+    func height(available: CGFloat, peekMinimum: CGFloat = minimumPeek) -> CGFloat {
+        let half = min(available * NativeMapInteractionContract.functionSheetMaxHeightFraction, max(80, available - 300))
+        switch self {
+        case .peek: return min(half, max(peekMinimum, available * Self.peekFraction))
+        case .half: return half
+        case .nearFull: return max(half, available - Self.nearFullMapReserve)
+        }
+    }
+
+    var smaller: NativeMapPanelDetent { NativeMapPanelDetent(rawValue: rawValue - 1) ?? self }
+    var larger: NativeMapPanelDetent { NativeMapPanelDetent(rawValue: rawValue + 1) ?? self }
+
+    /// Never rests below `lowest`; an active route keeps its card at half or above.
+    func atLeast(_ lowest: NativeMapPanelDetent) -> NativeMapPanelDetent { rawValue < lowest.rawValue ? lowest : self }
+
+    /// Snaps a drag of the handle (negative = up) to the closest resting
+    /// height, using the projected end so a quick flick moves one step.
+    static func snapped(from start: NativeMapPanelDetent, translation: CGFloat, predictedTranslation: CGFloat, available: CGFloat,
+                        peekMinimum: CGFloat = minimumPeek, lowest: NativeMapPanelDetent = .peek) -> NativeMapPanelDetent {
+        let start = start.atLeast(lowest)
+        let target = start.height(available: available, peekMinimum: peekMinimum) - predictedTranslation
+        let allowed = allCases.filter { $0.rawValue >= lowest.rawValue }
+        let closest = allowed.min { abs($0.height(available: available, peekMinimum: peekMinimum) - target) < abs($1.height(available: available, peekMinimum: peekMinimum) - target) } ?? start
+        if closest == start, abs(predictedTranslation) > 120, abs(translation) > 12 {
+            return (predictedTranslation < 0 ? start.larger : start.smaller).atLeast(lowest)
+        }
+        return closest
+    }
+
+    /// Height while the handle is being dragged, kept between the lowest allowed height and near-full.
+    static func liveHeight(from start: NativeMapPanelDetent, translation: CGFloat, available: CGFloat,
+                           peekMinimum: CGFloat = minimumPeek, lowest: NativeMapPanelDetent = .peek) -> CGFloat {
+        let proposed = start.atLeast(lowest).height(available: available, peekMinimum: peekMinimum) - translation
+        return min(max(proposed, lowest.height(available: available, peekMinimum: peekMinimum)), NativeMapPanelDetent.nearFull.height(available: available))
+    }
+}
+
+/// Whether the floating map buttons fit in the map area left above the panel.
+/// They fade out rather than being cut off by, or drawn over, a growing panel.
+enum NativeMapControlsFit {
+    static func requiredHeight(fullStack: Bool) -> CGFloat {
+        let primary = 2 * NativePolish.mapActionPrimarySize + NativePolish.mapActionStackSpacing
+        let secondary = fullStack ? 4 * (NativePolish.mapActionSecondarySize + NativePolish.mapActionStackSpacing) : 0
+        return NativePolish.mapActionTopInset + primary + secondary + 12
+    }
+
+    static func fits(mapHeight: CGFloat, fullStack: Bool) -> Bool { mapHeight >= requiredHeight(fullStack: fullStack) }
+}
+
 struct NativeMapFocusPinCandidate {
     let id: String
     let title: String
@@ -15076,6 +15561,8 @@ private struct NativeMapExploreView: View {
     @State private var detailVenue: NativeVenueSummary?
     @State private var parkingBookingVenue: NativeVenueSummary?
     @State private var showFunctionSheet = Self.previewShowsFunctionSheet
+    @State private var mapPanelDetent: NativeMapPanelDetent = .half
+    @State private var mapPanelDragTranslation: CGFloat?
     @State private var showMapSearchSheet = false
     @State private var mapSearchText = ""
     @State private var showLayerControls = false
@@ -15420,38 +15907,48 @@ private struct NativeMapExploreView: View {
     var body: some View {
         GeometryReader { proxy in
             VStack(spacing: 0) {
-                ZStack(alignment: .top) {
-                    // The illustration, six fixed positions and unpositioned
-                    // report/decorative markers are deliberately not rendered.
-                    NativeGeographicMap(payloads: geographicPayloads, cameraRequest: cameraRequest,
-                        recenterMode: recenterMode, locationAuthorized: locationStore.authorizationState == .allowed,
-                        reduceMotion: reduceMapMotion, darkAppearance: mapColorScheme == .dark,
-                        onSelect: selectGeographicPin, onUserPan: {
-                            userMovedCamera = true
-                            dropRecenterModeForUserPan()
-                        }, onRegionChange: { region = $0 }, onTrackingChange: {
-                            recenterMode = $0
-                            if $0 == .off { headingProvider.stop() }
-                        })
+                // The illustration, six fixed positions and unpositioned
+                // report/decorative markers are deliberately not rendered.
+                NativeGeographicMap(payloads: geographicPayloads, cameraRequest: cameraRequest,
+                    recenterMode: recenterMode, locationAuthorized: locationStore.authorizationState == .allowed,
+                    reduceMotion: reduceMapMotion, darkAppearance: mapColorScheme == .dark,
+                    onSelect: selectGeographicPin, onUserPan: {
+                        userMovedCamera = true
+                        dropRecenterModeForUserPan()
+                    }, onRegionChange: { region = $0 }, onTrackingChange: {
+                        recenterMode = $0
+                        if $0 == .off { headingProvider.stop() }
+                    })
+                .frame(minHeight: 0, maxHeight: .infinity)
+                .clipped()
+                .overlay(alignment: .top) { mapSearchScrim }
+                .overlay(alignment: .top) {
                     topSearchOverlay
                         .padding(.leading, NativePolish.mapSearchLeadingInset)
                         .padding(.trailing, NativePolish.mapSearchTrailingInset)
                         .padding(.top, NativePolish.mapSearchTopInset)
-                        .frame(maxHeight: .infinity, alignment: .top)
+                }
+                .overlay(alignment: .topTrailing) {
+                    let fits = mapControlsFit(available: proxy.size.height)
                     mapControls
                         .padding(.trailing, NativePolish.mapActionTrailingInset)
                         .padding(.top, NativePolish.mapActionTopInset)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .opacity(fits ? 1 : 0)
+                        .animation(reduceMapMotion ? nil : .easeOut(duration: 0.16), value: fits)
+                        .allowsHitTesting(fits)
+                        .accessibilityHidden(!fits)
                 }
-                .frame(maxHeight: .infinity)
                 if shouldShowSpatialSheet {
                     // Keep MapKit's own attribution outside the sheet. Reserve
                     // a usable map viewport rather than covering legal controls.
-                    spatialSheet(maxHeight: min(proxy.size.height * NativeMapInteractionContract.functionSheetMaxHeightFraction, max(80, proxy.size.height - 300)))
+                    spatialSheet(maxHeight: mapPanelHeight(available: proxy.size.height), available: proxy.size.height)
                         .transition(reduceMapMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .background(NativePolish.mapBaseSurface.ignoresSafeArea())
+            .background(NativeDeepSpaceGround())
+            .onChange(of: shouldShowSpatialSheet) { _ in mapPanelDetent = .half }
+            .onChange(of: mapPanelLowestDetent) { lowest in mapPanelDetent = mapPanelDetent.atLeast(lowest) }
+            .onChange(of: selectedPin?.id) { _ in mapPanelDetent = .half }
         }
         .sheet(item: $trafficIntelVenue) { venue in
             let sheet = NativeTrafficIntelSheet(venue: venue, reports: visibleCommunityReports, onAddReport: submitCommunityReport)
@@ -15510,6 +16007,7 @@ private struct NativeMapExploreView: View {
         .onChange(of: selectedPin?.id) { _ in
             if let pin = selectedPin { focusGeographicCamera(on: pin.coordinate) }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("native-map-explore")
         .onAppear { handleMapAppear() }
         .onChange(of: mapOpenState.plainOpenGeneration) { _ in consumePlainMapOpenIfNeeded() }
@@ -16174,9 +16672,91 @@ private struct NativeMapExploreView: View {
         }
     }
 
-    private func spatialSheet(maxHeight: CGFloat) -> some View {
+    private var mapPanelPeekMinimum: CGFloat { selectedPin == nil ? NativeMapPanelDetent.minimumPeek : NativeMapPanelDetent.routeCardPeek }
+    private var mapPanelLowestDetent: NativeMapPanelDetent { selectedPin.map { isRouteActive($0) } == true ? .half : .peek }
+    private var restingMapPanelDetent: NativeMapPanelDetent { mapPanelDetent.atLeast(mapPanelLowestDetent) }
+
+    private func mapPanelHeight(available: CGFloat) -> CGFloat {
+        mapPanelDragTranslation.map {
+            NativeMapPanelDetent.liveHeight(from: restingMapPanelDetent, translation: $0, available: available,
+                                            peekMinimum: mapPanelPeekMinimum, lowest: mapPanelLowestDetent)
+        } ?? restingMapPanelDetent.height(available: available, peekMinimum: mapPanelPeekMinimum)
+    }
+
+    private func mapControlsFit(available: CGFloat) -> Bool {
+        guard shouldShowSpatialSheet else { return true }
+        let panel = mapPanelHeight(available: available) + NativePolish.mapSheetInnerTopPadding + NativePolish.mapSheetInnerBottomPadding + NativePolish.mapSheetBottomInset
+        return NativeMapControlsFit.fits(mapHeight: available - panel, fullStack: showFullRightActionStack)
+    }
+
+    /// A soft fade from the starfield navy at the map's top edge, so map labels
+    /// never sit under the search text. Not a capsule: the map stays the surface.
+    private var mapSearchScrim: some View {
+        LinearGradient(colors: [NativePolish.mapBaseSurface.opacity(0.78), NativePolish.mapBaseSurface.opacity(0.38), .clear], startPoint: .top, endPoint: .bottom)
+            .frame(height: NativePolish.mapSearchTopInset + NativePolish.mapSearchHeight + 28)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    private func setMapPanelDetent(_ detent: NativeMapPanelDetent) {
+        let detent = detent.atLeast(mapPanelLowestDetent)
+        guard detent != restingMapPanelDetent else { return }
+        nativeImpactLight()
+        withAnimation(reduceMapMotion ? nil : .interpolatingSpring(mass: 0.8, stiffness: 380, damping: 34, initialVelocity: 0)) {
+            mapPanelDetent = detent
+        }
+    }
+
+    private func mapPanelHandle(available: CGFloat) -> some View {
+        Capsule().fill(NativeTheme.textTertiary.opacity(0.58)).frame(width: 48, height: 6)
+            .frame(maxWidth: .infinity, minHeight: 22)
+            .contentShape(Rectangle())
+            .onTapGesture { setMapPanelDetent(restingMapPanelDetent == .nearFull ? .half : restingMapPanelDetent.larger) }
+            .accessibilityElement()
+            .accessibilityLabel("Map panel")
+            .accessibilityValue(restingMapPanelDetent.title)
+            .accessibilityHint("Swipe up or down to resize")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: setMapPanelDetent(restingMapPanelDetent.larger)
+                case .decrement: setMapPanelDetent(restingMapPanelDetent.smaller)
+                @unknown default: break
+                }
+            }
+            .accessibilityIdentifier("native-map-panel-handle")
+    }
+
+    private func mapPanelResizeGesture(available: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 8, coordinateSpace: .global)
+            .onChanged { value in
+                guard abs(value.translation.height) > abs(value.translation.width) || mapPanelDragTranslation != nil else { return }
+                mapPanelDragTranslation = value.translation.height
+            }
+            .onEnded { value in
+                guard mapPanelDragTranslation != nil else { return }
+                let target = NativeMapPanelDetent.snapped(from: restingMapPanelDetent, translation: value.translation.height,
+                                                          predictedTranslation: value.predictedEndTranslation.height, available: available,
+                                                          peekMinimum: mapPanelPeekMinimum, lowest: mapPanelLowestDetent)
+                if target != restingMapPanelDetent { nativeImpactLight() }
+                withAnimation(reduceMapMotion ? nil : .interpolatingSpring(mass: 0.8, stiffness: 380, damping: 34, initialVelocity: 0)) {
+                    mapPanelDetent = target
+                    mapPanelDragTranslation = nil
+                }
+            }
+    }
+
+    /// A thin tint, so the window's starfield continues through the panel.
+    private var mapPanelGround: some View { NativePolish.mapPanelSurface.opacity(0.5) }
+
+    private func spatialSheet(maxHeight: CGFloat, available: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: NativePolish.mapSheetContentSpacing) {
-            sheetHeader
+            VStack(spacing: 4) {
+                mapPanelHandle(available: available)
+                sheetHeader
+            }
+            .contentShape(Rectangle())
+            .gesture(mapPanelResizeGesture(available: available))
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: NativePolish.mapSheetContentSpacing) {
                     if let mapStatusMessage { mapStatusBanner(mapStatusMessage) }
@@ -16218,18 +16798,18 @@ private struct NativeMapExploreView: View {
                 .padding(.bottom, 4)
             }
         }
-        .frame(maxHeight: maxHeight)
+        .frame(height: maxHeight, alignment: .top)
         .padding(.horizontal, NativePolish.mapSheetInnerHorizontalPadding)
         .padding(.top, NativePolish.mapSheetInnerTopPadding)
         .padding(.bottom, NativePolish.mapSheetInnerBottomPadding)
-        .background(LinearGradient(colors: [NativePolish.mapPanelSurface, NativePolish.mapBaseSurface], startPoint: .top, endPoint: .bottom))
-        .background(.ultraThinMaterial)
+        .background(mapPanelGround)
         .overlay(RoundedRectangle(cornerRadius: NativePolish.mapSheetRadius).fill(LinearGradient(colors: [NativeTheme.surfaceHighlight, Color.clear, NativeTheme.cyan.opacity(0.018)], startPoint: .topLeading, endPoint: .bottomTrailing)).allowsHitTesting(false))
         .overlay(RoundedRectangle(cornerRadius: NativePolish.mapSheetRadius).stroke(NativePolish.strongBorder, lineWidth: 1.25))
         .clipShape(RoundedRectangle(cornerRadius: NativePolish.mapSheetRadius, style: .continuous))
         .shadow(color: NativeTheme.panelShadow, radius: 24, x: 0, y: -6)
         .padding(.horizontal, NativePolish.mapSheetHorizontalInset)
         .padding(.bottom, NativePolish.mapSheetBottomInset)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("native-map-functions-sheet")
     }
 
@@ -16270,7 +16850,6 @@ private struct NativeMapExploreView: View {
                 .frame(height: NativePolish.mapFunctionHeaderHeight)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
-                    Capsule().fill(NativeTheme.textTertiary.opacity(0.58)).frame(width: 48, height: 6).frame(maxWidth: .infinity)
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(sheetTitle).nativeTitle(21)
@@ -16377,7 +16956,7 @@ private struct NativeMapExploreView: View {
                         .foregroundColor(NativeTheme.textPrimary.opacity(0.92))
                         .frame(maxWidth: .infinity)
                         .frame(height: 36)
-                        .background(NativePolish.mapPanelSurface.opacity(0.82))
+                        .background(NativePolish.mapPanelCardSurface)
                         .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
                         .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                     }
@@ -16387,7 +16966,7 @@ private struct NativeMapExploreView: View {
             }
         }
         .padding(14)
-        .background(LinearGradient(colors: [verdictTint.opacity(0.05), NativePolish.mapPanelSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .background(LinearGradient(colors: [verdictTint.opacity(0.05), NativePolish.mapPanelCardSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(verdictTint.opacity(0.20), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .accessibilityIdentifier("native-map-nonpartner-peek-card")
@@ -16421,7 +17000,7 @@ private struct NativeMapExploreView: View {
                         .foregroundColor(NativeTheme.textPrimary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 36)
-                        .background(NativePolish.mapPanelSurface.opacity(0.88))
+                        .background(NativePolish.mapPanelCardSurface)
                         .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                 }
                 .buttonStyle(.plain)
@@ -16580,7 +17159,7 @@ private struct NativeMapExploreView: View {
             patchPairedFooter(isPaired: isPaired)
         }
         .padding(14)
-        .background(LinearGradient(colors: [NativeTheme.cyan.opacity(0.06), NativePolish.mapPanelSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .background(LinearGradient(colors: [NativeTheme.cyan.opacity(0.06), NativePolish.mapPanelCardSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NativeTheme.cyan.opacity(0.22), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .accessibilityIdentifier("native-map-partner-peek-card")
@@ -16624,7 +17203,7 @@ private struct NativeMapExploreView: View {
                     .padding(.horizontal, 12)
                     .frame(maxWidth: .infinity)
                     .frame(height: 48)
-                    .background(NativePolish.mapPanelSurface.opacity(0.86))
+                    .background(NativePolish.mapPanelCardSurface)
                     .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
@@ -16696,7 +17275,7 @@ private struct NativeMapExploreView: View {
             mapFunctionButton(icon: "bookmark", title: "Routes") { openRoutes() }
         }
         .padding(NativePolish.mapFunctionGridPadding)
-        .background(NativePolish.mapPanelSurface.opacity(0.74))
+        .background(NativePolish.mapPanelCardSurface)
         .overlay(Rectangle().stroke(NativePolish.softBorder, lineWidth: 1))
     }
 
@@ -16713,7 +17292,7 @@ private struct NativeMapExploreView: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: NativePolish.mapFunctionButtonHeight)
-            .background(LinearGradient(colors: [NativeTheme.surfaceHighlight, NativePolish.mapPanelSurface.opacity(0.82)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .background(LinearGradient(colors: [NativeTheme.surfaceHighlight, NativePolish.mapPanelCardSurface], startPoint: .topLeading, endPoint: .bottomTrailing))
             .overlay(RoundedRectangle(cornerRadius: NativePolish.mapFunctionButtonRadius, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1.1))
             .clipShape(RoundedRectangle(cornerRadius: NativePolish.mapFunctionButtonRadius, style: .continuous))
         }
@@ -16722,16 +17301,16 @@ private struct NativeMapExploreView: View {
 
     private var functionFeatureRows: some View {
         VStack(spacing: NativePolish.mapFunctionRowGap) {
-            functionFeatureRow(icon: "car.fill", title: Self.functionRowCopy[0][0], subtitle: Self.functionRowCopy[0][1], colors: [NativeTheme.pink.opacity(0.10), NativeTheme.purple.opacity(0.06), NativePolish.mapPanelSurface], accent: NativeTheme.pink) {
+            functionFeatureRow(icon: "car.fill", title: Self.functionRowCopy[0][0], subtitle: Self.functionRowCopy[0][1], colors: [NativeTheme.pink.opacity(0.10), NativeTheme.purple.opacity(0.06), NativePolish.mapPanelCardSurface], accent: NativeTheme.pink) {
                 selectedMode = "Smart Parking"
                 showFunctionSheet = false
                 selectedPin = pins.first(where: { $0.kind == .parking })
             }
-            functionFeatureRow(icon: "waveform.path.ecg", title: Self.functionRowCopy[1][0], subtitle: Self.functionRowCopy[1][1], colors: [NativeTheme.cyan.opacity(0.10), NativePolish.mapPanelSurface], accent: NativeTheme.cyan) {
+            functionFeatureRow(icon: "waveform.path.ecg", title: Self.functionRowCopy[1][0], subtitle: Self.functionRowCopy[1][1], colors: [NativeTheme.cyan.opacity(0.10), NativePolish.mapPanelCardSurface], accent: NativeTheme.cyan) {
                 selectedMode = "Nearby"
                 showFunctionSheet = false
             }
-            functionFeatureRow(icon: "arrow.up.right", title: Self.functionRowCopy[2][0], subtitle: Self.functionRowCopy[2][1], colors: [NativeTheme.orange.opacity(0.10), NativePolish.mapPanelSurface], accent: NativeTheme.orange) {
+            functionFeatureRow(icon: "arrow.up.right", title: Self.functionRowCopy[2][0], subtitle: Self.functionRowCopy[2][1], colors: [NativeTheme.orange.opacity(0.10), NativePolish.mapPanelCardSurface], accent: NativeTheme.orange) {
                 openTrafficIntel()
             }
             intelligenceFunctionsHeader
@@ -16776,7 +17355,7 @@ private struct NativeMapExploreView: View {
                     .clipShape(Capsule())
             }
             .padding(12)
-            .background(LinearGradient(colors: [NativeTheme.emerald.opacity(0.10), NativePolish.mapPanelSurface], startPoint: .leading, endPoint: .trailing))
+            .background(LinearGradient(colors: [NativeTheme.emerald.opacity(0.10), NativePolish.mapPanelCardSurface], startPoint: .leading, endPoint: .trailing))
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativeTheme.emerald.opacity(0.25), lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
@@ -16848,7 +17427,7 @@ private struct NativeMapExploreView: View {
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
             .frame(height: NativePolish.mapFunctionRowHeight)
-            .background(LinearGradient(colors: [function.accent.opacity(0.12), NativePolish.mapPanelSurface], startPoint: .leading, endPoint: .trailing))
+            .background(LinearGradient(colors: [function.accent.opacity(0.12), NativePolish.mapPanelCardSurface], startPoint: .leading, endPoint: .trailing))
             .overlay(Rectangle().stroke(NativePolish.softBorder, lineWidth: 1.1))
         }
         .buttonStyle(.plain)
@@ -16925,7 +17504,7 @@ private struct NativeMapExploreView: View {
             Image(systemName: "chevron.right").font(.system(size: 18, weight: .black)).foregroundColor(NativeTheme.textTertiary)
         }
         .padding(14)
-        .background(LinearGradient(colors: [NativeTheme.purple.opacity(0.12), NativePolish.mapPanelSurface], startPoint: .leading, endPoint: .trailing))
+        .background(LinearGradient(colors: [NativeTheme.purple.opacity(0.12), NativePolish.mapPanelCardSurface], startPoint: .leading, endPoint: .trailing))
         .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous).stroke(NativePolish.strongBorder, lineWidth: 1.5))
     }
 
@@ -16935,7 +17514,7 @@ private struct NativeMapExploreView: View {
             Text("Ask Concierge to locate verified access, parking, or services.").nativeBody(size: 12, color: NativeTheme.textSecondary)
         }
         .padding(14)
-        .background(NativePolish.mapPanelSurface.opacity(0.82))
+        .background(NativePolish.mapPanelCardSurface)
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
@@ -16986,7 +17565,7 @@ private struct NativeMapExploreView: View {
             }
         }
         .padding(12)
-        .background(NativePolish.mapPanelSurface.opacity(0.72))
+        .background(NativePolish.mapPanelCardSurface)
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityIdentifier("native-map-scanner-access")
@@ -17031,7 +17610,7 @@ private struct NativeMapExploreView: View {
             }
         }
         .padding(12)
-        .background(NativePolish.mapPanelSurface.opacity(0.72))
+        .background(NativePolish.mapPanelCardSurface)
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityIdentifier("native-map-intelligence-filters")
@@ -17057,7 +17636,7 @@ private struct NativeMapExploreView: View {
             }
         }
         .padding(10)
-        .background(NativePolish.mapPanelSurface.opacity(0.72))
+        .background(NativePolish.mapPanelCardSurface)
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityIdentifier("native-map-layer-summary")
@@ -18900,6 +19479,9 @@ enum NativePolish {
     // surface. The map is dark in both appearances for the same reason.
     static let mapBaseSurface = Color.adaptive(lightHex: lightBaseHex, darkHex: mapBaseHex)
     static let mapPanelSurface = Color.adaptive(lightHex: lightPanelHex, darkHex: mapPanelHex, lightAlpha: 0.90, darkAlpha: 0.94)
+    // Cards inside the Map panel. The panel itself is a thin tint over the
+    // starfield; a near-opaque card on top of it would read as a slab.
+    static let mapPanelCardSurface = Color.adaptive(lightHex: lightPanelHex, darkHex: mapPanelHex, lightAlpha: 0.42, darkAlpha: 0.46)
     static let mapControlSurface = Color.adaptive(lightHex: lightElevatedHex, darkHex: mapPanelHex, lightAlpha: 0.94, darkAlpha: 0.94)
     static let mapRoadSurface = Color.adaptive(lightHex: 0x232A50, darkHex: mapPanelHex, lightAlpha: 0.90, darkAlpha: 0.96)
     // Dark measured flatter than Light once Light was converted -- roads 1.39:1

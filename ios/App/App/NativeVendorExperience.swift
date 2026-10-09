@@ -70,6 +70,21 @@ enum NativeVenueSlotCopy {
     static func utilityEmpty(_ title: String) -> String { "\(title) not provided" }
 }
 
+/// A Bytspot-controlled venue was approved by the Bytspot team and shows only
+/// Bytspot-curated media and details. Anything else is listed. A value that
+/// cannot be read is listed, so the Bytspot display fails closed.
+enum NativeVenueControl: String, Equatable {
+    case bytspot
+    case listed
+
+    static func parse(_ value: Any?) -> NativeVenueControl {
+        guard let raw = value as? String,
+              let parsed = NativeVenueControl(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        else { return .listed }
+        return parsed
+    }
+}
+
 /// Borrowed listing imagery never reaches the hero, so a place that has not
 /// supplied media keeps the empty frame until it does.
 enum NativeVenueHeroMedia {
@@ -362,6 +377,17 @@ enum NativeM5DetailPolicy {
     static let activityUnknown = "Activity unknown · no live update provided"
     static let addToPlanTitle = "Add to Plan"
     static let planDisclaimer = "Adding to a Plan does not book or request anything."
+    static let googleSourceNote = "Place details and photos from Google. Contact the place to confirm details."
+
+    /// Only a venue the Bytspot team approved, or Bytspot's own catalog supply,
+    /// gets the Bytspot display. Every other place is listed.
+    static func usesBytspotDisplay(_ venue: NativeVenueSummary, isCatalogSource: Bool) -> Bool {
+        isCatalogSource || venue.control == .bytspot
+    }
+
+    static func googlePhotoCredit(_ photo: NativeGooglePhoto) -> String {
+        photo.attribution.map { "Photo: \($0) · Google" } ?? "Photo from Google"
+    }
 
     static func canValidateVisit(_ venue: NativeVenueSummary) -> Bool {
         guard let id = venue.checkInVenueID, !id.isEmpty,

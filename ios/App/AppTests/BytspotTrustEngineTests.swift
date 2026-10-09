@@ -327,9 +327,14 @@ final class NativeDiscoverM6BrowseTests: XCTestCase {
         let start = try XCTUnwrap(source.range(of: "private struct NativeDiscoverView: View {"))
         let end = try XCTUnwrap(source.range(of: "private struct NativeSpecialDiscoverCard: View {"))
         let browse = String(source[start.lowerBound..<end.lowerBound])
-        for forbidden in ["entryFilter", "sortBy", "savedOnly", "savedCardIDs", "skippedCardIDs", "NativeDiscoverIntroCard", "liveSourceStrip", "Prime Path", "toggleFavorite", "skipCard", "heroContrastWash", "cardFulfillment", ".onTapGesture", ".gesture(DragGesture", "LinearGradient", "RadialGradient", "NativeTheme.purple", "NativeTheme.cyan", "NativeRemoteImage"] {
+        for forbidden in ["entryFilter", "sortBy", "savedOnly", "savedCardIDs", "skippedCardIDs", "NativeDiscoverIntroCard", "liveSourceStrip", "Prime Path", "toggleFavorite", "skipCard", "heroContrastWash", "cardFulfillment", ".gesture(DragGesture", "LinearGradient", "RadialGradient", "NativeTheme.purple", "NativeTheme.cyan", "NativeRemoteImage"] {
             XCTAssertFalse(browse.contains(forbidden), "Discover reintroduced obsolete browse behavior: \(forbidden)")
         }
+        // The only tap gesture is the More nearby row's, which must not fire after a sideways drag.
+        let row = try XCTUnwrap(browse.range(of: "private func discoverMoreNearbyRow("))
+        let rowEnd = try XCTUnwrap(browse.range(of: "private func discoverFeatureCard(", range: row.upperBound..<browse.endIndex))
+        XCTAssertEqual(browse.components(separatedBy: ".onTapGesture").count - 1, 1)
+        XCTAssertTrue(browse[row.lowerBound..<rowEnd.lowerBound].contains(".onTapGesture(perform: open)"))
         XCTAssertTrue(browse.contains("Button(action: openDetails)"))
         XCTAssertTrue(browse.contains("Button(action: primaryAction)"))
         XCTAssertTrue(browse.contains("Button(action: addToPlan)"))
@@ -2706,6 +2711,109 @@ final class BytspotTrustEngineTests: XCTestCase {
     func testMapFunctionSheetUsesAViewportBoundedScrollableHeight() {
         XCTAssertGreaterThan(NativeMapInteractionContract.functionSheetMaxHeightFraction, 0.5)
         XCTAssertLessThan(NativeMapInteractionContract.functionSheetMaxHeightFraction, 1.0)
+    }
+
+    func testMapPanelRestsAtPeekHalfAndNearFullWithHalfMatchingTheOriginalHeight() {
+        let available: CGFloat = 700
+        let peek = NativeMapPanelDetent.peek.height(available: available)
+        let half = NativeMapPanelDetent.half.height(available: available)
+        let nearFull = NativeMapPanelDetent.nearFull.height(available: available)
+        XCTAssertEqual(half, min(available * NativeMapInteractionContract.functionSheetMaxHeightFraction, max(80, available - 300)))
+        XCTAssertLessThan(peek, half)
+        XCTAssertLessThan(half, nearFull)
+        XCTAssertEqual(nearFull, available - NativeMapPanelDetent.nearFullMapReserve)
+        XCTAssertLessThanOrEqual(NativeMapPanelDetent.peek.height(available: 300), NativeMapPanelDetent.half.height(available: 300))
+        XCTAssertGreaterThanOrEqual(NativeMapPanelDetent.nearFull.height(available: 300), NativeMapPanelDetent.half.height(available: 300))
+    }
+
+    func testMapPanelKeepsTheRouteCardVisibleAndAnActiveRouteAtHalfOrAbove() {
+        let available: CGFloat = 700
+        let half = NativeMapPanelDetent.half.height(available: available)
+        XCTAssertEqual(NativeMapPanelDetent.peek.height(available: available, peekMinimum: NativeMapPanelDetent.routeCardPeek), NativeMapPanelDetent.routeCardPeek)
+        XCTAssertGreaterThan(NativeMapPanelDetent.routeCardPeek, NativeMapPanelDetent.peek.height(available: available))
+        XCTAssertLessThanOrEqual(NativeMapPanelDetent.peek.height(available: 320, peekMinimum: NativeMapPanelDetent.routeCardPeek), NativeMapPanelDetent.half.height(available: 320))
+        XCTAssertEqual(NativeMapPanelDetent.peek.atLeast(.half), .half)
+        XCTAssertEqual(NativeMapPanelDetent.nearFull.atLeast(.half), .nearFull)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .half, translation: 40, predictedTranslation: 300, available: available, lowest: .half), .half)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .peek, translation: -10, predictedTranslation: -10, available: available, lowest: .half), .half)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .nearFull, translation: 200, predictedTranslation: 400, available: available, lowest: .half), .half)
+        XCTAssertEqual(NativeMapPanelDetent.liveHeight(from: .half, translation: 500, available: available, lowest: .half), half)
+    }
+
+    func testFloatingMapButtonsHideWhenTheMapAreaAboveThePanelIsTooShort() {
+        let compact = NativeMapControlsFit.requiredHeight(fullStack: false)
+        let full = NativeMapControlsFit.requiredHeight(fullStack: true)
+        XCTAssertGreaterThan(full, compact)
+        XCTAssertGreaterThan(compact, NativePolish.mapActionTopInset + 2 * NativePolish.mapActionPrimarySize)
+        XCTAssertTrue(NativeMapControlsFit.fits(mapHeight: compact, fullStack: false))
+        XCTAssertFalse(NativeMapControlsFit.fits(mapHeight: compact - 1, fullStack: false))
+        XCTAssertFalse(NativeMapControlsFit.fits(mapHeight: NativeMapPanelDetent.nearFullMapReserve, fullStack: false))
+    }
+
+    func testDiscoverMoreNearbyListsCardsWithinAMileClosestFirst() {
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(miles: [0.2, 0.8, 0.1, 0.5], current: 0), [2, 3, 1])
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(miles: [nil, 1.0, 1.01, 0.3], current: 2), [3, 1])
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(miles: [0.4, 0.4, 0.4], current: 1), [0, 2])
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(miles: [nil, nil], current: 0), [])
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.indices(miles: Array(repeating: 0.5, count: 20), current: 3).count, NativeDiscoverMoreNearbyPolicy.limit)
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.rowCategory("Nearby"), nil)
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.rowCategory(" "), nil)
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.rowCategory("Coffee"), "Coffee")
+    }
+
+    func testDiscoverMoreNearbyRowOffersCheckInAtThePlaceOtherwiseBook() {
+        let booking = NativeDiscoverNearbyBooking(url: URL(string: "https://resy.com/cities/atl/venues/example")!, label: "Resy")
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.action(canCheckIn: true, isAtPlace: true, booking: booking), .checkIn)
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.action(canCheckIn: true, isAtPlace: false, booking: booking), .book(booking))
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.action(canCheckIn: false, isAtPlace: true, booking: booking), .book(booking))
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.action(canCheckIn: true, isAtPlace: false, booking: nil), NativeDiscoverMoreNearbyPolicy.Action.none)
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.action(canCheckIn: false, isAtPlace: false, booking: nil), NativeDiscoverMoreNearbyPolicy.Action.none)
+    }
+
+    func testDiscoverLeavesOutPlacesWithoutADiscoverCategory() {
+        XCTAssertFalse(NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: "real_estate_agency", sourceCategory: "real_estate_agency"))
+        XCTAssertFalse(NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: "accounting", sourceCategory: "Other"))
+        XCTAssertFalse(NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: "venue", sourceCategory: nil))
+        XCTAssertTrue(NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: "dining", sourceCategory: "Dining"))
+        XCTAssertTrue(NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: "venue", sourceCategory: "museum"))
+        for card in NativeTabContentSnapshot.fallback.discoverCards {
+            XCTAssertTrue(NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: card.type, sourceCategory: card.categoryLabel), card.id)
+        }
+    }
+
+    func testDiscoverMoreNearbyUsesLocationReadingsUpToFifteenMinutesOld() {
+        let now = Date()
+        func reading(age: TimeInterval, accuracy: CLLocationAccuracy = 20) -> CLLocation {
+            CLLocation(coordinate: CLLocationCoordinate2D(latitude: 33.7838, longitude: -84.383), altitude: 0,
+                       horizontalAccuracy: accuracy, verticalAccuracy: 10, timestamp: now.addingTimeInterval(-age))
+        }
+        XCTAssertNotNil(NativeDiscoverMoreNearbyPolicy.origin(location: reading(age: 5 * 60), authorized: true, now: now))
+        XCTAssertNotNil(NativeDiscoverMoreNearbyPolicy.origin(location: reading(age: 15 * 60), authorized: true, now: now))
+        XCTAssertNil(NativeDiscoverMoreNearbyPolicy.origin(location: reading(age: 15 * 60 + 1), authorized: true, now: now))
+        XCTAssertNil(NativeDiscoverMoreNearbyPolicy.origin(location: reading(age: 60), authorized: false, now: now))
+        XCTAssertNil(NativeDiscoverMoreNearbyPolicy.origin(location: reading(age: 60, accuracy: 900), authorized: true, now: now))
+        XCTAssertNil(NativeVenueVisitLocation.freshCoordinate(location: reading(age: 5 * 60), authorized: true, now: now))
+    }
+
+    func testDiscoverRefreshesLocationWithinTheCheckInFreshnessLimit() {
+        XCTAssertGreaterThan(NativeDiscoverMoreNearbyPolicy.locationRefreshInterval, 0)
+        XCTAssertLessThan(NativeDiscoverMoreNearbyPolicy.locationRefreshInterval, NativeLocationStore.rideBookingMaximumLocationAge)
+    }
+
+    func testMapPanelHandleDragSnapsToTheClosestHeightAndFlicksOneStep() {
+        let available: CGFloat = 700
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .half, translation: -20, predictedTranslation: -30, available: available), .half)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .half, translation: -40, predictedTranslation: -300, available: available), .nearFull)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .half, translation: 40, predictedTranslation: 300, available: available), .peek)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .peek, translation: -30, predictedTranslation: -150, available: available), .half)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .nearFull, translation: 20, predictedTranslation: 150, available: available), .half)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .peek, translation: 30, predictedTranslation: 200, available: available), .peek)
+        XCTAssertEqual(NativeMapPanelDetent.snapped(from: .nearFull, translation: -30, predictedTranslation: -200, available: available), .nearFull)
+        XCTAssertEqual(NativeMapPanelDetent.liveHeight(from: .nearFull, translation: -500, available: available), NativeMapPanelDetent.nearFull.height(available: available))
+        XCTAssertEqual(NativeMapPanelDetent.liveHeight(from: .peek, translation: 500, available: available), NativeMapPanelDetent.peek.height(available: available))
+        XCTAssertEqual(NativeMapPanelDetent.half.larger, .nearFull)
+        XCTAssertEqual(NativeMapPanelDetent.nearFull.larger, .nearFull)
+        XCTAssertEqual(NativeMapPanelDetent.peek.smaller, .peek)
     }
 
     func testRegionalMapFocusHandoffExpiresOutsideItsOriginWhileExplicitFocusRemainsValid() {
@@ -7214,6 +7322,20 @@ final class NativeVenueRichDetailsTests: XCTestCase {
         XCTAssertNil(canonical.verifiedPatchId)
         XCTAssertNil(canonical.imageUrl)
         XCTAssertFalse(NativeDiscoverCardControl.isControlled(venue: canonical))
+    }
+
+    func testVenueIsBytspotControlledOnlyWhenTheAPISaysSo() throws {
+        XCTAssertEqual(try XCTUnwrap(NativeTabContentStore.canonicalVenue(from: sparseVenue)).control, .listed)
+        for (raw, expected) in [("bytspot", NativeVenueControl.bytspot), (" Bytspot ", .bytspot), ("listed", .listed), ("vendor", .listed), ("", .listed)] {
+            var row = sparseVenue
+            row["control"] = raw
+            let venue = try XCTUnwrap(NativeTabContentStore.canonicalVenue(from: row))
+            XCTAssertEqual(venue.control, expected, raw)
+            XCTAssertEqual(venue.withDistance("0.2 mi").control, expected, raw)
+        }
+        var row = sparseVenue
+        row["control"] = 1
+        XCTAssertEqual(try XCTUnwrap(NativeTabContentStore.canonicalVenue(from: row)).control, .listed)
     }
 
     func testCanonicalCheckInNeverUsesAliasesOrMalformedDisplayIDs() throws {

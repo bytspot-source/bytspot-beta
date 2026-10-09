@@ -727,6 +727,51 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(detail.contains("@State private var showPhotoCluster = false"))
     }
 
+    func testOnlyApprovedVenuesAndCatalogSupplyGetTheBytspotDisplay() throws {
+        var place = venue()
+        XCTAssertFalse(NativeM5DetailPolicy.usesBytspotDisplay(place, isCatalogSource: false))
+        XCTAssertTrue(NativeM5DetailPolicy.usesBytspotDisplay(place, isCatalogSource: true))
+        place.control = .bytspot
+        XCTAssertTrue(NativeM5DetailPolicy.usesBytspotDisplay(place, isCatalogSource: false))
+
+        let shell = try shellSource()
+        let detail = try region(in: shell, from: "private struct NativeVenueDetailView: View {", to: "private struct NativeEventRideBookingSheet: View {")
+        XCTAssertTrue(detail.contains("if usesBytspotDisplay { bytspotContent } else { listedContent }"))
+        // Container ids must not replace their children's ids.
+        for id in ["native-venue-detail", "native-venue-detail-bytspot", "native-venue-detail-listed"] {
+            XCTAssertTrue(detail.contains(".accessibilityElement(children: .contain)\n        .accessibilityIdentifier(\"\(id)\")"), id)
+        }
+        // A controlled venue shows only Bytspot details, never Google's.
+        XCTAssertTrue(detail.contains("guard !usesBytspotDisplay, venue.googlePlaceID != nil else { return }"))
+        let listed = try region(in: detail, from: "    private var listedContent: some View {", to: "    @ViewBuilder private var listedFacts: some View {")
+        for bytspotOnly in ["placeHero", "vibeSlot", "venueUtilities", "placeFacts", "arrivalModule", "NativeVenueSlotCopy",
+                            "NativeVenueHeroMedia", "hoursUnknown", "activity(for:", "statusLabel", "availabilityLine"] {
+            XCTAssertFalse(listed.contains(bytspotOnly), bytspotOnly)
+        }
+        for listedAction in ["NativeVenueCheckInChip(venue: venue", "showRoute = true", "details?.googlePhotos",
+                             "NativeM5DetailPolicy.googlePhotoCredit(photo)", "details?.phoneURL", "details?.websiteURL"] {
+            XCTAssertTrue(listed.contains(listedAction), listedAction)
+        }
+    }
+
+    func testGooglePhotosKeepEachPhotographerCreditOnItsOwnPhoto() throws {
+        let payload: [String: Any] = ["result": ["data": ["place": [
+            "placeId": "ChIJ_example-1",
+            "photoUrls": ["https://api.bytspot.com/places/photo?name=a", "not a url", "https://api.bytspot.com/places/photo?name=c"],
+            "photoAttributions": ["Ada L.", "Dropped", "  "],
+        ]]]]
+        let details = try XCTUnwrap(NativeVenueDetailsDTO.placeDetails(from: payload, googlePlaceID: "ChIJ_example-1"))
+        let photos = try XCTUnwrap(details.googlePhotos)
+        XCTAssertEqual(photos.map(\.url.absoluteString), ["https://api.bytspot.com/places/photo?name=a", "https://api.bytspot.com/places/photo?name=c"])
+        XCTAssertEqual(photos.map(\.attribution), ["Ada L.", nil])
+        XCTAssertEqual(NativeM5DetailPolicy.googlePhotoCredit(photos[0]), "Photo: Ada L. · Google")
+        XCTAssertEqual(NativeM5DetailPolicy.googlePhotoCredit(photos[1]), "Photo from Google")
+        // Supplementing a venue's own details keeps Google's photos separate.
+        let merged = NativeVenueRichDetails(description: "Own").supplementing(with: details)
+        XCTAssertEqual(merged.googlePhotos, photos)
+        XCTAssertNil(NativeVenueDetailsDTO.googlePhotos(nil, attributions: nil))
+    }
+
     /// Arrival's ride rows only mount for a destination they can name, so a
     /// card that knew where it was must not arrive at the detail as (0, 0).
     /// This broke Uber and Lyft on every place opened from Discover: the

@@ -58,6 +58,17 @@ test('a row without a url is dropped rather than shown as a working photo', () =
   assert.deepEqual(list.media.map((item) => item.id), ['media_1']);
 });
 
+test('each file carries the Bytspot review the vendor reads under it', () => {
+  const list = reviveMediaList({
+    media: [
+      { ...cover, reviewStatus: 'pending' },
+      { ...cover, id: 'media_2', kind: 'gallery', reviewStatus: 'rejected', reviewNote: 'Blurry' },
+      { ...cover, id: 'media_3', kind: 'gallery', position: 1, reviewStatus: 'live' },
+    ],
+  });
+  assert.deepEqual(list.media.map((item) => [item.reviewStatus, item.reviewNote]), [['pending', null], ['rejected', 'Blurry'], [undefined, undefined]]);
+});
+
 test('a video intent posts mime and size, never the file, then completes on the issued id', async () => {
   const intent = {
     mediaId: 'media_v1',

@@ -39,7 +39,11 @@ export type MediaRefusal =
   | 'bad-payload'
   | 'too-large'
   | 'at-capacity'
-  | 'cover-has-no-index';
+  | 'cover-has-no-index'
+  | 'video-needs-hosting';
+
+/** Guests see a file only once the Bytspot team approved it. */
+export type MediaReviewStatus = 'pending' | 'approved' | 'rejected';
 
 export interface VendorMediaItem {
   id: string;
@@ -48,7 +52,18 @@ export interface VendorMediaItem {
   mimeType: string;
   byteSize: number;
   url: string;
+  reviewStatus?: MediaReviewStatus;
+  reviewNote?: string | null;
 }
+
+/** What the vendor reads under a file, or nothing once guests can see it. */
+export function reviewLabel(item: Pick<VendorMediaItem, 'reviewStatus' | 'reviewNote'>): string | null {
+  if (item.reviewStatus === 'pending') return 'Waiting for Bytspot review';
+  if (item.reviewStatus === 'rejected') return item.reviewNote ? `Not approved: ${item.reviewNote}` : 'Not approved';
+  return null;
+}
+
+export const VIDEO_HOSTING_NOTE = 'Video hosting is a paid Bytspot plan. Ask Bytspot to switch it on.';
 
 export const MEDIA_REFUSALS: Record<MediaRefusal, string> = {
   forbidden: 'Your role cannot do that',
@@ -59,6 +74,7 @@ export const MEDIA_REFUSALS: Record<MediaRefusal, string> = {
   'too-large': 'That file is too large',
   'at-capacity': 'This already has as many files as it can hold',
   'cover-has-no-index': 'A cover cannot specify a slot',
+  'video-needs-hosting': VIDEO_HOSTING_NOTE,
 };
 
 export function isMediaKind(value: string): value is MediaKind {

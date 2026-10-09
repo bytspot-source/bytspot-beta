@@ -630,7 +630,7 @@ function MediaReview() {
               <div className="admin-stack" style={{ flex: 1 }}>
                 <p className="admin-strong">{item.business}<span className="admin-tag">{item.kind}</span></p>
                 <p className="admin-muted">{[item.place, item.offering].filter(Boolean).join(' · ') || 'No place'} · {dateLabel(item.createdAt)}</p>
-                {item.kind === 'video' && !item.videoHosting && <p className="admin-warn">This business has no paid video hosting, so guests won't see it even if approved.</p>}
+                {item.kind === 'video' && !item.videoHosting && <p className="admin-warn">This business doesn't have premium video hosting, so guests won't see it even if approved.</p>}
                 <input className={input} placeholder="Reason, if not approving (the vendor sees this)" value={notes[item.mediaId] ?? ''}
                   onChange={(e) => setNotes({ ...notes, [item.mediaId]: e.target.value })} />
                 <div className="admin-inline">
@@ -711,7 +711,7 @@ function VendorsTab({ onCount }: { onCount: (awaiting: number) => void }) {
                   <p className="admin-warn">Still missing: {v.missing.map((m) => MISSING_LABELS[m] ?? m).join(', ')}</p>
                 )}
                 <p className="admin-small">Joined {dateLabel(v.createdAt)}{v.approvedAt ? ` · Approved ${dateLabel(v.approvedAt)}` : ''}</p>
-                <p className="admin-small">{v.videoHostingAt ? `Paid video hosting since ${dateLabel(v.videoHostingAt)}` : 'No paid video hosting'}</p>
+                <p className="admin-small">{v.videoHostingAt ? `Premium video hosting since ${dateLabel(v.videoHostingAt)}` : 'No premium video hosting'}</p>
               </div>
               <div className="admin-inline">
                 {!v.approvedAt && (

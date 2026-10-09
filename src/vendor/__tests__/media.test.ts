@@ -134,5 +134,5 @@ test('a vendor reads whether Bytspot is still reviewing a file or turned it down
   assert.equal(reviewLabel({ reviewStatus: 'rejected', reviewNote: null }), 'Not approved');
   assert.equal(reviewLabel({ reviewStatus: 'approved' }), null);
   assert.equal(reviewLabel({}), null);
-  assert.equal(MEDIA_REFUSALS['video-needs-hosting'], 'Video hosting is a paid Bytspot plan. Ask Bytspot to switch it on.');
+  assert.equal(MEDIA_REFUSALS['video-needs-hosting'], 'Video hosting is a premium Bytspot service. Ask Bytspot to switch it on.');
 });

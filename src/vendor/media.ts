@@ -63,7 +63,7 @@ export function reviewLabel(item: Pick<VendorMediaItem, 'reviewStatus' | 'review
   return null;
 }
 
-export const VIDEO_HOSTING_NOTE = 'Video hosting is a paid Bytspot plan. Ask Bytspot to switch it on.';
+export const VIDEO_HOSTING_NOTE = 'Video hosting is a premium Bytspot service. Ask Bytspot to switch it on.';
 
 export const MEDIA_REFUSALS: Record<MediaRefusal, string> = {
   forbidden: 'Your role cannot do that',

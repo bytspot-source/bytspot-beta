@@ -40,7 +40,7 @@ struct NativeDeepSpaceGround: View {
 
     /// Fixed field, generated once from a constant seed. Stars must not
     /// reshuffle on every redraw or the sky crawls while you scroll.
-    private static let stars: [(x: Double, y: Double, radius: Double, phase: Double, peak: Double)] = {
+    static let stars: [(x: Double, y: Double, radius: Double, phase: Double, peak: Double)] = {
         var seed: UInt64 = 0x9E3779B97F4A7C15
         func unit() -> Double {
             seed = seed &* 6364136223846793005 &+ 1442695040888963407
@@ -87,7 +87,7 @@ struct NativeDeepSpaceGround: View {
         }
     }
 
-    private static func draw(in context: GraphicsContext, size: CGSize, time: TimeInterval, twinkling: Bool) {
+    static func draw(in context: GraphicsContext, size: CGSize, time: TimeInterval, twinkling: Bool) {
         for star in stars {
             let breath = twinkling ? (sin(time * 0.7 + star.phase) + 1) / 2 : 0.6
             let alpha = star.peak * (0.45 + 0.55 * breath)
@@ -96,6 +96,71 @@ struct NativeDeepSpaceGround: View {
                               width: star.radius * 2, height: star.radius * 2)
             context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(alpha)))
         }
+    }
+}
+
+/// The sky inside a glass card: the starfield at night, a soft daylight glow
+/// by day. Transparent everywhere else, so whatever the card floats over
+/// still reads through it.
+struct NativeGlassSky: View {
+    let daylight: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        GeometryReader { geo in
+            let span = max(geo.size.width, geo.size.height)
+            if daylight {
+                LinearGradient(colors: [Color(red: 0.62, green: 0.80, blue: 1.0).opacity(0.16), .clear],
+                               startPoint: .top, endPoint: .bottom)
+                RadialGradient(colors: [NativeTheme.amber.opacity(0.20), NativeTheme.amber.opacity(0.05), .clear],
+                               center: UnitPoint(x: 0.86, y: 0.0), startRadius: 0, endRadius: span * 0.7)
+            } else {
+                RadialGradient(colors: [NativeTheme.cyan.opacity(0.16), .clear],
+                               center: UnitPoint(x: 0.88, y: 0.06), startRadius: 0, endRadius: span * 0.8)
+                RadialGradient(colors: [Color(hue: 0.47, saturation: 0.90, brightness: 0.70).opacity(0.12), .clear],
+                               center: UnitPoint(x: 0.06, y: 0.90), startRadius: 0, endRadius: span * 0.7)
+                starfield(size: geo.size)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private func starfield(size: CGSize) -> some View {
+        if reduceMotion {
+            Canvas { context, _ in NativeDeepSpaceGround.draw(in: context, size: size, time: 0, twinkling: false) }
+        } else {
+            TimelineView(.animation(minimumInterval: 1.0 / 12.0)) { timeline in
+                let time = timeline.date.timeIntervalSinceReferenceDate
+                Canvas { context, _ in NativeDeepSpaceGround.draw(in: context, size: size, time: time, twinkling: true) }
+            }
+        }
+    }
+}
+
+/// Glass for anything floating over the Map: the map blurred behind, a thin
+/// deep-space tint, then the sky clipped inside the shape. The material is
+/// always the dark one because card text is light in both appearances.
+/// Reduce Transparency gets a solid surface instead.
+struct NativeMapGlass<S: Shape>: View {
+    let shape: S
+    var showsSky = true
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        Group {
+            if reduceTransparency {
+                shape.fill(NativePolish.mapControlSurface)
+            } else {
+                ZStack {
+                    shape.fill(.ultraThinMaterial).environment(\.colorScheme, .dark)
+                    shape.fill(NativePolish.mapGlassTint)
+                    if showsSky { NativeGlassSky(daylight: colorScheme == .light).clipShape(shape) }
+                }
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 

@@ -2127,6 +2127,34 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertGreaterThan(NativeMapPinFocusStyle.alpha(isDimmed: true), 0.3, "Faded pins must stay visible and tappable.")
     }
 
+    func testNightMapIsTiltedWithGlowingNightlifeAndDayIsFlat() throws {
+        XCTAssertGreaterThan(NativeMapLookPolicy.pitch(darkAppearance: true), 0)
+        XCTAssertEqual(NativeMapLookPolicy.pitch(darkAppearance: false), 0, "Day stays flat for easy reading.")
+
+        XCTAssertEqual(NativeMapLookPolicy.glow(kind: .parking, crowdLevel: 4), 0, "Parking never glows.")
+        let quiet = NativeMapLookPolicy.glow(kind: .venue, crowdLevel: 1)
+        let packed = NativeMapLookPolicy.glow(kind: .venue, crowdLevel: 4)
+        XCTAssertGreaterThan(quiet, 0)
+        XCTAssertGreaterThan(packed, quiet, "A busier place glows more.")
+        XCTAssertLessThanOrEqual(packed, 1)
+        XCTAssertEqual(NativeMapLookPolicy.glow(kind: .partner, crowdLevel: nil), quiet)
+        XCTAssertEqual(NativeMapLookPolicy.glow(kind: .access, crowdLevel: 9), packed)
+
+        let payload = try XCTUnwrap(NativeMapAnnotationPayload(id: "a", title: "Place", caption: "", latitude: 33.78, longitude: -84.38,
+                                                               selectedID: nil, glow: 3))
+        XCTAssertEqual(payload.glow, 1)
+
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("App/NativeShellView.swift"), encoding: .utf8)
+        let map = try XCTUnwrap(source.range(of: "private struct NativeGeographicMap: UIViewRepresentable {"))
+        let mapEnd = try XCTUnwrap(source.range(of: "private struct NativeMapExploreView: View {", range: map.upperBound..<source.endIndex))
+        let mapSource = String(source[map.lowerBound..<mapEnd.lowerBound])
+        XCTAssertFalse(mapSource.contains("map.isPitchEnabled = false"))
+        XCTAssertTrue(mapSource.contains("map.isPitchEnabled = dark"))
+        XCTAssertTrue(mapSource.contains("MKStandardMapConfiguration(elevationStyle: dark ? .realistic : .flat)"))
+        XCTAssertTrue(mapSource.contains("configuration.pointOfInterestFilter = .excludingAll"), "3D must not bring Apple's place labels back.")
+    }
+
     func testRouteLineAppearsOnlyWhenAskedAndFitsAboveThePanel() throws {
         let here = CLLocationCoordinate2D(latitude: 33.78101, longitude: -84.38302)
         let venue = CLLocationCoordinate2D(latitude: 33.7878, longitude: -84.3832)

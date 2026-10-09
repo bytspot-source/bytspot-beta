@@ -15149,9 +15149,11 @@ struct NativeMapAnnotationPayload: Equatable, Identifiable {
     let isDimmed: Bool
     /// A route to the selected place is showing, so the rest step further back.
     let isRouteMode: Bool
+    /// Night glow strength, 0 for none. See `NativeMapLookPolicy.glow`.
+    let glow: CGFloat
 
     init?(id: String, title: String, caption: String, latitude: Double?, longitude: Double?,
-          selectedID: String?, isRouteMode: Bool = false, venueImage: URL? = nil,
+          selectedID: String?, isRouteMode: Bool = false, glow: CGFloat = 0, venueImage: URL? = nil,
           provenance: NativeVenuePhotoProvenance = .borrowed, details: NativeVenueRichDetails? = nil) {
         guard let point = NativeM2RoutePoint(latitude: latitude, longitude: longitude) else { return nil }
         self.id = id
@@ -15161,6 +15163,7 @@ struct NativeMapAnnotationPayload: Equatable, Identifiable {
         self.isSelected = id == selectedID
         self.isDimmed = selectedID != nil && id != selectedID
         self.isRouteMode = isRouteMode && selectedID != nil
+        self.glow = min(1, max(0, glow))
         // Use the existing source-bound authority; never infer ownership from a host/ID.
         self.photoURL = NativeVenueHeroMedia.heroURLs(venueImage: venueImage, provenance: provenance, details: details)
             .compactMap { NativeVenueDetailsDTO.safeHTTPSURL($0.absoluteString) }.first
@@ -15314,6 +15317,19 @@ enum NativeMapPinFocusStyle {
     }
 }
 
+/// Night is a tilted city with 3D buildings and glowing nightlife pins; day
+/// is a flat map that reads easily. Night or day follows the app theme.
+enum NativeMapLookPolicy {
+    static func pitch(darkAppearance: Bool) -> CGFloat { darkAppearance ? 45 : 0 }
+
+    /// Places people go out to glow, more when busier. Parking never glows.
+    static func glow(kind: NativeMapPinKind, crowdLevel: Int?) -> CGFloat {
+        guard kind != .parking else { return 0 }
+        let level = min(4, max(1, crowdLevel ?? 1))
+        return 0.25 + 0.15 * CGFloat(level - 1)
+    }
+}
+
 /// A route line appears only when someone asked for one. Small moves of the
 /// person re-route quietly; only a new destination moves the camera.
 enum NativeMapRoutePolicy {
@@ -15346,6 +15362,7 @@ enum NativeMapRoutePolicy {
 /// Reuse owns the request lifetime. Neither loading nor failure substitutes a
 /// provider image, and an old completion cannot paint a new venue's marker.
 private final class NativePhotoMapAnnotationView: MKAnnotationView {
+    private let glowView = UIView()
     private let halo = UIView()
     private let photo = UIImageView()
     private let glyph = UIImageView(image: UIImage(systemName: "mappin"))
@@ -15374,6 +15391,9 @@ private final class NativePhotoMapAnnotationView: MKAnnotationView {
             label.clipsToBounds = true
             addSubview(label)
         }
+        glowView.isUserInteractionEnabled = false
+        glowView.layer.shadowOffset = .zero
+        addSubview(glowView)
         halo.isUserInteractionEnabled = false
         addSubview(halo)
         nameLabel.font = .preferredFont(forTextStyle: .caption1)
@@ -15428,6 +15448,12 @@ private final class NativePhotoMapAnnotationView: MKAnnotationView {
             halo.layer.cornerRadius = halo.frame.width / 2
             halo.backgroundColor = accent.withAlphaComponent(0.28)
             halo.alpha = payload.isSelected ? 1 : 0
+            let night = traitCollection.userInterfaceStyle == .dark
+            glowView.frame = photo.frame
+            glowView.layer.shadowPath = UIBezierPath(ovalIn: glowView.bounds).cgPath
+            glowView.layer.shadowColor = UIColor(NativeTheme.pink).cgColor
+            glowView.layer.shadowRadius = 6 + 12 * payload.glow
+            glowView.layer.shadowOpacity = night ? Float(payload.glow) : 0
             glyph.frame = photo.frame.insetBy(dx: size * 0.27, dy: size * 0.27)
             nameLabel.frame = CGRect(x: 0, y: haloInset + size + 6, width: width, height: nameHeight)
             captionLabel.frame = CGRect(x: 0, y: haloInset + size + 8 + nameHeight, width: width, height: captionHeight)
@@ -15490,7 +15516,6 @@ private struct NativeGeographicMap: UIViewRepresentable {
         let map = MKMapView()
         map.delegate = context.coordinator
         map.pointOfInterestFilter = .excludingAll
-        map.isPitchEnabled = false
         map.showsCompass = true
         map.layoutMargins = NativeMapViewportPolicy.margins(panelFootprint: panelFootprint)
         // No location permission/fix is invented by the renderer. Until an
@@ -15506,6 +15531,7 @@ private struct NativeGeographicMap: UIViewRepresentable {
         coordinator.isUpdating = true
         defer { coordinator.isUpdating = false }
         map.overrideUserInterfaceStyle = darkAppearance ? .dark : .light
+        coordinator.syncLook(on: map)
         let margins = NativeMapViewportPolicy.margins(panelFootprint: panelFootprint)
         if map.layoutMargins != margins { map.layoutMargins = margins }
         map.showsUserLocation = locationAuthorized
@@ -15550,10 +15576,41 @@ private struct NativeGeographicMap: UIViewRepresentable {
         var isUpdating = false
         init(_ parent: NativeGeographicMap) { self.parent = parent }
 
+        private var appliedDarkAppearance: Bool?
+
+        func syncLook(on map: MKMapView) {
+            let dark = parent.darkAppearance
+            guard dark != appliedDarkAppearance else { return }
+            let isChange = appliedDarkAppearance != nil
+            appliedDarkAppearance = dark
+            map.isPitchEnabled = dark
+            map.showsBuildings = true
+            if #available(iOS 16.0, *) {
+                let configuration = MKStandardMapConfiguration(elevationStyle: dark ? .realistic : .flat)
+                configuration.pointOfInterestFilter = .excludingAll
+                map.preferredConfiguration = configuration
+            }
+            guard hasEstablishedCamera, map.userTrackingMode == .none else { return }
+            let camera = map.camera.copy() as! MKMapCamera
+            camera.pitch = NativeMapLookPolicy.pitch(darkAppearance: dark)
+            map.setCamera(camera, animated: isChange && !parent.reduceMotion)
+        }
+
+        /// Runs a flat camera move, then lands it at the look's tilt in one animation.
+        func moveCamera(on map: MKMapView, _ move: () -> Void) {
+            let start = map.camera.copy() as! MKMapCamera
+            move()
+            let target = map.camera.copy() as! MKMapCamera
+            target.pitch = NativeMapLookPolicy.pitch(darkAppearance: parent.darkAppearance)
+            guard !parent.reduceMotion else { map.setCamera(target, animated: false); return }
+            map.setCamera(start, animated: false)
+            map.setCamera(target, animated: true)
+        }
+
         func focus(on coordinate: CLLocationCoordinate2D, map: MKMapView) {
             if let initial = NativeMapCameraFocusPolicy.initialRegion(on: coordinate, hasEstablishedCamera: hasEstablishedCamera) {
                 let lifted = NativeMapViewportPolicy.liftedRegion(initial, mapHeight: map.bounds.height, margins: map.layoutMargins)
-                map.setRegion(lifted, animated: !parent.reduceMotion)
+                moveCamera(on: map) { map.setRegion(lifted, animated: false) }
             } else {
                 let camera = NativeMapCameraFocusPolicy.centeredCamera(on: coordinate, preserving: map.camera)
                 let lift = NativeMapViewportPolicy.visibleCenterLift(margins: map.layoutMargins)
@@ -15632,7 +15689,7 @@ private struct NativeGeographicMap: UIViewRepresentable {
                 self.routeFitPending = false
                 let end = MKMapPoint(destination)
                 let rect = route.polyline.boundingMapRect.union(MKMapRect(origin: end, size: MKMapSize(width: 1, height: 1)))
-                map.setVisibleMapRect(rect, edgePadding: padding, animated: !self.parent.reduceMotion)
+                self.moveCamera(on: map) { map.setVisibleMapRect(rect, edgePadding: padding, animated: false) }
             }
         }
 
@@ -17880,7 +17937,8 @@ private struct NativeMapExploreView: View {
             guard shouldShow(pin), seen.insert(pin.id).inserted else { return nil }
             return NativeMapAnnotationPayload(id: pin.id, title: pin.title, caption: pin.subtitle,
                 latitude: pin.coordinate.latitude, longitude: pin.coordinate.longitude, selectedID: selectedPin?.id,
-                isRouteMode: routeDestinationPin != nil, venueImage: pin.venue?.imageUrl, provenance: pin.venue?.photoProvenance ?? .borrowed,
+                isRouteMode: routeDestinationPin != nil,
+                glow: NativeMapLookPolicy.glow(kind: pin.kind, crowdLevel: pin.crowdLevel), venueImage: pin.venue?.imageUrl, provenance: pin.venue?.photoProvenance ?? .borrowed,
                 details: pin.venue?.richDetails)
         }
     }

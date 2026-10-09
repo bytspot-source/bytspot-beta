@@ -5399,16 +5399,16 @@ final class NativeProfileDataAPITests: XCTestCase {
         """.utf8))
         XCTAssertNil(listing.areaLabel)
         XCTAssertNotNil(listing.windowStartDate)
-        func listing(seller: Bool = false, request: String?) -> NativeSaleListing {
+        func makeListing(seller: Bool = false, request: String?) -> NativeSaleListing {
             NativeSaleListing(saleId: "s1", title: "t", priceCents: 1, sellerName: "Ada", windowStart: "", windowEnd: "",
                               areaLabel: nil, isSeller: seller, myRequest: request)
         }
-        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: false, listing: listing(request: "approved")), .signedOut)
-        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: listing(seller: true, request: nil)), .ownSale)
-        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: listing(request: nil)), .canAsk)
-        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: listing(request: "pending")), .waiting)
-        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: listing(request: "approved")), .approved)
-        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: listing(request: "declined")), .declined)
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: false, listing: makeListing(request: "approved")), .signedOut)
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: makeListing(seller: true, request: nil)), .ownSale)
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: makeListing(request: nil)), .canAsk)
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: makeListing(request: "pending")), .waiting)
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: makeListing(request: "approved")), .approved)
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: makeListing(request: "declined")), .declined)
 
         let card = try JSONDecoder().decode(NativeSaleBuyerCard.self, from: Data("""
         {"saleId":"s1","title":"Desk lamp","priceCents":2500,"sellerName":"Ada",
@@ -5450,7 +5450,8 @@ final class NativeProfileDataAPITests: XCTestCase {
 
         let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("App/NativePrivateSales.swift"), encoding: .utf8)
-        let storeSource = String(source[try XCTUnwrap(source.range(of: "final class NativePrivateSaleMeetStore"))...].prefix(600))
+        let storeStart = try XCTUnwrap(source.range(of: "final class NativePrivateSaleMeetStore"))
+        let storeSource = String(source[storeStart.lowerBound...].prefix(600))
         XCTAssertFalse(storeSource.contains("UserDefaults"))
         XCTAssertFalse(storeSource.contains("AppStorage"))
     }

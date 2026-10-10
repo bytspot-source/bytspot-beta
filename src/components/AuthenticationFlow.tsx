@@ -44,7 +44,7 @@ export function AuthenticationFlow({ isDarkMode: _isDarkMode, onComplete, initia
 
   const isSignup = mode === 'signup';
   const emailIsValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  const passwordIsValid = password.length >= 6;
+  const passwordIsValid = isSignup ? password.length >= 8 : password.length > 0;
   const nameIsValid = !isSignup || name.trim().length >= 2;
   const canSubmit = emailIsValid && passwordIsValid && nameIsValid && !loading;
 
@@ -53,7 +53,7 @@ export function AuthenticationFlow({ isDarkMode: _isDarkMode, onComplete, initia
     setError('');
     if (!canSubmit) {
       setError(isSignup
-        ? 'Please enter your name, a valid email address, and a password with at least 6 characters.'
+        ? 'Please enter your name, a valid email address, and a password with at least 8 characters.'
         : 'Please enter a valid email address and password.');
       return;
     }
@@ -282,12 +282,12 @@ export function AuthenticationFlow({ isDarkMode: _isDarkMode, onComplete, initia
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              minLength={6}
+              minLength={isSignup ? 8 : undefined}
               className="flex-1 bg-transparent text-[17px] text-white placeholder:text-white/40 outline-none"
             />
           </div>
           {password.length > 0 && !passwordIsValid && (
-            <p className="mt-1.5 px-1 text-[12px] text-orange-300" style={{ fontWeight: 600 }}>Use at least 6 characters.</p>
+            <p className="mt-1.5 px-1 text-[12px] text-orange-300" style={{ fontWeight: 600 }}>Use at least 8 characters.</p>
           )}
 
           {mode === 'login' && (

@@ -490,8 +490,8 @@ Native frontend/API boundary:
 Auth P2 polish contract:
 
 - Email validation copy mirrors React: `Enter a valid email address.`
-- Native signup password copy is `Use at least 6 characters.`
-- Invalid signup submit copy is `Enter your name, a valid email address, and a password with at least 6 characters.`
+- Native signup password copy is `Use at least 8 characters.`
+- Invalid signup submit copy is `Enter your name, a valid email address, and a password with at least 8 characters.`
 - Native auth fields use keyboard submit progression, focus restoration on mode switch, VoiceOver labels/hints, Dynamic Type-aware spacing, and a reduced-motion-safe launch stage transition.
 
 Launch Visual QA contract:

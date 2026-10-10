@@ -2536,6 +2536,115 @@ private enum NativePaymentMethodsLedgerContract {
     static let accessibilityID = "native-payment-methods-ledger"
 }
 
+/// The ways into this account. Adding Apple or Google runs that provider's
+/// sheet while signed in, which is the proof the account is yours. A password
+/// is set through the emailed reset code. The last way in can't be removed.
+private struct NativeSignInMethodsSection: View {
+    @ObservedObject var sessionStore: BytspotSessionStore
+    let email: String
+    @State private var methods: NativeSignInMethods?
+    @State private var busy: NativeAuthProvider?
+    @State private var message = ""
+    @State private var showSetPassword = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Sign-in methods").font(.system(size: 15, weight: .black)).foregroundColor(NativeProfileStyle.title)
+            row(title: "Email & password", detail: methods.map { $0.password ? "On" : "Off" } ?? "Checking…", icon: "envelope.fill") {
+                if methods?.password == false {
+                    actionButton("Set a password") { showSetPassword = true }
+                }
+            }
+            ForEach(NativeAuthProvider.allCases) { provider in
+                row(title: provider.shortName, detail: methods.map { $0.isLinked(provider) ? "On" : "Off" } ?? "Checking…", icon: provider.systemImage) {
+                    if let methods {
+                        if !methods.isLinked(provider) {
+                            actionButton(busy == provider ? "Adding…" : "Add") { link(provider) }
+                        } else if methods.canRemove(provider) {
+                            actionButton(busy == provider ? "Removing…" : "Remove") { unlink(provider) }
+                        }
+                    }
+                }
+            }
+            if !message.isEmpty {
+                Text(message).nativeBody(size: 12.5, color: .orange.opacity(0.92)).accessibilityLabel(message)
+            }
+        }
+        .padding(14)
+        .background(NativeProfileStyle.insetSurface)
+        .clipShape(RoundedRectangle(cornerRadius: NativeProfileStyle.rowRadius, style: .continuous))
+        .accessibilityIdentifier("native-profile-sign-in-methods")
+        .task { await load() }
+        .sheet(isPresented: $showSetPassword) {
+            NativePasswordRecoverySheet(email: email, sessionStore: sessionStore, title: "Set a password", backTitle: "Back", onSignedIn: {
+                showSetPassword = false
+                Task { @MainActor in await load() }
+            })
+        }
+    }
+
+    @ViewBuilder
+    private func row<Action: View>(title: String, detail: String, icon: String, @ViewBuilder action: () -> Action) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon).font(.system(size: 15, weight: .bold)).foregroundColor(NativeTheme.cyan).frame(width: 22).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 14, weight: .bold)).foregroundColor(NativeProfileStyle.title)
+                Text(detail).nativeBody(size: 12.5)
+            }
+            Spacer()
+            action()
+        }
+        .frame(minHeight: 44)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func actionButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: { nativeImpactLight(); action() }) {
+            Text(title).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.cyan)
+        }
+        .buttonStyle(.plain)
+        .disabled(busy != nil)
+    }
+
+    private var api: NativeAuthDataAPI { NativeAuthDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
+
+    @MainActor
+    private func load() async {
+        do {
+            methods = try await api.signInMethods()
+        } catch {
+            message = NativeAuthDataAPI.signInMethodMessage(for: error, fallback: "We couldn't load your sign-in methods.")
+        }
+    }
+
+    private func link(_ provider: NativeAuthProvider) {
+        busy = provider; message = ""
+        Task { @MainActor in
+            do {
+                let idToken = try await NativeProviderIDToken.fetch(provider)
+                methods = try await api.linkProvider(provider, idToken: idToken)
+            } catch let error as NativeAuthAdapterError {
+                message = error.status.message
+            } catch {
+                message = NativeAuthDataAPI.signInMethodMessage(for: error, fallback: "We couldn't add \(provider.shortName). Please try again.")
+            }
+            busy = nil
+        }
+    }
+
+    private func unlink(_ provider: NativeAuthProvider) {
+        busy = provider; message = ""
+        Task { @MainActor in
+            do {
+                methods = try await api.unlinkProvider(provider)
+            } catch {
+                message = NativeAuthDataAPI.signInMethodMessage(for: error, fallback: "We couldn't remove \(provider.shortName). Please try again.")
+            }
+            busy = nil
+        }
+    }
+}
+
 private struct NativePersonalInformationPanel: View {
     let sessionStore: BytspotSessionStore
     @AppStorage("bytspot_profile_display_name") private var displayName = ""
@@ -2563,6 +2672,9 @@ private struct NativePersonalInformationPanel: View {
                 .buttonStyle(.plain)
                 .disabled(isSaving)
             NativeProfilePanelNotice(title: isLoading ? "Loading profile…" : statusTitle, subtitle: statusSubtitle, icon: "checkmark.shield.fill", color: NativeTheme.emerald)
+            if sessionStore.isAuthenticated {
+                NativeSignInMethodsSection(sessionStore: sessionStore, email: email)
+            }
         }
         .task { await loadProfileIfNeeded() }
     }

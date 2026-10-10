@@ -3466,6 +3466,216 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativeAuthDataAPI.emailCodeMessage(for: BytspotAPIClient.APIError.server(status: 401, body: "")), "Your sign-in expired. Sign in again to confirm your email.")
     }
 
+    func testPasswordResetResponsesDecode() throws {
+        let sent = try JSONDecoder().decode(NativePasswordResetCodeResponse.self, from: Data(#"{"challengeId":"chal_1","expiresInSecs":600,"resendInSecs":60}"#.utf8))
+        XCTAssertEqual(sent, NativePasswordResetCodeResponse(challengeId: "chal_1", expiresInSecs: 600, resendInSecs: 60))
+        // A reset signs the member in with the same shape as auth.login.
+        let signedIn = try JSONDecoder().decode(NativeAuthResponse.self, from: Data(#"{"token":"t","user":{"id":"u1","email":"a@b.co","name":"Ama"},"emailVerified":true,"deletionCancelled":false}"#.utf8))
+        XCTAssertEqual(signedIn.emailVerified, true)
+        XCTAssertEqual(signedIn.deletionCancelled, false)
+    }
+
+    func testPasswordResetMatchesTheServerRules() {
+        XCTAssertEqual(NativeEmailVerificationContract.newPasswordMinimum, 8)
+        XCTAssertEqual(NativeEmailVerificationContract.requestPasswordResetRoute, "auth.requestPasswordReset")
+        XCTAssertEqual(NativeEmailVerificationContract.resetPasswordRoute, "auth.resetPassword")
+    }
+
+    func testPasswordResetErrorsReadAsPlainCopy() {
+        let fallback = "We couldn't reset your password. Please try again."
+        let wrong = BytspotAPIClient.APIError.server(status: 400, body: #"{"error":{"message":"That code isn't right. Check the email and try again."}}"#)
+        XCTAssertEqual(NativeAuthDataAPI.emailCodeMessage(for: wrong, fallback: fallback), "That code isn't right. Check the email and try again.")
+        let validation = BytspotAPIClient.APIError.server(status: 400, body: #"{"error":{"message":"[{\"code\":\"too_small\"}]"}}"#)
+        XCTAssertEqual(NativeAuthDataAPI.emailCodeMessage(for: validation, fallback: fallback), fallback)
+        let limited = BytspotAPIClient.APIError.server(status: 429, body: #"{"error":{"message":"Too many attempts. Try again later."}}"#)
+        XCTAssertEqual(NativeAuthDataAPI.emailCodeMessage(for: limited, fallback: fallback), "Too many attempts. Wait a moment and try again.")
+    }
+
+    private func sessionJWT(issuedAt: Date, expiresAt: Date) -> String {
+        let payload = try! JSONSerialization.data(withJSONObject: ["userId": "u1", "iat": Int(issuedAt.timeIntervalSince1970), "exp": Int(expiresAt.timeIntervalSince1970)])
+        let body = payload.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        return "eyJhbGciOiJIUzI1NiJ9.\(body).signature"
+    }
+
+    @MainActor
+    private func renewalStore(accessToken: String?, refreshToken: String?) -> BytspotSessionStore {
+        let store = BytspotSessionStore(account: "native_session_renewal_\(UUID().uuidString)", service: "com.bytspot.session-renewal-tests")
+        if let accessToken { store.updateSession(token: accessToken, userID: "u1", refreshToken: refreshToken) }
+        return store
+    }
+
+    func testSessionTokenClaimsReadIssuedAtAndExpiry() {
+        let issued = Date(timeIntervalSince1970: 1_790_000_000)
+        let claims = NativeSessionRenewalContract.claims(of: sessionJWT(issuedAt: issued, expiresAt: issued.addingTimeInterval(7 * 86_400)))
+        XCTAssertEqual(claims.issuedAt, issued)
+        XCTAssertEqual(claims.expiresAt, issued.addingTimeInterval(7 * 86_400))
+        // Not a JWT: nothing to time renewal by.
+        XCTAssertEqual(NativeSessionRenewalContract.claims(of: "guest_session"), NativeSessionRenewalContract.Claims())
+    }
+
+    func testAuthResponseDecodesTheRefreshToken() throws {
+        let signedIn = try JSONDecoder().decode(NativeAuthResponse.self, from: Data(#"{"token":"t","refreshToken":"r","user":{"id":"u1"}}"#.utf8))
+        XCTAssertEqual(signedIn.refreshToken, "r")
+        let older = try JSONDecoder().decode(NativeAuthResponse.self, from: Data(#"{"token":"t","user":{"id":"u1"}}"#.utf8))
+        XCTAssertNil(older.refreshToken)
+        let renewed = try JSONDecoder().decode(NativeSessionRefreshResponse.self, from: Data(#"{"token":"t2","refreshToken":"r2"}"#.utf8))
+        XCTAssertEqual(renewed, NativeSessionRefreshResponse(token: "t2", refreshToken: "r2"))
+    }
+
+    func testBearerTokenIsReadFromTheRequest() throws {
+        let signedIn = try BytspotAPIClient(tokenProvider: { "abc" }).makeRequest(path: "/trpc/auth.me")
+        XCTAssertEqual(BytspotAPIClient.bearerToken(in: signedIn), "abc")
+        XCTAssertNil(BytspotAPIClient.bearerToken(in: try BytspotAPIClient().makeRequest(path: "/trpc/auth.login")))
+    }
+
+    @MainActor
+    func testRenewalStoresTheNewPairForTheSameAccount() async {
+        let now = Date()
+        let old = sessionJWT(issuedAt: now.addingTimeInterval(-3 * 86_400), expiresAt: now.addingTimeInterval(4 * 86_400))
+        let store = renewalStore(accessToken: old, refreshToken: "r1")
+        defer { store.updateToken(nil) }
+        let renewer = NativeSessionRenewer()
+        renewer.sessionStore = store
+        renewer.refresh = { presented in
+            XCTAssertEqual(presented, "r1")
+            return NativeSessionRefreshResponse(token: "new-access", refreshToken: "r2")
+        }
+
+        let retryWith = await renewer.renew(refusedToken: old, now: now)
+
+        XCTAssertEqual(retryWith, "new-access")
+        XCTAssertEqual(store.token, "new-access")
+        XCTAssertEqual(store.refreshToken, "r2")
+        XCTAssertEqual(store.authenticatedUserID, "u1")
+        XCTAssertFalse(store.signInAgainRequired)
+    }
+
+    @MainActor
+    func testARefusedRenewalEndsTheSessionWithOnePrompt() async {
+        let now = Date()
+        let old = sessionJWT(issuedAt: now.addingTimeInterval(-8 * 86_400), expiresAt: now.addingTimeInterval(-86_400))
+        let store = renewalStore(accessToken: old, refreshToken: "r1")
+        let renewer = NativeSessionRenewer()
+        renewer.sessionStore = store
+        renewer.refresh = { _ in throw BytspotAPIClient.APIError.server(status: 401, body: "") }
+
+        let retryWith = await renewer.renew(refusedToken: old, now: now)
+        XCTAssertNil(retryWith)
+        XCTAssertFalse(store.isAuthenticated)
+        XCTAssertNil(store.refreshToken)
+        XCTAssertTrue(store.signInAgainRequired)
+        store.acknowledgeSignInAgain()
+        XCTAssertFalse(store.signInAgainRequired)
+    }
+
+    @MainActor
+    func testATransientRenewalFailureKeepsTheSession() async {
+        let now = Date()
+        let old = sessionJWT(issuedAt: now.addingTimeInterval(-3 * 86_400), expiresAt: now.addingTimeInterval(4 * 86_400))
+        let store = renewalStore(accessToken: old, refreshToken: "r1")
+        defer { store.updateToken(nil) }
+        let renewer = NativeSessionRenewer()
+        renewer.sessionStore = store
+        renewer.refresh = { _ in throw URLError(.notConnectedToInternet) }
+
+        let retryWith = await renewer.renew(refusedToken: old, now: now)
+        XCTAssertNil(retryWith)
+        XCTAssertEqual(store.token, old)
+        XCTAssertEqual(store.refreshToken, "r1")
+        XCTAssertFalse(store.signInAgainRequired)
+    }
+
+    @MainActor
+    func testConcurrentRefusalsSpendTheRefreshTokenOnce() async {
+        // A refresh token is single use; spending it twice would revoke the sign-in.
+        let now = Date()
+        let old = sessionJWT(issuedAt: now.addingTimeInterval(-3 * 86_400), expiresAt: now.addingTimeInterval(4 * 86_400))
+        let store = renewalStore(accessToken: old, refreshToken: "r1")
+        defer { store.updateToken(nil) }
+        let renewer = NativeSessionRenewer()
+        renewer.sessionStore = store
+        var calls = 0
+        renewer.refresh = { _ in
+            calls += 1
+            try await Task.sleep(nanoseconds: 50_000_000)
+            return NativeSessionRefreshResponse(token: "new-access", refreshToken: "r2")
+        }
+
+        async let first = renewer.renew(refusedToken: old, now: now)
+        async let second = renewer.renew(refusedToken: old, now: now)
+        let results = await [first, second]
+
+        XCTAssertEqual(results, ["new-access", "new-access"])
+        XCTAssertEqual(calls, 1)
+    }
+
+    @MainActor
+    func testAFreshTokenThatIsRefusedIsNotRenewed() async {
+        let now = Date()
+        let fresh = sessionJWT(issuedAt: now.addingTimeInterval(-10), expiresAt: now.addingTimeInterval(7 * 86_400))
+        let store = renewalStore(accessToken: fresh, refreshToken: "r1")
+        defer { store.updateToken(nil) }
+        let renewer = NativeSessionRenewer()
+        renewer.sessionStore = store
+        renewer.refresh = { _ in XCTFail("a refusal of a brand-new token is not about its age"); throw URLError(.cancelled) }
+
+        let retryWith = await renewer.renew(refusedToken: fresh, now: now)
+        XCTAssertNil(retryWith)
+        XCTAssertEqual(store.token, fresh)
+    }
+
+    @MainActor
+    func testASessionFromBeforeRefreshTokensEndsOnlyOnceItHasLapsed() async {
+        let now = Date()
+        let live = sessionJWT(issuedAt: now.addingTimeInterval(-3 * 86_400), expiresAt: now.addingTimeInterval(4 * 86_400))
+        let store = renewalStore(accessToken: live, refreshToken: nil)
+        let renewer = NativeSessionRenewer()
+        renewer.sessionStore = store
+
+        // Some other 401 on a token with time left: left to the screen.
+        let retryLive = await renewer.renew(refusedToken: live, now: now)
+        XCTAssertNil(retryLive)
+        XCTAssertTrue(store.isAuthenticated)
+        XCTAssertFalse(store.signInAgainRequired)
+
+        let lapsed = sessionJWT(issuedAt: now.addingTimeInterval(-8 * 86_400), expiresAt: now.addingTimeInterval(-60))
+        store.updateSession(token: lapsed, userID: "u1")
+        let retryLapsed = await renewer.renew(refusedToken: lapsed, now: now)
+        XCTAssertNil(retryLapsed)
+        XCTAssertFalse(store.isAuthenticated)
+        XCTAssertTrue(store.signInAgainRequired)
+    }
+
+    @MainActor
+    func testRenewalRunsAheadOfExpiryOnlyWhenItIsClose() async {
+        let now = Date()
+        let distant = sessionJWT(issuedAt: now.addingTimeInterval(-86_400), expiresAt: now.addingTimeInterval(6 * 86_400))
+        let store = renewalStore(accessToken: distant, refreshToken: "r1")
+        defer { store.updateToken(nil) }
+        let renewer = NativeSessionRenewer()
+        renewer.sessionStore = store
+        var calls = 0
+        renewer.refresh = { _ in calls += 1; return NativeSessionRefreshResponse(token: "new-access", refreshToken: "r2") }
+
+        await renewer.renewIfExpiringSoon(now: now)
+        XCTAssertEqual(calls, 0)
+
+        let close = sessionJWT(issuedAt: now.addingTimeInterval(-6 * 86_400), expiresAt: now.addingTimeInterval(86_400))
+        store.updateSession(token: close, userID: "u1", refreshToken: "r1")
+        await renewer.renewIfExpiringSoon(now: now)
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(store.token, "new-access")
+    }
+
+    @MainActor
+    func testSigningOutForgetsTheRefreshToken() {
+        let store = renewalStore(accessToken: "access", refreshToken: "r1")
+        XCTAssertEqual(store.refreshToken, "r1")
+        store.updateToken(nil)
+        XCTAssertNil(store.refreshToken)
+        XCTAssertFalse(store.signInAgainRequired)
+    }
+
     func testDeletionPurgesCachedProfileAndVehicleValuesButKeepsDeviceSettings() {
         let defaults = UserDefaults(suiteName: "bytspot.deletion.purge.tests")!
         defaults.removePersistentDomain(forName: "bytspot.deletion.purge.tests")
@@ -5882,11 +6092,11 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         }
     }
 
-    func testSignupValidationMatchesTheSixCharacterAccountRule() {
-        XCTAssertFalse(NativeAuthInputValidator.canSubmit(mode: .signup, name: "Avery", email: "member@example.com", password: "12345"))
-        XCTAssertTrue(NativeAuthInputValidator.canSubmit(mode: .signup, name: "Avery", email: "member@example.com", password: "123456"))
-        XCTAssertEqual(NativeAuthLaunchContract.signupPasswordValidationMessage, "Use at least 6 characters.")
-        XCTAssertTrue(NativeAuthInputValidator.submitValidationMessage(mode: .signup).contains("at least 6 characters"))
+    func testSignupValidationMatchesTheServersEightCharacterRule() {
+        XCTAssertFalse(NativeAuthInputValidator.canSubmit(mode: .signup, name: "Avery", email: "member@example.com", password: "abcdefg"))
+        XCTAssertTrue(NativeAuthInputValidator.canSubmit(mode: .signup, name: "Avery", email: "member@example.com", password: "abcdefgh"))
+        XCTAssertEqual(NativeAuthLaunchContract.signupPasswordValidationMessage, "Use at least 8 characters.")
+        XCTAssertTrue(NativeAuthInputValidator.submitValidationMessage(mode: .signup).contains("at least 8 characters"))
     }
 
     func testLoginValidationRequiresEmailAndNonEmptyPasswordOnly() {
@@ -5920,7 +6130,7 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         let incorrect = BytspotAPIClient.APIError.server(status: 401, body: #"{"error":{"json":{"message":"Invalid credentials"}}}"#)
         let busy = BytspotAPIClient.APIError.server(status: 429, body: "")
 
-        XCTAssertEqual(NativeAuthDataAPI.userMessage(for: existing, mode: .signup), "An account already exists for this email. Log in instead.")
+        XCTAssertEqual(NativeAuthDataAPI.userMessage(for: existing, mode: .signup), "An account already exists for this email. Log in, use Apple or Google, or reset your password.")
         XCTAssertEqual(NativeAuthDataAPI.userMessage(for: incorrect, mode: .login), "The email or password is incorrect.")
         XCTAssertEqual(NativeAuthDataAPI.userMessage(for: busy, mode: .login), "Too many attempts. Wait a moment and try again.")
     }
@@ -5947,12 +6157,76 @@ final class NativeAuthLaunchInputTests: XCTestCase {
 
         XCTAssertEqual(
             NativeAuthAdapterError.accountConflict(provider: .apple).status,
-            .failed(message: "A Bytspot account already exists for this email. Log in with your email and password first — Apple sign-in can't be linked automatically.")
+            .failed(message: "A Bytspot account already exists for this email. Log in another way, then add Apple in Profile › Personal Information › Sign-in methods.")
         )
         XCTAssertEqual(
             NativeAuthAdapterError.accountConflict(provider: .google).status,
-            .failed(message: "A Bytspot account already exists for this email. Log in with your email and password first — Google sign-in can't be linked automatically.")
+            .failed(message: "A Bytspot account already exists for this email. Log in another way, then add Google in Profile › Personal Information › Sign-in methods.")
         )
+    }
+
+    func testALinkingServersConflictCarriesTheEmailedCode() {
+        let linking = BytspotAPIClient.APIError.server(
+            status: 409,
+            body: #"{"error":{"message":"An account already exists for this email.","code":-32009,"data":{"code":"CONFLICT","httpStatus":409,"link":{"challengeId":"chal_1","maskedEmail":"a••@bytspot.com","provider":"google"}}}}"#
+        )
+        let older = BytspotAPIClient.APIError.server(status: 409, body: #"{"error":{"json":{"message":"An account already exists for this email."}}}"#)
+        let challenge = NativeProviderLinkChallenge(challengeId: "chal_1", maskedEmail: "a••@bytspot.com", provider: .google)
+
+        XCTAssertEqual(NativeAuthDataAPI.linkChallenge(in: linking), challenge)
+        XCTAssertEqual(NativeAuthAdapterError.fromBackend(linking, provider: .google), .linkRequired(challenge))
+        // An older server sends no code: the plain conflict message, as before.
+        XCTAssertNil(NativeAuthDataAPI.linkChallenge(in: older))
+        XCTAssertEqual(NativeAuthAdapterError.fromBackend(older, provider: .apple), .accountConflict(provider: .apple))
+        XCTAssertEqual(NativeAuthAdapterError.fromBackend(BytspotAPIClient.APIError.server(status: 429, body: ""), provider: .apple), .tooManyAttempts)
+        XCTAssertEqual(NativeAuthAdapterError.fromBackend(URLError(.timedOut), provider: .google), .googleBackendVerificationFailed)
+    }
+
+    private struct LinkRequiredAppleAdapter: AppleAuthAdapter {
+        func signIn() async throws -> NativeAuthAdapterResult {
+            throw NativeAuthAdapterError.linkRequired(NativeProviderLinkChallenge(challengeId: "chal_1", maskedEmail: "a••@bytspot.com", provider: .apple))
+        }
+    }
+
+    @MainActor
+    func testTheEmailedCodeSignsInToTheExistingAccount() async throws {
+        let store = BytspotSessionStore(account: "native_link_\(UUID().uuidString)", service: "com.bytspot.link-tests")
+        defer { store.updateToken(nil); NativeSignedInIdentity.clear() }
+        let coordinator = NativeAuthCoordinator(appleAdapter: LinkRequiredAppleAdapter(), googleAdapter: FailingGoogleAdapter())
+        coordinator.handle(.signIn(.apple), sessionStore: store)
+        for _ in 0..<50 where coordinator.pendingLink == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(coordinator.pendingLink?.maskedEmail, "a••@bytspot.com")
+        XCTAssertEqual(coordinator.status, .ready, "a code to enter is not an error")
+
+        coordinator.confirmLinkRequest = { _, _ in throw BytspotAPIClient.APIError.server(status: 400, body: #"{"error":{"message":"That code isn't right. Check the email and try again."}}"#) }
+        let wrong = await coordinator.confirmLink(code: "000000", sessionStore: store)
+        XCTAssertEqual(wrong, "That code isn't right. Check the email and try again.")
+        XCTAssertFalse(store.isAuthenticated)
+        XCTAssertNotNil(coordinator.pendingLink, "a wrong code keeps the screen open")
+
+        coordinator.confirmLinkRequest = { challengeId, code in
+            XCTAssertEqual(challengeId, "chal_1")
+            XCTAssertEqual(code, "123456")
+            return try JSONDecoder().decode(NativeAuthResponse.self, from: Data(#"{"token":"linked-access","refreshToken":"linked-refresh","user":{"id":"usr_link","name":"Ama"},"emailVerified":true,"linkedProvider":"apple"}"#.utf8))
+        }
+        let failure = await coordinator.confirmLink(code: "123456", sessionStore: store)
+        XCTAssertNil(failure)
+        XCTAssertEqual(store.token, "linked-access")
+        XCTAssertEqual(store.refreshToken, "linked-refresh")
+        XCTAssertEqual(store.authenticatedUserID, "usr_link")
+        XCTAssertNil(coordinator.pendingLink)
+        XCTAssertEqual(coordinator.status, .signedIn(provider: .apple, displayName: "Ama"))
+    }
+
+    func testSignInMethodsNeverOfferToRemoveTheLastWayIn() throws {
+        let onlyApple = try JSONDecoder().decode(NativeSignInMethods.self, from: Data(#"{"password":false,"apple":true,"google":false}"#.utf8))
+        XCTAssertTrue(onlyApple.isLinked(.apple))
+        XCTAssertFalse(onlyApple.canRemove(.apple))
+        XCTAssertFalse(onlyApple.canRemove(.google), "nothing to remove")
+
+        let both = NativeSignInMethods(password: false, apple: true, google: true)
+        XCTAssertTrue(both.canRemove(.apple))
+        XCTAssertTrue(NativeSignInMethods(password: true, apple: true, google: false).canRemove(.apple))
     }
 
     func testSignedInIdentityStoresAndGreetsByFirstName() {

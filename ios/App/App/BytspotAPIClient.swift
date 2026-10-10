@@ -12,6 +12,10 @@ struct BytspotAPIClient {
     var tokenProvider: () -> String? = { nil }
     var urlSession: URLSession = .shared
 
+    /// Installed at launch. Given a token the server refused, returns a renewed
+    /// one to retry with, or nil when there is none.
+    nonisolated(unsafe) static var sessionRenewer: ((String) async -> String?)?
+
     private static var configuredBaseURL: URL {
         #if DEBUG
         if let raw = ProcessInfo.processInfo.environment["BYT_API_BASE_URL"],
@@ -38,14 +42,38 @@ struct BytspotAPIClient {
         return request
     }
 
+    /// A 401 on a request that carried a token is retried once with a renewed
+    /// token, so a lapsed access token never reaches the screen.
     func data(path: String, method: String = "GET", body: Data? = nil) async throws -> Data {
         let request = try makeRequest(path: path, method: method, body: body)
+        let (data, http) = try await send(request)
+        if http.statusCode == 401, let renewer = Self.sessionRenewer, let refused = Self.bearerToken(in: request),
+           let renewed = await renewer(refused), renewed != refused {
+            var retry = request
+            retry.setValue("Bearer \(renewed)", forHTTPHeaderField: "Authorization")
+            let (retryData, retryHTTP) = try await send(retry)
+            return try Self.checked(retryData, retryHTTP)
+        }
+        return try Self.checked(data, http)
+    }
+
+    private func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        return (data, http)
+    }
+
+    private static func checked(_ data: Data, _ http: HTTPURLResponse) throws -> Data {
         guard (200..<300).contains(http.statusCode) else {
             throw APIError.server(status: http.statusCode, body: String(data: data, encoding: .utf8) ?? "")
         }
         return data
+    }
+
+    static func bearerToken(in request: URLRequest) -> String? {
+        guard let header = request.value(forHTTPHeaderField: "Authorization"), header.hasPrefix("Bearer ") else { return nil }
+        let token = String(header.dropFirst("Bearer ".count))
+        return token.isEmpty ? nil : token
     }
 
     func json(path: String, method: String = "GET", body: Data? = nil) async throws -> Any {
@@ -1764,6 +1792,44 @@ struct NativeAuthResponse: Codable, Equatable {
     /// True when this sign-in cancelled a pending account deletion. The member
     /// must be told: they are being restored, not merely signed in.
     var deletionCancelled: Bool?
+    /// Traded through `auth.refresh` for a new access token. Nil from an older
+    /// server, or when the server could not issue one.
+    var refreshToken: String?
+}
+
+struct NativeSessionRefreshResponse: Codable, Equatable {
+    var token: String
+    var refreshToken: String
+}
+
+/// Renewal rules shared by the session store and the renewer.
+enum NativeSessionRenewalContract {
+    static let refreshRoute = "auth.refresh"
+    static let signOutRoute = "auth.signOut"
+    /// Renewed this long before expiry, so a member returning after a few days
+    /// away is never met by a lapsed token.
+    static let renewWithin: TimeInterval = 2 * 24 * 60 * 60
+    /// A token this young that the server refuses was not refused for its age,
+    /// so renewing would only repeat the refusal.
+    static let freshTokenGrace: TimeInterval = 60
+
+    struct Claims: Equatable {
+        var issuedAt: Date?
+        var expiresAt: Date?
+    }
+
+    /// Reads `iat` and `exp` from a JWT without verifying it. Only used to time
+    /// renewal; the server remains the judge of whether a token is valid.
+    static func claims(of token: String) -> Claims {
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return Claims() }
+        var base64 = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while base64.count % 4 != 0 { base64 += "=" }
+        guard let data = Data(base64Encoded: base64),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return Claims() }
+        func date(_ key: String) -> Date? { (json[key] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) } }
+        return Claims(issuedAt: date("iat"), expiresAt: date("exp"))
+    }
 }
 
 struct NativeEmailCodeResponse: Codable, Equatable {
@@ -1775,6 +1841,12 @@ struct NativeEmailCodeResponse: Codable, Equatable {
 
 struct NativeEmailVerifyResponse: Codable, Equatable {
     var emailVerified: Bool
+}
+
+struct NativePasswordResetCodeResponse: Codable, Equatable {
+    var challengeId: String
+    var expiresInSecs: Int?
+    var resendInSecs: Int?
 }
 
 struct NativeAuthMeResponse: Codable, Equatable {
@@ -1790,11 +1862,46 @@ enum NativeEmailVerificationContract {
     static let sendCodeRoute = "auth.sendEmailCode"
     static let verifyRoute = "auth.verifyEmail"
     static let meRoute = "auth.me"
+    static let requestPasswordResetRoute = "auth.requestPasswordReset"
+    static let resetPasswordRoute = "auth.resetPassword"
     static let codeLength = 6
     static let defaultResendSecs = 60
+    /// The server's `auth.resetPassword` minimum.
+    static let newPasswordMinimum = 8
 
     static func sanitizedCode(_ raw: String) -> String {
         String(raw.filter(\.isNumber).prefix(codeLength))
+    }
+}
+
+/// Adding Apple or Google sign-in to an existing account: by the code a sign-in
+/// CONFLICT emails, or from Profile while signed in.
+enum NativeAccountLinkContract {
+    static let confirmRoute = "auth.confirmLink"
+    static let methodsRoute = "auth.signInMethods"
+    static let linkRoute = "auth.linkProvider"
+    static let unlinkRoute = "auth.unlinkProvider"
+}
+
+/// The code a provider sign-in CONFLICT emailed to the account that owns the
+/// email. Present only from a server that can link; an older one sends none.
+struct NativeProviderLinkChallenge: Equatable, Identifiable {
+    let challengeId: String
+    let maskedEmail: String
+    let provider: NativeAuthProvider
+    var id: String { challengeId }
+}
+
+struct NativeSignInMethods: Codable, Equatable {
+    var password: Bool
+    var apple: Bool
+    var google: Bool
+
+    func isLinked(_ provider: NativeAuthProvider) -> Bool { provider == .apple ? apple : google }
+
+    /// The server refuses to remove the last way in; the app hides the button.
+    func canRemove(_ provider: NativeAuthProvider) -> Bool {
+        isLinked(provider) && [password, provider == .apple ? false : apple, provider == .google ? false : google].contains(true)
     }
 }
 
@@ -1841,7 +1948,72 @@ struct NativeAuthDataAPI {
         try await client.trpcDecode(NativeAuthMeResponse.self, path: "/trpc/\(NativeEmailVerificationContract.meRoute)")
     }
 
-    static func emailCodeMessage(for error: Error) -> String {
+    func refresh(refreshToken: String) async throws -> NativeSessionRefreshResponse {
+        try await client.trpcDecode(NativeSessionRefreshResponse.self, path: "/trpc/\(NativeSessionRenewalContract.refreshRoute)", method: "POST", input: ["refreshToken": refreshToken])
+    }
+
+    func signOut(refreshToken: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/\(NativeSessionRenewalContract.signOutRoute)", method: "POST", input: ["refreshToken": refreshToken])
+    }
+
+    func requestPasswordReset(email: String) async throws -> NativePasswordResetCodeResponse {
+        try await client.trpcDecode(NativePasswordResetCodeResponse.self, path: "/trpc/\(NativeEmailVerificationContract.requestPasswordResetRoute)", method: "POST", input: ["email": email.trimmingCharacters(in: .whitespacesAndNewlines)])
+    }
+
+    func resetPassword(challengeId: String, code: String, newPassword: String) async throws -> NativeAuthResponse {
+        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/\(NativeEmailVerificationContract.resetPasswordRoute)", method: "POST", input: ["challengeId": challengeId, "code": code, "password": newPassword])
+    }
+
+    func confirmLink(challengeId: String, code: String) async throws -> NativeAuthResponse {
+        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/\(NativeAccountLinkContract.confirmRoute)", method: "POST", input: ["challengeId": challengeId, "code": code])
+    }
+
+    func signInMethods() async throws -> NativeSignInMethods {
+        try await client.trpcDecode(NativeSignInMethods.self, path: "/trpc/\(NativeAccountLinkContract.methodsRoute)")
+    }
+
+    func linkProvider(_ provider: NativeAuthProvider, idToken: String) async throws -> NativeSignInMethods {
+        try await client.trpcDecode(NativeSignInMethods.self, path: "/trpc/\(NativeAccountLinkContract.linkRoute)", method: "POST", input: ["provider": provider.rawValue, "idToken": idToken])
+    }
+
+    func unlinkProvider(_ provider: NativeAuthProvider) async throws -> NativeSignInMethods {
+        try await client.trpcDecode(NativeSignInMethods.self, path: "/trpc/\(NativeAccountLinkContract.unlinkRoute)", method: "POST", input: ["provider": provider.rawValue])
+    }
+
+    /// The `data.link` a linking server attaches to a provider sign-in CONFLICT.
+    static func linkChallenge(in error: Error) -> NativeProviderLinkChallenge? {
+        guard case let BytspotAPIClient.APIError.server(status, body) = error, status == 409,
+              let data = body.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data),
+              let link = findLink(in: root),
+              let challengeId = link["challengeId"] as? String, !challengeId.isEmpty,
+              let maskedEmail = link["maskedEmail"] as? String,
+              let provider = (link["provider"] as? String).flatMap(NativeAuthProvider.init(rawValue:)) else { return nil }
+        return NativeProviderLinkChallenge(challengeId: challengeId, maskedEmail: maskedEmail, provider: provider)
+    }
+
+    private static func findLink(in value: Any) -> [String: Any]? {
+        if let dictionary = value as? [String: Any] {
+            if let link = dictionary["link"] as? [String: Any] { return link }
+            for child in dictionary.values { if let link = findLink(in: child) { return link } }
+        } else if let array = value as? [Any] {
+            for child in array { if let link = findLink(in: child) { return link } }
+        }
+        return nil
+    }
+
+    /// Link and sign-in method errors. The server's own wording is shown for
+    /// refusals it explains: a wrong code, an ID another account uses, the last method.
+    static func signInMethodMessage(for error: Error, fallback: String) -> String {
+        if case let BytspotAPIClient.APIError.server(status, body) = error {
+            if status == 401 { return "Your sign-in expired. Sign in again." }
+            let message = serverMessage(in: body)
+            if status == 409, !message.isEmpty, !message.hasPrefix("[") { return message }
+        }
+        return emailCodeMessage(for: error, fallback: fallback)
+    }
+
+    static func emailCodeMessage(for error: Error, fallback: String = "We couldn't send your code. Please try again.") -> String {
         if let urlError = error as? URLError,
            [.timedOut, .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {
             return "We couldn't connect. Check your internet and try again."
@@ -1852,7 +2024,7 @@ struct NativeAuthDataAPI {
             if status == 429 { return message.hasPrefix("Wait ") ? message : "Too many attempts. Wait a moment and try again." }
             if !message.isEmpty, !message.hasPrefix("["), status == 400 || status == 412 { return message }
         }
-        return "We couldn't send your code. Please try again."
+        return fallback
     }
 
     static func signupInput(email: String, password: String, name: String, ref: String?) -> [String: Any] {
@@ -1867,7 +2039,7 @@ struct NativeAuthDataAPI {
 
     /// True when the backend refused the provider sign-in because a Bytspot
     /// account already owns this email (HTTP 409 / tRPC CONFLICT). The server
-    /// intentionally never auto-links provider identities by email.
+    /// never links on a matching email alone; see `linkChallenge(in:)`.
     static func isAccountConflict(_ error: Error) -> Bool {
         guard case let BytspotAPIClient.APIError.server(status, body) = error else { return false }
         if status == 409 { return true }
@@ -1895,7 +2067,7 @@ struct NativeAuthDataAPI {
             let message = serverMessage(in: body).lowercased()
             if status == 429 { return "Too many attempts. Wait a moment and try again." }
             if message.contains("already") || message.contains("conflict") {
-                return "An account already exists for this email. Log in instead."
+                return "An account already exists for this email. Log in, use Apple or Google, or reset your password."
             }
             if message.contains("invite") { return "That invite code isn't valid. Check it or leave it blank." }
             if mode == .login && (status == 401 || message.contains("credential") || message.contains("password") || message.contains("not found")) {

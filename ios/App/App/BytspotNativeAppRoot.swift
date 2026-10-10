@@ -337,12 +337,13 @@ enum NativeAuthLaunchContract {
     static let legacyAtlantaPickNameTokens = legacyAtlantaPickNames.map(normalizedAtlantaPickName)
     static let authRoutes = NativeAuthRouteContract.routes
     static let authModes = ["signup", "login"]
-    static let signupPasswordMinimum = 6
-    static let reactSignupPasswordMinimum = 6
+    /// The server's `auth.signup` minimum.
+    static let signupPasswordMinimum = 8
+    static let reactSignupPasswordMinimum = 8
     static let emailValidationMessage = "Enter a valid email address."
-    static let signupPasswordValidationMessage = "Use at least 6 characters."
+    static let signupPasswordValidationMessage = "Use at least 8 characters."
     static let nameValidationMessage = "Enter your full name."
-    static let signupSubmitValidationMessage = "Enter your name, a valid email address, and a password with at least 6 characters."
+    static let signupSubmitValidationMessage = "Enter your name, a valid email address, and a password with at least 8 characters."
     static let loginSubmitValidationMessage = "Please enter a valid email address and password."
 
     static var requestedLaunchStage: NativeLaunchStage? {
@@ -1593,6 +1594,9 @@ struct NativeAuthenticationScreen: View {
         .fullScreenCover(isPresented: $showEmailCode) {
             NativeEmailCodeEntryView(email: email.trimmingCharacters(in: .whitespacesAndNewlines), sessionStore: sessionStore, laterTitle: "Do it later", onFinish: { showEmailCode = false; completeAuthIfReady() })
         }
+        .fullScreenCover(item: Binding(get: { authCoordinator.pendingLink }, set: { if $0 == nil { authCoordinator.cancelLink() } })) { link in
+            NativeProviderLinkCodeView(link: link, onSubmit: { code in await authCoordinator.confirmLink(code: code, sessionStore: sessionStore) }, onCancel: { authCoordinator.cancelLink() })
+        }
         .onAppear { focusedField = currentMode == .signup ? .name : .email }
         .onChange(of: currentMode) { _ in error = ""; touchedFields.removeAll(); focusedField = currentMode == .signup ? .name : .email }
         .onChange(of: focusedField) { newValue in if let field = newValue { touchedFields.insert(field) } }
@@ -1796,14 +1800,90 @@ struct NativeEmailCodeEntryView: View {
     }
 }
 
+/// Asks for the code a provider sign-in emailed to the account that already
+/// owns the email. Entering it adds Apple or Google to that account and signs
+/// in. A new code comes from signing in with the provider again.
+struct NativeProviderLinkCodeView: View {
+    let link: NativeProviderLinkChallenge
+    let onSubmit: (String) async -> String?
+    let onCancel: () -> Void
+    @State private var code = ""
+    @State private var verifying = false
+    @State private var message = ""
+    @FocusState private var codeFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Check your email").font(.system(size: 34, weight: .black)).foregroundColor(.white)
+            Text("You already have a Bytspot account. We sent a \(NativeEmailVerificationContract.codeLength)-digit code to \(link.maskedEmail). Enter it to add \(link.provider.shortName) sign-in to that account.")
+                .font(.system(size: 15, weight: .semibold)).foregroundColor(NativeLaunchTheme.body)
+            TextField("Code", text: $code)
+                .keyboardType(.numberPad)
+                .textContentType(.oneTimeCode)
+                .font(.system(size: 30, weight: .black, design: .monospaced))
+                .multilineTextAlignment(.center)
+                .foregroundColor(.white)
+                .tint(NativeLaunchTheme.cyan)
+                .frame(minHeight: 60)
+                .background(Color.white.opacity(0.10))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .focused($codeFocused)
+                .accessibilityLabel("\(NativeEmailVerificationContract.codeLength)-digit code")
+                .onChange(of: code) { newValue in
+                    let cleaned = NativeEmailVerificationContract.sanitizedCode(newValue)
+                    if cleaned != newValue { code = cleaned }
+                    if cleaned.count == NativeEmailVerificationContract.codeLength { submit() }
+                }
+            if !message.isEmpty {
+                Text(message).font(.system(size: 13, weight: .bold)).foregroundColor(.orange.opacity(0.92)).frame(maxWidth: .infinity, alignment: .leading).accessibilityLabel(message)
+            }
+            Button(action: submit) {
+                NativeLaunchCTA(title: verifying ? "Checking…" : "Add \(link.provider.shortName) Sign-In", color: NativeLaunchTheme.gradient, foreground: .white)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSubmit)
+            .opacity(canSubmit ? 1 : 0.45)
+            Text("No code? Close this and continue with \(link.provider.shortName) again to get a new one.")
+                .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeLaunchTheme.muted)
+            Button(action: { nativeAuthImpactLight(); onCancel() }) {
+                Text("Cancel").font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.62)).frame(maxWidth: .infinity).frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            Spacer()
+        }
+        .padding(24)
+        .background(NativeLaunchTheme.background.ignoresSafeArea())
+        .accessibilityIdentifier("native-provider-link-code")
+        .onAppear { codeFocused = true }
+    }
+
+    private var canSubmit: Bool { code.count == NativeEmailVerificationContract.codeLength && !verifying }
+
+    private func submit() {
+        guard canSubmit else { return }
+        verifying = true; message = ""; codeFocused = false
+        let entered = code
+        Task {
+            let failure = await onSubmit(entered)
+            await MainActor.run {
+                verifying = false
+                if let failure { message = failure; code = ""; codeFocused = true } else { nativeAuthImpactLight() }
+            }
+        }
+    }
+}
+
 /// "Forgot password": `auth.requestPasswordReset` emails a 6-digit code, and
 /// `auth.resetPassword` trades it and a new password for a signed-in session.
 /// The server answers the same whether or not the email has an account, so
-/// this screen never says which.
-private struct NativePasswordRecoverySheet: View {
+/// this screen never says which. An Apple or Google account uses it to add
+/// email sign-in, which is how Profile offers "Set a password".
+struct NativePasswordRecoverySheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var email: String
     @ObservedObject var sessionStore: BytspotSessionStore
+    let title: String
+    let backTitle: String
     let onSignedIn: () -> Void
     @State private var challengeId: String?
     @State private var code = ""
@@ -1813,15 +1893,15 @@ private struct NativePasswordRecoverySheet: View {
     @State private var message = ""
     @State private var resendAvailableAt = Date.distantPast
 
-    init(email: String, sessionStore: BytspotSessionStore, onSignedIn: @escaping () -> Void) {
-        _email = State(initialValue: email.trimmingCharacters(in: .whitespacesAndNewlines)); self.sessionStore = sessionStore; self.onSignedIn = onSignedIn
+    init(email: String, sessionStore: BytspotSessionStore, title: String = "Forgot your password?", backTitle: String = "Back to login", onSignedIn: @escaping () -> Void) {
+        _email = State(initialValue: email.trimmingCharacters(in: .whitespacesAndNewlines)); self.sessionStore = sessionStore; self.title = title; self.backTitle = backTitle; self.onSignedIn = onSignedIn
     }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
-                Button(action: { dismiss() }) { Label("Back to login", systemImage: "chevron.left").font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.72)) }.buttonStyle(.plain)
-                Text("Forgot your password?").font(.system(size: 34, weight: .black)).foregroundColor(.white)
+                Button(action: { dismiss() }) { Label(backTitle, systemImage: "chevron.left").font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.72)) }.buttonStyle(.plain)
+                Text(title).font(.system(size: 34, weight: .black)).foregroundColor(.white)
                 if challengeId == nil { emailStep } else { codeStep }
                 if !message.isEmpty {
                     Text(message).font(.system(size: 13, weight: .bold)).foregroundColor(.orange.opacity(0.92)).frame(maxWidth: .infinity, alignment: .leading).accessibilityLabel(message)
@@ -1835,7 +1915,7 @@ private struct NativePasswordRecoverySheet: View {
 
     private var emailStep: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Enter your email. If it has a Bytspot password, we'll send a \(NativeEmailVerificationContract.codeLength)-digit code to reset it.").font(.system(size: 15, weight: .semibold)).foregroundColor(NativeLaunchTheme.body)
+            Text("Enter your email. If it has a Bytspot account, we'll send a \(NativeEmailVerificationContract.codeLength)-digit code to set a new password.").font(.system(size: 15, weight: .semibold)).foregroundColor(NativeLaunchTheme.body)
             NativeLaunchTextField(title: "Email address", icon: "envelope.fill", text: $email, keyboard: .emailAddress, capitalization: .never, submitLabel: .send, onSubmit: sendCode)
             Button(action: sendCode) { NativeLaunchCTA(title: sending ? "Sending…" : "Send Code", color: NativeLaunchTheme.gradient, foreground: .white) }
                 .buttonStyle(.plain).disabled(!canSend).opacity(canSend ? 1 : 0.45)
@@ -1844,7 +1924,7 @@ private struct NativePasswordRecoverySheet: View {
 
     private var codeStep: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("If \(email) has a Bytspot password, a code is on its way. Enter it with a new password.").font(.system(size: 15, weight: .semibold)).foregroundColor(NativeLaunchTheme.body)
+            Text("If \(email) has a Bytspot account, a code is on its way. Enter it with a new password.").font(.system(size: 15, weight: .semibold)).foregroundColor(NativeLaunchTheme.body)
             TextField("Code", text: $code)
                 .keyboardType(.numberPad)
                 .textContentType(.oneTimeCode)

@@ -187,6 +187,8 @@ enum NativeSignedInIdentity {
         UserDefaults.standard.removeObject(forKey: displayNameKey)
         UserDefaults.standard.removeObject(forKey: pendingWelcomeKey)
         UserDefaults.standard.removeObject(forKey: restoredAccountKey)
+        UserDefaults.standard.removeObject(forKey: NativeHomeVibeCard.dismissedKey)
+        UserDefaults.standard.removeObject(forKey: NativeHomeFindFriendsCard.dismissedKey)
     }
 
     /// One-shot: true only for the first call after a fresh sign-in.

@@ -44,6 +44,7 @@ struct NativeAuthAdapterResult: Equatable {
     let displayName: String?
     /// True when this provider sign-in cancelled a pending account deletion.
     var deletionCancelled: Bool = false
+    var refreshToken: String? = nil
 }
 
 enum NativeAuthAdapterError: Error, Equatable {
@@ -267,10 +268,74 @@ final class NativeEmailVerificationState: ObservableObject {
     }
 }
 
+/// Keeps a member signed in. Trades the stored refresh token for a new access
+/// token shortly before the current one lapses, and again when the server
+/// refuses one. Only a refusal from `auth.refresh` itself ends the session;
+/// network and server errors leave it in place to try again later.
+@MainActor
+final class NativeSessionRenewer {
+    static let shared = NativeSessionRenewer()
+
+    weak var sessionStore: BytspotSessionStore?
+    var refresh: (String) async throws -> NativeSessionRefreshResponse = { refreshToken in
+        try await NativeAuthDataAPI(client: BytspotAPIClient()).refresh(refreshToken: refreshToken)
+    }
+    private var inFlight: Task<String?, Never>?
+
+    /// Run at launch and on return to the foreground.
+    func renewIfExpiringSoon(now: Date = Date()) async {
+        guard let store = sessionStore, store.isAuthenticated, let token = store.token,
+              let expiresAt = NativeSessionRenewalContract.claims(of: token).expiresAt else { return }
+        if expiresAt <= now {
+            _ = await renew(refusedToken: token, now: now)
+        } else if expiresAt.timeIntervalSince(now) < NativeSessionRenewalContract.renewWithin, store.refreshToken != nil {
+            _ = await renewOnce(store)
+        }
+    }
+
+    /// After the server refused `refusedToken`. Returns the token to retry with.
+    func renew(refusedToken: String, now: Date = Date()) async -> String? {
+        guard let store = sessionStore, store.isAuthenticated, let current = store.token else { return nil }
+        if current != refusedToken { return current }
+        let claims = NativeSessionRenewalContract.claims(of: refusedToken)
+        if let issuedAt = claims.issuedAt, now.timeIntervalSince(issuedAt) < NativeSessionRenewalContract.freshTokenGrace { return nil }
+        guard store.refreshToken != nil else {
+            // Signed in before refresh tokens existed. Only a token that has
+            // visibly lapsed ends the session; any other 401 is left to the screen.
+            if let expiresAt = claims.expiresAt, expiresAt <= now { store.endExpiredSession() }
+            return nil
+        }
+        return await renewOnce(store)
+    }
+
+    /// One request at a time: a refresh token is single use, and spending it
+    /// twice would revoke the sign-in.
+    private func renewOnce(_ store: BytspotSessionStore) async -> String? {
+        if let inFlight { return await inFlight.value }
+        let refresh = self.refresh
+        let task = Task { () -> String? in
+            guard let refreshToken = store.refreshToken else { return nil }
+            do {
+                let renewed = try await refresh(refreshToken)
+                return store.renewSession(token: renewed.token, refreshToken: renewed.refreshToken) ? renewed.token : nil
+            } catch let BytspotAPIClient.APIError.server(status, _) where status == 401 {
+                store.endExpiredSession()
+                return nil
+            } catch {
+                return nil
+            }
+        }
+        inFlight = task
+        let renewed = await task.value
+        inFlight = nil
+        return renewed
+    }
+}
+
 @MainActor
 protocol NativeAuthSessionStoring: AnyObject {
     @discardableResult func updateToken(_ newToken: String?) -> Bool
-    @discardableResult func updateSession(token: String?, userID: String?) -> Bool
+    @discardableResult func updateSession(token: String?, userID: String?, refreshToken: String?) -> Bool
     func continueAsGuest()
     func signOut()
 }
@@ -329,7 +394,7 @@ final class NativeAuthCoordinator: ObservableObject {
             case .apple: result = try await appleAdapter.signIn()
             case .google: result = try await googleAdapter.signIn()
             }
-            if sessionStore.updateSession(token: result.token, userID: result.userID) {
+            if sessionStore.updateSession(token: result.token, userID: result.userID, refreshToken: result.refreshToken) {
                 NativeSignedInIdentity.store(displayName: result.displayName)
                 NativeSignedInIdentity.recordRestoration(result.deletionCancelled, userID: result.userID)
                 NativeEmailVerificationState.shared.clear()
@@ -395,7 +460,7 @@ private final class NativeGoogleSignInAdapter: GoogleAuthAdapter {
         guard let token = response.token, !token.isEmpty else {
             throw NativeAuthAdapterError.googleBackendVerificationFailed
         }
-        return NativeAuthAdapterResult(provider: .google, token: token, userID: response.user?.id, displayName: response.user?.name ?? user.profile?.name, deletionCancelled: response.deletionCancelled == true)
+        return NativeAuthAdapterResult(provider: .google, token: token, userID: response.user?.id, displayName: response.user?.name ?? user.profile?.name, deletionCancelled: response.deletionCancelled == true, refreshToken: response.refreshToken)
     }
 
     private static func configureIfNeeded() throws {
@@ -519,7 +584,7 @@ private final class NativeAppleSignInAdapter: NSObject, AppleAuthAdapter, ASAuth
                 let api = NativeAuthDataAPI(client: BytspotAPIClient())
                 let response = try await api.appleSignIn(identityToken: identityToken, email: credential.email, name: displayName.isEmpty ? nil : displayName)
                 guard let token = response.token, !token.isEmpty else { throw NativeAuthAdapterError.appleBackendVerificationFailed }
-                finish(.success(NativeAuthAdapterResult(provider: .apple, token: token, userID: response.user?.id, displayName: response.user?.name ?? (displayName.isEmpty ? nil : displayName), deletionCancelled: response.deletionCancelled == true)))
+                finish(.success(NativeAuthAdapterResult(provider: .apple, token: token, userID: response.user?.id, displayName: response.user?.name ?? (displayName.isEmpty ? nil : displayName), deletionCancelled: response.deletionCancelled == true, refreshToken: response.refreshToken)))
             } catch let error as NativeAuthAdapterError {
                 finish(.failure(error))
             } catch {

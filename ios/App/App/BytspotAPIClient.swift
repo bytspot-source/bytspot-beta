@@ -12,6 +12,10 @@ struct BytspotAPIClient {
     var tokenProvider: () -> String? = { nil }
     var urlSession: URLSession = .shared
 
+    /// Installed at launch. Given a token the server refused, returns a renewed
+    /// one to retry with, or nil when there is none.
+    nonisolated(unsafe) static var sessionRenewer: ((String) async -> String?)?
+
     private static var configuredBaseURL: URL {
         #if DEBUG
         if let raw = ProcessInfo.processInfo.environment["BYT_API_BASE_URL"],
@@ -38,14 +42,38 @@ struct BytspotAPIClient {
         return request
     }
 
+    /// A 401 on a request that carried a token is retried once with a renewed
+    /// token, so a lapsed access token never reaches the screen.
     func data(path: String, method: String = "GET", body: Data? = nil) async throws -> Data {
         let request = try makeRequest(path: path, method: method, body: body)
+        let (data, http) = try await send(request)
+        if http.statusCode == 401, let renewer = Self.sessionRenewer, let refused = Self.bearerToken(in: request),
+           let renewed = await renewer(refused), renewed != refused {
+            var retry = request
+            retry.setValue("Bearer \(renewed)", forHTTPHeaderField: "Authorization")
+            let (retryData, retryHTTP) = try await send(retry)
+            return try Self.checked(retryData, retryHTTP)
+        }
+        return try Self.checked(data, http)
+    }
+
+    private func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        return (data, http)
+    }
+
+    private static func checked(_ data: Data, _ http: HTTPURLResponse) throws -> Data {
         guard (200..<300).contains(http.statusCode) else {
             throw APIError.server(status: http.statusCode, body: String(data: data, encoding: .utf8) ?? "")
         }
         return data
+    }
+
+    static func bearerToken(in request: URLRequest) -> String? {
+        guard let header = request.value(forHTTPHeaderField: "Authorization"), header.hasPrefix("Bearer ") else { return nil }
+        let token = String(header.dropFirst("Bearer ".count))
+        return token.isEmpty ? nil : token
     }
 
     func json(path: String, method: String = "GET", body: Data? = nil) async throws -> Any {
@@ -1764,6 +1792,44 @@ struct NativeAuthResponse: Codable, Equatable {
     /// True when this sign-in cancelled a pending account deletion. The member
     /// must be told: they are being restored, not merely signed in.
     var deletionCancelled: Bool?
+    /// Traded through `auth.refresh` for a new access token. Nil from an older
+    /// server, or when the server could not issue one.
+    var refreshToken: String?
+}
+
+struct NativeSessionRefreshResponse: Codable, Equatable {
+    var token: String
+    var refreshToken: String
+}
+
+/// Renewal rules shared by the session store and the renewer.
+enum NativeSessionRenewalContract {
+    static let refreshRoute = "auth.refresh"
+    static let signOutRoute = "auth.signOut"
+    /// Renewed this long before expiry, so a member returning after a few days
+    /// away is never met by a lapsed token.
+    static let renewWithin: TimeInterval = 2 * 24 * 60 * 60
+    /// A token this young that the server refuses was not refused for its age,
+    /// so renewing would only repeat the refusal.
+    static let freshTokenGrace: TimeInterval = 60
+
+    struct Claims: Equatable {
+        var issuedAt: Date?
+        var expiresAt: Date?
+    }
+
+    /// Reads `iat` and `exp` from a JWT without verifying it. Only used to time
+    /// renewal; the server remains the judge of whether a token is valid.
+    static func claims(of token: String) -> Claims {
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return Claims() }
+        var base64 = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while base64.count % 4 != 0 { base64 += "=" }
+        guard let data = Data(base64Encoded: base64),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return Claims() }
+        func date(_ key: String) -> Date? { (json[key] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) } }
+        return Claims(issuedAt: date("iat"), expiresAt: date("exp"))
+    }
 }
 
 struct NativeEmailCodeResponse: Codable, Equatable {
@@ -1849,6 +1915,14 @@ struct NativeAuthDataAPI {
 
     func me() async throws -> NativeAuthMeResponse {
         try await client.trpcDecode(NativeAuthMeResponse.self, path: "/trpc/\(NativeEmailVerificationContract.meRoute)")
+    }
+
+    func refresh(refreshToken: String) async throws -> NativeSessionRefreshResponse {
+        try await client.trpcDecode(NativeSessionRefreshResponse.self, path: "/trpc/\(NativeSessionRenewalContract.refreshRoute)", method: "POST", input: ["refreshToken": refreshToken])
+    }
+
+    func signOut(refreshToken: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/\(NativeSessionRenewalContract.signOutRoute)", method: "POST", input: ["refreshToken": refreshToken])
     }
 
     func requestPasswordReset(email: String) async throws -> NativePasswordResetCodeResponse {

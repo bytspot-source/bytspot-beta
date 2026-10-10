@@ -14,7 +14,7 @@ enum NativeAuthSeamSelfTests {
         private(set) var userID: String?
         var isAuthenticated: Bool { token?.isEmpty == false && token != "guest_session" }
         @discardableResult func updateToken(_ newToken: String?) -> Bool { token = newToken; userID = nil; return true }
-        @discardableResult func updateSession(token: String?, userID: String?) -> Bool { self.token = token; self.userID = userID; return true }
+        @discardableResult func updateSession(token: String?, userID: String?, refreshToken: String?) -> Bool { self.token = token; self.userID = userID; return true }
         func continueAsGuest() { token = "guest_session"; userID = nil }
         func signOut() { token = nil; userID = nil }
     }

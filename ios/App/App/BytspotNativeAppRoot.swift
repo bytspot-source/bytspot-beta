@@ -169,6 +169,7 @@ struct BytspotNativeAppRoot: View {
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
     @AppStorage(NativeLaunchPersonalizationStorage.atmosphereKey) private var launchAtmosphere = ""
     @State private var didCompleteLaunchFlow = false
+    @State private var showSignInAgain = false
 
     private var effectiveAppearance: NativeAppearanceMode {
         appearanceRuntimeStore.selectedMode ?? NativeAppearanceMode.previewOverride ?? NativeAppearanceMode.resolved(raw: appearanceRaw)
@@ -202,6 +203,8 @@ struct BytspotNativeAppRoot: View {
             .environmentObject(appearanceRuntimeStore)
             .environmentObject(locationStore)
             .onAppear {
+                NativeSessionRenewer.shared.sessionStore = sessionStore
+                BytspotAPIClient.sessionRenewer = { refused in await NativeSessionRenewer.shared.renew(refusedToken: refused) }
                 NativeAppearanceMode.applyWindowStyle(resolvedAppearance)
                 navigation.drainPendingURLs()
                 bridgeStore.injectPatchScanBridgeSmokeTestIfRequested()
@@ -212,6 +215,7 @@ struct BytspotNativeAppRoot: View {
                 }
             }
             .task {
+                await NativeSessionRenewer.shared.renewIfExpiringSoon()
                 await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate)
                 await walletLedgerStore.refresh(sessionStore: sessionStore)
                 await membershipStore.refresh(sessionStore: sessionStore)
@@ -230,6 +234,7 @@ struct BytspotNativeAppRoot: View {
                 guard phase == .active else { return }
                 appearanceRuntimeStore.refreshSystemColorScheme()
                 Task {
+                    await NativeSessionRenewer.shared.renewIfExpiringSoon()
                     await membershipStore.refresh(sessionStore: sessionStore)
                     await NativePushService.shared.refreshAuthorizationStatus()
                     await NativePushService.shared.reconcile(sessionToken: sessionStore.canAttachBearerToken ? sessionStore.token : nil)
@@ -264,6 +269,21 @@ struct BytspotNativeAppRoot: View {
                 appearanceRuntimeStore.applyUserSelection(selected)
             }
             .onChange(of: appearanceRaw) { _ in NativeAppearanceMode.applyWindowStyle(resolvedAppearance) }
+            .alert("Sign in again", isPresented: Binding(get: { sessionStore.signInAgainRequired }, set: { if !$0 { endSignInAgainPrompt() } })) {
+                Button("Sign In") { endSignInAgainPrompt(); showSignInAgain = true }
+                Button("Not Now", role: .cancel) { endSignInAgainPrompt() }
+            } message: {
+                Text("For your security, you've been signed out. Sign in to pick up where you left off.")
+            }
+            .fullScreenCover(isPresented: $showSignInAgain) {
+                NativeAuthenticationScreen(mode: .login, sessionStore: sessionStore, authCoordinator: authCoordinator, onComplete: { showSignInAgain = false }, onBack: { showSignInAgain = false })
+            }
+    }
+
+    /// Keeps the member where they were rather than restarting the launch journey.
+    private func endSignInAgainPrompt() {
+        didCompleteLaunchFlow = true
+        sessionStore.acknowledgeSignInAgain()
     }
 
     /// The launch journey's nightlight atmosphere may imply dark, but only while
@@ -285,7 +305,7 @@ struct BytspotNativeAppRoot: View {
         if NativeAuthLaunchContract.bypassesLaunchFlow(for: navigation.requestedDestination) { return false }
         if NativeAuthLaunchContract.autoRunsLaunchJourney, didCompleteLaunchFlow || sessionStore.hasSecureToken { return false }
         if NativeAuthLaunchContract.requestedLaunchStage != nil { return true }
-        if didCompleteLaunchFlow || sessionStore.hasSecureToken { return false }
+        if didCompleteLaunchFlow || sessionStore.hasSecureToken || sessionStore.signInAgainRequired { return false }
         if NativeAuthLaunchContract.bypassesLaunchFlowForPreview { return false }
         return true
     }
@@ -1494,7 +1514,7 @@ private struct NativeLaunchPickRow: View {
             sessionStore.signOut()
             return false
         }
-        guard sessionStore.updateSession(token: token, userID: userID) else { return false }
+        guard sessionStore.updateSession(token: token, userID: userID, refreshToken: response.refreshToken) else { return false }
         NativeSignedInIdentity.store(displayName: response.user?.name)
         NativeSignedInIdentity.recordRestoration(response.deletionCancelled == true, userID: userID)
         NativeEmailVerificationState.shared.record(emailVerified: response.emailVerified, userID: userID)

@@ -512,18 +512,25 @@ private extension NativeVirtualPatchSavedServiceRequest {
 final class BytspotSessionStore: ObservableObject {
     @Published private(set) var token: String?
     @Published private(set) var authenticatedUserID: String?
+    /// Set when renewal was refused and the session ended, so the app can say
+    /// "Sign in again" once instead of failing screen by screen.
+    @Published private(set) var signInAgainRequired = false
+    private(set) var refreshToken: String?
     private let account: String
     private let identityAccount: String
+    private let refreshAccount: String
     private let service: String
 
     init(account: String = "bytspot_auth_token", service: String = Bundle.main.bundleIdentifier ?? "com.bytspot.app") {
         self.account = account
         self.identityAccount = "\(account)_user_id"
+        self.refreshAccount = "\(account)_refresh"
         self.service = service
         token = nil
         authenticatedUserID = nil
         token = readValue(for: account)
         authenticatedUserID = readValue(for: identityAccount)
+        refreshToken = readValue(for: refreshAccount)
         if token == nil || token == "guest_session" { authenticatedUserID = nil }
         guard NativeMigrationConfig.isNativeRootEnabled else { return }
         switch ProcessInfo.processInfo.environment[NativeMigrationConfig.previewSessionEnvironmentKey]?.lowercased() {
@@ -560,11 +567,35 @@ final class BytspotSessionStore: ObservableObject {
     }
 
     func signOut() {
+        let endingRefreshToken = refreshToken
         NativeSignedInIdentity.clear()
         updateToken(nil)
+        guard let endingRefreshToken else { return }
+        Task { try? await NativeAuthDataAPI(client: BytspotAPIClient()).signOut(refreshToken: endingRefreshToken) }
+    }
+
+    /// Stores a renewed pair for the account already signed in.
+    @discardableResult
+    func renewSession(token newToken: String, refreshToken newRefreshToken: String) -> Bool {
+        guard isAuthenticated else { return false }
+        return updateSession(token: newToken, userID: authenticatedUserID, refreshToken: newRefreshToken)
+    }
+
+    /// The server refused to renew: the sign-in is over. Clears it like a
+    /// sign-out and raises `signInAgainRequired` for the one prompt.
+    func endExpiredSession() {
+        guard isAuthenticated else { return }
+        NativeSignedInIdentity.clear()
+        updateToken(nil)
+        signInAgainRequired = true
+    }
+
+    func acknowledgeSignInAgain() {
+        signInAgainRequired = false
     }
 
     func reloadFromKeychain() {
+        refreshToken = readValue(for: refreshAccount)
         token = readValue(for: account)
         authenticatedUserID = token == nil || token == "guest_session" ? nil : readValue(for: identityAccount)
     }
@@ -575,7 +606,7 @@ final class BytspotSessionStore: ObservableObject {
     }
 
     @discardableResult
-    func updateSession(token newToken: String?, userID: String?) -> Bool {
+    func updateSession(token newToken: String?, userID: String?, refreshToken newRefreshToken: String? = nil) -> Bool {
         if let newToken, !newToken.isEmpty {
             guard saveValue(newToken, for: account) else { return false }
             let normalizedUserID = userID?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -593,14 +624,26 @@ final class BytspotSessionStore: ObservableObject {
                 authenticatedUserID = nil
             }
             token = newToken
+            storeRefreshToken(newRefreshToken)
+            signInAgainRequired = false
             return true
         } else {
             clearValue(for: account)
             clearValue(for: identityAccount)
+            storeRefreshToken(nil)
             token = nil
             authenticatedUserID = nil
             return true
         }
+    }
+
+    private func storeRefreshToken(_ value: String?) {
+        if let value, !value.isEmpty, saveValue(value, for: refreshAccount) {
+            refreshToken = value
+            return
+        }
+        clearValue(for: refreshAccount)
+        refreshToken = nil
     }
 
     private func readValue(for keychainAccount: String) -> String? {

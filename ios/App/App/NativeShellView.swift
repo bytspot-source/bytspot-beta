@@ -1946,6 +1946,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
     case personalInformation, vehicles, paymentMethods, savedSpots, placesVisited
     case vibePreferences, parkingPreferences, notifications
     case locationPrivacy, generalSettings, appearance, deleteAccount
+    case blockedPeople, contactBytspot
     case privacyPolicy, termsOfService, disclaimer
 
     var id: String { rawValue }
@@ -1979,6 +1980,8 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .generalSettings: return "General"
         case .appearance: return "Appearance"
         case .deleteAccount: return "Delete Account"
+        case .blockedPeople: return "Blocked people"
+        case .contactBytspot: return "Contact Bytspot"
         case .privacyPolicy: return "Privacy Policy"
         case .termsOfService: return "Terms of Service"
         case .disclaimer: return "Disclaimer"
@@ -1993,7 +1996,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .personalInformation, .vehicles, .paymentMethods, .savedSpots, .placesVisited: return "ACCOUNT"
         case .vibePreferences, .parkingPreferences, .notifications: return "PREFERENCES"
         case .locationPrivacy, .generalSettings, .appearance: return "SETTINGS"
-        case .deleteAccount: return "SAFETY"
+        case .deleteAccount, .blockedPeople, .contactBytspot: return "SAFETY"
         case .privacyPolicy, .termsOfService, .disclaimer: return "LEGAL"
         }
     }
@@ -2015,6 +2018,8 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .generalSettings: return "gearshape.fill"
         case .appearance: return "circle.lefthalf.filled"
         case .deleteAccount: return "trash.fill"
+        case .blockedPeople: return "hand.raised.fill"
+        case .contactBytspot: return "envelope.fill"
         case .privacyPolicy: return "shield.fill"
         case .termsOfService: return "doc.text.fill"
         case .disclaimer: return "exclamationmark.triangle.fill"
@@ -2028,7 +2033,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .appearance: return NativeTheme.purple
         case .deleteAccount: return NativeProfileStyle.danger
         case .vehicles, .savedSpots, .placesVisited, .parkingPreferences: return NativeTheme.emerald
-        case .privacyPolicy, .termsOfService, .disclaimer, .locationPrivacy, .generalSettings, .personalInformation, .notifications: return NativeTheme.cyan
+        case .privacyPolicy, .termsOfService, .disclaimer, .locationPrivacy, .generalSettings, .personalInformation, .notifications, .blockedPeople, .contactBytspot: return NativeTheme.cyan
         }
     }
 }
@@ -2131,6 +2136,10 @@ private struct NativeProfilePanelSheet: View {
             NativeGeneralSettingsPanel()
         case .deleteAccount:
             NativeDeleteAccountSafetyPanel(sessionStore: sessionStore)
+        case .blockedPeople:
+            NativeBlockedPeoplePanel()
+        case .contactBytspot:
+            NativeContactBytspotPanel()
         case .privacyPolicy:
             NativeLegalPanel(document: .privacyPolicy)
         case .termsOfService:
@@ -2196,6 +2205,8 @@ private struct NativeProfilePanelSheet: View {
         case .generalSettings: return "Manage version, appearance, and app behavior."
         case .appearance: return "Choose Auto, Dark, or Light for Bytspot."
         case .deleteAccount: return "Delete your account and everything in it, with 30 days to change your mind."
+        case .blockedPeople: return "People you block can't see your parties, sales, reviews or plans, and you won't see theirs. They aren't told."
+        case .contactBytspot: return "Questions about safety, a report or a block go to \(NativeSafetyCopy.safetyEmail)."
         case .privacyPolicy: return "Policy highlights are available in-app."
         case .termsOfService: return "Terms highlights are available in-app."
         case .disclaimer: return "Important service disclaimers stay easy to review."
@@ -2236,6 +2247,8 @@ private struct NativeProfilePanelSheet: View {
             return [("Auto", "Follows your iPhone appearance and system accessibility choices.", "iphone"), ("Dark", "Keeps Bytspot in its premium night interface.", "moon.stars.fill"), ("Light", "Uses high-contrast daytime surfaces when available.", "sun.max.fill")]
         case .deleteAccount:
             return [("Immediate", "Your account is deactivated and you are signed out as soon as you confirm.", "exclamationmark.triangle.fill"), ("30-day grace period", "Sign back in within 30 days to restore everything.", "clock.arrow.circlepath"), ("Then permanent", "After 30 days your data is erased and cannot be recovered.", "trash.fill")]
+        case .blockedPeople, .contactBytspot:
+            return []
         case .privacyPolicy:
             return [("Privacy summary", "Bytspot keeps sensitive location and account choices explicit.", "shield.fill"), ("Data handling", "Contact matching is designed to protect your address book.", "lock.doc.fill"), ("Review anytime", "Legal details stay available in Profile.", "checkmark.shield.fill")]
         case .termsOfService:
@@ -2965,7 +2978,7 @@ private enum NativeProfilePreferenceSourceContract {
 
 private enum NativeProfileP3Contract {
     static let settingsPanels: [NativeProfilePanel] = [.notifications, .locationPrivacy, .generalSettings, .appearance]
-    static let safetyLegalPanels: [NativeProfilePanel] = [.deleteAccount, .privacyPolicy, .termsOfService, .disclaimer]
+    static let safetyLegalPanels: [NativeProfilePanel] = [.blockedPeople, .deleteAccount, .privacyPolicy, .termsOfService, .disclaimer, .contactBytspot]
     static let legalTitles = ["Privacy Policy", "Terms of Service", "Disclaimer"]
     static let notificationKeys = ["bytspot_notify_push_reservations", "bytspot_notify_push_promotions", "bytspot_notify_push_reminders", "bytspot_notify_push_insider", "bytspot_notify_push_nearby", "bytspot_notify_email_reservations", "bytspot_notify_email_promotions", "bytspot_notify_email_newsletter", "bytspot_notify_email_receipts", "bytspot_notify_sms_reservations", "bytspot_notify_sms_reminders", "bytspot_notify_sms_emergencies"]
     static let privacyKeys = ["bytspot_location_enhanced_indoor_accuracy", "bytspot_location_background", "bytspot_location_offers", "bytspot_venue_recommendations_enabled"]
@@ -3545,7 +3558,7 @@ private enum NativeLegalDocument: CaseIterable, Identifiable {
     var id: String { title }
     var title: String { switch self { case .privacyPolicy: return "Privacy Policy"; case .termsOfService: return "Terms of Service"; case .disclaimer: return "Disclaimer" } }
     var updated: String { switch self { case .privacyPolicy: return "April 3, 2026"; case .termsOfService: return "April 12, 2026"; case .disclaimer: return "April 13, 2026" } }
-    var contact: String { switch self { case .termsOfService: return "legal@bytspot.com"; default: return "bytspotapp@gmail.com" } }
+    var contact: String { switch self { case .termsOfService: return "legal@bytspot.com"; default: return "support@bytspot.com" } }
     var sections: [(String, String, String)] {
         switch self {
         case .privacyPolicy:
@@ -4287,6 +4300,8 @@ private struct NativeNetworkHubView: View {
     @State private var peopleMetOptedIn = false
     @State private var peopleMetPeople: [NativePeopleMetPerson] = []
     @State private var dismissedContactIDs: Set<String> = []
+    @State private var safetyAction: NativeSafetyAction?
+    @State private var hiddenPeople = NativeSafetyHiddenSet()
     let requestAuthentication: () -> Void
 
     init(initialCircleSnapshot: NativeSocialCircleSnapshot, requestAuthentication: @escaping () -> Void) {
@@ -4322,6 +4337,7 @@ private struct NativeNetworkHubView: View {
         }
         .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-network-hub")
+        .nativeSafetyActions($safetyAction, hidden: $hiddenPeople, sessionStore: sessionStore)
         .task(id: sessionStore.isAuthenticated) { await refreshNetwork() }
         .sheet(item: $hostedControlTarget) { target in
             NativePartyControlView(partyID: target.id).environmentObject(sessionStore)
@@ -4610,6 +4626,7 @@ private struct NativeNetworkHubView: View {
                 }
             }
             Spacer(minLength: 8)
+            personSafetyMenu(userID: person.userId, name: person.name)
             Image(systemName: selectedPersonID == person.userId ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundColor(selectedPersonID == person.userId ? NativeTheme.cyan : NativeProfileStyle.muted.opacity(0.5))
@@ -4730,7 +4747,7 @@ private struct NativeNetworkHubView: View {
                     } else if peopleMetPeople.isEmpty {
                         NativeProfileEmptyState(title: "No people found yet", subtitle: "Mutual opt-ins appear here after the event ends.", icon: "person.2.slash.fill")
                     } else {
-                        ForEach(peopleMetPeople) { person in peopleMetRow(person) }
+                        ForEach(hiddenPeople.visible(peopleMetPeople, id: \.userId)) { person in peopleMetRow(person) }
                     }
                 }
             }
@@ -4753,6 +4770,7 @@ private struct NativeNetworkHubView: View {
             networkAvatar(person.name, color: NativeTheme.purple)
             VStack(alignment: .leading, spacing: 4) { Text(person.name).nativeTitle(15); Text(person.inviteStatusLabel).nativeBody(size: 12).lineLimit(1) }
             Spacer(minLength: 8)
+            personSafetyMenu(userID: person.userId, name: person.name)
             if person.canSendInvite {
                 Button(action: { nativeImpactLight(); Task { await sendPeopleMetInvitation(to: person) } }) {
                     Label("Invite", systemImage: "paperplane.fill")
@@ -4771,6 +4789,14 @@ private struct NativeNetworkHubView: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityIdentifier("native-network-people-met-\(person.userId)")
+    }
+
+    /// Report and Block for another member's row; never the viewer's own.
+    @ViewBuilder private func personSafetyMenu(userID: String, name: String) -> some View {
+        if sessionStore.canAttachBearerToken, userID != sessionStore.authenticatedUserID {
+            NativeSafetyMenu(target: NativeSafetyTarget(kind: .user, targetID: userID, ownerName: name), action: $safetyAction)
+                .padding(.vertical, -10)
+        }
     }
 
     private var networkAuthenticationPrompt: some View {
@@ -4837,8 +4863,9 @@ private struct NativeNetworkHubView: View {
 
     private func invitationSection(title: String, items: [NativeSocialInvitation]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !items.isEmpty { networkSectionHeader(title, count: items.count) }
-            ForEach(items) { invitation in
+            let shown = hiddenPeople.visible(items, id: \.personID)
+            if !shown.isEmpty { networkSectionHeader(title, count: shown.count) }
+            ForEach(shown) { invitation in
                 NativeNetworkSwipeToDeleteRow(
                     enabled: NativeNetworkSwipePolicy.canCancelInvitation(direction: invitation.direction, status: invitation.status),
                     label: "Cancel invitation to \(invitation.personName)"
@@ -4863,6 +4890,7 @@ private struct NativeNetworkHubView: View {
                     }
                 }
                 Spacer(minLength: 8)
+                personSafetyMenu(userID: invitation.personID, name: invitation.personName)
                 Image(systemName: invitation.direction == "incoming" ? "tray.and.arrow.down.fill" : "paperplane.fill")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(NativeTheme.cyan)
@@ -4897,7 +4925,7 @@ private struct NativeNetworkHubView: View {
 
     private var filteredPeople: [NativeFriendSuggestion] {
         let query = personQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        let visible = contactSyncStore.suggestions.filter { !dismissedContactIDs.contains($0.userId) }
+        let visible = hiddenPeople.visible(contactSyncStore.suggestions, id: \.userId).filter { !dismissedContactIDs.contains($0.userId) }
         return query.isEmpty ? visible : visible.filter { $0.name.localizedCaseInsensitiveContains(query) }
     }
     private var selectedCircleName: String? { circleSnapshot.groups.first { $0.id == selectedCircleID }?.name }
@@ -5297,10 +5325,12 @@ private enum NativeProfileMenuSectionKind: Equatable {
             ]
         case .safetyLegal:
             return [
+                NativeProfileMenuItem(label: "Blocked people", subtitle: "People you've blocked", icon: "hand.raised.fill", panel: .blockedPeople),
                 NativeProfileMenuItem(label: "Delete Account", subtitle: "Requires explicit confirmation", icon: "trash.fill", panel: .deleteAccount, badge: "SAFE", danger: true),
                 NativeProfileMenuItem(label: "Privacy Policy", subtitle: "How Bytspot handles your data", icon: "shield.fill", panel: .privacyPolicy),
                 NativeProfileMenuItem(label: "Terms of Service", subtitle: "Rules for using Bytspot", icon: "doc.text.fill", panel: .termsOfService),
-                NativeProfileMenuItem(label: "Disclaimer", subtitle: "Availability and safety notes", icon: "exclamationmark.triangle.fill", panel: .disclaimer)
+                NativeProfileMenuItem(label: "Disclaimer", subtitle: "Availability and safety notes", icon: "exclamationmark.triangle.fill", panel: .disclaimer),
+                NativeProfileMenuItem(label: "Contact Bytspot", subtitle: NativeSafetyCopy.safetyEmail, icon: "envelope.fill", panel: .contactBytspot)
             ]
         }
     }
@@ -21099,7 +21129,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfileMenuSectionKind.account.items.map(\.label) == ["Personal Information", "Payment Methods", "My Vehicles"], "NativeAccountParitySelfTests: account controls drifted.")
         precondition(NativeProfileMenuSectionKind.preferences.items.map(\.label) == ["Vibe Preferences", "Parking Preferences", "Notifications", "Location & Privacy"], "NativeAccountParitySelfTests: preference controls drifted.")
         precondition(NativeProfileMenuSectionKind.appSettings.items.map(\.label) == ["General", "Appearance"], "NativeAccountParitySelfTests: theme must live under App Settings/Appearance.")
-        precondition(NativeProfileMenuSectionKind.safetyLegal.items.map(\.label) == ["Delete Account", "Privacy Policy", "Terms of Service", "Disclaimer"], "NativeAccountParitySelfTests: safety/legal section drifted.")
+        precondition(NativeProfileMenuSectionKind.safetyLegal.items.map(\.label) == ["Blocked people", "Delete Account", "Privacy Policy", "Terms of Service", "Disclaimer", "Contact Bytspot"], "NativeAccountParitySelfTests: safety/legal section drifted.")
         precondition(NativeProfileAccountView.menuSectionOrder == [.account, .preferences, .appSettings, .safetyLegal], "NativeAccountParitySelfTests: Profile landing must expose Account Essentials once and no longer carry a Places & Activity section.")
         precondition(Set(NativeProfileCommandGrid.tilePanels).isDisjoint(with: Set(NativeProfileMenuSectionKind.account.items.map(\.panel))), "NativeAccountParitySelfTests: quick actions must not duplicate Account Essentials rows.")
         // Saved and Places I've Been are both reachable from the Saved tile now
@@ -21122,7 +21152,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfileDataAPI.fixtureProfile.email == "member@example.com" && NativeProfileDataAPI.fixtureVehicles.first?.licensePlate == "BYT-424" && NativeProfileDataAPI.fixturePaymentMethods.first?.last4 == "4242", "NativeAccountParitySelfTests: authenticated Profile fixture contract drifted.")
         precondition(NativeProfileMenuSectionKind.preferences.items.map(\.panel) == [.vibePreferences, .parkingPreferences, .notifications, .locationPrivacy], "NativeAccountParitySelfTests: preference rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileMenuSectionKind.appSettings.items.map(\.panel) == [.generalSettings, .appearance], "NativeAccountParitySelfTests: settings rows must open native panels, not hybrid Profile.")
-        precondition(NativeProfileMenuSectionKind.safetyLegal.items.map(\.panel) == [.deleteAccount, .privacyPolicy, .termsOfService, .disclaimer], "NativeAccountParitySelfTests: safety/legal rows must open native panels, not hybrid Profile.")
+        precondition(NativeProfileMenuSectionKind.safetyLegal.items.map(\.panel) == [.blockedPeople, .deleteAccount, .privacyPolicy, .termsOfService, .disclaimer, .contactBytspot], "NativeAccountParitySelfTests: safety/legal rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileCommandGrid.tileTitles == ["Wallet", "Bookings", "Plans", "Saved"], "NativeAccountParitySelfTests: Profile quick-action tiles drifted.")
         precondition(NativeProfileCommandGrid.tilePanels == [.access, .reservations, .plans, .savedSpots], "NativeAccountParitySelfTests: Profile command-center panels drifted.")
         precondition(NativeProfilePanel.access.title == "My Access" && NativeProfilePanel.reservations.title == "Arrivals" && NativeProfilePanel.plans.title == "My Plans", "NativeAccountParitySelfTests: Wallet, Bookings, and My Plans tiles must open their native surfaces.")
@@ -21144,7 +21174,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfileSavedSpot.saved(from: .fallback).map(\.title) == NativeProfileSavedSpot.fallbackFixtureTitles, "NativeAccountParitySelfTests: Saved Places panel must render curated native rows.")
         precondition(NativeProfileSavedSpot.saved(from: .fallback).first?.kindLabel == "Place", "NativeAccountParitySelfTests: Saved Places Board should describe type as text, not rely on large category icons.")
         precondition(NativeProfileP3Contract.settingsPanels == [.notifications, .locationPrivacy, .generalSettings, .appearance], "NativeAccountParitySelfTests: P3 settings panels must stay native.")
-        precondition(NativeProfileP3Contract.safetyLegalPanels == [.deleteAccount, .privacyPolicy, .termsOfService, .disclaimer], "NativeAccountParitySelfTests: P3 safety/legal panels must stay native.")
+        precondition(NativeProfileP3Contract.safetyLegalPanels == [.blockedPeople, .deleteAccount, .privacyPolicy, .termsOfService, .disclaimer, .contactBytspot], "NativeAccountParitySelfTests: P3 safety/legal panels must stay native.")
         precondition(NativeProfileP3Contract.legalTitles == NativeLegalDocument.allCases.map(\.title), "NativeAccountParitySelfTests: Native legal document titles drifted.")
         precondition(NativeProfilePreferenceSourceContract.reactSources == ["VibePreferences.tsx", "ParkingPreferences.tsx", "NotificationSettings.tsx", "LocationSettings.tsx"], "NativeAccountParitySelfTests: React preference source files drifted.")
         precondition(NativeProfilePreferenceSourceContract.vibeAtmosphereLabels == ["Relaxed→Energetic", "Intimate→Social", "Classic→Trendy", "Quiet→Loud", "Spacious→Crowded"], "NativeAccountParitySelfTests: Vibe atmosphere labels drifted from React.")

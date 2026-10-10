@@ -1875,11 +1875,22 @@ struct NativeAuthDataAPI {
         return serverMessage(in: body).lowercased().contains("already exists")
     }
 
+    static let suspendedMessage = "This account has been suspended."
+
+    /// The server refuses a suspended account with FORBIDDEN and says so; the
+    /// app repeats it as written rather than a generic sign-in failure.
+    static func isAccountSuspended(_ error: Error) -> Bool {
+        guard case let BytspotAPIClient.APIError.server(status, body) = error else { return false }
+        guard status == 403 || body.contains("\"code\":\"FORBIDDEN\"") else { return false }
+        return serverMessage(in: body) == suspendedMessage
+    }
+
     static func userMessage(for error: Error, mode: NativeAuthMode) -> String {
         if let urlError = error as? URLError,
            [.timedOut, .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {
             return "We couldn't connect. Check your internet and try again."
         }
+        if isAccountSuspended(error) { return suspendedMessage }
         if case let BytspotAPIClient.APIError.server(status, body) = error {
             let message = serverMessage(in: body).lowercased()
             if status == 429 { return "Too many attempts. Wait a moment and try again." }

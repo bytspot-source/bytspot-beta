@@ -54,6 +54,7 @@ enum NativeAuthAdapterError: Error, Equatable {
     case googleProviderFailed
     case googleBackendVerificationFailed
     case accountConflict(provider: NativeAuthProvider)
+    case accountSuspended
     case mockedFailure(provider: NativeAuthProvider)
 
     var status: NativeAuthStatus {
@@ -71,6 +72,7 @@ enum NativeAuthAdapterError: Error, Equatable {
             return .failed(message: "Google confirmed your account, but Bytspot couldn't verify this sign-in. Please try again.")
         case .accountConflict(let provider):
             return .failed(message: "A Bytspot account already exists for this email. Log in with your email and password first — \(provider.shortName) sign-in can't be linked automatically.")
+        case .accountSuspended: return .failed(message: NativeAuthDataAPI.suspendedMessage)
         case .mockedFailure(let provider): return .failed(message: "DEBUG mock \(provider.title) failure.")
         }
     }
@@ -390,6 +392,7 @@ private final class NativeGoogleSignInAdapter: GoogleAuthAdapter {
             if NativeAuthDataAPI.isAccountConflict(error) {
                 throw NativeAuthAdapterError.accountConflict(provider: .google)
             }
+            if NativeAuthDataAPI.isAccountSuspended(error) { throw NativeAuthAdapterError.accountSuspended }
             throw NativeAuthAdapterError.googleBackendVerificationFailed
         }
         guard let token = response.token, !token.isEmpty else {
@@ -526,6 +529,8 @@ private final class NativeAppleSignInAdapter: NSObject, AppleAuthAdapter, ASAuth
                 Self.recordAppleBackendFailure(error)
                 if NativeAuthDataAPI.isAccountConflict(error) {
                     finish(.failure(NativeAuthAdapterError.accountConflict(provider: .apple)))
+                } else if NativeAuthDataAPI.isAccountSuspended(error) {
+                    finish(.failure(NativeAuthAdapterError.accountSuspended))
                 } else {
                     finish(.failure(NativeAuthAdapterError.appleBackendVerificationFailed))
                 }

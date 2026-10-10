@@ -1264,6 +1264,8 @@ struct NativePrivateSaleBuyerView: View {
     @State private var unavailable = false
     @State private var busy = false
     @State private var message = ""
+    @State private var safetyAction: NativeSafetyAction?
+    @State private var hidden = NativeSafetyHiddenSet()
 
     private var token: String? { sessionStore.isAuthenticated ? sessionStore.token : nil }
     private var api: NativePrivateSalesAPI {
@@ -1271,10 +1273,19 @@ struct NativePrivateSaleBuyerView: View {
         return NativePrivateSalesAPI(client: BytspotAPIClient(tokenProvider: { token }))
     }
 
+    /// Never on the viewer's own sale, and only for a signed-in member.
+    private var safetyTarget: NativeSafetyTarget? {
+        guard let listing, token != nil, !hidden.contains(saleID),
+              NativePrivateSalePolicy.buyerStage(signedIn: true, listing: listing) != .ownSale else { return nil }
+        return NativeSafetyTarget(kind: .sale, targetID: saleID, ownerName: listing.sellerName)
+    }
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
-                if unavailable {
+                if hidden.contains(saleID) {
+                    removedCard
+                } else if unavailable {
                     unavailableCard
                 } else if let listing {
                     summary(listing)
@@ -1300,7 +1311,18 @@ struct NativePrivateSaleBuyerView: View {
         .foregroundColor(NativeTheme.textPrimary)
         .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-private-sale-buyer")
+        .nativeSafetyActions($safetyAction, hidden: $hidden, sessionStore: sessionStore)
         .task(id: token != nil) { await load() }
+    }
+
+    private var removedCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            NativeSaleLabel(text: "Private Sale", color: NativeTheme.purple)
+            Text("You won't see this sale anymore").font(.system(size: 20, weight: .black))
+            NativeSalePrimaryButton(title: "Back to Bytspot") { dismiss() }
+        }
+        .saleCard()
+        .accessibilityIdentifier("native-private-sale-removed")
     }
 
     private var unavailableCard: some View {
@@ -1315,7 +1337,11 @@ struct NativePrivateSaleBuyerView: View {
 
     private func summary(_ listing: NativeSaleListing) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            NativeSaleLabel(text: "Private Sale", color: NativeTheme.purple)
+            HStack {
+                NativeSaleLabel(text: "Private Sale", color: NativeTheme.purple)
+                Spacer()
+                if let target = safetyTarget { NativeSafetyMenu(target: target, action: $safetyAction).padding(.vertical, -12) }
+            }
             Text(listing.title).font(.system(size: 22, weight: .black)).accessibilityAddTraits(.isHeader)
             Text("\(NativePrivateSalePolicy.priceLabel(cents: listing.priceCents)) · from \(listing.sellerName)")
                 .font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.cyan)

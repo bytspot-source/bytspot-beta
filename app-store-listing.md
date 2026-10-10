@@ -11,85 +11,72 @@ Bytspot
 
 ## Subtitle (30 chars max)
 ```
-Midtown Rooms, Parking & Spots
+Plans, parties & spots nearby
 ```
 
 ## Promotional Text (170 chars max — can be updated without a new build)
 ```
-Open a Midtown room, find parking faster, and see typical occupancy around Atlanta — all in one clean app.
+Plan a night out with friends, host a party with a shareable pass, and find the right spot nearby — Atlanta, starting in Midtown.
 ```
 
 ## Description (4000 chars max)
 
 ```
-Bytspot is the arrival layer for Atlanta Midtown — party passes, typical occupancy for nearby spots, and parking before you leave.
+Bytspot is your night out in Atlanta — find the spot, plan it with friends, and get in.
 
-TYPICAL OCCUPANCY
-See what a coffee shop, gym, or club is usually like at this hour. Live is reserved for a published party or a real door scan — never a simulated Packed alert.
+DISCOVER
+Swipe through places near you with photos, details and how busy they usually are at this hour. "Live" only appears when a host or a door actually reports it.
 
-SMART PARKING
-Find available parking near any venue instantly. Compare prices, see walk times, and reserve your spot — all before you leave home. Save time and move with confidence using live local recommendations.
+MAP
+See places on a real map with routes and drive times.
 
-BYTSPOT CONCIERGE
-Ask Bytspot Concierge questions like "Where should I park for the Atlanta United game?" or "Find me a quiet coffee shop nearby." Sign in for personalized help; guests get instant local suggestions.
+PLAN
+Start a plan, pick the spots, and invite friends with one link.
 
-DISCOVER & EXPLORE
-Swipe through curated venue cards with photos, ratings, and typical occupancy. Filter by dining, nightlife, coffee, shopping, fitness, and more.
+HOST
+Throw a party, share a pass link, and manage your guest list. Guests can open a pass from a link or a QR/NFC tap — even before installing the app.
 
-PERSONALIZED FOR YOU
-Bytspot learns your preferences over time. Your vibe quiz results, favorite cuisine types, and saved spots all shape your recommendations — no two users see the same feed.
+CONCIERGE
+Ask for local ideas, like "a quiet coffee shop nearby" or "where to park for the game."
 
-SAVE & SHARE
-Bookmark your favorite spots and share venues with friends using the native share sheet.
+PRIVATE SALES
+Sell something to a person you approve. They get the public meet point only after you say yes, and you pay each other directly in person. Bytspot never holds or moves money.
 
-FEATURES:
-• Typical occupancy for venues, plus Live when a door or host wrote it
-• Bytspot Concierge chat with instant local help for signed-in members and guests
-• Parking availability with listed pricing
-• Venue discovery with swipeable cards
-• Personalized feed based on your preferences
-• Optional sign-in with guest browsing available
-• Native haptic feedback and share sheet
-• Works offline with cached data
-• Dark mode optimized
-
-Currently focused on Atlanta Midtown.
+Browse as a guest; sign in to save, plan and host.
+Currently in Atlanta, starting with Midtown.
 ```
 
 ## Keywords (100 chars max, comma-separated)
 ```
-parking,party,venues,Atlanta,nightlife,restaurants,concierge,discover,spots,Midtown,bars,pass
+atlanta,midtown,party,nightlife,plans,parking,venues,bars,friends,host,events,map,local,sale
 ```
 
 ## Primary Category
 ```
-Navigation
+Lifestyle
 ```
 
 ## Secondary Category
 ```
-Lifestyle
+Navigation
 ```
 
 ## Age Rating
-```
-12+ (Infrequent/Mild Alcohol, Tobacco, or Drug Use or References)
-```
-— Because the app shows bars/nightlife venues.
+Answer App Store Connect's age rating questionnaire again for this version. The app shows bars and nightlife, has user-created content (parties, plans, sales) and arranges in-person meetups between users, so expect a rating above the earlier 12+.
 
 ## Privacy Policy URL
 ```
-https://bytspot.com/privacy
+https://bytspot.app/privacy
 ```
 
 ## Support URL
 ```
-https://bytspot.com/support
+https://bytspot.app/support
 ```
 
 ## Marketing URL (optional)
 ```
-https://bytspot.com
+https://bytspot.app
 ```
 
 ## Copyright
@@ -101,5 +88,42 @@ https://bytspot.com
 
 ## What's New in This Version (for updates)
 ```
-Honesty pass: occupancy is Typical unless a door or host wrote Live. Day-part curves for coffee, golf, fitness, and workspace. Party share and App Clip access unchanged.
+Plan a night with friends from one link, host a party with a shareable pass, see places on a real map with routes, and sell an item to someone you approve with Private Sales.
 ```
+
+---
+
+## App Review Information
+
+### Sign-in required
+```
+Yes
+```
+
+### Demo account
+Create a dedicated review account before each submission and enter it in App Store Connect only. Do not commit the credentials here.
+
+### Notes (4000 chars max)
+```
+Bytspot helps people in Atlanta (Midtown) find places, plan a night out with friends, host parties and get in. Most of the app can be browsed without an account; signing in with the demo account above unlocks Plan, Host and Private Sales.
+
+Where to find things:
+- Discover (bottom bar): swipe place cards; tap a card for details, route and check-in.
+- Map: the map icon at the top left.
+- Plan (centre of the bottom bar): start a plan and share its invite link.
+- Host (bottom bar): create a party and share its pass link.
+- Concierge (bottom bar): ask for local suggestions.
+- Profile (avatar, top right) → Network → Hosting → Private Sales: create a sale.
+- Profile → Delete Account: deletes the account in the app.
+
+Location: used only while the app is open, to show places and routes near you. The app works with location off; it then shows Midtown Atlanta.
+
+Private Sales and payments: Private Sales lets a person sell a physical item to someone they approve. The buyer sees the public meet point only after the seller approves them. Payment happens directly between the two people, in person, using the seller's own PayPal, Cash App or Venmo handle, which opens in that provider's app or website. Bytspot does not process, hold or move any money and takes no fee. These are physical goods exchanged in person, so In-App Purchase does not apply (Guideline 3.1.3(e) / 3.1.5).
+
+App Clip: a party pass link or a Bytspot QR/NFC patch opens the App Clip so a guest can show their pass without installing the app.
+```
+
+### Before submitting
+- Private Sales is only in builds that include the `feat/ios-private-sales-buyer` work. If the build doesn't include it, remove the PRIVATE SALES paragraph, the Private Sales lines in the notes, and "sale" from the keywords.
+- Guideline 1.2 (user-generated content): the app has no way yet to report or block another user on parties, plans or Private Sales. Add these before submitting; review is likely to reject the app without them.
+- Use only real claims. Don't add back offline use, preference learning or parking reservations unless the build does them.

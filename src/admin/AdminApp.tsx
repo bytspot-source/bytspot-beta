@@ -40,6 +40,20 @@ type QueuedMedia = {
   business: string; place: string | null; offering: string | null; videoHosting: boolean;
 };
 type Stats = { totalUsers: number; newSignupsToday: number; totalCheckins: number; betaLeadCount: number };
+type ReportKind = 'user' | 'party' | 'review' | 'sale';
+type ReportedItem = {
+  kind: ReportKind; targetId: string; snapshot: Record<string, unknown> | null; firstReportedAt: string; status: string;
+  decidedAt: string | null; reporterCount: number; hidden: boolean;
+  owner: { userId: string; name: string | null; email: string | null; memberSince: string | null; suspendedAt: string | null; reportsAgainst: number; actedOn: number };
+  reports: { reason: string; note: string | null; createdAt: string }[];
+};
+
+const REPORT_REASONS: Record<string, string> = {
+  spam: 'Spam or scam', harassment: 'Harassment or bullying', sexual: 'Nudity or sexual content',
+  violence: 'Violence or threats', impersonation: 'Pretending to be someone', other: 'Something else',
+};
+const REPORT_KINDS: Record<ReportKind, string> = { user: 'Member', party: 'Party', review: 'Review', sale: 'Private Sale' };
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const MISSING_LABELS: Record<string, string> = {
   legalName: 'Business name', contactEmail: 'Contact email', activeLocation: 'A live place', payoutAccount: 'Payout account',
@@ -730,6 +744,113 @@ function VendorsTab({ onCount }: { onCount: (awaiting: number) => void }) {
   );
 }
 
+/** What the reported item said when it was reported, so a later edit can't hide it. */
+function reportedSummary(item: ReportedItem): string {
+  const s = item.snapshot ?? {};
+  const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : '');
+  switch (item.kind) {
+    case 'user': return text(s.name) || 'No name';
+    case 'party': return [text(s.title), text(s.venueName)].filter(Boolean).join(' · ') || 'Untitled party';
+    case 'review': return `${text(s.venueName)}: ${text(s.comment) || `${String(s.stars ?? '?')} stars, no comment`}`;
+    case 'sale': return [text(s.title), text(s.areaLabel)].filter(Boolean).join(' · ') || 'Untitled sale';
+  }
+}
+
+/** Apple expects action on reports within 24 hours; the oldest are listed first. */
+function ReportsTab({ onCount }: { onCount: (open: number) => void }) {
+  const [items, setItems] = useState<ReportedItem[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const result = await trpc.admin.safety.reports.query({ status: 'open' });
+      setItems(result.items);
+      onCount(result.items.length);
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }, [onCount]);
+  useEffect(() => { void load(); }, [load]);
+
+  const decide = async (item: ReportedItem, action: 'dismiss' | 'remove' | 'suspend') => {
+    if (action === 'suspend' && !window.confirm(`Suspend ${item.owner.name || 'this member'}? They are signed out everywhere and can't sign in until reinstated.`)) return;
+    setBusy(`${item.kind}:${item.targetId}`); setError(null);
+    try {
+      await trpc.admin.safety.decide.mutate({ kind: item.kind, targetId: item.targetId, action });
+      await load();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const reinstate = async (item: ReportedItem) => {
+    setBusy(`${item.kind}:${item.targetId}`); setError(null);
+    try {
+      await trpc.admin.safety.reinstate.mutate({ userId: item.owner.userId });
+      await load();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Card>
+      <h2>Reports{items?.length ? ` (${items.length} open)` : ''}</h2>
+      <p className="admin-muted">
+        Decide each within 24 hours. Dismiss shows the item again. Remove keeps it hidden. Suspend also signs its owner out and keeps them out.
+      </p>
+      {error && <p className="admin-warn">{error}</p>}
+      {items === null ? <p className="admin-muted">Loading…</p> : items.length === 0 ? (
+        <p className="admin-muted">No open reports.</p>
+      ) : (
+        <ul className="admin-list">
+          {items.map((item) => {
+            const key = `${item.kind}:${item.targetId}`;
+            const overdue = Date.now() - new Date(item.firstReportedAt).getTime() > DAY_MS;
+            return (
+              <li key={key}>
+                <div className="admin-row" style={{ alignItems: 'flex-start' }}>
+                  <div className="admin-stack">
+                    <p className="admin-strong">
+                      {reportedSummary(item)}
+                      <span className="admin-tag">{REPORT_KINDS[item.kind]}</span>
+                      {item.hidden && <span className="admin-tag">Hidden</span>}
+                      {overdue && <span className="admin-badge">Over 24 hours</span>}
+                    </p>
+                    <p className="admin-muted">
+                      {item.reporterCount} {item.reporterCount === 1 ? 'report' : 'reports'} · first {dateLabel(item.firstReportedAt)}
+                    </p>
+                    {item.reports.map((r, index) => (
+                      <p key={index} className="admin-small">{REPORT_REASONS[r.reason] ?? r.reason}{r.note ? `: "${r.note}"` : ''}</p>
+                    ))}
+                    <p className="admin-small">
+                      Owner: {item.owner.name || 'No name'}{item.owner.email ? ` · ${item.owner.email}` : ''} · joined {dateLabel(item.owner.memberSince)}
+                      {' '}· {item.owner.reportsAgainst} reports against, {item.owner.actedOn} acted on
+                      {item.owner.suspendedAt ? ` · suspended ${dateLabel(item.owner.suspendedAt)}` : ''}
+                    </p>
+                  </div>
+                  <div className="admin-inline">
+                    <Button kind="quiet" disabled={busy === key} onClick={() => decide(item, 'dismiss')}>Dismiss</Button>
+                    {item.kind !== 'user' && <Button disabled={busy === key} onClick={() => decide(item, 'remove')}>Remove</Button>}
+                    {item.owner.suspendedAt
+                      ? <Button kind="quiet" disabled={busy === key} onClick={() => reinstate(item)}>Reinstate owner</Button>
+                      : <Button kind="quiet" disabled={busy === key} onClick={() => decide(item, 'suspend')}>Suspend owner</Button>}
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
 function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   useEffect(() => {
@@ -754,14 +875,21 @@ function Dashboard() {
 export default function AdminApp() {
   const [signedIn, setSignedIn] = useState(() => Boolean(localStorage.getItem(TOKEN_KEY)));
   const [access, setAccess] = useState<'checking' | 'ok' | string>('checking');
-  const [tab, setTab] = useState<'places' | 'vendors'>('places');
+  const [tab, setTab] = useState<'places' | 'vendors' | 'reports'>('places');
   const [awaiting, setAwaiting] = useState(0);
+  const [openReports, setOpenReports] = useState(0);
 
   useEffect(() => {
     if (!signedIn) return;
     setAccess('checking');
     trpc.admin.vendors.list.query()
-      .then((result: { awaiting: number }) => { setAwaiting(result.awaiting); setAccess('ok'); })
+      .then((result: { awaiting: number }) => {
+        setAwaiting(result.awaiting);
+        setAccess('ok');
+        trpc.admin.safety.reports.query({ status: 'open' })
+          .then((reports: { items: unknown[] }) => setOpenReports(reports.items.length))
+          .catch(() => undefined);
+      })
       .catch((err: unknown) => {
         if ((err as { data?: { code?: string } })?.data?.code === 'UNAUTHORIZED') {
           localStorage.removeItem(TOKEN_KEY);
@@ -792,8 +920,11 @@ export default function AdminApp() {
                 <Button kind={tab === 'vendors' ? 'primary' : 'quiet'} onClick={() => setTab('vendors')}>
                   Vendors{awaiting > 0 ? ` (${awaiting} waiting)` : ''}
                 </Button>
+                <Button kind={tab === 'reports' ? 'primary' : 'quiet'} onClick={() => setTab('reports')}>
+                  Reports{openReports > 0 ? ` (${openReports} open)` : ''}
+                </Button>
               </nav>
-              {tab === 'places' ? <PlacesTab /> : <VendorsTab onCount={setAwaiting} />}
+              {tab === 'places' ? <PlacesTab /> : tab === 'vendors' ? <VendorsTab onCount={setAwaiting} /> : <ReportsTab onCount={setOpenReports} />}
             </>
           )}
         </div>

@@ -3314,6 +3314,31 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativeAuthDataAPI.emailCodeMessage(for: BytspotAPIClient.APIError.server(status: 401, body: "")), "Your sign-in expired. Sign in again to confirm your email.")
     }
 
+    func testPasswordResetResponsesDecode() throws {
+        let sent = try JSONDecoder().decode(NativePasswordResetCodeResponse.self, from: Data(#"{"challengeId":"chal_1","expiresInSecs":600,"resendInSecs":60}"#.utf8))
+        XCTAssertEqual(sent, NativePasswordResetCodeResponse(challengeId: "chal_1", expiresInSecs: 600, resendInSecs: 60))
+        // A reset signs the member in with the same shape as auth.login.
+        let signedIn = try JSONDecoder().decode(NativeAuthResponse.self, from: Data(#"{"token":"t","user":{"id":"u1","email":"a@b.co","name":"Ama"},"emailVerified":true,"deletionCancelled":false}"#.utf8))
+        XCTAssertEqual(signedIn.emailVerified, true)
+        XCTAssertEqual(signedIn.deletionCancelled, false)
+    }
+
+    func testPasswordResetMatchesTheServerRules() {
+        XCTAssertEqual(NativeEmailVerificationContract.newPasswordMinimum, 8)
+        XCTAssertEqual(NativeEmailVerificationContract.requestPasswordResetRoute, "auth.requestPasswordReset")
+        XCTAssertEqual(NativeEmailVerificationContract.resetPasswordRoute, "auth.resetPassword")
+    }
+
+    func testPasswordResetErrorsReadAsPlainCopy() {
+        let fallback = "We couldn't reset your password. Please try again."
+        let wrong = BytspotAPIClient.APIError.server(status: 400, body: #"{"error":{"message":"That code isn't right. Check the email and try again."}}"#)
+        XCTAssertEqual(NativeAuthDataAPI.emailCodeMessage(for: wrong, fallback: fallback), "That code isn't right. Check the email and try again.")
+        let validation = BytspotAPIClient.APIError.server(status: 400, body: #"{"error":{"message":"[{\"code\":\"too_small\"}]"}}"#)
+        XCTAssertEqual(NativeAuthDataAPI.emailCodeMessage(for: validation, fallback: fallback), fallback)
+        let limited = BytspotAPIClient.APIError.server(status: 429, body: #"{"error":{"message":"Too many attempts. Try again later."}}"#)
+        XCTAssertEqual(NativeAuthDataAPI.emailCodeMessage(for: limited, fallback: fallback), "Too many attempts. Wait a moment and try again.")
+    }
+
     func testDeletionPurgesCachedProfileAndVehicleValuesButKeepsDeviceSettings() {
         let defaults = UserDefaults(suiteName: "bytspot.deletion.purge.tests")!
         defaults.removePersistentDomain(forName: "bytspot.deletion.purge.tests")

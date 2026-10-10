@@ -3339,6 +3339,191 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativeAuthDataAPI.emailCodeMessage(for: limited, fallback: fallback), "Too many attempts. Wait a moment and try again.")
     }
 
+    private func sessionJWT(issuedAt: Date, expiresAt: Date) -> String {
+        let payload = try! JSONSerialization.data(withJSONObject: ["userId": "u1", "iat": Int(issuedAt.timeIntervalSince1970), "exp": Int(expiresAt.timeIntervalSince1970)])
+        let body = payload.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        return "eyJhbGciOiJIUzI1NiJ9.\(body).signature"
+    }
+
+    @MainActor
+    private func renewalStore(accessToken: String?, refreshToken: String?) -> BytspotSessionStore {
+        let store = BytspotSessionStore(account: "native_session_renewal_\(UUID().uuidString)", service: "com.bytspot.session-renewal-tests")
+        if let accessToken { store.updateSession(token: accessToken, userID: "u1", refreshToken: refreshToken) }
+        return store
+    }
+
+    func testSessionTokenClaimsReadIssuedAtAndExpiry() {
+        let issued = Date(timeIntervalSince1970: 1_790_000_000)
+        let claims = NativeSessionRenewalContract.claims(of: sessionJWT(issuedAt: issued, expiresAt: issued.addingTimeInterval(7 * 86_400)))
+        XCTAssertEqual(claims.issuedAt, issued)
+        XCTAssertEqual(claims.expiresAt, issued.addingTimeInterval(7 * 86_400))
+        // Not a JWT: nothing to time renewal by.
+        XCTAssertEqual(NativeSessionRenewalContract.claims(of: "guest_session"), NativeSessionRenewalContract.Claims())
+    }
+
+    func testAuthResponseDecodesTheRefreshToken() throws {
+        let signedIn = try JSONDecoder().decode(NativeAuthResponse.self, from: Data(#"{"token":"t","refreshToken":"r","user":{"id":"u1"}}"#.utf8))
+        XCTAssertEqual(signedIn.refreshToken, "r")
+        let older = try JSONDecoder().decode(NativeAuthResponse.self, from: Data(#"{"token":"t","user":{"id":"u1"}}"#.utf8))
+        XCTAssertNil(older.refreshToken)
+        let renewed = try JSONDecoder().decode(NativeSessionRefreshResponse.self, from: Data(#"{"token":"t2","refreshToken":"r2"}"#.utf8))
+        XCTAssertEqual(renewed, NativeSessionRefreshResponse(token: "t2", refreshToken: "r2"))
+    }
+
+    func testBearerTokenIsReadFromTheRequest() throws {
+        let signedIn = try BytspotAPIClient(tokenProvider: { "abc" }).makeRequest(path: "/trpc/auth.me")
+        XCTAssertEqual(BytspotAPIClient.bearerToken(in: signedIn), "abc")
+        XCTAssertNil(BytspotAPIClient.bearerToken(in: try BytspotAPIClient().makeRequest(path: "/trpc/auth.login")))
+    }
+
+    @MainActor
+    func testRenewalStoresTheNewPairForTheSameAccount() async {
+        let now = Date()
+        let old = sessionJWT(issuedAt: now.addingTimeInterval(-3 * 86_400), expiresAt: now.addingTimeInterval(4 * 86_400))
+        let store = renewalStore(accessToken: old, refreshToken: "r1")
+        defer { store.updateToken(nil) }
+        let renewer = NativeSessionRenewer()
+        renewer.sessionStore = store
+        renewer.refresh = { presented in
+            XCTAssertEqual(presented, "r1")
+            return NativeSessionRefreshResponse(token: "new-access", refreshToken: "r2")
+        }
+
+        let retryWith = await renewer.renew(refusedToken: old, now: now)
+
+        XCTAssertEqual(retryWith, "new-access")
+        XCTAssertEqual(store.token, "new-access")
+        XCTAssertEqual(store.refreshToken, "r2")
+        XCTAssertEqual(store.authenticatedUserID, "u1")
+        XCTAssertFalse(store.signInAgainRequired)
+    }
+
+    @MainActor
+    func testARefusedRenewalEndsTheSessionWithOnePrompt() async {
+        let now = Date()
+        let old = sessionJWT(issuedAt: now.addingTimeInterval(-8 * 86_400), expiresAt: now.addingTimeInterval(-86_400))
+        let store = renewalStore(accessToken: old, refreshToken: "r1")
+        let renewer = NativeSessionRenewer()
+        renewer.sessionStore = store
+        renewer.refresh = { _ in throw BytspotAPIClient.APIError.server(status: 401, body: "") }
+
+        let retryWith = await renewer.renew(refusedToken: old, now: now)
+        XCTAssertNil(retryWith)
+        XCTAssertFalse(store.isAuthenticated)
+        XCTAssertNil(store.refreshToken)
+        XCTAssertTrue(store.signInAgainRequired)
+        store.acknowledgeSignInAgain()
+        XCTAssertFalse(store.signInAgainRequired)
+    }
+
+    @MainActor
+    func testATransientRenewalFailureKeepsTheSession() async {
+        let now = Date()
+        let old = sessionJWT(issuedAt: now.addingTimeInterval(-3 * 86_400), expiresAt: now.addingTimeInterval(4 * 86_400))
+        let store = renewalStore(accessToken: old, refreshToken: "r1")
+        defer { store.updateToken(nil) }
+        let renewer = NativeSessionRenewer()
+        renewer.sessionStore = store
+        renewer.refresh = { _ in throw URLError(.notConnectedToInternet) }
+
+        let retryWith = await renewer.renew(refusedToken: old, now: now)
+        XCTAssertNil(retryWith)
+        XCTAssertEqual(store.token, old)
+        XCTAssertEqual(store.refreshToken, "r1")
+        XCTAssertFalse(store.signInAgainRequired)
+    }
+
+    @MainActor
+    func testConcurrentRefusalsSpendTheRefreshTokenOnce() async {
+        // A refresh token is single use; spending it twice would revoke the sign-in.
+        let now = Date()
+        let old = sessionJWT(issuedAt: now.addingTimeInterval(-3 * 86_400), expiresAt: now.addingTimeInterval(4 * 86_400))
+        let store = renewalStore(accessToken: old, refreshToken: "r1")
+        defer { store.updateToken(nil) }
+        let renewer = NativeSessionRenewer()
+        renewer.sessionStore = store
+        var calls = 0
+        renewer.refresh = { _ in
+            calls += 1
+            try await Task.sleep(nanoseconds: 50_000_000)
+            return NativeSessionRefreshResponse(token: "new-access", refreshToken: "r2")
+        }
+
+        async let first = renewer.renew(refusedToken: old, now: now)
+        async let second = renewer.renew(refusedToken: old, now: now)
+        let results = await [first, second]
+
+        XCTAssertEqual(results, ["new-access", "new-access"])
+        XCTAssertEqual(calls, 1)
+    }
+
+    @MainActor
+    func testAFreshTokenThatIsRefusedIsNotRenewed() async {
+        let now = Date()
+        let fresh = sessionJWT(issuedAt: now.addingTimeInterval(-10), expiresAt: now.addingTimeInterval(7 * 86_400))
+        let store = renewalStore(accessToken: fresh, refreshToken: "r1")
+        defer { store.updateToken(nil) }
+        let renewer = NativeSessionRenewer()
+        renewer.sessionStore = store
+        renewer.refresh = { _ in XCTFail("a refusal of a brand-new token is not about its age"); throw URLError(.cancelled) }
+
+        let retryWith = await renewer.renew(refusedToken: fresh, now: now)
+        XCTAssertNil(retryWith)
+        XCTAssertEqual(store.token, fresh)
+    }
+
+    @MainActor
+    func testASessionFromBeforeRefreshTokensEndsOnlyOnceItHasLapsed() async {
+        let now = Date()
+        let live = sessionJWT(issuedAt: now.addingTimeInterval(-3 * 86_400), expiresAt: now.addingTimeInterval(4 * 86_400))
+        let store = renewalStore(accessToken: live, refreshToken: nil)
+        let renewer = NativeSessionRenewer()
+        renewer.sessionStore = store
+
+        // Some other 401 on a token with time left: left to the screen.
+        let retryLive = await renewer.renew(refusedToken: live, now: now)
+        XCTAssertNil(retryLive)
+        XCTAssertTrue(store.isAuthenticated)
+        XCTAssertFalse(store.signInAgainRequired)
+
+        let lapsed = sessionJWT(issuedAt: now.addingTimeInterval(-8 * 86_400), expiresAt: now.addingTimeInterval(-60))
+        store.updateSession(token: lapsed, userID: "u1")
+        let retryLapsed = await renewer.renew(refusedToken: lapsed, now: now)
+        XCTAssertNil(retryLapsed)
+        XCTAssertFalse(store.isAuthenticated)
+        XCTAssertTrue(store.signInAgainRequired)
+    }
+
+    @MainActor
+    func testRenewalRunsAheadOfExpiryOnlyWhenItIsClose() async {
+        let now = Date()
+        let distant = sessionJWT(issuedAt: now.addingTimeInterval(-86_400), expiresAt: now.addingTimeInterval(6 * 86_400))
+        let store = renewalStore(accessToken: distant, refreshToken: "r1")
+        defer { store.updateToken(nil) }
+        let renewer = NativeSessionRenewer()
+        renewer.sessionStore = store
+        var calls = 0
+        renewer.refresh = { _ in calls += 1; return NativeSessionRefreshResponse(token: "new-access", refreshToken: "r2") }
+
+        await renewer.renewIfExpiringSoon(now: now)
+        XCTAssertEqual(calls, 0)
+
+        let close = sessionJWT(issuedAt: now.addingTimeInterval(-6 * 86_400), expiresAt: now.addingTimeInterval(86_400))
+        store.updateSession(token: close, userID: "u1", refreshToken: "r1")
+        await renewer.renewIfExpiringSoon(now: now)
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(store.token, "new-access")
+    }
+
+    @MainActor
+    func testSigningOutForgetsTheRefreshToken() {
+        let store = renewalStore(accessToken: "access", refreshToken: "r1")
+        XCTAssertEqual(store.refreshToken, "r1")
+        store.updateToken(nil)
+        XCTAssertNil(store.refreshToken)
+        XCTAssertFalse(store.signInAgainRequired)
+    }
+
     func testDeletionPurgesCachedProfileAndVehicleValuesButKeepsDeviceSettings() {
         let defaults = UserDefaults(suiteName: "bytspot.deletion.purge.tests")!
         defaults.removePersistentDomain(forName: "bytspot.deletion.purge.tests")

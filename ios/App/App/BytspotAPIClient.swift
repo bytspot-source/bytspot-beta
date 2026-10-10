@@ -1874,6 +1874,37 @@ enum NativeEmailVerificationContract {
     }
 }
 
+/// Adding Apple or Google sign-in to an existing account: by the code a sign-in
+/// CONFLICT emails, or from Profile while signed in.
+enum NativeAccountLinkContract {
+    static let confirmRoute = "auth.confirmLink"
+    static let methodsRoute = "auth.signInMethods"
+    static let linkRoute = "auth.linkProvider"
+    static let unlinkRoute = "auth.unlinkProvider"
+}
+
+/// The code a provider sign-in CONFLICT emailed to the account that owns the
+/// email. Present only from a server that can link; an older one sends none.
+struct NativeProviderLinkChallenge: Equatable, Identifiable {
+    let challengeId: String
+    let maskedEmail: String
+    let provider: NativeAuthProvider
+    var id: String { challengeId }
+}
+
+struct NativeSignInMethods: Codable, Equatable {
+    var password: Bool
+    var apple: Bool
+    var google: Bool
+
+    func isLinked(_ provider: NativeAuthProvider) -> Bool { provider == .apple ? apple : google }
+
+    /// The server refuses to remove the last way in; the app hides the button.
+    func canRemove(_ provider: NativeAuthProvider) -> Bool {
+        isLinked(provider) && [password, provider == .apple ? false : apple, provider == .google ? false : google].contains(true)
+    }
+}
+
 enum NativeAuthRouteContract {
     static let routes = ["auth.signup", "auth.login", "auth.googleSignIn", "auth.appleSignIn"]
     static let storageKeys = ["bytspot_auth_token", "bytspot_user", "bytspot_user_name"]
@@ -1933,6 +1964,55 @@ struct NativeAuthDataAPI {
         try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/\(NativeEmailVerificationContract.resetPasswordRoute)", method: "POST", input: ["challengeId": challengeId, "code": code, "password": newPassword])
     }
 
+    func confirmLink(challengeId: String, code: String) async throws -> NativeAuthResponse {
+        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/\(NativeAccountLinkContract.confirmRoute)", method: "POST", input: ["challengeId": challengeId, "code": code])
+    }
+
+    func signInMethods() async throws -> NativeSignInMethods {
+        try await client.trpcDecode(NativeSignInMethods.self, path: "/trpc/\(NativeAccountLinkContract.methodsRoute)")
+    }
+
+    func linkProvider(_ provider: NativeAuthProvider, idToken: String) async throws -> NativeSignInMethods {
+        try await client.trpcDecode(NativeSignInMethods.self, path: "/trpc/\(NativeAccountLinkContract.linkRoute)", method: "POST", input: ["provider": provider.rawValue, "idToken": idToken])
+    }
+
+    func unlinkProvider(_ provider: NativeAuthProvider) async throws -> NativeSignInMethods {
+        try await client.trpcDecode(NativeSignInMethods.self, path: "/trpc/\(NativeAccountLinkContract.unlinkRoute)", method: "POST", input: ["provider": provider.rawValue])
+    }
+
+    /// The `data.link` a linking server attaches to a provider sign-in CONFLICT.
+    static func linkChallenge(in error: Error) -> NativeProviderLinkChallenge? {
+        guard case let BytspotAPIClient.APIError.server(status, body) = error, status == 409,
+              let data = body.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data),
+              let link = findLink(in: root),
+              let challengeId = link["challengeId"] as? String, !challengeId.isEmpty,
+              let maskedEmail = link["maskedEmail"] as? String,
+              let provider = (link["provider"] as? String).flatMap(NativeAuthProvider.init(rawValue:)) else { return nil }
+        return NativeProviderLinkChallenge(challengeId: challengeId, maskedEmail: maskedEmail, provider: provider)
+    }
+
+    private static func findLink(in value: Any) -> [String: Any]? {
+        if let dictionary = value as? [String: Any] {
+            if let link = dictionary["link"] as? [String: Any] { return link }
+            for child in dictionary.values { if let link = findLink(in: child) { return link } }
+        } else if let array = value as? [Any] {
+            for child in array { if let link = findLink(in: child) { return link } }
+        }
+        return nil
+    }
+
+    /// Link and sign-in method errors. The server's own wording is shown for
+    /// refusals it explains: a wrong code, an ID another account uses, the last method.
+    static func signInMethodMessage(for error: Error, fallback: String) -> String {
+        if case let BytspotAPIClient.APIError.server(status, body) = error {
+            if status == 401 { return "Your sign-in expired. Sign in again." }
+            let message = serverMessage(in: body)
+            if status == 409, !message.isEmpty, !message.hasPrefix("[") { return message }
+        }
+        return emailCodeMessage(for: error, fallback: fallback)
+    }
+
     static func emailCodeMessage(for error: Error, fallback: String = "We couldn't send your code. Please try again.") -> String {
         if let urlError = error as? URLError,
            [.timedOut, .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {
@@ -1959,7 +2039,7 @@ struct NativeAuthDataAPI {
 
     /// True when the backend refused the provider sign-in because a Bytspot
     /// account already owns this email (HTTP 409 / tRPC CONFLICT). The server
-    /// intentionally never auto-links provider identities by email.
+    /// never links on a matching email alone; see `linkChallenge(in:)`.
     static func isAccountConflict(_ error: Error) -> Bool {
         guard case let BytspotAPIClient.APIError.server(status, body) = error else { return false }
         if status == 409 { return true }
@@ -1976,7 +2056,7 @@ struct NativeAuthDataAPI {
             let message = serverMessage(in: body).lowercased()
             if status == 429 { return "Too many attempts. Wait a moment and try again." }
             if message.contains("already") || message.contains("conflict") {
-                return "An account already exists for this email. Log in instead."
+                return "An account already exists for this email. Log in, use Apple or Google, or reset your password."
             }
             if message.contains("invite") { return "That invite code isn't valid. Check it or leave it blank." }
             if mode == .login && (status == 401 || message.contains("credential") || message.contains("password") || message.contains("not found")) {

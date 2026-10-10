@@ -69,8 +69,8 @@ source_guards() {
   grep -q "BYT_NATIVE_LAUNCH_AUTORUN" ios/App/App/BytspotNativeAppRoot.swift && grep -q "BYT_NATIVE_LAUNCH_AUTORUN" scripts/native-root-smoke.sh && grep -q "BYT_NATIVE_LAUNCH_AUTORUN" docs/native-profile-product-wireframe-contract.md
   grep -q "bytspot_native_launch_vibe" ios/App/App/BytspotNativeAppRoot.swift ios/App/App/NativeAuthSeamSelfTests.swift docs/native-profile-product-wireframe-contract.md
   grep -q "Sign in to save your experience" ios/App/App/BytspotNativeAppRoot.swift && grep -q "Sign in to save your experience" scripts/native-root-smoke.sh && grep -q "Sign in to save your experience" docs/native-profile-product-wireframe-contract.md
-  grep -q "at least 6 characters" ios/App/App/BytspotNativeAppRoot.swift && grep -q "at least 6 characters" ios/App/App/NativeAuthSeamSelfTests.swift && grep -q "at least 6 characters" docs/native-profile-product-wireframe-contract.md
-  ! grep -Eq "Let's Go|Sign in to save these picks|at least 8 characters|Atlanta picks|Personalization → Atlanta" docs/native-profile-product-wireframe-contract.md
+  grep -q "at least 8 characters" ios/App/App/BytspotNativeAppRoot.swift && grep -q "at least 8 characters" ios/App/App/NativeAuthSeamSelfTests.swift && grep -q "at least 8 characters" docs/native-profile-product-wireframe-contract.md
+  ! grep -Eq "Let's Go|Sign in to save these picks|at least 6 characters|Atlanta picks|Personalization → Atlanta" docs/native-profile-product-wireframe-contract.md
   grep -q "Native Fallback Audit" docs/native-profile-product-wireframe-contract.md
   grep -q "BYT_NATIVE_SUPPRESS_LOCATION_PROMPT" ios/App/App/NativeShellView.swift scripts/native-root-smoke.sh
   ! grep -q "bytspot_saved_spots_planned_ids" ios/App/App/NativeShellView.swift

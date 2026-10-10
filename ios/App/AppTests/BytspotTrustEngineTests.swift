@@ -5860,11 +5860,11 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         }
     }
 
-    func testSignupValidationMatchesTheSixCharacterAccountRule() {
-        XCTAssertFalse(NativeAuthInputValidator.canSubmit(mode: .signup, name: "Avery", email: "member@example.com", password: "12345"))
-        XCTAssertTrue(NativeAuthInputValidator.canSubmit(mode: .signup, name: "Avery", email: "member@example.com", password: "123456"))
-        XCTAssertEqual(NativeAuthLaunchContract.signupPasswordValidationMessage, "Use at least 6 characters.")
-        XCTAssertTrue(NativeAuthInputValidator.submitValidationMessage(mode: .signup).contains("at least 6 characters"))
+    func testSignupValidationMatchesTheServersEightCharacterRule() {
+        XCTAssertFalse(NativeAuthInputValidator.canSubmit(mode: .signup, name: "Avery", email: "member@example.com", password: "abcdefg"))
+        XCTAssertTrue(NativeAuthInputValidator.canSubmit(mode: .signup, name: "Avery", email: "member@example.com", password: "abcdefgh"))
+        XCTAssertEqual(NativeAuthLaunchContract.signupPasswordValidationMessage, "Use at least 8 characters.")
+        XCTAssertTrue(NativeAuthInputValidator.submitValidationMessage(mode: .signup).contains("at least 8 characters"))
     }
 
     func testLoginValidationRequiresEmailAndNonEmptyPasswordOnly() {
@@ -5898,7 +5898,7 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         let incorrect = BytspotAPIClient.APIError.server(status: 401, body: #"{"error":{"json":{"message":"Invalid credentials"}}}"#)
         let busy = BytspotAPIClient.APIError.server(status: 429, body: "")
 
-        XCTAssertEqual(NativeAuthDataAPI.userMessage(for: existing, mode: .signup), "An account already exists for this email. Log in instead.")
+        XCTAssertEqual(NativeAuthDataAPI.userMessage(for: existing, mode: .signup), "An account already exists for this email. Log in, use Apple or Google, or reset your password.")
         XCTAssertEqual(NativeAuthDataAPI.userMessage(for: incorrect, mode: .login), "The email or password is incorrect.")
         XCTAssertEqual(NativeAuthDataAPI.userMessage(for: busy, mode: .login), "Too many attempts. Wait a moment and try again.")
     }
@@ -5925,12 +5925,76 @@ final class NativeAuthLaunchInputTests: XCTestCase {
 
         XCTAssertEqual(
             NativeAuthAdapterError.accountConflict(provider: .apple).status,
-            .failed(message: "A Bytspot account already exists for this email. Log in with your email and password first — Apple sign-in can't be linked automatically.")
+            .failed(message: "A Bytspot account already exists for this email. Log in another way, then add Apple in Profile › Personal Information › Sign-in methods.")
         )
         XCTAssertEqual(
             NativeAuthAdapterError.accountConflict(provider: .google).status,
-            .failed(message: "A Bytspot account already exists for this email. Log in with your email and password first — Google sign-in can't be linked automatically.")
+            .failed(message: "A Bytspot account already exists for this email. Log in another way, then add Google in Profile › Personal Information › Sign-in methods.")
         )
+    }
+
+    func testALinkingServersConflictCarriesTheEmailedCode() {
+        let linking = BytspotAPIClient.APIError.server(
+            status: 409,
+            body: #"{"error":{"message":"An account already exists for this email.","code":-32009,"data":{"code":"CONFLICT","httpStatus":409,"link":{"challengeId":"chal_1","maskedEmail":"a••@bytspot.com","provider":"google"}}}}"#
+        )
+        let older = BytspotAPIClient.APIError.server(status: 409, body: #"{"error":{"json":{"message":"An account already exists for this email."}}}"#)
+        let challenge = NativeProviderLinkChallenge(challengeId: "chal_1", maskedEmail: "a••@bytspot.com", provider: .google)
+
+        XCTAssertEqual(NativeAuthDataAPI.linkChallenge(in: linking), challenge)
+        XCTAssertEqual(NativeAuthAdapterError.fromBackend(linking, provider: .google), .linkRequired(challenge))
+        // An older server sends no code: the plain conflict message, as before.
+        XCTAssertNil(NativeAuthDataAPI.linkChallenge(in: older))
+        XCTAssertEqual(NativeAuthAdapterError.fromBackend(older, provider: .apple), .accountConflict(provider: .apple))
+        XCTAssertEqual(NativeAuthAdapterError.fromBackend(BytspotAPIClient.APIError.server(status: 429, body: ""), provider: .apple), .tooManyAttempts)
+        XCTAssertEqual(NativeAuthAdapterError.fromBackend(URLError(.timedOut), provider: .google), .googleBackendVerificationFailed)
+    }
+
+    private struct LinkRequiredAppleAdapter: AppleAuthAdapter {
+        func signIn() async throws -> NativeAuthAdapterResult {
+            throw NativeAuthAdapterError.linkRequired(NativeProviderLinkChallenge(challengeId: "chal_1", maskedEmail: "a••@bytspot.com", provider: .apple))
+        }
+    }
+
+    @MainActor
+    func testTheEmailedCodeSignsInToTheExistingAccount() async throws {
+        let store = BytspotSessionStore(account: "native_link_\(UUID().uuidString)", service: "com.bytspot.link-tests")
+        defer { store.updateToken(nil); NativeSignedInIdentity.clear() }
+        let coordinator = NativeAuthCoordinator(appleAdapter: LinkRequiredAppleAdapter(), googleAdapter: FailingGoogleAdapter())
+        coordinator.handle(.signIn(.apple), sessionStore: store)
+        for _ in 0..<50 where coordinator.pendingLink == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(coordinator.pendingLink?.maskedEmail, "a••@bytspot.com")
+        XCTAssertEqual(coordinator.status, .ready, "a code to enter is not an error")
+
+        coordinator.confirmLinkRequest = { _, _ in throw BytspotAPIClient.APIError.server(status: 400, body: #"{"error":{"message":"That code isn't right. Check the email and try again."}}"#) }
+        let wrong = await coordinator.confirmLink(code: "000000", sessionStore: store)
+        XCTAssertEqual(wrong, "That code isn't right. Check the email and try again.")
+        XCTAssertFalse(store.isAuthenticated)
+        XCTAssertNotNil(coordinator.pendingLink, "a wrong code keeps the screen open")
+
+        coordinator.confirmLinkRequest = { challengeId, code in
+            XCTAssertEqual(challengeId, "chal_1")
+            XCTAssertEqual(code, "123456")
+            return try JSONDecoder().decode(NativeAuthResponse.self, from: Data(#"{"token":"linked-access","refreshToken":"linked-refresh","user":{"id":"usr_link","name":"Ama"},"emailVerified":true,"linkedProvider":"apple"}"#.utf8))
+        }
+        let failure = await coordinator.confirmLink(code: "123456", sessionStore: store)
+        XCTAssertNil(failure)
+        XCTAssertEqual(store.token, "linked-access")
+        XCTAssertEqual(store.refreshToken, "linked-refresh")
+        XCTAssertEqual(store.authenticatedUserID, "usr_link")
+        XCTAssertNil(coordinator.pendingLink)
+        XCTAssertEqual(coordinator.status, .signedIn(provider: .apple, displayName: "Ama"))
+    }
+
+    func testSignInMethodsNeverOfferToRemoveTheLastWayIn() throws {
+        let onlyApple = try JSONDecoder().decode(NativeSignInMethods.self, from: Data(#"{"password":false,"apple":true,"google":false}"#.utf8))
+        XCTAssertTrue(onlyApple.isLinked(.apple))
+        XCTAssertFalse(onlyApple.canRemove(.apple))
+        XCTAssertFalse(onlyApple.canRemove(.google), "nothing to remove")
+
+        let both = NativeSignInMethods(password: false, apple: true, google: true)
+        XCTAssertTrue(both.canRemove(.apple))
+        XCTAssertTrue(NativeSignInMethods(password: true, apple: true, google: false).canRemove(.apple))
     }
 
     func testSignedInIdentityStoresAndGreetsByFirstName() {

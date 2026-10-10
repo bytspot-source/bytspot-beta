@@ -3557,14 +3557,14 @@ private enum NativeLegalDocument: CaseIterable, Identifiable {
     case privacyPolicy, termsOfService, disclaimer
     var id: String { title }
     var title: String { switch self { case .privacyPolicy: return "Privacy Policy"; case .termsOfService: return "Terms of Service"; case .disclaimer: return "Disclaimer" } }
-    var updated: String { switch self { case .privacyPolicy: return "April 3, 2026"; case .termsOfService: return "April 12, 2026"; case .disclaimer: return "April 13, 2026" } }
+    var updated: String { switch self { case .privacyPolicy: return "April 3, 2026"; case .termsOfService: return "October 10, 2026"; case .disclaimer: return "April 13, 2026" } }
     var contact: String { switch self { case .termsOfService: return "legal@bytspot.com"; default: return "support@bytspot.com" } }
     var sections: [(String, String, String)] {
         switch self {
         case .privacyPolicy:
             return [("Information we collect", "Account information, when-in-use location, usage data, notification settings, and protected contact matching.", "lock.doc.fill"), ("How we use it", "Nearby venues, parking intelligence, opt-in alerts, authentication, and aggregated improvement.", "sparkles"), ("Your rights", "Delete your account, revoke permissions, and clear local preferences from Profile settings.", "hand.raised.fill")]
         case .termsOfService:
-            return [("License", "Personal, non-commercial use of Bytspot with no copying, reverse engineering, or competing reuse.", "doc.text.fill"), ("Service notes", "Crowd, parking, AI, venue, payment, and provider information can change and needs user judgment.", "checkmark.seal.fill"), ("User conduct", "Use Bytspot lawfully, keep account credentials safe, and do not interfere with app security.", "person.crop.circle.badge.checkmark")]
+            return [("License", "Personal, non-commercial use of Bytspot with no copying, reverse engineering, or competing reuse.", "doc.text.fill"), ("Service notes", "Crowd, parking, AI, venue, payment, and provider information can change and needs user judgment.", "checkmark.seal.fill"), ("User conduct", "Use Bytspot lawfully, keep account credentials safe, and do not interfere with app security.", "person.crop.circle.badge.checkmark"), ("Objectionable content", "There is no tolerance for objectionable content or abusive users. You can report any member, party, review or Private Sale from its menu, and block any member. We review reports within 24 hours; content that breaks these Terms is removed and accounts that post it are suspended or removed. Safety concerns: safety@bytspot.com.", "exclamationmark.shield.fill")]
         case .disclaimer:
             return [("Accuracy of data", "Crowd levels, wait times, venue details, and availability are estimates and may differ in real time.", "chart.bar.fill"), ("Parking information", "Always verify posted signs, pricing, availability, and physical lot rules before parking.", "parkingsign.circle.fill"), ("AI recommendations", "Concierge and recommendation outputs are informational and should not be the sole basis for safety decisions.", "sparkles")]
         }

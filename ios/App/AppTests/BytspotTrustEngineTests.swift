@@ -6229,6 +6229,58 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertTrue(NativeSignInMethods(password: true, apple: true, google: false).canRemove(.apple))
     }
 
+    func testAccountEmailsDecodeWithAndWithoutExtraEmails() throws {
+        let payload = BytspotAPIClient.unwrapTRPCData(try JSONSerialization.jsonObject(with: Data(#"{"result":{"data":{"json":{"accountEmail":{"email":"ama@example.com","confirmed":true},"extraEmails":[{"email":"ama@work.com","addedAt":"2026-10-01T12:00:00.000Z"}],"maxExtraEmails":5}}}}"#.utf8)))
+        let emails = try JSONDecoder().decode(NativeAccountEmails.self, from: JSONSerialization.data(withJSONObject: payload))
+        XCTAssertEqual(emails.accountEmail, NativeAccountEmails.AccountEmail(email: "ama@example.com", confirmed: true))
+        XCTAssertEqual(emails.extraEmails, [NativeAccountEmails.ExtraEmail(email: "ama@work.com", addedAt: "2026-10-01T12:00:00.000Z")])
+        XCTAssertEqual(emails.extraEmails.first?.id, "ama@work.com")
+        XCTAssertEqual(emails.maxExtraEmails, 5)
+
+        let empty = try JSONDecoder().decode(NativeAccountEmails.self, from: Data(#"{"accountEmail":{"email":"new@example.com","confirmed":false},"extraEmails":[],"maxExtraEmails":5}"#.utf8))
+        XCTAssertFalse(empty.accountEmail.confirmed)
+        XCTAssertTrue(empty.extraEmails.isEmpty)
+        XCTAssertFalse(empty.canAddEmail, "an unconfirmed account email can't add another")
+
+        let challenge = try JSONDecoder().decode(NativeAddEmailChallenge.self, from: Data(#"{"challengeId":"chal_add","maskedEmail":"a***@work.com","expiresInSecs":600,"resendInSecs":60}"#.utf8))
+        XCTAssertEqual(challenge, NativeAddEmailChallenge(challengeId: "chal_add", maskedEmail: "a***@work.com", expiresInSecs: 600, resendInSecs: 60))
+    }
+
+    func testAccountEmailRequestsUseServerRoutesAndBodies() throws {
+        func body(_ request: NativeAccountEmailsContract.Request) throws -> [String: Any] {
+            try XCTUnwrap(JSONSerialization.jsonObject(with: BytspotAPIClient.trpcMutationBody(request.input)) as? [String: Any])
+        }
+        XCTAssertEqual(NativeAccountEmailsContract.listRoute, "auth.emails")
+
+        let add = NativeAccountEmailsContract.addRequest(email: "  ama@work.com ", makeAccountEmail: false)
+        XCTAssertEqual(add.path, "/trpc/auth.addEmail")
+        let addBody = try body(add)
+        XCTAssertEqual(Set(addBody.keys), ["email", "makeAccountEmail"])
+        XCTAssertEqual(addBody["email"] as? String, "ama@work.com")
+        XCTAssertEqual(addBody["makeAccountEmail"] as? Bool, false)
+        XCTAssertEqual(try body(NativeAccountEmailsContract.addRequest(email: "ama@work.com", makeAccountEmail: true))["makeAccountEmail"] as? Bool, true)
+
+        let confirm = NativeAccountEmailsContract.confirmRequest(challengeId: "chal_add", code: "123456")
+        XCTAssertEqual(confirm.path, "/trpc/auth.confirmAddEmail")
+        XCTAssertEqual(try body(confirm) as? [String: String], ["challengeId": "chal_add", "code": "123456"])
+
+        let make = NativeAccountEmailsContract.makeAccountEmailRequest(email: "ama@work.com")
+        XCTAssertEqual(make.path, "/trpc/auth.makeAccountEmail")
+        XCTAssertEqual(try body(make) as? [String: String], ["email": "ama@work.com"])
+
+        let remove = NativeAccountEmailsContract.removeRequest(email: "ama@work.com")
+        XCTAssertEqual(remove.path, "/trpc/auth.removeEmail")
+        XCTAssertEqual(try body(remove) as? [String: String], ["email": "ama@work.com"])
+    }
+
+    func testAddEmailShowsOnlyForConfirmedAccountEmailUnderTheLimit() {
+        XCTAssertTrue(NativeAccountEmails.canAddEmail(accountEmailConfirmed: true, extraCount: 0, maxExtraEmails: 5))
+        XCTAssertTrue(NativeAccountEmails.canAddEmail(accountEmailConfirmed: true, extraCount: 4, maxExtraEmails: 5))
+        XCTAssertFalse(NativeAccountEmails.canAddEmail(accountEmailConfirmed: true, extraCount: 5, maxExtraEmails: 5))
+        XCTAssertFalse(NativeAccountEmails.canAddEmail(accountEmailConfirmed: true, extraCount: 6, maxExtraEmails: 5))
+        XCTAssertFalse(NativeAccountEmails.canAddEmail(accountEmailConfirmed: false, extraCount: 0, maxExtraEmails: 5))
+    }
+
     func testSignedInIdentityStoresAndGreetsByFirstName() {
         defer { NativeSignedInIdentity.clear() }
 

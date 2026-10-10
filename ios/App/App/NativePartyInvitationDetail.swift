@@ -96,6 +96,9 @@ struct NativePartyInvitationDetail: View {
     @State private var state = NativePartyInvitationState()
     @State private var reloadID = UUID()
     @State private var shareMessage = ""
+    @State private var hostsThisParty = true
+    @State private var safetyAction: NativeSafetyAction?
+    @State private var hidden = NativeSafetyHiddenSet()
 
     private struct LoadKey: Equatable {
         let partyID: String
@@ -114,7 +117,9 @@ struct NativePartyInvitationDetail: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                if let party {
+                if hidden.contains(partyID) {
+                    removed
+                } else if let party {
                     invitation(party)
                 } else if state.failed {
                     unavailable
@@ -133,8 +138,14 @@ struct NativePartyInvitationDetail: View {
         .navigationTitle("Party details")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
-            if let party { invitationActions(party) }
+            if let party, !hidden.contains(partyID) { invitationActions(party) }
         }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if let target = safetyTarget { NativeSafetyMenu(target: target, action: $safetyAction) }
+            }
+        }
+        .nativeSafetyActions($safetyAction, hidden: $hidden, sessionStore: sessionStore)
         .task(id: loadKey) { await load() }
         .onChange(of: sessionStore.token) { _ in refresh() }
         .onChange(of: scenePhase) { phase in
@@ -287,6 +298,21 @@ struct NativePartyInvitationDetail: View {
         .accessibilityIdentifier("native-invitation-session-\(session.id)")
     }
 
+    /// Never on the viewer's own Party, and only for a signed-in member.
+    private var safetyTarget: NativeSafetyTarget? {
+        guard sessionStore.canAttachBearerToken, !hostsThisParty, let party, !hidden.contains(partyID) else { return nil }
+        return NativeSafetyTarget(kind: .party, targetID: party.id, ownerName: party.hostName)
+    }
+
+    private var removed: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("You won't see this party anymore").font(.title2.bold())
+            Text("It's been taken off your screen.").font(.body).foregroundColor(NativeTheme.textSecondary)
+        }
+        .padding(.vertical, 40)
+        .accessibilityIdentifier("native-party-invitation-removed")
+    }
+
     private var unavailable: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Invitation unavailable").font(.title2.bold())
@@ -333,5 +359,17 @@ struct NativePartyInvitationDetail: View {
         let record = try? await NativePartyPassAPI(client: client).invite(partyID: key.partyID)
         guard !Task.isCancelled, loadKey == key else { return }
         state.finish(record, generation: generation)
+        hostsThisParty = token == nil ? false : await Self.hosts(partyID: key.partyID, client: client)
+    }
+
+    /// The invite carries no host id, so the host's own list decides. A
+    /// failed lookup leaves the menu up; the server refuses self-reports.
+    private static func hosts(partyID: String, client: BytspotAPIClient) async -> Bool {
+        let api = NativePartyControlAPI(client: client)
+        async let live = try? api.hosted()
+        async let closed = try? api.closedRooms()
+        let liveRooms = (await live) ?? []
+        let closedRooms = (await closed) ?? []
+        return liveRooms.contains { $0.id == partyID } || closedRooms.contains { $0.id == partyID }
     }
 }

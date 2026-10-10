@@ -1,13 +1,13 @@
 /**
  * Terms of Service / EULA — required for App Store submission and litigation protection.
  * Accessible at /terms (no auth required).
- * Last updated: 2026-04-12
+ * Last updated: 2026-10-10
  */
 export function TermsOfService() {
   return (
     <div className="min-h-screen bg-black text-white/90 px-6 py-12 max-w-2xl mx-auto leading-relaxed">
       <h1 className="text-3xl font-bold mb-2">Terms of Service</h1>
-      <p className="text-white/50 text-sm mb-8">Last updated: April 12, 2026</p>
+      <p className="text-white/50 text-sm mb-8">Last updated: October 10, 2026</p>
 
       <p className="mb-6">
         These Terms of Service ("Terms") govern your use of the Bytspot mobile application
@@ -69,7 +69,15 @@ export function TermsOfService() {
           <>You will not attempt to interfere with the App's operation or security.</>,
           <>You are responsible for maintaining the confidentiality of your account.</>,
           <>You must be at least 13 years old to use the App.</>,
+          <>There is no tolerance for objectionable content or abusive users. You will not post content that is sexually explicit, hateful, violent, threatening, harassing, fraudulent, or that impersonates someone, and you will not harass, threaten, or abuse other members.</>,
         ]} />
+        <p className="mt-3">
+          You can report any member, party, review, or Private Sale from its menu in the App, and block any
+          member so neither of you sees the other. We review reports within 24 hours. Content that breaks
+          these Terms is removed, and accounts that post it or abuse other members are suspended or removed.
+          Safety concerns can also be sent to{' '}
+          <a href="mailto:safety@bytspot.com" className="text-blue-400 underline">safety@bytspot.com</a>.
+        </p>
       </Section>
 
       <Section title="5. User Content">
@@ -119,7 +127,9 @@ export function TermsOfService() {
       <Section title="10. Contact Us">
         <p>
           Questions about these Terms? Contact us at{' '}
-          <a href="mailto:legal@bytspot.com" className="text-blue-400 underline">legal@bytspot.com</a>
+          <a href="mailto:legal@bytspot.com" className="text-blue-400 underline">legal@bytspot.com</a>.
+          To report abuse or a safety concern, email{' '}
+          <a href="mailto:safety@bytspot.com" className="text-blue-400 underline">safety@bytspot.com</a>.
         </p>
       </Section>
 

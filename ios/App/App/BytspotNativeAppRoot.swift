@@ -377,7 +377,7 @@ enum NativeAuthLaunchContract {
     /// verified Party Pass; first-run discovery onboarding is unrelated.
     static func bypassesLaunchFlow(for destination: NativeContextualDestination?) -> Bool {
         switch destination {
-        case .party, .plan: return true
+        case .party, .plan, .sale: return true
         default: return false
         }
     }

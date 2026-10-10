@@ -1780,6 +1780,8 @@ struct NativePlanDetailSheet: View {
     @State private var leftForTableBooking: NativePlan.Item?
     @State private var askDidBook: NativePlan.Item?
     @State private var recordingBooking: NativePlan.Item?
+    @State private var safetyAction: NativeSafetyAction?
+    @State private var hiddenMembers = NativeSafetyHiddenSet()
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
 
@@ -1801,6 +1803,7 @@ struct NativePlanDetailSheet: View {
         .interactiveDismissDisabled(busy)
         .disabled(busy)
         .accessibilityIdentifier("native-plan-detail-\(planID)")
+        .nativeSafetyActions($safetyAction, hidden: $hiddenMembers, sessionStore: sessionStore)
         .task { await reload() }
         // Do not wait for Plan/Prime Path requests before loading invite targets.
         .task(id: sessionStore.authenticatedUserID) { await loadConnections() }
@@ -2010,9 +2013,10 @@ struct NativePlanDetailSheet: View {
 
         sectionHeader("People")
         VStack(alignment: .leading, spacing: 4) {
-            ForEach(NativePlanDisplay.visibleParticipants(plan.participants), id: \.userId) { seat in
+            ForEach(hiddenMembers.visible(NativePlanDisplay.visibleParticipants(plan.participants), id: \.userId), id: \.userId) { seat in
+                let name = NativePlanDisplay.participantDisplayName(seat, selfUserId: sessionStore.authenticatedUserID, connections: connections)
                 HStack {
-                    Text(NativePlanDisplay.participantDisplayName(seat, selfUserId: sessionStore.authenticatedUserID, connections: connections)).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+                    Text(name).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
                     if seat.role == "creator" { Text("HOST").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.purple) }
                     Spacer()
                     Text(seat.status.capitalized).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
@@ -2024,6 +2028,10 @@ struct NativePlanDetailSheet: View {
                             Text("Remove").font(.system(size: 11, weight: .bold)).foregroundColor(NativeTheme.orange)
                         }
                         .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-remove-\(seat.userId)")
+                    }
+                    if sessionStore.canAttachBearerToken, seat.userId != sessionStore.authenticatedUserID {
+                        NativeSafetyMenu(target: NativeSafetyTarget(kind: .user, targetID: seat.userId, ownerName: name), action: $safetyAction)
+                            .padding(.vertical, -10)
                     }
                 }
             }

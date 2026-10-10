@@ -124,7 +124,7 @@ final class NativeMapOpenLifecycleTests: XCTestCase {
             XCTAssertLessThan(acknowledge.lowerBound, commit.lowerBound)
         }
         let explicit = try section("    private var hasExplicitMapHandoff:", "    private func openDiscoverFilter(")
-        for signal in ["directMapRouteStore.hasPendingRoute", "NativeOnboardingMapHandoff.hasFreshDestination",
+        for signal in ["saleMeetStore.card != nil", "directMapRouteStore.hasPendingRoute", "NativeOnboardingMapHandoff.hasFreshDestination",
                        "NativeMapFocusHandoff.hasPendingFocus", "navigation.requestedMapCenter != nil"] {
             XCTAssertTrue(explicit.contains(signal), signal)
         }
@@ -2113,6 +2113,80 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(try payload("venue-a", selected: nil, photo: true).isSelected)
     }
 
+    func testSelectedPinIsHighlightedAndTheOthersStepBack() throws {
+        func payload(_ id: String, selected: String?) throws -> NativeMapAnnotationPayload {
+            try XCTUnwrap(NativeMapAnnotationPayload(id: id, title: "Place", caption: "",
+                latitude: 33.7878, longitude: -84.3832, selectedID: selected))
+        }
+        XCTAssertFalse(try payload("venue-a", selected: "venue-a").isDimmed)
+        XCTAssertTrue(try payload("venue-b", selected: "venue-a").isDimmed)
+        XCTAssertFalse(try payload("venue-b", selected: nil).isDimmed, "With nothing selected, no pin fades.")
+        XCTAssertGreaterThan(NativeMapPinFocusStyle.photoSize(isSelected: true), NativeMapPinFocusStyle.photoSize(isSelected: false))
+        XCTAssertEqual(NativeMapPinFocusStyle.alpha(isDimmed: false), 1)
+        XCTAssertLessThan(NativeMapPinFocusStyle.alpha(isDimmed: true), 0.5)
+        XCTAssertGreaterThan(NativeMapPinFocusStyle.alpha(isDimmed: true), 0.3, "Faded pins must stay visible and tappable.")
+    }
+
+    func testNightMapIsTiltedWithGlowingNightlifeAndDayIsFlat() throws {
+        XCTAssertGreaterThan(NativeMapLookPolicy.pitch(darkAppearance: true), 0)
+        XCTAssertEqual(NativeMapLookPolicy.pitch(darkAppearance: false), 0, "Day stays flat for easy reading.")
+
+        XCTAssertEqual(NativeMapLookPolicy.glow(kind: .parking, crowdLevel: 4), 0, "Parking never glows.")
+        let quiet = NativeMapLookPolicy.glow(kind: .venue, crowdLevel: 1)
+        let packed = NativeMapLookPolicy.glow(kind: .venue, crowdLevel: 4)
+        XCTAssertGreaterThan(quiet, 0)
+        XCTAssertGreaterThan(packed, quiet, "A busier place glows more.")
+        XCTAssertLessThanOrEqual(packed, 1)
+        XCTAssertEqual(NativeMapLookPolicy.glow(kind: .partner, crowdLevel: nil), quiet)
+        XCTAssertEqual(NativeMapLookPolicy.glow(kind: .access, crowdLevel: 9), packed)
+
+        let payload = try XCTUnwrap(NativeMapAnnotationPayload(id: "a", title: "Place", caption: "", latitude: 33.78, longitude: -84.38,
+                                                               selectedID: nil, glow: 3))
+        XCTAssertEqual(payload.glow, 1)
+
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("App/NativeShellView.swift"), encoding: .utf8)
+        let map = try XCTUnwrap(source.range(of: "private struct NativeGeographicMap: UIViewRepresentable {"))
+        let mapEnd = try XCTUnwrap(source.range(of: "private struct NativeMapExploreView: View {", range: map.upperBound..<source.endIndex))
+        let mapSource = String(source[map.lowerBound..<mapEnd.lowerBound])
+        XCTAssertFalse(mapSource.contains("map.isPitchEnabled = false"))
+        XCTAssertTrue(mapSource.contains("map.isPitchEnabled = dark"))
+        XCTAssertTrue(mapSource.contains("MKStandardMapConfiguration(elevationStyle: dark ? .realistic : .flat)"))
+        XCTAssertTrue(mapSource.contains("configuration.pointOfInterestFilter = .excludingAll"), "3D must not bring Apple's place labels back.")
+    }
+
+    func testRouteLineAppearsOnlyWhenAskedAndFitsAboveThePanel() throws {
+        let here = CLLocationCoordinate2D(latitude: 33.78101, longitude: -84.38302)
+        let venue = CLLocationCoordinate2D(latitude: 33.7878, longitude: -84.3832)
+        XCTAssertNil(NativeMapRoutePolicy.key(origin: nil, destination: venue), "No device fix, no invented route.")
+        XCTAssertNil(NativeMapRoutePolicy.key(origin: here, destination: nil), "No route asked for, no line.")
+        let key = try XCTUnwrap(NativeMapRoutePolicy.key(origin: here, destination: venue))
+        let nudged = CLLocationCoordinate2D(latitude: 33.78104, longitude: -84.38299)
+        XCTAssertEqual(NativeMapRoutePolicy.key(origin: nudged, destination: venue), key, "A few metres of drift must not re-route.")
+        let elsewhere = CLLocationCoordinate2D(latitude: 33.7700, longitude: -84.3900)
+        XCTAssertNotEqual(NativeMapRoutePolicy.key(origin: here, destination: elsewhere), key)
+
+        let margins = NativeMapViewportPolicy.margins(panelFootprint: 300)
+        let padding = try XCTUnwrap(NativeMapRoutePolicy.fitPadding(margins: margins, mapHeight: 800))
+        XCTAssertGreaterThan(padding.bottom, margins.bottom, "The route sits above the panel, not under it.")
+        XCTAssertGreaterThan(padding.top, margins.top)
+        XCTAssertNil(NativeMapRoutePolicy.fitPadding(margins: NativeMapViewportPolicy.margins(panelFootprint: 650), mapHeight: 800))
+
+        XCTAssertEqual(NativeMapRoutePolicy.etaLabel(seconds: 10), "1 min")
+        XCTAssertEqual(NativeMapRoutePolicy.etaLabel(seconds: 720), "12 min")
+        XCTAssertEqual(NativeMapRoutePolicy.etaLabel(seconds: 3600), "1 hr")
+        XCTAssertEqual(NativeMapRoutePolicy.etaLabel(seconds: 3900), "1 hr 5 min")
+
+        XCTAssertLessThan(NativeMapPinFocusStyle.alpha(isDimmed: true, isRouteMode: true), NativeMapPinFocusStyle.alpha(isDimmed: true))
+        XCTAssertEqual(NativeMapPinFocusStyle.alpha(isDimmed: false, isRouteMode: true), 1, "The destination never fades.")
+        let other = try XCTUnwrap(NativeMapAnnotationPayload(id: "b", title: "Place", caption: "", latitude: 33.78, longitude: -84.38,
+                                                             selectedID: "a", isRouteMode: true))
+        XCTAssertTrue(other.isDimmed)
+        XCTAssertTrue(other.isRouteMode)
+        XCTAssertFalse(try XCTUnwrap(NativeMapAnnotationPayload(id: "b", title: "Place", caption: "", latitude: 33.78, longitude: -84.38,
+                                                                selectedID: nil, isRouteMode: true)).isRouteMode)
+    }
+
     func testMapCameraCommandsAreConsumedOnceAndPermitExplicitRefocus() {
         var gate = NativeMapCameraCommandGate()
         let initial = UUID()
@@ -2743,7 +2817,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         let body = String(source[bodyStart.lowerBound..<bodyEnd.lowerBound])
         XCTAssertTrue(body.contains("ZStack(alignment: .bottom) {"), "The panel floats over the map.")
         XCTAssertFalse(body.contains("NativeDeepSpaceGround()"), "No starfield behind the map.")
-        XCTAssertTrue(body.contains("panelFootprint: shouldShowSpatialSheet ? mapPanelFootprint(available: proxy.size.height) : 0"))
+        XCTAssertTrue(body.contains("panelFootprint: saleMeetStore.card != nil ? saleMeetCardHeight : shouldShowSpatialSheet ? mapPanelFootprint(available: proxy.size.height) : 0"))
         XCTAssertTrue(source.contains("NativeMapGlass(shape: RoundedRectangle(cornerRadius: NativePolish.mapSheetRadius, style: .continuous))"))
         XCTAssertTrue(source.contains("map.layoutMargins = NativeMapViewportPolicy.margins(panelFootprint: panelFootprint)"))
 
@@ -2860,6 +2934,84 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeMapPanelDetent.half.larger, .nearFull)
         XCTAssertEqual(NativeMapPanelDetent.nearFull.larger, .nearFull)
         XCTAssertEqual(NativeMapPanelDetent.peek.smaller, .peek)
+    }
+
+    func testPrivateSaleSellerRulesMatchTheServer() throws {
+        XCTAssertEqual(NativePrivateSalePolicy.normalizedHandle(.paypal, "https://www.paypal.me/JaneDoe/10"), "JaneDoe")
+        XCTAssertEqual(NativePrivateSalePolicy.normalizedHandle(.cashapp, "$jane_doe"), "jane_doe")
+        XCTAssertEqual(NativePrivateSalePolicy.normalizedHandle(.cashapp, "cash.app/$jane"), "jane")
+        XCTAssertNil(NativePrivateSalePolicy.normalizedHandle(.cashapp, "$12345"), "A cashtag needs a letter.")
+        XCTAssertEqual(NativePrivateSalePolicy.normalizedHandle(.venmo, "@Jane-Doe"), "Jane-Doe")
+        XCTAssertEqual(NativePrivateSalePolicy.normalizedHandle(.venmo, "venmo.com/u/Jane-Doe"), "Jane-Doe")
+        XCTAssertNil(NativePrivateSalePolicy.normalizedHandle(.venmo, "@jd"))
+        XCTAssertNil(NativePrivateSalePolicy.normalizedHandle(.paypal, "jane doe"))
+        XCTAssertEqual(NativePrivateSalePolicy.handleURL(.cashapp, "jane"), URL(string: "https://cash.app/$jane"))
+        XCTAssertEqual(NativePrivateSalePolicy.handleURL(.venmo, "Jane-Doe"), URL(string: "https://venmo.com/u/Jane-Doe"))
+
+        XCTAssertEqual(NativePrivateSalePolicy.priceCents(from: "$1,200"), 120_000)
+        XCTAssertEqual(NativePrivateSalePolicy.priceCents(from: "12.5"), 1250)
+        XCTAssertEqual(NativePrivateSalePolicy.priceCents(from: "0"), 0)
+        XCTAssertNil(NativePrivateSalePolicy.priceCents(from: "12.345"))
+        XCTAssertNil(NativePrivateSalePolicy.priceCents(from: "abc"))
+        XCTAssertNil(NativePrivateSalePolicy.priceCents(from: "100001"))
+
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertNil(NativePrivateSalePolicy.windowProblem(start: now.addingTimeInterval(3600), end: now.addingTimeInterval(4 * 3600 + 3600), now: now))
+        XCTAssertNotNil(NativePrivateSalePolicy.windowProblem(start: now.addingTimeInterval(-600), end: now.addingTimeInterval(600), now: now))
+        XCTAssertNotNil(NativePrivateSalePolicy.windowProblem(start: now.addingTimeInterval(8 * 86_400), end: now.addingTimeInterval(8 * 86_400 + 600), now: now))
+        XCTAssertNotNil(NativePrivateSalePolicy.windowProblem(start: now.addingTimeInterval(600), end: now.addingTimeInterval(600), now: now))
+        XCTAssertNotNil(NativePrivateSalePolicy.windowProblem(start: now, end: now.addingTimeInterval(4 * 3600 + 1), now: now))
+        let start = NativePrivateSalePolicy.defaultStart(now: now)
+        XCTAssertGreaterThanOrEqual(start.timeIntervalSince(now), 3600)
+        XCTAssertEqual(start.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 900), 0)
+        XCTAssertTrue(NativePrivateSalePolicy.windowLengths.allSatisfy { NativePrivateSalePolicy.windowProblem(start: start, end: start.addingTimeInterval(TimeInterval($0 * 60)), now: now) == nil })
+
+        XCTAssertEqual(NativePrivateSalePolicy.areaLabel(fromAddress: "123 Peachtree St, Atlanta, GA 30303"), "Atlanta")
+        XCTAssertNil(NativePrivateSalePolicy.areaLabel(fromAddress: "Atlanta, GA"))
+
+        let list = try JSONDecoder().decode(NativeOwnSaleList.self, from: Data("""
+        {"limits":{"tier":"green","openSales":1,"buyersPerSale":1},"sales":[{"saleId":"s1","title":"Bike","priceCents":12000,"state":"open","shareUrl":"https://bytspot.app/sale/s1","meetPoint":{"lat":33.78,"lng":-84.38,"placeName":"Cafe","areaLabel":null},"windowStart":"2026-10-10T18:00:00.000Z","windowEnd":"2026-10-10T19:00:00.000Z","buyerLimit":1,"providers":["venmo"],"requests":[{"requestId":"r1","buyerName":"Sam","status":"pending","arrivedAt":null,"createdAt":"2026-10-09T18:00:00.000Z"}]}]}
+        """.utf8))
+        XCTAssertEqual(list.sales[0].shareURL, URL(string: "https://bytspot.app/sale/s1"))
+        XCTAssertEqual(list.sales[0].pendingCount, 1)
+        XCTAssertNotNil(list.sales[0].windowStartDate)
+        XCTAssertFalse(NativePrivateSalePolicy.canOpenAnother(limits: list.limits, sales: list.sales), "Green allows 1 open sale.")
+        XCTAssertEqual(NativePrivateSalePolicy.buyerLimitRange(list.limits), 1...1)
+        let black = NativeSaleLimits(tier: "black", openSales: nil, buyersPerSale: 5)
+        XCTAssertTrue(NativePrivateSalePolicy.canOpenAnother(limits: black, sales: list.sales))
+        XCTAssertEqual(NativePrivateSalePolicy.buyerLimitRange(black), 1...5)
+        XCTAssertEqual(NativePrivateSalePolicy.priceLabel(cents: 12000), "$120")
+
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("App/NativeShellView.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("NativePrivateSalesCard(requestAuthentication: beginAuthentication)"))
+        XCTAssertFalse(source.contains("native-host-studio-launch"), "Host Studio lives in the tab bar, not again in Hosting.")
+    }
+
+    func testMapPanelOpensAllTheWayScrollsAtNearFullAndKeepsAMapStrip() throws {
+        XCTAssertFalse(NativeMapPanelDetent.contentScrolls(at: .peek), "Below near-full a swipe on a card resizes the panel.")
+        XCTAssertFalse(NativeMapPanelDetent.contentScrolls(at: .half))
+        XCTAssertTrue(NativeMapPanelDetent.contentScrolls(at: .nearFull), "Every card is reachable by scrolling at near-full.")
+
+        let chrome = NativePolish.mapSheetInnerTopPadding + NativePolish.mapSheetInnerBottomPadding + NativePolish.mapSheetBottomInset
+        for available: CGFloat in [300, 520, 700, 852, 1100] {
+            let strip = available - NativeMapPanelDetent.nearFull.height(available: available) - chrome
+            XCTAssertGreaterThanOrEqual(strip, NativePolish.mapSearchHeight + 40,
+                                        "A strip of map with the legal label stays visible at near-full (\(available) pt).")
+        }
+
+        // A flick carries its speed into the snap; a slow release or a reversal starts from rest.
+        let flick = NativeMapPanelDetent.releaseVelocity(translation: -60, predictedTranslation: -260, liveHeight: 400, targetHeight: 600)
+        XCTAssertEqual(flick, 4, accuracy: 1e-9)
+        XCTAssertEqual(NativeMapPanelDetent.releaseVelocity(translation: -60, predictedTranslation: -60, liveHeight: 400, targetHeight: 600), 0)
+        XCTAssertEqual(NativeMapPanelDetent.releaseVelocity(translation: -60, predictedTranslation: 200, liveHeight: 400, targetHeight: 600), 0)
+        XCTAssertEqual(NativeMapPanelDetent.releaseVelocity(translation: 0, predictedTranslation: -4000, liveHeight: 400, targetHeight: 410), 12)
+        XCTAssertEqual(NativeMapPanelDetent.releaseVelocity(translation: 0, predictedTranslation: -400, liveHeight: 400, targetHeight: 400.5), 0)
+
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("App/NativeShellView.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains(".modifier(NativeMapPanelContentDrag(contentScrolls: NativeMapPanelDetent.contentScrolls(at: restingMapPanelDetent),"))
+        XCTAssertTrue(source.contains(".simultaneousGesture(resize, including: contentScrolls ? .subviews : .all)"))
     }
 
     func testRegionalMapFocusHandoffExpiresOutsideItsOriginWhileExplicitFocusRemainsValid() {
@@ -5497,6 +5649,86 @@ final class NativeProfileDataAPITests: XCTestCase {
     func testPlanInviteLinkBypassesLaunchSuppressionSoAColdStartPresents() {
         XCTAssertTrue(BytspotNativeShellView.destinationBypassesLaunchSuppression(.plan(planId: "pl-1", token: "tok")))
         XCTAssertTrue(NativeAuthLaunchContract.bypassesLaunchFlow(for: .plan(planId: "pl-1", token: "tok")))
+    }
+
+    @MainActor
+    func testPrivateSaleLinkOpensTheSaleOverTheCurrentTab() throws {
+        for raw in ["https://bytspot.app/sale/sale-1", "bytspot://sale/sale-1"] {
+            let coordinator = NativeNavigationCoordinator()
+            XCTAssertTrue(coordinator.handle(url: try XCTUnwrap(URL(string: raw))), raw)
+            XCTAssertNil(coordinator.requestedTab, raw)
+            XCTAssertEqual(coordinator.requestedDestination, .sale(saleID: "sale-1"), raw)
+        }
+        for raw in ["https://bytspot.app/sale", "https://bytspot.app/sale/a/b", "https://example.com/sale/x",
+                    "https://bytspot.app/sale/" + String(repeating: "x", count: 65)] {
+            XCTAssertNil(NativePrivateSaleRoute(url: try XCTUnwrap(URL(string: raw))), raw)
+        }
+        XCTAssertTrue(BytspotNativeShellView.destinationBypassesLaunchSuppression(.sale(saleID: "sale-1")))
+        XCTAssertTrue(NativeAuthLaunchContract.bypassesLaunchFlow(for: .sale(saleID: "sale-1")))
+    }
+
+    func testPrivateSaleBuyerSeesOnlyWhatTheServerSends() throws {
+        let listing = try JSONDecoder().decode(NativeSaleListing.self, from: Data("""
+        {"saleId":"s1","title":"Desk lamp","priceCents":2500,"sellerName":"Ada","windowStart":"2026-10-09T18:00:00.000Z",
+         "windowEnd":"2026-10-09T19:00:00.000Z","areaLabel":null,"isSeller":false,"myRequest":null}
+        """.utf8))
+        XCTAssertNil(listing.areaLabel)
+        XCTAssertNotNil(listing.windowStartDate)
+        func makeListing(seller: Bool = false, request: String?) -> NativeSaleListing {
+            NativeSaleListing(saleId: "s1", title: "t", priceCents: 1, sellerName: "Ada", windowStart: "", windowEnd: "",
+                              areaLabel: nil, isSeller: seller, myRequest: request)
+        }
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: false, listing: makeListing(request: "approved")), .signedOut)
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: makeListing(seller: true, request: nil)), .ownSale)
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: makeListing(request: nil)), .canAsk)
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: makeListing(request: "pending")), .waiting)
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: makeListing(request: "approved")), .approved)
+        XCTAssertEqual(NativePrivateSalePolicy.buyerStage(signedIn: true, listing: makeListing(request: "declined")), .declined)
+
+        let card = try JSONDecoder().decode(NativeSaleBuyerCard.self, from: Data("""
+        {"saleId":"s1","title":"Desk lamp","priceCents":2500,"sellerName":"Ada",
+         "meetPoint":{"lat":33.757,"lng":-84.364,"placeName":"Krog Street Market","areaLabel":"Inman Park"},
+         "windowStart":"2026-10-09T18:00:00.000Z","windowEnd":"2026-10-09T19:00:00.000Z","arrivedAt":null,
+         "pay":[{"provider":"venmo","handle":"Ada-L","displayName":"Ada","confirmedAt":"2026-10-01T00:00:00.000Z",
+                 "url":"https://venmo.com/u/Ada-L","label":"Seller-confirmed handle","reminder":"Pay only after you see the item."}]}
+        """.utf8))
+        XCTAssertEqual(card.meetName, "Krog Street Market")
+        XCTAssertEqual(card.pay.map(\.provider), [.venmo])
+        XCTAssertEqual(NativePrivateSalePolicy.reminders(card.pay + card.pay), ["Pay only after you see the item."])
+        let point = try XCTUnwrap(card.meetRoutePoint)
+        XCTAssertEqual(NativePrivateSalePolicy.directionsURL(to: point)?.absoluteString,
+                       "https://maps.apple.com/?daddr=33.757,-84.364&dirflg=d")
+
+        let start = try XCTUnwrap(card.windowStartDate), end = try XCTUnwrap(card.windowEndDate)
+        XCTAssertFalse(NativePrivateSalePolicy.canSayArrived(start: start, end: end, now: start.addingTimeInterval(-31 * 60)))
+        XCTAssertTrue(NativePrivateSalePolicy.canSayArrived(start: start, end: end, now: start.addingTimeInterval(-29 * 60)))
+        XCTAssertFalse(NativePrivateSalePolicy.canSayArrived(start: start, end: end, now: end))
+        XCTAssertTrue(NativePrivateSalePolicy.isUnavailable(BytspotAPIClient.APIError.server(status: 404, body: "")))
+        XCTAssertFalse(NativePrivateSalePolicy.isUnavailable(BytspotAPIClient.APIError.server(status: 500, body: "")))
+    }
+
+    @MainActor
+    func testPrivateSaleMeetStaysInMemoryAndNeedsAMeetPoint() throws {
+        let store = NativePrivateSaleMeetStore()
+        let card = NativeSaleBuyerCard(saleId: "s1", title: "t", priceCents: 1, sellerName: "Ada",
+                                       meetPoint: NativeSaleMeetPoint(lat: 33.757, lng: -84.364, placeName: nil, areaLabel: "Inman Park"),
+                                       windowStart: "", windowEnd: "", arrivedAt: nil, pay: [])
+        store.show(card)
+        XCTAssertEqual(store.card, card)
+        XCTAssertEqual(card.meetName, "Inman Park")
+        store.show(NativeSaleBuyerCard(saleId: "s2", title: "t", priceCents: 1, sellerName: "Ada",
+                                       meetPoint: NativeSaleMeetPoint(lat: 0, lng: 0, placeName: nil, areaLabel: nil),
+                                       windowStart: "", windowEnd: "", arrivedAt: nil, pay: []))
+        XCTAssertNil(store.card, "No usable meet point, nothing on the Map.")
+        store.show(card); store.clear()
+        XCTAssertNil(store.card)
+
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("App/NativePrivateSales.swift"), encoding: .utf8)
+        let storeStart = try XCTUnwrap(source.range(of: "final class NativePrivateSaleMeetStore"))
+        let storeSource = String(source[storeStart.lowerBound...].prefix(600))
+        XCTAssertFalse(storeSource.contains("UserDefaults"))
+        XCTAssertFalse(storeSource.contains("AppStorage"))
     }
 
     // MARK: - Coffee (Phase 2 iOS surface)

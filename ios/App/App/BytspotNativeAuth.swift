@@ -58,6 +58,7 @@ enum NativeAuthAdapterError: Error, Equatable {
     /// The email's account was sent a code; entering it adds this provider.
     case linkRequired(NativeProviderLinkChallenge)
     case tooManyAttempts
+    case accountSuspended
     case mockedFailure(provider: NativeAuthProvider)
 
     var status: NativeAuthStatus {
@@ -79,6 +80,7 @@ enum NativeAuthAdapterError: Error, Equatable {
             return .failed(message: "Enter the code we emailed to \(link.maskedEmail) to add \(link.provider.shortName) sign-in.")
         case .tooManyAttempts:
             return .failed(message: "Too many attempts. Wait a moment and try again.")
+        case .accountSuspended: return .failed(message: NativeAuthDataAPI.suspendedMessage)
         case .mockedFailure(let provider): return .failed(message: "DEBUG mock \(provider.title) failure.")
         }
     }
@@ -87,6 +89,7 @@ enum NativeAuthAdapterError: Error, Equatable {
     static func fromBackend(_ error: Error, provider: NativeAuthProvider) -> NativeAuthAdapterError {
         if let link = NativeAuthDataAPI.linkChallenge(in: error) { return .linkRequired(link) }
         if NativeAuthDataAPI.isAccountConflict(error) { return .accountConflict(provider: provider) }
+        if NativeAuthDataAPI.isAccountSuspended(error) { return .accountSuspended }
         if case let BytspotAPIClient.APIError.server(status, _) = error, status == 429 { return .tooManyAttempts }
         return provider == .apple ? .appleBackendVerificationFailed : .googleBackendVerificationFailed
     }

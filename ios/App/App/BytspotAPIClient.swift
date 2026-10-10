@@ -1777,6 +1777,12 @@ struct NativeEmailVerifyResponse: Codable, Equatable {
     var emailVerified: Bool
 }
 
+struct NativePasswordResetCodeResponse: Codable, Equatable {
+    var challengeId: String
+    var expiresInSecs: Int?
+    var resendInSecs: Int?
+}
+
 struct NativeAuthMeResponse: Codable, Equatable {
     struct User: Codable, Equatable {
         var id: String?
@@ -1790,8 +1796,12 @@ enum NativeEmailVerificationContract {
     static let sendCodeRoute = "auth.sendEmailCode"
     static let verifyRoute = "auth.verifyEmail"
     static let meRoute = "auth.me"
+    static let requestPasswordResetRoute = "auth.requestPasswordReset"
+    static let resetPasswordRoute = "auth.resetPassword"
     static let codeLength = 6
     static let defaultResendSecs = 60
+    /// The server's `auth.resetPassword` minimum.
+    static let newPasswordMinimum = 8
 
     static func sanitizedCode(_ raw: String) -> String {
         String(raw.filter(\.isNumber).prefix(codeLength))
@@ -1841,7 +1851,15 @@ struct NativeAuthDataAPI {
         try await client.trpcDecode(NativeAuthMeResponse.self, path: "/trpc/\(NativeEmailVerificationContract.meRoute)")
     }
 
-    static func emailCodeMessage(for error: Error) -> String {
+    func requestPasswordReset(email: String) async throws -> NativePasswordResetCodeResponse {
+        try await client.trpcDecode(NativePasswordResetCodeResponse.self, path: "/trpc/\(NativeEmailVerificationContract.requestPasswordResetRoute)", method: "POST", input: ["email": email.trimmingCharacters(in: .whitespacesAndNewlines)])
+    }
+
+    func resetPassword(challengeId: String, code: String, newPassword: String) async throws -> NativeAuthResponse {
+        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/\(NativeEmailVerificationContract.resetPasswordRoute)", method: "POST", input: ["challengeId": challengeId, "code": code, "password": newPassword])
+    }
+
+    static func emailCodeMessage(for error: Error, fallback: String = "We couldn't send your code. Please try again.") -> String {
         if let urlError = error as? URLError,
            [.timedOut, .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {
             return "We couldn't connect. Check your internet and try again."
@@ -1852,7 +1870,7 @@ struct NativeAuthDataAPI {
             if status == 429 { return message.hasPrefix("Wait ") ? message : "Too many attempts. Wait a moment and try again." }
             if !message.isEmpty, !message.hasPrefix("["), status == 400 || status == 412 { return message }
         }
-        return "We couldn't send your code. Please try again."
+        return fallback
     }
 
     static func signupInput(email: String, password: String, name: String, ref: String?) -> [String: Any] {

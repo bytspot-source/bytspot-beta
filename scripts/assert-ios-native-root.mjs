@@ -56,6 +56,7 @@ const expectedAasaComponents = [
   { '/': '/p/*', comment: 'Patch verify deep link' },
   { '/': '/party/*', comment: 'Published Host Studio Party Pass' },
   { '/': '/plan/*', comment: 'Plan invite deep link; bearer join token carried in the t query' },
+  { '/': '/sale/*', comment: 'Private Sale share link' },
   { '/': '/access', comment: 'Native Access wallet' },
   { '/': '/access/*', comment: 'Full-app handoff path emitted by App Clip mainAppHandoffURL' },
   { '/': '/patch', comment: 'Compatibility path for older Smart App Banner defaults' },
@@ -80,7 +81,7 @@ const expectedAasaComponents = [
   { '/': '/', '?': { patch: '?*' }, comment: 'Legacy patch query parameter' },
 ];
 const requiredUniversalLinkPatterns = [
-  '/BYT424', '/BYT*', '/p/*', '/party/*', '/plan/*', '/access', '/access/*', '/patch', '/patch/*', '/t/*', '/v/*', '/clip',
+  '/BYT424', '/BYT*', '/p/*', '/party/*', '/plan/*', '/sale/*', '/access', '/access/*', '/patch', '/patch/*', '/t/*', '/v/*', '/clip',
   '/profile', '/profile/*', '/map', '/map/*', '/discover', '/discover/*', '/venue/*', '/concierge', '/concierge/*',
   '/booking/*', '/privacy', '/terms', '/disclaimer', '/',
 ];
@@ -121,6 +122,7 @@ const checks = [
   ['Native router covers AASA compatibility paths', nativeRouting.includes('path.hasPrefix("v/")') && nativeRouting.includes('path == "clip"') && nativeRouting.includes('path == "patch"')],
   ['Native router covers required Parker paths', nativeRouting.includes('path == "access"') && nativeRouting.includes('path.hasPrefix("booking/")') && nativeRouting.includes('path == "profile"') && nativeRouting.includes('path == "map"') && nativeRouting.includes('path == "discover"') && nativeRouting.includes('path == "concierge"')],
   ['Native router covers the Plan invite deep link', nativeRouting.includes('NativePlanRoute(url: url)')],
+  ['Native router covers the Private Sale link', nativeRouting.includes('NativePrivateSaleRoute(url: url)')],
   ['AASA includes every required native universal-link pattern', requiredUniversalLinkPatterns.every((pattern) => aasaPatterns.has(pattern))],
   ['AASA does not advertise unsupported native universal-link patterns', [...aasaPatterns].every((pattern) => allowedUniversalLinkPatterns.has(pattern))],
   ['AASA component matrix exactly matches native route contract', JSON.stringify(aasaComponents) === JSON.stringify(expectedAasaComponents)],

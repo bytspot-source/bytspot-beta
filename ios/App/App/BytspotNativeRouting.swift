@@ -9,6 +9,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
     case patch(BytspotPatchRoute)
     case booking(status: String, url: URL, ride: NativeMobilityRideRecord? = nil)
     case legal(title: String, url: URL)
+    case sale(saleID: String)
 
     var id: String {
         switch self {
@@ -19,6 +20,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         case .patch(let route): return "patch-\(route.patchId)"
         case .booking(let status, let url, let ride): return "booking-\(status)-\(ride?.id ?? url.absoluteString)"
         case .legal(let title, let url): return "legal-\(title)-\(url.absoluteString)"
+        case .sale(let saleID): return "sale-\(saleID)"
         }
     }
 
@@ -31,6 +33,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         case .patch(let route): return "Patch \(route.patchId)"
         case .booking(let status, _, _): return status == "success" ? "Booking Confirmed" : "Booking Update"
         case .legal(let title, _): return title
+        case .sale: return "Private Sale"
         }
     }
 
@@ -43,6 +46,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         case .patch(let route): return "\(route.tier.displayName) access · \(route.url.host ?? "bytspot.app")"
         case .booking(let status, _, _): return status == "success" ? "Your booking flow returned successfully." : "Review or retry this booking."
         case .legal(_, let url): return url.absoluteString
+        case .sale: return "Ask the seller for the meet point."
         }
     }
 
@@ -50,7 +54,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         switch self {
         case .profile: return .profile
         case .accessWallet, .party, .patch, .booking: return .access
-        case .plan, .legal: return .home
+        case .plan, .legal, .sale: return .home
         }
     }
 
@@ -63,6 +67,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         case .patch(let route): return route.tier.eyebrow
         case .booking(let status, _, _): return status == "success" ? "CONFIRMED" : "BOOKING"
         case .legal: return "LEGAL"
+        case .sale: return "PRIVATE SALE"
         }
     }
 }
@@ -174,6 +179,32 @@ struct NativePlanRoute: Equatable {
     }
 }
 
+/// A Private Sale share link: `/sale/<id>` on the production host or the custom
+/// scheme. The id only previews the sale; the meet point needs the seller's approval.
+struct NativePrivateSaleRoute: Equatable {
+    let saleID: String
+
+    init?(url: URL) {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let scheme = url.scheme?.lowercased()
+        let isCustomScheme = scheme == "bytspot"
+        let isUniversalLink = scheme == "https" && components.host?.lowercased() == "bytspot.app"
+        guard isCustomScheme || isUniversalLink else { return nil }
+
+        let pathComponents: [Substring]
+        if isCustomScheme, let host = components.host, !host.isEmpty {
+            pathComponents = ([Substring(host)] + components.path.split(separator: "/"))
+        } else {
+            pathComponents = components.path.split(separator: "/")
+        }
+        guard pathComponents.count == 2, pathComponents[0].lowercased() == "sale" else { return nil }
+        let saleID = String(pathComponents[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+        // The server accepts ids up to 64 characters.
+        guard !saleID.isEmpty, saleID.count <= 64, !saleID.contains("/") else { return nil }
+        self.saleID = saleID
+    }
+}
+
 /// Identifies which surface produced a patch URL so the native coordinator can
 /// route through one funnel regardless of the entry path. Locked by
 /// `NativePatchRouteSelfTests.assertScanSourceContract`.
@@ -241,6 +272,11 @@ final class NativeNavigationCoordinator: ObservableObject {
             // the Plan the holder just took a seat on.
             requestedTab = .plan
             requestedDestination = .plan(planId: planRoute.planID, token: planRoute.token)
+            return true
+        }
+        if let saleRoute = NativePrivateSaleRoute(url: url) {
+            // No tab change: the sale opens over whatever is showing, including a meet on the Map.
+            requestedDestination = .sale(saleID: saleRoute.saleID)
             return true
         }
         if path.hasPrefix("booking/") {

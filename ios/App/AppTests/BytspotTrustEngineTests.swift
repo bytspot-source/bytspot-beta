@@ -3249,6 +3249,71 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertNil(plain.deletionCancelled)
     }
 
+    func testAuthResponseDecodesEmailVerified() throws {
+        let unverified = try JSONDecoder().decode(NativeAuthResponse.self, from: Data(#"{"token":"t","user":{"id":"u1"},"emailVerified":false}"#.utf8))
+        XCTAssertEqual(unverified.emailVerified, false)
+        // An older server omits the field; that must not read as unverified.
+        let older = try JSONDecoder().decode(NativeAuthResponse.self, from: Data(#"{"token":"t","user":{"id":"u1"}}"#.utf8))
+        XCTAssertNil(older.emailVerified)
+    }
+
+    func testEmailCodeResponsesDecode() throws {
+        let sent = try JSONDecoder().decode(NativeEmailCodeResponse.self, from: Data(#"{"alreadyVerified":false,"challengeId":"chal_1","expiresInSecs":600,"resendInSecs":60}"#.utf8))
+        XCTAssertEqual(sent, NativeEmailCodeResponse(alreadyVerified: false, challengeId: "chal_1", expiresInSecs: 600, resendInSecs: 60))
+        let verified = try JSONDecoder().decode(NativeEmailCodeResponse.self, from: Data(#"{"alreadyVerified":true}"#.utf8))
+        XCTAssertTrue(verified.alreadyVerified)
+        XCTAssertNil(verified.challengeId)
+        let me = try JSONDecoder().decode(NativeAuthMeResponse.self, from: Data(#"{"user":{"id":"u1","email":"a@b.co","emailVerified":true},"referralCount":0}"#.utf8))
+        XCTAssertEqual(me.user?.emailVerified, true)
+    }
+
+    func testEmailCodeIsDigitsOnlyAndCappedAtSix() {
+        XCTAssertEqual(NativeEmailVerificationContract.sanitizedCode("12 34-56"), "123456")
+        XCTAssertEqual(NativeEmailVerificationContract.sanitizedCode("1234567"), "123456")
+        XCTAssertEqual(NativeEmailVerificationContract.sanitizedCode("abc"), "")
+    }
+
+    @MainActor
+    func testEmailVerificationMarkerBelongsToOneAccount() throws {
+        let suiteName = "bytspot.email.verification.tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let state = NativeEmailVerificationState(defaults: defaults)
+
+        state.record(emailVerified: false, userID: "u1")
+        XCTAssertTrue(state.needsVerification(userID: "u1"))
+        // A different member on the same device never sees the prompt.
+        XCTAssertFalse(state.needsVerification(userID: "u2"))
+        XCTAssertFalse(state.needsVerification(userID: nil))
+        // The marker survives a relaunch.
+        XCTAssertTrue(NativeEmailVerificationState(defaults: defaults).needsVerification(userID: "u1"))
+
+        // An older server's missing flag changes nothing.
+        state.record(emailVerified: nil, userID: "u1")
+        XCTAssertTrue(state.needsVerification(userID: "u1"))
+
+        state.record(emailVerified: true, userID: "u1")
+        XCTAssertFalse(state.needsVerification(userID: "u1"))
+        XCTAssertNil(defaults.string(forKey: NativeEmailVerificationState.unverifiedAccountKey))
+    }
+
+    func testEmailVerificationMarkerIsPurgedWithTheAccount() {
+        XCTAssertTrue(NativeAccountLocalData.isAccountScoped(NativeEmailVerificationState.unverifiedAccountKey))
+    }
+
+    func testEmailCodeErrorsReadAsPlainCopy() {
+        let wrong = BytspotAPIClient.APIError.server(status: 400, body: #"{"error":{"message":"That code isn't right. Check the email and try again."}}"#)
+        XCTAssertEqual(NativeAuthDataAPI.emailCodeMessage(for: wrong), "That code isn't right. Check the email and try again.")
+        let cooldown = BytspotAPIClient.APIError.server(status: 429, body: #"{"error":{"message":"Wait 42 seconds before asking for another code"}}"#)
+        XCTAssertEqual(NativeAuthDataAPI.emailCodeMessage(for: cooldown), "Wait 42 seconds before asking for another code")
+        // The generic limiter names an internal label; members never see it.
+        let limited = BytspotAPIClient.APIError.server(status: 429, body: #"{"error":{"message":"Rate limit exceeded for auth:verify-email. Try again later."}}"#)
+        XCTAssertEqual(NativeAuthDataAPI.emailCodeMessage(for: limited), "Too many attempts. Wait a moment and try again.")
+        let validation = BytspotAPIClient.APIError.server(status: 400, body: #"{"error":{"message":"[{\"code\":\"too_small\"}]"}}"#)
+        XCTAssertEqual(NativeAuthDataAPI.emailCodeMessage(for: validation), "We couldn't send your code. Please try again.")
+        XCTAssertEqual(NativeAuthDataAPI.emailCodeMessage(for: BytspotAPIClient.APIError.server(status: 401, body: "")), "Your sign-in expired. Sign in again to confirm your email.")
+    }
+
     func testDeletionPurgesCachedProfileAndVehicleValuesButKeepsDeviceSettings() {
         let defaults = UserDefaults(suiteName: "bytspot.deletion.purge.tests")!
         defaults.removePersistentDomain(forName: "bytspot.deletion.purge.tests")

@@ -1758,9 +1758,44 @@ struct NativeAuthResponse: Codable, Equatable {
     var token: String?
     var user: NativeAuthUserRecord?
     var isNewUser: Bool?
+    /// False until the member enters the code emailed by `auth.sendEmailCode`.
+    /// Apple and Google accounts are always true. Nil from an older server.
+    var emailVerified: Bool?
     /// True when this sign-in cancelled a pending account deletion. The member
     /// must be told: they are being restored, not merely signed in.
     var deletionCancelled: Bool?
+}
+
+struct NativeEmailCodeResponse: Codable, Equatable {
+    var alreadyVerified: Bool
+    var challengeId: String?
+    var expiresInSecs: Int?
+    var resendInSecs: Int?
+}
+
+struct NativeEmailVerifyResponse: Codable, Equatable {
+    var emailVerified: Bool
+}
+
+struct NativeAuthMeResponse: Codable, Equatable {
+    struct User: Codable, Equatable {
+        var id: String?
+        var email: String?
+        var emailVerified: Bool?
+    }
+    var user: User?
+}
+
+enum NativeEmailVerificationContract {
+    static let sendCodeRoute = "auth.sendEmailCode"
+    static let verifyRoute = "auth.verifyEmail"
+    static let meRoute = "auth.me"
+    static let codeLength = 6
+    static let defaultResendSecs = 60
+
+    static func sanitizedCode(_ raw: String) -> String {
+        String(raw.filter(\.isNumber).prefix(codeLength))
+    }
 }
 
 enum NativeAuthRouteContract {
@@ -1792,6 +1827,32 @@ struct NativeAuthDataAPI {
 
     func login(email: String, password: String) async throws -> NativeAuthResponse {
         try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.login", method: "POST", input: Self.loginInput(email: email, password: password))
+    }
+
+    func sendEmailCode() async throws -> NativeEmailCodeResponse {
+        try await client.trpcDecode(NativeEmailCodeResponse.self, path: "/trpc/\(NativeEmailVerificationContract.sendCodeRoute)", method: "POST", input: [:])
+    }
+
+    func verifyEmail(challengeId: String, code: String) async throws -> NativeEmailVerifyResponse {
+        try await client.trpcDecode(NativeEmailVerifyResponse.self, path: "/trpc/\(NativeEmailVerificationContract.verifyRoute)", method: "POST", input: ["challengeId": challengeId, "code": code])
+    }
+
+    func me() async throws -> NativeAuthMeResponse {
+        try await client.trpcDecode(NativeAuthMeResponse.self, path: "/trpc/\(NativeEmailVerificationContract.meRoute)")
+    }
+
+    static func emailCodeMessage(for error: Error) -> String {
+        if let urlError = error as? URLError,
+           [.timedOut, .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {
+            return "We couldn't connect. Check your internet and try again."
+        }
+        if case let BytspotAPIClient.APIError.server(status, body) = error {
+            if status == 401 { return "Your sign-in expired. Sign in again to confirm your email." }
+            let message = serverMessage(in: body)
+            if status == 429 { return message.hasPrefix("Wait ") ? message : "Too many attempts. Wait a moment and try again." }
+            if !message.isEmpty, !message.hasPrefix("["), status == 400 || status == 412 { return message }
+        }
+        return "We couldn't send your code. Please try again."
     }
 
     static func signupInput(email: String, password: String, name: String, ref: String?) -> [String: Any] {

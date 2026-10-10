@@ -223,6 +223,50 @@ enum NativeAccountLocalData {
     }
 }
 
+/// Remembers that the signed-in account's email is not yet proven, so the app
+/// can offer the emailed code. Keyed by account id, so a marker left by one
+/// member never shows for the next person who signs in on the same device.
+@MainActor
+final class NativeEmailVerificationState: ObservableObject {
+    static let shared = NativeEmailVerificationState()
+    static let unverifiedAccountKey = "bytspot_email_unverified_account"
+
+    @Published private(set) var unverifiedAccountID: String?
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        unverifiedAccountID = defaults.string(forKey: Self.unverifiedAccountKey)
+    }
+
+    func needsVerification(userID: String?) -> Bool {
+        let current = userID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let unverifiedAccountID, !current.isEmpty else { return false }
+        return unverifiedAccountID == current
+    }
+
+    /// A nil `emailVerified` comes from an older server and changes nothing.
+    func record(emailVerified: Bool?, userID: String?) {
+        let trimmed = userID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let emailVerified, !trimmed.isEmpty else { return }
+        store(emailVerified ? nil : trimmed)
+    }
+
+    func clear() { store(nil) }
+
+    func refresh(sessionStore: BytspotSessionStore) async {
+        guard sessionStore.isAuthenticated, let token = sessionStore.token else { return }
+        let api = NativeAuthDataAPI(client: BytspotAPIClient(tokenProvider: { token }))
+        guard let me = try? await api.me() else { return }
+        record(emailVerified: me.user?.emailVerified, userID: me.user?.id ?? sessionStore.authenticatedUserID)
+    }
+
+    private func store(_ accountID: String?) {
+        if let accountID { defaults.set(accountID, forKey: Self.unverifiedAccountKey) } else { defaults.removeObject(forKey: Self.unverifiedAccountKey) }
+        unverifiedAccountID = accountID
+    }
+}
+
 @MainActor
 protocol NativeAuthSessionStoring: AnyObject {
     @discardableResult func updateToken(_ newToken: String?) -> Bool
@@ -288,6 +332,7 @@ final class NativeAuthCoordinator: ObservableObject {
             if sessionStore.updateSession(token: result.token, userID: result.userID) {
                 NativeSignedInIdentity.store(displayName: result.displayName)
                 NativeSignedInIdentity.recordRestoration(result.deletionCancelled, userID: result.userID)
+                NativeEmailVerificationState.shared.clear()
                 status = .signedIn(provider: provider, displayName: result.displayName)
             } else {
                 status = .failed(message: "We couldn't save your sign-in. Please try again.")

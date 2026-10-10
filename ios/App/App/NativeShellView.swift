@@ -1834,6 +1834,7 @@ private struct NativeProfileAccountView: View {
     var body: some View {
         VStack(spacing: NativeProfileStyle.cardSpacing) {
             NativeProfileHeaderCard(sessionStore: sessionStore, socialCircleSnapshot: socialCircleSnapshot)
+            NativeProfileEmailConfirmCard(sessionStore: sessionStore)
             NativeProfileIAHeader(title: "Quick actions", subtitle: "The four things people open Profile for most.")
             NativeProfileCommandGrid(openPanel: { activePanel = $0 })
             NativeProfileIAHeader(title: "Account Essentials", subtitle: "Identity, payment, and vehicles used at arrival.")
@@ -1853,7 +1854,10 @@ private struct NativeProfileAccountView: View {
             openDirectSmokePanelIfRequested()
             openNetworkAfterAuthenticationIfNeeded()
         }
-        .task(id: sessionStore.isAuthenticated) { await refreshSocialCircles() }
+        .task(id: sessionStore.isAuthenticated) {
+            await refreshSocialCircles()
+            await NativeEmailVerificationState.shared.refresh(sessionStore: sessionStore)
+        }
         .onChange(of: networkResumeGeneration) { _ in
             openNetworkAfterAuthenticationIfNeeded()
         }
@@ -4173,6 +4177,39 @@ enum NativeNetworkSegment: String, CaseIterable, Identifiable {
     }
 }
 
+/// Shown only while the signed-in password account has not entered its
+/// emailed code. Apple and Google accounts never see it.
+private struct NativeProfileEmailConfirmCard: View {
+    @ObservedObject var sessionStore: BytspotSessionStore
+    var compact = false
+    @ObservedObject private var verification = NativeEmailVerificationState.shared
+    @State private var showCodeEntry = false
+
+    var body: some View {
+        if sessionStore.isAuthenticated && verification.needsVerification(userID: sessionStore.authenticatedUserID) {
+            VStack(alignment: .leading, spacing: compact ? 8 : 12) {
+                HStack(spacing: 12) {
+                    Image(systemName: "envelope.badge.fill").font(.system(size: 17, weight: .black)).foregroundColor(NativeTheme.cyan).frame(width: 40, height: 40).background(NativeTheme.cyan.opacity(0.11)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)).accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Confirm your email").font(.system(size: compact ? 15 : 17, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                        Text("Friends who have your email can find you once it's confirmed.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
+                    }
+                }
+                Button(action: { showCodeEntry = true }) {
+                    NativeCTA(title: "Send code", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(compact ? 14 : NativeProfileStyle.cardPadding)
+            .nativeProfileCard(accent: NativeTheme.cyan)
+            .accessibilityIdentifier("native-profile-email-confirm")
+            .fullScreenCover(isPresented: $showCodeEntry) {
+                NativeEmailCodeEntryView(email: "", sessionStore: sessionStore, onFinish: { showCodeEntry = false })
+            }
+        }
+    }
+}
+
 private struct NativeProfileNetworkOverviewCard: View {
     @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
     let sessionStore: BytspotSessionStore
@@ -4547,6 +4584,7 @@ private struct NativeNetworkHubView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Find a person, choose a circle, then add them and send an invitation.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
             if sessionStore.isAuthenticated {
+                NativeProfileEmailConfirmCard(sessionStore: sessionStore, compact: true)
                 Button(action: { Task { await contactSyncStore.syncDeviceContacts(sessionStore: sessionStore) } }) { NativeCTA(title: contactSyncStore.phase == .syncing ? "Syncing contacts…" : "Find people from contacts", color: NativeTheme.purple, foreground: .white) }.buttonStyle(.plain).disabled(isWorking || contactSyncStore.phase == .syncing || contactSyncStore.phase == .requesting)
                 TextField("Search people", text: $personQuery).textFieldStyle(.plain).padding(.horizontal, 12).frame(height: 42).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 if contactSyncStore.suggestions.isEmpty {

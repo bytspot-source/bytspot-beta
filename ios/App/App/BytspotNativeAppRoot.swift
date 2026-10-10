@@ -1497,6 +1497,7 @@ private struct NativeLaunchPickRow: View {
         guard sessionStore.updateSession(token: token, userID: userID) else { return false }
         NativeSignedInIdentity.store(displayName: response.user?.name)
         NativeSignedInIdentity.recordRestoration(response.deletionCancelled == true, userID: userID)
+        NativeEmailVerificationState.shared.record(emailVerified: response.emailVerified, userID: userID)
         return true
     }
 }
@@ -1515,6 +1516,7 @@ struct NativeAuthenticationScreen: View {
     @State private var loading = false
     @State private var error = ""
     @State private var showRecovery = false
+    @State private var showEmailCode = false
     @State private var didCompleteAuth = false
     @State private var touchedFields = Set<NativeAuthField>()
     @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var launchIntent = ""
@@ -1566,6 +1568,9 @@ struct NativeAuthenticationScreen: View {
         .background(NativeJourneyTheme.current(intent: launchIntent).background.ignoresSafeArea())
         .accessibilityIdentifier("native-launch-auth")
         .sheet(isPresented: $showRecovery) { NativePasswordRecoverySheet(email: email) }
+        .fullScreenCover(isPresented: $showEmailCode) {
+            NativeEmailCodeEntryView(email: email.trimmingCharacters(in: .whitespacesAndNewlines), sessionStore: sessionStore, laterTitle: "Do it later", onFinish: { showEmailCode = false; completeAuthIfReady() })
+        }
         .onAppear { focusedField = currentMode == .signup ? .name : .email }
         .onChange(of: currentMode) { _ in error = ""; touchedFields.removeAll(); focusedField = currentMode == .signup ? .name : .email }
         .onChange(of: focusedField) { newValue in if let field = newValue { touchedFields.insert(field) } }
@@ -1599,7 +1604,7 @@ struct NativeAuthenticationScreen: View {
                     : try await api.login(email: email, password: password)
                 await MainActor.run {
                     if NativeEmailAuthSessionPersistence.persist(response, in: sessionStore) {
-                        completeAuthIfReady()
+                        if selectedMode == .signup && response.emailVerified == false { showEmailCode = true } else { completeAuthIfReady() }
                     } else {
                         error = "We couldn't save your sign-in. Please try again."
                     }
@@ -1638,6 +1643,135 @@ private extension View {
 private struct NativeLaunchCTA: View {
     let title: String; let color: LinearGradient; let foreground: Color; var height: CGFloat = 56; var cornerRadius: CGFloat = 16; var showArrow: Bool = false
     var body: some View { HStack(spacing: 8) { Text(title).font(.system(size: 17, weight: .bold)); if showArrow { Image(systemName: "arrow.right").font(.system(size: 20, weight: .semibold)) } }.foregroundColor(foreground).frame(maxWidth: .infinity).frame(height: height).background(color).clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)).shadow(color: NativeLaunchTheme.purple.opacity(0.25), radius: 18, x: 0, y: 12) }
+}
+
+/// Asks for the 6-digit code `auth.sendEmailCode` emails to a password account.
+/// Sends the first code on appear. Leaving early is always allowed: browsing
+/// never needs a confirmed email, only being found by friends does.
+struct NativeEmailCodeEntryView: View {
+    let email: String
+    @ObservedObject var sessionStore: BytspotSessionStore
+    let laterTitle: String
+    let onFinish: () -> Void
+    private let verification = NativeEmailVerificationState.shared
+    @State private var code = ""
+    @State private var challengeId: String?
+    @State private var sending = false
+    @State private var verifying = false
+    @State private var message = ""
+    @State private var resendAvailableAt = Date.distantPast
+    @State private var didSendInitialCode = false
+    @FocusState private var codeFocused: Bool
+
+    init(email: String, sessionStore: BytspotSessionStore, laterTitle: String = "Not now", onFinish: @escaping () -> Void) {
+        self.email = email; self.sessionStore = sessionStore; self.laterTitle = laterTitle; self.onFinish = onFinish
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Check your email").font(.system(size: 34, weight: .black)).foregroundColor(.white)
+            Text(email.isEmpty ? "We sent a \(NativeEmailVerificationContract.codeLength)-digit code to your email." : "We sent a \(NativeEmailVerificationContract.codeLength)-digit code to \(email).")
+                .font(.system(size: 15, weight: .semibold)).foregroundColor(NativeLaunchTheme.body)
+            Text("Confirming it lets friends who have your email find you on Bytspot.")
+                .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeLaunchTheme.muted)
+            TextField("Code", text: $code)
+                .keyboardType(.numberPad)
+                .textContentType(.oneTimeCode)
+                .font(.system(size: 30, weight: .black, design: .monospaced))
+                .multilineTextAlignment(.center)
+                .foregroundColor(.white)
+                .tint(NativeLaunchTheme.cyan)
+                .frame(minHeight: 60)
+                .background(Color.white.opacity(0.10))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .focused($codeFocused)
+                .accessibilityLabel("\(NativeEmailVerificationContract.codeLength)-digit code")
+                .onChange(of: code) { newValue in
+                    let cleaned = NativeEmailVerificationContract.sanitizedCode(newValue)
+                    if cleaned != newValue { code = cleaned }
+                    if cleaned.count == NativeEmailVerificationContract.codeLength { submit() }
+                }
+            if !message.isEmpty {
+                Text(message).font(.system(size: 13, weight: .bold)).foregroundColor(.orange.opacity(0.92)).frame(maxWidth: .infinity, alignment: .leading).accessibilityLabel(message)
+            }
+            Button(action: submit) {
+                NativeLaunchCTA(title: verifying ? "Checking…" : "Confirm Email", color: NativeLaunchTheme.gradient, foreground: .white)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSubmit)
+            .opacity(canSubmit ? 1 : 0.45)
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let wait = max(0, Int(resendAvailableAt.timeIntervalSince(context.date).rounded(.up)))
+                Button(action: sendCode) {
+                    Text(sending ? "Sending…" : wait > 0 ? "Send a new code in \(wait)s" : "Send a new code")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(wait > 0 || sending ? NativeLaunchTheme.muted : NativeLaunchTheme.cyan)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+                .disabled(wait > 0 || sending || verifying)
+            }
+            Button(action: { nativeAuthImpactLight(); onFinish() }) {
+                Text(laterTitle).font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.62)).frame(maxWidth: .infinity).frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("You can confirm your email later from Profile.")
+            Spacer()
+        }
+        .padding(24)
+        .background(NativeLaunchTheme.background.ignoresSafeArea())
+        .accessibilityIdentifier("native-email-code-entry")
+        .onAppear {
+            codeFocused = true
+            guard !didSendInitialCode else { return }
+            didSendInitialCode = true
+            sendCode()
+        }
+    }
+
+    private var canSubmit: Bool { challengeId != nil && code.count == NativeEmailVerificationContract.codeLength && !verifying }
+    private var api: NativeAuthDataAPI { NativeAuthDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
+
+    private func sendCode() {
+        guard !sending else { return }
+        sending = true; message = ""
+        Task {
+            do {
+                let response = try await api.sendEmailCode()
+                await MainActor.run {
+                    sending = false
+                    if response.alreadyVerified { finishVerified(); return }
+                    challengeId = response.challengeId
+                    code = ""
+                    resendAvailableAt = Date().addingTimeInterval(TimeInterval(response.resendInSecs ?? NativeEmailVerificationContract.defaultResendSecs))
+                }
+            } catch {
+                let text = NativeAuthDataAPI.emailCodeMessage(for: error)
+                await MainActor.run { sending = false; message = text }
+            }
+        }
+    }
+
+    private func submit() {
+        guard canSubmit, let challengeId else { return }
+        verifying = true; message = ""; codeFocused = false
+        let entered = code
+        Task {
+            do {
+                _ = try await api.verifyEmail(challengeId: challengeId, code: entered)
+                await MainActor.run { verifying = false; finishVerified() }
+            } catch {
+                let text = NativeAuthDataAPI.emailCodeMessage(for: error)
+                await MainActor.run { verifying = false; message = text; code = ""; codeFocused = true }
+            }
+        }
+    }
+
+    private func finishVerified() {
+        verification.clear()
+        nativeAuthImpactLight()
+        onFinish()
+    }
 }
 
 private struct NativePasswordRecoverySheet: View {

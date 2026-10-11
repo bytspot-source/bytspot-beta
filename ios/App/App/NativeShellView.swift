@@ -7049,6 +7049,9 @@ private struct NativeHomeDashboardView: View {
     @State private var contactsAuthorization: CNAuthorizationStatus = .notDetermined
     @State private var didStartFindFriends = false
     @State private var showHomeNetworkHub = false
+    @State private var findFriendsEmails: NativeAccountEmails?
+    @State private var didLoadFindFriendsEmails = false
+    @State private var showFindFriendsAddEmail = false
 
     static let quickActionSpecs: [QuickActionSpec] = [
         QuickActionSpec(id: "coffee", title: "Coffee", subtitle: "Find a stop", icon: "cup.and.saucer.fill", color: NativeTheme.cyan, target: .discoverFilter("coffee")),
@@ -7588,6 +7591,12 @@ private struct NativeHomeDashboardView: View {
         .padding(14)
         .nativePanel()
         .accessibilityIdentifier("native-home-find-friends-card")
+        .sheet(isPresented: $showFindFriendsAddEmail) {
+            NativeAddEmailSheet(api: findFriendsEmailsAPI, onAdded: { updated in
+                findFriendsEmails = updated
+                showFindFriendsAddEmail = false
+            })
+        }
     }
 
     private var isFindFriendsWorking: Bool { contactSyncStore.phase == .requesting || contactSyncStore.phase == .syncing }
@@ -7623,8 +7632,28 @@ private struct NativeHomeDashboardView: View {
                     }
                     findFriendsButton("Invite friends", filled: count == 0, identifier: "native-home-find-friends-invite", action: shareFriendInvite)
                 }
+                .task { await loadFindFriendsEmails() }
+                if findFriendsEmails?.needsRealEmailPrompt == true {
+                    Text("You use Hide My Email, so friends can't find you by your email. Add the email they know you by.")
+                        .nativeBody(size: 12.5, color: NativeTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel("You use Hide My Email, so friends can't find you by your email. Add the email they know you by.")
+                        .accessibilityIdentifier("native-home-find-friends-add-email-note")
+                    findFriendsButton("Add your email", filled: false, identifier: "native-home-find-friends-add-email") { showFindFriendsAddEmail = true }
+                        .accessibilityLabel("Add your email")
+                        .accessibilityHint("Adds the email friends know you by so they can find you on Bytspot.")
+                }
             }
         }
+    }
+
+    private var findFriendsEmailsAPI: NativeAccountEmailsAPI { NativeAccountEmailsAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
+
+    @MainActor
+    private func loadFindFriendsEmails() async {
+        guard !didLoadFindFriendsEmails else { return }
+        didLoadFindFriendsEmails = true
+        findFriendsEmails = try? await findFriendsEmailsAPI.emails()
     }
 
     private func findFriendsButton(_ title: String, filled: Bool, identifier: String, action: @escaping () -> Void) -> some View {

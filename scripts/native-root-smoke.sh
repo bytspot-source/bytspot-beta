@@ -88,6 +88,11 @@ capture() {
   env SIMCTL_CHILD_BYT_NATIVE_ROOT=1 SIMCTL_CHILD_BYT_NATIVE_APPEARANCE=light SIMCTL_CHILD_BYT_NATIVE_SUPPRESS_LOCATION_PROMPT=1 SIMCTL_CHILD_BYT_NATIVE_MAP_PROXIMITY_METERS=80 "$@" \
     xcrun simctl launch --terminate-running-process "$UDID" "$BUNDLE_ID" >/dev/null
   sleep "${SMOKE_SLEEP:-10}"
+  shoot "$name"
+}
+
+shoot() {
+  local name="$1"
   local shot="$OUT/$name.png"
   xcrun simctl io "$UDID" screenshot "$shot" >/dev/null
   local luma
@@ -103,7 +108,13 @@ ocr() {
 expect_ocr() {
   local name="$1"
   local pattern="$2"
-  grep -Eiq "$pattern" "$OUT/$name.ocr.txt"
+  local retries="${SMOKE_RETRIES:-4}"
+  until grep -Eiq "$pattern" "$OUT/$name.ocr.txt"; do
+    (( retries-- > 0 )) || return 1
+    sleep "${SMOKE_RETRY_SLEEP:-3}"
+    shoot "$name"
+    ocr "$name"
+  done
   ! grep -Eiq "Back to native" "$OUT/$name.ocr.txt"
 }
 
@@ -156,11 +167,8 @@ tap_launch_journey() {
   env SIMCTL_CHILD_BYT_NATIVE_ROOT=1 SIMCTL_CHILD_BYT_NATIVE_APPEARANCE=light SIMCTL_CHILD_BYT_NATIVE_SUPPRESS_LOCATION_PROMPT=1 SIMCTL_CHILD_BYT_NATIVE_LAUNCH_AUTORUN=1 \
     xcrun simctl launch --terminate-running-process "$UDID" "$BUNDLE_ID" >/dev/null
   sleep "${SMOKE_TAP_SLEEP:-12}"
-  xcrun simctl io "$UDID" screenshot "$OUT/tapthrough-main.png" >/dev/null
-  local luma
-  luma=$(swift "$SMOKE_TMP/luma.swift" "$OUT/tapthrough-main.png")
-  echo "tapthrough-main luma=$luma" | tee "$OUT/tapthrough-main.luma.txt"
-  swift "$SMOKE_TMP/ocr.swift" "$OUT/tapthrough-main.png" | tee "$OUT/tapthrough-main.ocr.txt"
+  shoot tapthrough-main
+  ocr tapthrough-main
   ! grep -Eiq "Back to native" "$OUT/tapthrough-main.ocr.txt"
   expect_ocr tapthrough-main "Home"
   expect_ocr tapthrough-main "MAKE IT YOURS"

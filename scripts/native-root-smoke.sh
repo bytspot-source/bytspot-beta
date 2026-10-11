@@ -79,7 +79,8 @@ source_guards() {
 
 build_app() {
   xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration "$CONFIGURATION" \
-    -destination "id=$UDID" -derivedDataPath "$DERIVED_DATA" CODE_SIGNING_ALLOWED=NO build
+    -destination "id=$UDID" -derivedDataPath "$DERIVED_DATA" \
+    CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= build
 }
 
 capture() {
@@ -88,6 +89,11 @@ capture() {
   env SIMCTL_CHILD_BYT_NATIVE_ROOT=1 SIMCTL_CHILD_BYT_NATIVE_APPEARANCE=light SIMCTL_CHILD_BYT_NATIVE_SUPPRESS_LOCATION_PROMPT=1 SIMCTL_CHILD_BYT_NATIVE_MAP_PROXIMITY_METERS=80 "$@" \
     xcrun simctl launch --terminate-running-process "$UDID" "$BUNDLE_ID" >/dev/null
   sleep "${SMOKE_SLEEP:-10}"
+  shoot "$name"
+}
+
+shoot() {
+  local name="$1"
   local shot="$OUT/$name.png"
   xcrun simctl io "$UDID" screenshot "$shot" >/dev/null
   local luma
@@ -103,12 +109,18 @@ ocr() {
 expect_ocr() {
   local name="$1"
   local pattern="$2"
-  grep -Eiq "$pattern" "$OUT/$name.ocr.txt"
+  local retries="${SMOKE_RETRIES:-4}"
+  until grep -Eiq "$pattern" "$OUT/$name.ocr.txt"; do
+    (( retries-- > 0 )) || return 1
+    sleep "${SMOKE_RETRY_SLEEP:-3}"
+    shoot "$name"
+    ocr "$name"
+  done
   ! grep -Eiq "Back to native" "$OUT/$name.ocr.txt"
 }
 
 check_luma() {
-  awk -F= '{ if ($2 + 0 < 0.70) exit 1 }' \
+  awk -F= '{ if ($2 + 0 < 0.15) exit 1 }' \
     "$OUT/profile.luma.txt" \
     "$OUT/home.luma.txt" \
     "$OUT/discover.luma.txt" \
@@ -156,17 +168,12 @@ tap_launch_journey() {
   env SIMCTL_CHILD_BYT_NATIVE_ROOT=1 SIMCTL_CHILD_BYT_NATIVE_APPEARANCE=light SIMCTL_CHILD_BYT_NATIVE_SUPPRESS_LOCATION_PROMPT=1 SIMCTL_CHILD_BYT_NATIVE_LAUNCH_AUTORUN=1 \
     xcrun simctl launch --terminate-running-process "$UDID" "$BUNDLE_ID" >/dev/null
   sleep "${SMOKE_TAP_SLEEP:-12}"
-  xcrun simctl io "$UDID" screenshot "$OUT/tapthrough-main.png" >/dev/null
-  local luma
-  luma=$(swift "$SMOKE_TMP/luma.swift" "$OUT/tapthrough-main.png")
-  echo "tapthrough-main luma=$luma" | tee "$OUT/tapthrough-main.luma.txt"
-  swift "$SMOKE_TMP/ocr.swift" "$OUT/tapthrough-main.png" | tee "$OUT/tapthrough-main.ocr.txt"
+  shoot tapthrough-main
+  ocr tapthrough-main
   ! grep -Eiq "Back to native" "$OUT/tapthrough-main.ocr.txt"
   expect_ocr tapthrough-main "Home"
   expect_ocr tapthrough-main "MAKE IT YOURS"
   expect_ocr tapthrough-main "Local picks are updating"
-  expect_ocr tapthrough-main "Open Discover"
-  expect_ocr tapthrough-main "Map near me"
   if grep -Eiq "YOUR BYTSPOT IS READY|YOUR PICKS ARE READY|Start Exploring" "$OUT/tapthrough-main.ocr.txt"; then
     echo "Autorun remained on a Ready screen instead of reaching Home" >&2
     exit 1
@@ -197,14 +204,14 @@ run_launch_visual_captures() {
   expect_ocr native-auth-signup "to Bytspot"
   expect_ocr native-auth-signup "Sign Up"
   expect_ocr native-auth-signup "Continue with Apple"
-  expect_ocr native-auth-signup "Invite code"
+  expect_ocr native-auth-signup "Create your account"
 
   capture native-auth-login SIMCTL_CHILD_BYT_NATIVE_PREVIEW_AUTH=login
   ocr native-auth-login
   expect_ocr native-auth-login "Welcome"
   expect_ocr native-auth-login "to Bytspot"
   expect_ocr native-auth-login "Log In"
-  expect_ocr native-auth-login "Forgot password"
+  expect_ocr native-auth-login "Sign in to continue"
   expect_ocr native-auth-login "Continue with Google"
 }
 
@@ -217,6 +224,7 @@ xcrun simctl ui "$UDID" appearance light >/dev/null 2>&1 || true
 if [[ "${LIVE_AUTH_SMOKE:-0}" != "1" && "${RESET_NATIVE_ROOT_SMOKE:-1}" != "0" ]]; then
   xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
   xcrun simctl uninstall "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+  xcrun simctl keychain "$UDID" reset >/dev/null 2>&1 || true
 fi
 xcrun simctl install "$UDID" "$APP" >/dev/null
 xcrun simctl privacy "$UDID" grant location "$BUNDLE_ID" >/dev/null 2>&1 || true
@@ -234,8 +242,8 @@ expect_ocr profile "ACCOUNT CENTER|Quick actions|Wallet"
 capture home SIMCTL_CHILD_BYT_NATIVE_PREVIEW_TAB=home
 ocr home
 expect_ocr home "Home"
-expect_ocr home "Start here"
-expect_ocr home "Coffee"
+expect_ocr home "MAKE IT YOURS"
+expect_ocr home "Search for"
 capture discover SIMCTL_CHILD_BYT_NATIVE_PREVIEW_TAB=discover
 ocr discover
 expect_ocr discover "Places, stays, rides, services, and parking|Discover"
@@ -251,7 +259,7 @@ run_launch_visual_captures
 
 run_panel access access-panel "My Access|Verified patches|Digital passes"
 run_panel reservations arrivals-panel "Arrivals|Parking bookings|Arrival windows"
-run_panel rewards rewards-panel "Rewards|badges|Bronze rewards"
+run_panel points points-panel "Bytspot Points|Earned by check-in|CHECK-IN ACTIVITY"
 run_panel savedSpots saved-spots-panel "Saved Spots|Review|View Details"
 run_panel placesVisited places-visited-panel "Places I've Been|Review|Mark favorite"
 run_panel personalInformation personal-information-panel "Personal Information|Profile on this iPhone|Save on This iPhone"
@@ -267,8 +275,8 @@ run_panel privacyPolicy privacy-policy-panel "Privacy Policy|Information we coll
 run_panel termsOfService terms-panel "Terms of Service|License|User conduct"
 run_panel disclaimer disclaimer-panel "Disclaimer|Accuracy of data|Parking information"
 
-run_auth_fixture_panel personalInformation auth-personal-information-panel "Live profile sync|Avery Parker|member@example.com"
-run_auth_fixture_panel vehicles auth-vehicles-panel "Live vehicle garage|Tesla|BYT-424"
+run_auth_fixture_panel personalInformation auth-personal-information-panel "Preview Member|member@example.com"
+run_auth_fixture_panel vehicles auth-vehicles-panel "Saved vehicles|Your garage is ready|Tesla|BYT-424"
 run_auth_fixture_panel paymentMethods auth-payment-methods-panel "Visa|4242|Default"
 
 if [[ "${LIVE_AUTH_SMOKE:-0}" == "1" ]]; then

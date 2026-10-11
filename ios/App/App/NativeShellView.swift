@@ -7,6 +7,7 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 import CryptoKit
 import AVKit
+import Contacts
 
 enum BytspotNativeTab: String, CaseIterable, Identifiable {
     case home, plan, host, discover, map, concierge, profile
@@ -5003,6 +5004,12 @@ private struct NativeNetworkHubView: View {
             if sessionStore.isAuthenticated {
                 NativeProfileEmailConfirmCard(sessionStore: sessionStore, compact: true)
                 Button(action: { Task { await contactSyncStore.syncDeviceContacts(sessionStore: sessionStore) } }) { NativeCTA(title: contactSyncStore.phase == .syncing ? "Syncing contacts…" : "Find people from contacts", color: NativeTheme.purple, foreground: .white) }.buttonStyle(.plain).disabled(isWorking || contactSyncStore.phase == .syncing || contactSyncStore.phase == .requesting)
+                if let inviteItems = NativeFriendInviteLink.shareItems(forUserID: sessionStore.authenticatedUserID) {
+                    Button(action: { _ = NativePartySharePresentation.share(inviteItems) }) { NativeCTA(title: "Invite friends", color: NativeTheme.purple.opacity(0.14), foreground: NativeTheme.purple) }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Shares a link to join Bytspot.")
+                        .accessibilityIdentifier("native-network-invite-friends")
+                }
                 TextField("Search people", text: $personQuery).textFieldStyle(.plain).padding(.horizontal, 12).frame(height: 42).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 if contactSyncStore.suggestions.isEmpty {
                     NativeProfileEmptyState(title: "No people found yet", subtitle: "Sync contacts to load current Bytspot suggestions.", icon: "person.2.slash.fill")
@@ -7035,6 +7042,13 @@ private struct NativeHomeDashboardView: View {
     @State private var showHomeSearchSheet = false
     @State private var weatherSnapshot = NativeWeatherSnapshot.fallback
     @State private var presenceSummary = NativePresenceSummary.none
+    @EnvironmentObject private var contactSyncStore: BytspotContactSyncStore
+    @AppStorage(NativeHomeVibeCard.dismissedKey) private var vibeCardDismissed = false
+    @AppStorage(NativeHomeFindFriendsCard.dismissedKey) private var findFriendsDismissed = false
+    @State private var vibeCardStep: NativePersonalizationStep?
+    @State private var contactsAuthorization: CNAuthorizationStatus = .notDetermined
+    @State private var didStartFindFriends = false
+    @State private var showHomeNetworkHub = false
 
     static let quickActionSpecs: [QuickActionSpec] = [
         QuickActionSpec(id: "coffee", title: "Coffee", subtitle: "Find a stop", icon: "cup.and.saucer.fill", color: NativeTheme.cyan, target: .discoverFilter("coffee")),
@@ -7098,10 +7112,12 @@ private struct NativeHomeDashboardView: View {
         NativeScreenScroll {
             nativeHomeHeader
             nativeSearchBar
+            if showsVibeCard { homeVibeCard }
             if launchPicksCompleted && !launchRecommendationPicks.isEmpty { launchPicksReadySection }
             if shouldShowHomeEmptyState { noLocalRecommendationsSection }
             if hasTrustedLocalRecommendations || typicalHomePlan != nil { tonightPickCard }
             quickActionsSection
+            if showsFindFriendsCard { findFriendsCard }
             weatherSmartCard
             categoryQuickSearchSection
             recommendationsSection
@@ -7111,7 +7127,7 @@ private struct NativeHomeDashboardView: View {
             nearbySection
         }
         .accessibilityIdentifier("native-home-dashboard")
-        .onAppear { scheduleAuthenticatedLaunchPicksCollapseIfNeeded(); openValetPreviewIfRequested(); locationStore.startIfAuthorized() }
+        .onAppear { scheduleAuthenticatedLaunchPicksCollapseIfNeeded(); openValetPreviewIfRequested(); locationStore.startIfAuthorized(); contactsAuthorization = CNContactStore.authorizationStatus(for: .contacts) }
         .task { await refreshLiveWeather() }
         .task { await refreshPresence() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in Task { await refreshLiveWeather() } }
@@ -7150,7 +7166,11 @@ private struct NativeHomeDashboardView: View {
             .navigationViewStyle(.stack)
         }
         .onChange(of: sessionStore.token) { _ in homePartyInvitation = nil }
-        .onChange(of: sessionStore.authenticatedUserID) { _ in homePartyInvitation = nil }
+        .onChange(of: sessionStore.authenticatedUserID) { _ in homePartyInvitation = nil; didStartFindFriends = false }
+        .sheet(isPresented: $showHomeNetworkHub) {
+            let hub = NativeNetworkHubView(initialCircleSnapshot: .empty, requestAuthentication: { showHomeNetworkHub = false; openNativeAuth(.login, .network) })
+            if #available(iOS 16.0, *) { hub.presentationDetents([.large]).presentationDragIndicator(.visible) } else { hub }
+        }
         .sheet(isPresented: $showValetRideSheet) {
             NativeValetPremiumRideSheet(openNativeTab: openNativeTab, openNativeAccess: openNativeAccess, openNativeAuth: { openNativeAuth(.login, nil) })
         }
@@ -7474,6 +7494,170 @@ private struct NativeHomeDashboardView: View {
         .nativePanel()
         .accessibilityIdentifier("native-home-launch-picks-ready")
         .sheet(isPresented: $showGuestSavePrompt) { NativeGuestSavePromptSheet(title: guestHomePromptTitle, subtitle: guestHomePromptSubtitle, ctaTitle: guestHomePromptCTA, onSignIn: continueHomeGuestPromptSignIn) }
+    }
+
+    private var showsVibeCard: Bool {
+        vibeCardStep != nil || NativeHomeVibeCard.isVisible(vibe: launchIntent, dismissed: vibeCardDismissed)
+    }
+
+    private var homeVibeCard: some View {
+        let step = vibeCardStep ?? .vibe
+        let context = NativeLaunchQuizContext.current
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 8) {
+                Text(NativeHomeVibeCard.eyebrow).font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.cyan).tracking(1.1)
+                Text(NativeHomeVibeCard.progressLabel(for: step)).font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textTertiary)
+                    .accessibilityLabel("Question \(step.index) of \(NativeHomeVibeCard.steps.count)")
+                Spacer(minLength: 0)
+                Button(action: dismissVibeCard) {
+                    Image(systemName: "xmark").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textSecondary).frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Not now")
+                .accessibilityHint("Hides this card.")
+                .accessibilityIdentifier("native-home-vibe-card-dismiss")
+            }
+            .padding(.trailing, -12)
+            .padding(.vertical, -10)
+            Text(step.question(context: context, selectedIntent: launchIntent)).nativeTitle(20).fixedSize(horizontal: false, vertical: true)
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                ForEach(step.options(context: context, selectedIntent: launchIntent), id: \.self) { option in
+                    Button(action: { answerVibeCard(option, step: step) }) {
+                        Text(option).font(.system(size: 13.5, weight: .black)).foregroundColor(NativeTheme.textPrimary).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.8)
+                            .frame(maxWidth: .infinity).frame(minHeight: 44).padding(.horizontal, 8)
+                            .background(NativeTheme.selectedControlSurface.opacity(0.66))
+                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(NativeTheme.cyan.opacity(0.28), lineWidth: 1))
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("native-home-vibe-option-\(NativeLaunchPersonalizationStorage.token(for: option))")
+                }
+            }
+            Button("Not now", action: dismissVibeCard)
+                .font(.system(size: 12.5, weight: .bold))
+                .foregroundColor(NativeTheme.textSecondary)
+                .frame(maxWidth: .infinity, minHeight: 32)
+        }
+        .padding(14)
+        .nativePanel()
+        .accessibilityIdentifier("native-home-vibe-card")
+    }
+
+    private func answerVibeCard(_ option: String, step: NativePersonalizationStep) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            vibeCardStep = NativeHomeVibeCard.record(option, for: step)
+        }
+    }
+
+    private func dismissVibeCard() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            if !launchIntent.isEmpty { launchPicksCompleted = true }
+            vibeCardDismissed = true
+            vibeCardStep = nil
+        }
+    }
+
+    private var showsFindFriendsCard: Bool {
+        guard sessionStore.isAuthenticated, !sessionStore.isGuest else { return false }
+        return didStartFindFriends || NativeHomeFindFriendsCard.isVisible(isAuthenticated: sessionStore.isAuthenticated, isGuest: sessionStore.isGuest, contactsStatus: contactsAuthorization, dismissed: findFriendsDismissed)
+    }
+
+    private var findFriendsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                NativeIcon(symbol: "person.2.fill", color: NativeTheme.purple)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(NativeHomeFindFriendsCard.title).nativeTitle(18)
+                    if !didStartFindFriends {
+                        Text(NativeHomeFindFriendsCard.body).nativeBody(size: 12.5, color: NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 0)
+                if didStartFindFriends && contactsAuthorization != .notDetermined && !isFindFriendsWorking {
+                    Button(action: dismissFindFriendsCard) {
+                        Image(systemName: "xmark").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textSecondary).frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, -10).padding(.trailing, -12)
+                    .accessibilityLabel("Close")
+                    .accessibilityIdentifier("native-home-find-friends-close")
+                }
+            }
+            findFriendsContent
+        }
+        .padding(14)
+        .nativePanel()
+        .accessibilityIdentifier("native-home-find-friends-card")
+    }
+
+    private var isFindFriendsWorking: Bool { contactSyncStore.phase == .requesting || contactSyncStore.phase == .syncing }
+
+    @ViewBuilder private var findFriendsContent: some View {
+        if !didStartFindFriends {
+            HStack(spacing: 8) {
+                findFriendsButton("Find friends", filled: true, identifier: "native-home-find-friends-start", action: startFindFriends)
+                findFriendsButton("Not now", filled: false, identifier: "native-home-find-friends-not-now", action: dismissFindFriendsCard)
+            }
+        } else if isFindFriendsWorking {
+            HStack(spacing: 9) {
+                ProgressView().tint(NativeTheme.purple)
+                Text("Looking for your contacts…").font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
+            }
+        } else {
+            switch contactSyncStore.phase {
+            case .denied:
+                Text("Contacts access is off. You can turn it on in Settings.").nativeBody(size: 12.5, color: NativeTheme.textSecondary)
+                findFriendsButton("Open Settings", filled: true, identifier: "native-home-find-friends-settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                }
+            case .failed:
+                Text("Couldn't reach Bytspot. Try again.").nativeBody(size: 12.5, color: NativeTheme.textSecondary)
+                findFriendsButton("Try again", filled: true, identifier: "native-home-find-friends-retry", action: startFindFriends)
+            default:
+                let count = contactSyncStore.suggestions.count
+                Text(count > 0 ? NativeHomeFindFriendsCard.matchedLabel(count: count) : "None of your contacts are on Bytspot yet.")
+                    .font(.system(size: 13.5, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
+                HStack(spacing: 8) {
+                    if count > 0 {
+                        findFriendsButton("See them", filled: true, identifier: "native-home-find-friends-see") { showHomeNetworkHub = true }
+                    }
+                    findFriendsButton("Invite friends", filled: count == 0, identifier: "native-home-find-friends-invite", action: shareFriendInvite)
+                }
+            }
+        }
+    }
+
+    private func findFriendsButton(_ title: String, filled: Bool, identifier: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.system(size: 13.2, weight: .black))
+                .foregroundColor(filled ? .white : NativeTheme.purple)
+                .frame(maxWidth: .infinity).frame(minHeight: 44)
+                .background(filled ? NativeTheme.purple : NativeTheme.purple.opacity(0.11))
+                .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(NativeTheme.purple.opacity(filled ? 0 : 0.28), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func startFindFriends() {
+        didStartFindFriends = true
+        Task {
+            await contactSyncStore.syncDeviceContacts(sessionStore: sessionStore)
+            contactsAuthorization = CNContactStore.authorizationStatus(for: .contacts)
+        }
+    }
+
+    private func dismissFindFriendsCard() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            findFriendsDismissed = true
+            didStartFindFriends = false
+        }
+    }
+
+    private func shareFriendInvite() {
+        guard let items = NativeFriendInviteLink.shareItems(forUserID: sessionStore.authenticatedUserID) else { return }
+        _ = NativePartySharePresentation.share(items)
     }
 
     private var noLocalRecommendationsSection: some View {

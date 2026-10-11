@@ -569,6 +569,7 @@ final class BytspotSessionStore: ObservableObject {
     func signOut() {
         let endingRefreshToken = refreshToken
         NativeSignedInIdentity.clear()
+        NativePendingInviteCode.clear()
         updateToken(nil)
         guard let endingRefreshToken else { return }
         Task { try? await NativeAuthDataAPI(client: BytspotAPIClient()).signOut(refreshToken: endingRefreshToken) }

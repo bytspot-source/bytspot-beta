@@ -1,6 +1,6 @@
 # Native Profile Product + Wireframe Contract
 
-Status: Profile real-data integration P1 in progress — native account panels wired to profile, vehicles, and payment boundary routes 2026-06-20  
+Status: Profile real-data integration P1 in progress — native account panels wired to profile, vehicles, and payment boundary routes 2026-06-20
 Scope: migrate `src/components/ProfileSection.tsx` into a professional native
 SwiftUI Account/Profile surface without treating Profile as a settings junk drawer.
 
@@ -484,6 +484,7 @@ Native frontend/API boundary:
 - Home launch picks and venue rails use venue rows only when venue-specific provenance confirms live inventory with no refresh error. Bootstrap payloads must explicitly provide `hasLiveVenueInventory`; source labels alone never establish venue trust. Home events follow the same boundary through `hasLiveEventInventory`, and known venue/event fallback fixture identities are removed even if a snapshot flag is incorrectly set. Generic Home cards are regenerated from those trustworthy venue/event models rather than accepted from opaque card IDs. Provider-backed local cards remain independently eligible on provider-labeled Discover surfaces; they cannot enter Today's Pick, generic recommendations, venue rails, or event rails. The `Available Tonight` Home claim remains hidden until dedicated availability provenance exists. Fallback, loading, unresolved, or unproven inventory uses capability previews and fail-closed Home sections.
 - Personalization selections persist locally under `bytspot_native_launch_vibe`, `bytspot_native_launch_walk`, `bytspot_native_launch_crew`, and `bytspot_native_launch_completed` so the main shell can later consume them without backend work. The Home card writes the same tokens under the same keys; `bytspot_native_home_vibe_card_dismissed` hides it, and visibility keys off the vibe answer rather than the completed flag.
 - Signed-in members see a `Find friends on Bytspot` card below quick actions while Contacts permission has not been asked; `bytspot_native_home_find_friends_dismissed` hides it. `Invite friends` shares `https://bytspot.app/?ref=<user id>` from Home and Network › People. Both dismissal keys clear on sign-out.
+- After matching, the card loads `auth.emails`; when the account email and every extra email are Hide My Email (`@privaterelay.appleid.com`) and another email can be added, it asks the member to add the email friends know them by (`Add your email` opens the Add email sheet). Load errors show nothing.
 - Password recovery is a native shell that mirrors route intent without logging credentials or accepting token flags.
 
 Auth P2 polish contract:

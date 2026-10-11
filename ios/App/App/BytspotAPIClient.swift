@@ -1958,6 +1958,16 @@ struct NativeAccountEmails: Codable, Equatable {
     static func canAddEmail(accountEmailConfirmed: Bool, extraCount: Int, maxExtraEmails: Int) -> Bool {
         accountEmailConfirmed && extraCount < maxExtraEmails
     }
+
+    /// Friends can't find a member by a Hide My Email address, so Find friends
+    /// asks for a real one while there's room to add it.
+    var needsRealEmailPrompt: Bool {
+        Self.isHideMyEmail(accountEmail.email) && extraEmails.allSatisfy { Self.isHideMyEmail($0.email) } && canAddEmail
+    }
+
+    static func isHideMyEmail(_ email: String) -> Bool {
+        email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasSuffix("@privaterelay.appleid.com")
+    }
 }
 
 /// The code `auth.addEmail` sent to the new address.

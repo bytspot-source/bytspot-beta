@@ -6282,6 +6282,32 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertFalse(NativeAccountEmails.canAddEmail(accountEmailConfirmed: false, extraCount: 0, maxExtraEmails: 5))
     }
 
+    func testIsHideMyEmailMatchesOnlyApplePrivateRelay() {
+        XCTAssertTrue(NativeAccountEmails.isHideMyEmail("abc123@privaterelay.appleid.com"))
+        XCTAssertTrue(NativeAccountEmails.isHideMyEmail("Abc123@PrivateRelay.AppleID.com"))
+        XCTAssertTrue(NativeAccountEmails.isHideMyEmail("  abc123@privaterelay.appleid.com \n"))
+        XCTAssertFalse(NativeAccountEmails.isHideMyEmail("ama@example.com"))
+        XCTAssertFalse(NativeAccountEmails.isHideMyEmail("ama@icloud.com"))
+        XCTAssertFalse(NativeAccountEmails.isHideMyEmail("privaterelay.appleid.com@example.com"))
+    }
+
+    func testRealEmailPromptShowsOnlyForHideMyEmailMembersWhoCanAddOne() {
+        let relay = "abc123@privaterelay.appleid.com"
+        func emails(account: String, extras: [String], max: Int = 5) -> NativeAccountEmails {
+            NativeAccountEmails(
+                accountEmail: .init(email: account, confirmed: true),
+                extraEmails: extras.map { .init(email: $0, addedAt: "2026-10-01T12:00:00.000Z") },
+                maxExtraEmails: max
+            )
+        }
+
+        XCTAssertTrue(emails(account: relay, extras: []).needsRealEmailPrompt, "relay account with no extras")
+        XCTAssertFalse(emails(account: relay, extras: ["ama@example.com"]).needsRealEmailPrompt, "a real extra email is findable")
+        XCTAssertFalse(emails(account: "ama@example.com", extras: []).needsRealEmailPrompt, "a real account email is findable")
+        XCTAssertTrue(emails(account: relay, extras: ["def456@privaterelay.appleid.com"]).needsRealEmailPrompt, "only relay extras")
+        XCTAssertFalse(emails(account: relay, extras: ["d1@privaterelay.appleid.com", "d2@privaterelay.appleid.com"], max: 2).needsRealEmailPrompt, "no room to add at the limit")
+    }
+
     func testSignedInIdentityStoresAndGreetsByFirstName() {
         defer { NativeSignedInIdentity.clear() }
 

@@ -16265,8 +16265,42 @@ private final class NativePhotoMapAnnotationView: MKAnnotationView {
     deinit { imageTask?.cancel() }
 }
 
+/// A Traffic Intel report on the map: faded until it is confirmed.
+struct NativeMapReportPin: Equatable, Identifiable {
+    let id: String
+    let latitude: Double
+    let longitude: Double
+    let category: NativeCommunityReport.Category
+    let isConfirmed: Bool
+
+    init?(_ report: NativeCommunityReport) {
+        guard let id = report.serverID, let latitude = report.latitude, let longitude = report.longitude else { return nil }
+        self.id = id
+        self.latitude = latitude
+        self.longitude = longitude
+        self.category = report.category
+        self.isConfirmed = report.isConfirmed
+    }
+
+    var accessibilityLabel: String {
+        "\(category.label) reported\(isConfirmed ? "" : ", unconfirmed")"
+    }
+}
+
+private final class NativeMapReportAnnotation: MKPointAnnotation {
+    let pin: NativeMapReportPin
+
+    init(_ pin: NativeMapReportPin) {
+        self.pin = pin
+        super.init()
+        coordinate = CLLocationCoordinate2D(latitude: pin.latitude, longitude: pin.longitude)
+        title = pin.category.reportedTitle
+    }
+}
+
 private struct NativeGeographicMap: UIViewRepresentable {
     let payloads: [NativeMapAnnotationPayload]
+    var reportPins: [NativeMapReportPin] = []
     let cameraRequest: NativeMapCameraRequest?
     let recenterMode: NativeMapRecenterMode
     let locationAuthorized: Bool
@@ -16282,6 +16316,7 @@ private struct NativeGeographicMap: UIViewRepresentable {
     let onRegionChange: (MKCoordinateRegion) -> Void
     let onTrackingChange: (NativeMapRecenterMode) -> Void
     let onRouteTravelTime: (TimeInterval?) -> Void
+    var onSelectReport: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -16295,6 +16330,7 @@ private struct NativeGeographicMap: UIViewRepresentable {
         // explicit focus or a real device fix arrives, show geographic context.
         map.setVisibleMapRect(.world, animated: false)
         map.register(NativePhotoMapAnnotationView.self, forAnnotationViewWithReuseIdentifier: "bytspot-photo-pin")
+        map.register(MKMarkerAnnotationView.self, forAnnotationViewWithReuseIdentifier: "bytspot-report-pin")
         return map
     }
 
@@ -16309,6 +16345,7 @@ private struct NativeGeographicMap: UIViewRepresentable {
         if map.layoutMargins != margins { map.layoutMargins = margins }
         map.showsUserLocation = locationAuthorized
         coordinator.syncAnnotations(on: map)
+        coordinator.syncReports(on: map)
         coordinator.syncRoute(on: map)
         let tracking: MKUserTrackingMode = !locationAuthorized || recenterMode == .off ? .none
             : recenterMode == .follow ? .follow : .followWithHeading
@@ -16420,6 +16457,22 @@ private struct NativeGeographicMap: UIViewRepresentable {
             }
         }
 
+        private var reportAnnotations: [String: NativeMapReportAnnotation] = [:]
+
+        /// A report whose state changed is replaced, so its marker is restyled.
+        func syncReports(on map: MKMapView) {
+            let wanted = Dictionary(parent.reportPins.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            for (id, annotation) in reportAnnotations where wanted[id] != annotation.pin {
+                map.removeAnnotation(annotation)
+                reportAnnotations[id] = nil
+            }
+            for (id, pin) in wanted where reportAnnotations[id] == nil {
+                let annotation = NativeMapReportAnnotation(pin)
+                reportAnnotations[id] = annotation
+                map.addAnnotation(annotation)
+            }
+        }
+
         private var routeKey: String?
         private var routeDestinationKey: String?
         private var routeDirections: MKDirections?
@@ -16483,6 +16536,17 @@ private struct NativeGeographicMap: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if let report = annotation as? NativeMapReportAnnotation {
+                let view = mapView.dequeueReusableAnnotationView(withIdentifier: "bytspot-report-pin", for: report) as! MKMarkerAnnotationView
+                view.glyphImage = UIImage(systemName: report.pin.category.icon)
+                view.markerTintColor = UIColor(report.pin.category.accent)
+                view.alpha = report.pin.isConfirmed ? 1 : 0.55
+                view.titleVisibility = .hidden
+                view.subtitleVisibility = .hidden
+                view.displayPriority = .defaultHigh
+                view.accessibilityLabel = report.pin.accessibilityLabel
+                return view
+            }
             guard let annotation = annotation as? NativeGeographicAnnotation else { return nil }
             let view = mapView.dequeueReusableAnnotationView(withIdentifier: "bytspot-photo-pin", for: annotation) as! NativePhotoMapAnnotationView
             view.configure(annotation.payload)
@@ -16490,6 +16554,11 @@ private struct NativeGeographicMap: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
+            if let report = view.annotation as? NativeMapReportAnnotation {
+                mapView.deselectAnnotation(report, animated: false)
+                parent.onSelectReport()
+                return
+            }
             guard let annotation = view.annotation as? NativeGeographicAnnotation else { return }
             // Selection ring is payload-driven; deselection permits repeated
             // taps to reopen the existing action without a second state machine.
@@ -16582,7 +16651,8 @@ private struct NativeMapExploreView: View {
     @State private var didAutoOpenServiceHere = false
     @State private var pendingServiceHereAction: NativeServiceHereActionKind?
     @State private var vibeFilter: Int? = nil
-    @State private var communityReports: [NativeCommunityReport] = NativeCommunityReport.samples
+    @State private var liveMapReports: [NativeMapReport] = []
+    @State private var communityReportStatus: String?
     @State private var recenterMode: NativeMapRecenterMode = .off
     @State private var mapZoomScale: CGFloat = 1
     @State private var pinchStartZoomScale: CGFloat = 1
@@ -16671,10 +16741,16 @@ private struct NativeMapExploreView: View {
         return NativeMapRegionPresentation.showsAtlantaSamples(for: regionLocation, hasResolvedLocation: hasResolvedRegionContext)
     }
 
+    private var communityReportPins: [NativeMapReportPin] {
+        visibleCommunityReports.compactMap(NativeMapReportPin.init)
+    }
+
     private var visibleCommunityReports: [NativeCommunityReport] {
-        guard !showsAtlantaSamples else { return communityReports }
-        let sampleIDs = Set(NativeCommunityReport.samples.map(\.id))
-        return communityReports.filter { !sampleIDs.contains($0.id) }
+        let live = liveMapReports.compactMap { NativeCommunityReport.live($0, from: routeOrigin) }
+        #if DEBUG
+        if live.isEmpty && showsAtlantaSamples { return NativeCommunityReport.samples }
+        #endif
+        return live
     }
 
     private var pins: [NativeMapPin] {
@@ -16929,7 +17005,7 @@ private struct NativeMapExploreView: View {
             ZStack(alignment: .bottom) {
                 // The illustration, six fixed positions and unpositioned
                 // report/decorative markers are deliberately not rendered.
-                NativeGeographicMap(payloads: geographicPayloads, cameraRequest: cameraRequest,
+                NativeGeographicMap(payloads: geographicPayloads, reportPins: communityReportPins, cameraRequest: cameraRequest,
                     recenterMode: recenterMode, locationAuthorized: locationStore.authorizationState == .allowed,
                     reduceMotion: reduceMapMotion, darkAppearance: mapColorScheme == .dark,
                     panelFootprint: saleMeetStore.card != nil ? saleMeetCardHeight : shouldShowSpatialSheet ? mapPanelFootprint(available: proxy.size.height) : 0,
@@ -16948,6 +17024,9 @@ private struct NativeMapExploreView: View {
                     }, onRouteTravelTime: { seconds in
                         if saleMeetStore.card != nil { saleMeetTravelSeconds = seconds; return }
                         if let seconds = seconds, let pin = routeDestinationPin { routeTravelTime = (pinID: pin.id, seconds: seconds) } else { routeTravelTime = nil }
+                    }, onSelectReport: {
+                        guard saleMeetStore.card == nil else { return }
+                        openTrafficIntel()
                     })
                 .frame(minHeight: 0, maxHeight: .infinity)
                 .clipped()
@@ -16991,8 +17070,9 @@ private struct NativeMapExploreView: View {
             .onChange(of: mapPanelLowestDetent) { lowest in mapPanelDetent = mapPanelDetent.atLeast(lowest) }
             .onChange(of: selectedPin?.id) { _ in mapPanelDetent = .half }
         }
-        .sheet(item: $trafficIntelVenue) { venue in
-            let sheet = NativeTrafficIntelSheet(venue: venue, reports: visibleCommunityReports, onAddReport: submitCommunityReport)
+        .sheet(item: $trafficIntelVenue, onDismiss: { communityReportStatus = nil }) { venue in
+            let sheet = NativeTrafficIntelSheet(venue: venue, reports: visibleCommunityReports, statusMessage: communityReportStatus,
+                                                onAddReport: submitCommunityReport, onVote: voteOnCommunityReport)
             if #available(iOS 16.0, *) {
                 sheet
                     .presentationDetents([.medium, .large])
@@ -17064,6 +17144,7 @@ private struct NativeMapExploreView: View {
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in handleMapLocationChange() }
         .onChange(of: tabContentStore.snapshot) { _ in applySelectedPinPreviewIfRequested() }
         .onDisappear { headingProvider.stopLocating(); headingProvider.stop() }
+        .task(id: communityReportsAreaKey) { await followCommunityReports() }
     }
 
     private func startLocationGateIfNeeded() {
@@ -17648,12 +17729,81 @@ private struct NativeMapExploreView: View {
         nativeImpactLight()
     }
 
-    private func submitCommunityReport(_ category: NativeCommunityReport.Category) {
-        let id = "cr-\(Int(Date().timeIntervalSince1970))"
-        let report = NativeCommunityReport(id: id, category: category, title: "You reported", distance: "Here", distanceMiles: 0.0, minutesAgo: 0, x: 0.50, y: 0.50)
-        communityReports.insert(report, at: 0)
-        nativeImpactLight()
+    /// About a kilometre: the reports follow the member without reconnecting on every step.
+    private var communityReportsAreaKey: String {
+        guard let origin = routeOrigin else { return "none" }
+        return String(format: "%.2f,%.2f", origin.latitude, origin.longitude) + (sessionStore.isAuthenticated ? ",member" : ",guest")
     }
+
+    /// Lists the reports around the member, then follows the live stream,
+    /// reconnecting after a drop.
+    private func followCommunityReports() async {
+        guard let origin = routeOrigin else { liveMapReports = []; return }
+        let api = sessionStore.mapReportsAPI
+        while !Task.isCancelled {
+            if let listed = try? await api.list(latitude: origin.latitude, longitude: origin.longitude) { liveMapReports = listed }
+            do {
+                for try await change in api.changes(latitude: origin.latitude, longitude: origin.longitude) {
+                    liveMapReports = change.applied(to: liveMapReports)
+                }
+            } catch {}
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+        }
+    }
+
+    private func applyMapReportResult(_ result: NativeMapReportResult, mine: Bool, vote: String?) {
+        guard !result.removed else {
+            liveMapReports = NativeMapReportChange.remove(result.report.id).applied(to: liveMapReports)
+            return
+        }
+        var report = result.report
+        if mine { report.mine = true }
+        if let vote { report.myVote = vote }
+        liveMapReports = NativeMapReportChange.upsert(report).applied(to: liveMapReports)
+    }
+
+    private func promptSignInFromTrafficIntel(title: String) {
+        trafficIntelVenue = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            presentGuestMapPrompt(title: title, subtitle: "Reports come from signed-in members, so people nearby can trust them.", cta: "Sign in")
+        }
+    }
+
+    private func submitCommunityReport(_ category: NativeCommunityReport.Category) {
+        guard sessionStore.isAuthenticated else { promptSignInFromTrafficIntel(title: "Sign in to report what you see"); return }
+        guard let origin = routeOrigin else { communityReportStatus = "Turn on location to report what you see."; return }
+        communityReportStatus = nil
+        nativeImpactLight()
+        let api = sessionStore.mapReportsAPI
+        Task {
+            do {
+                let result = try await api.submit(kind: category.rawValue, latitude: origin.latitude, longitude: origin.longitude, clientReportID: UUID().uuidString)
+                let merged = result.merged == true
+                applyMapReportResult(result, mine: !merged, vote: merged ? "still" : nil)
+                communityReportStatus = merged ? NativeCommunityReport.agreedMessage : NativeCommunityReport.reportedMessage
+            } catch {
+                communityReportStatus = NativeMapReportsAPI.message(for: error)
+            }
+        }
+    }
+
+    private func voteOnCommunityReport(_ report: NativeCommunityReport, stillThere: Bool) {
+        guard let reportID = report.serverID else { return }
+        guard sessionStore.isAuthenticated else { promptSignInFromTrafficIntel(title: "Sign in to confirm reports"); return }
+        nativeImpactLight()
+        let api = sessionStore.mapReportsAPI
+        Task {
+            do {
+                let result = try await api.vote(reportID: reportID, stillThere: stillThere)
+                applyMapReportResult(result, mine: false, vote: stillThere ? "still" : "gone")
+                communityReportStatus = stillThere ? "Thanks. You confirmed it's still there."
+                    : result.removed ? "Thanks. The report was removed." : "Thanks. It's removed once others agree."
+            } catch {
+                communityReportStatus = NativeMapReportsAPI.message(for: error)
+            }
+        }
+    }
+
 
     static let trafficIntelAutoEnvironmentKey = "BYT_NATIVE_TRAFFIC_AUTO"
 
@@ -19288,16 +19438,22 @@ private struct NativeServiceHereOptionRow: View {
 private struct NativeTrafficIntelSheet: View {
     let venue: NativeVenueSummary
     let reports: [NativeCommunityReport]
+    let statusMessage: String?
     let onAddReport: (NativeCommunityReport.Category) -> Void
+    let onVote: (NativeCommunityReport, Bool) -> Void
     @Environment(\.colorScheme) private var colorScheme
     @State private var showReportPicker = false
 
     init(venue: NativeVenueSummary,
          reports: [NativeCommunityReport] = NativeCommunityReport.samples,
-         onAddReport: @escaping (NativeCommunityReport.Category) -> Void = { _ in }) {
+         statusMessage: String? = nil,
+         onAddReport: @escaping (NativeCommunityReport.Category) -> Void = { _ in },
+         onVote: @escaping (NativeCommunityReport, Bool) -> Void = { _, _ in }) {
         self.venue = venue
         self.reports = reports
+        self.statusMessage = statusMessage
         self.onAddReport = onAddReport
+        self.onVote = onVote
     }
 
     var body: some View {
@@ -19328,7 +19484,7 @@ private struct NativeTrafficIntelSheet: View {
                     accent: parkingColor,
                     progress: parkingProgress
                 )
-                NativeCommunityReportsCard(reports: reports) { showReportPicker = true }
+                NativeCommunityReportsCard(reports: reports, statusMessage: statusMessage, onVote: onVote, onReport: { showReportPicker = true })
                 footer
             }
             .padding(.horizontal, 20)
@@ -21091,6 +21247,13 @@ struct NativeCommunityReport: Identifiable, Equatable {
             case .incident: return "Incident"
             }
         }
+        var reportedTitle: String {
+            switch self {
+            case .police: return "Police reported"
+            case .construction: return "Construction reported"
+            case .incident: return "Incident reported"
+            }
+        }
         var accent: Color {
             switch self {
             case .police: return NativeTheme.cyan
@@ -21108,6 +21271,45 @@ struct NativeCommunityReport: Identifiable, Equatable {
     let minutesAgo: Int
     let x: CGFloat
     let y: CGFloat
+    /// Set for a report from the server; nil for the samples.
+    var serverID: String? = nil
+    var latitude: Double? = nil
+    var longitude: Double? = nil
+    var isConfirmed = true
+    var isMine = false
+    /// "still" or "gone" when the signed-in member voted on it.
+    var myVote: String? = nil
+
+    var statusLabel: String { isConfirmed ? "Confirmed" : "Unconfirmed" }
+
+    static let reportedMessage = "Reported. It shows as unconfirmed until someone nearby agrees."
+    static let agreedMessage = "Already reported here. Your report counts as agreement."
+
+    /// A server report as the Map shows it, measured from the member's
+    /// location. Nil for an expired report or a kind the Map doesn't show.
+    static func live(_ report: NativeMapReport, from origin: CLLocationCoordinate2D?, now: Date = Date()) -> NativeCommunityReport? {
+        guard let category = Category(rawValue: report.kind), report.isActive(at: now) else { return nil }
+        let miles = origin.map {
+            CLLocation(latitude: $0.latitude, longitude: $0.longitude).distance(from: CLLocation(latitude: report.lat, longitude: report.lng)) / 1609.344
+        }
+        let minutes = report.createdDate.map { max(0, Int(now.timeIntervalSince($0) / 60)) } ?? 0
+        return NativeCommunityReport(
+            id: "live-\(report.id)",
+            category: category,
+            title: category.reportedTitle,
+            distance: miles.map { String(format: "%.1f mi", $0) } ?? "Nearby",
+            distanceMiles: miles ?? 0,
+            minutesAgo: minutes,
+            x: 0.5,
+            y: 0.5,
+            serverID: report.id,
+            latitude: report.lat,
+            longitude: report.lng,
+            isConfirmed: report.isConfirmed,
+            isMine: report.mine == true,
+            myVote: report.myVote
+        )
+    }
 
     var ageLabel: String {
         if minutesAgo <= 0 { return "just now" }
@@ -21131,16 +21333,23 @@ private struct NativeCommunityReportMarker: View {
             .foregroundColor(report.category.accent)
             .frame(width: 28, height: 28)
             .background(Circle().fill(NativePolish.mapControlSurface))
-            .overlay(Circle().stroke(report.category.accent.opacity(0.55), lineWidth: 1.25))
+            .overlay(Circle().stroke(report.category.accent.opacity(0.55), style: StrokeStyle(lineWidth: 1.25, dash: report.isConfirmed ? [] : [3, 2])))
             .clipShape(Circle())
+            .opacity(report.isConfirmed ? 1 : 0.55)
             .shadow(color: Color.black.opacity(0.32), radius: 4, x: 0, y: 2)
-            .accessibilityLabel("\(report.category.label) reported \(report.ageLabel)")
+            .accessibilityLabel("\(report.category.label) reported \(report.ageLabel)\(report.isConfirmed ? "" : ", unconfirmed")")
     }
 }
 
 private struct NativeCommunityReportsCard: View {
     let reports: [NativeCommunityReport]
+    let statusMessage: String?
+    let onVote: (NativeCommunityReport, Bool) -> Void
     let onReport: () -> Void
+
+    private var liveReports: [NativeCommunityReport] {
+        Array(reports.filter { $0.serverID != nil }.prefix(5))
+    }
 
     private var grouped: [(NativeCommunityReport.Category, Int, NativeCommunityReport?)] {
         NativeCommunityReport.Category.allCases.map { category in
@@ -21173,6 +21382,13 @@ private struct NativeCommunityReportsCard: View {
                     NativeCommunityReportsCardRow(category: entry.0, count: entry.1, mostRecent: entry.2)
                 }
             }
+            if !liveReports.isEmpty {
+                VStack(spacing: 8) {
+                    ForEach(liveReports) { report in
+                        NativeCommunityReportVoteRow(report: report) { stillThere in onVote(report, stillThere) }
+                    }
+                }
+            }
             Button(action: onReport) {
                 HStack(spacing: 8) {
                     Image(systemName: "plus.circle.fill")
@@ -21193,6 +21409,13 @@ private struct NativeCommunityReportsCard: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("native-map-community-report-trigger")
+            if let statusMessage {
+                Text(statusMessage)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(NativeTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("native-map-community-report-status")
+            }
         }
         .padding(16)
         .background(NativePolish.elevatedSurface)
@@ -21238,6 +21461,77 @@ private struct NativeCommunityReportsCardRow: View {
         .padding(.vertical, 8)
         .background(NativeTheme.selectedControlSurface.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+/// One server report with "Still there" and "Gone". The member's own report
+/// and a report they already voted on say so instead.
+private struct NativeCommunityReportVoteRow: View {
+    let report: NativeCommunityReport
+    let onVote: (Bool) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 11) {
+                Image(systemName: report.category.icon)
+                    .font(.system(size: 14, weight: .black))
+                    .foregroundColor(report.category.accent)
+                    .frame(width: 32, height: 32)
+                    .background(report.category.accent.opacity(0.12))
+                    .clipShape(Circle())
+                    .opacity(report.isConfirmed ? 1 : 0.55)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(report.title)
+                        .font(.system(size: 13, weight: .black))
+                        .foregroundColor(NativeTheme.textPrimary)
+                    Text("\(report.statusLabel) · \(report.distance) · \(report.ageLabel)")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(NativeTheme.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+            }
+            if let note = Self.note(for: report) {
+                Text(note)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(NativeTheme.textTertiary)
+            } else {
+                HStack(spacing: 8) {
+                    voteButton("Still there", symbol: "checkmark", stillThere: true)
+                    voteButton("Gone", symbol: "xmark", stillThere: false)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(NativeTheme.selectedControlSurface.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityIdentifier("native-map-community-report-row-\(report.serverID ?? report.id)")
+    }
+
+    static func note(for report: NativeCommunityReport) -> String? {
+        if report.isMine { return "Your report" }
+        switch report.myVote {
+        case "still": return "You said it's still there"
+        case "gone": return "You said it's gone"
+        default: return nil
+        }
+    }
+
+    private func voteButton(_ title: String, symbol: String, stillThere: Bool) -> some View {
+        Button(action: { onVote(stillThere) }) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol).font(.system(size: 11, weight: .black))
+                Text(title).font(.system(size: 12, weight: .black))
+            }
+            .foregroundColor(NativeTheme.textPrimary)
+            .frame(maxWidth: .infinity, minHeight: 34)
+            .background(NativePolish.elevatedSurface)
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("native-map-community-report-vote-\(stillThere ? "still" : "gone")")
     }
 }
 
@@ -21294,7 +21588,7 @@ private struct NativeCommunityReportPickerSheet: View {
                     .accessibilityIdentifier("native-map-community-report-option-\(category.rawValue)")
                 }
             }
-            Text("Location auto-set from current map view. Reports stay anonymous.")
+            Text("Uses your current location. Reports stay anonymous and show as unconfirmed until someone nearby agrees.")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(NativeTheme.textTertiary)
             Spacer(minLength: 0)

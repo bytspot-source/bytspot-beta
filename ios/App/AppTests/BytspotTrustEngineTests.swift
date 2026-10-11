@@ -8638,3 +8638,92 @@ final class NativeDiscoverSwipePolicyTests: XCTestCase {
         XCTAssertFalse(NativeDiscoverSwipePolicy.isHorizontal(CGPoint(x: 100, y: 95)))
     }
 }
+
+final class NativeMapReportsTests: XCTestCase {
+    private func iso(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    private func report(id: String = "r1", kind: String = "police", status: String = "unconfirmed", lat: Double = 33.7810, lng: Double = -84.3880,
+                        created: Date = Date().addingTimeInterval(-4 * 60), expires: Date = Date().addingTimeInterval(26 * 60),
+                        mine: Bool? = nil, myVote: String? = nil) -> NativeMapReport {
+        NativeMapReport(id: id, kind: kind, lat: lat, lng: lng, venueId: nil, venueName: nil, status: status, agreeCount: 1, goneCount: 0,
+                        createdAt: iso(created), expiresAt: iso(expires), mine: mine, myVote: myVote)
+    }
+
+    func testStreamLinesDecodeIntoChanges() {
+        let snapshot = #"data: {"type":"snapshot","reports":[{"id":"r1","kind":"police","lat":33.78,"lng":-84.38,"venueId":null,"venueName":null,"status":"unconfirmed","agreeCount":1,"goneCount":0,"createdAt":"2026-10-11T22:00:00.000Z","expiresAt":"2026-10-11T22:30:00.000Z"}]}"#
+        guard case .snapshot(let reports)? = NativeMapReportChange.decode(line: snapshot) else { return XCTFail("snapshot") }
+        XCTAssertEqual(reports.map(\.id), ["r1"])
+        XCTAssertNotNil(reports[0].createdDate, "fractional ISO dates parse")
+
+        let upsert = #"data: {"type":"upsert","report":{"id":"r2","kind":"incident","lat":33.78,"lng":-84.38,"venueId":null,"venueName":null,"status":"confirmed","agreeCount":2,"goneCount":0,"createdAt":"2026-10-11T22:00:00Z","expiresAt":"2026-10-11T22:30:00Z"}}"#
+        guard case .upsert(let updated)? = NativeMapReportChange.decode(line: upsert) else { return XCTFail("upsert") }
+        XCTAssertTrue(updated.isConfirmed)
+        XCTAssertNotNil(updated.createdDate, "whole-second ISO dates parse too")
+
+        XCTAssertEqual(NativeMapReportChange.decode(line: #"data: {"type":"remove","id":"r1","lat":33.78,"lng":-84.38}"#), .remove("r1"))
+        XCTAssertNil(NativeMapReportChange.decode(line: ": ping"))
+        XCTAssertNil(NativeMapReportChange.decode(line: "data: not json"))
+        XCTAssertNil(NativeMapReportChange.decode(line: #"data: {"type":"other"}"#))
+    }
+
+    func testStreamChangesKeepTheMembersOwnFields() {
+        let listed = [report(id: "r1", mine: true), report(id: "r2", myVote: "still")]
+        let confirmed = NativeMapReportChange.upsert(report(id: "r2", status: "confirmed")).applied(to: listed)
+        XCTAssertEqual(confirmed.map(\.id), ["r1", "r2"])
+        XCTAssertEqual(confirmed[1].myVote, "still")
+        XCTAssertTrue(confirmed[1].isConfirmed)
+        XCTAssertEqual(NativeMapReportChange.upsert(report(id: "r3")).applied(to: listed).first?.id, "r3", "a new report goes first")
+        XCTAssertEqual(NativeMapReportChange.remove("r1").applied(to: listed).map(\.id), ["r2"])
+        XCTAssertEqual(NativeMapReportChange.snapshot([report(id: "r1")]).applied(to: listed).first?.mine, true)
+    }
+
+    func testRequestsMatchTheServer() {
+        let submit = NativeMapReportsAPI.submitInput(kind: "police", latitude: 33.78, longitude: -84.38, clientReportID: "ABCDEF12-3456")
+        XCTAssertEqual(submit["kind"] as? String, "police")
+        XCTAssertEqual(submit["lat"] as? Double, 33.78)
+        XCTAssertEqual(submit["lng"] as? Double, -84.38)
+        XCTAssertEqual(submit["clientReportId"] as? String, "ABCDEF12-3456")
+        XCTAssertEqual(NativeMapReportsAPI.voteInput(reportID: "r1", stillThere: true)["vote"] as? String, "still")
+        XCTAssertEqual(NativeMapReportsAPI.voteInput(reportID: "r1", stillThere: false)["vote"] as? String, "gone")
+        XCTAssertEqual(NativeMapReportsAPI.listInput(latitude: 1, longitude: 2)["radiusMiles"] as? Double, 1.0)
+        let stream = NativeMapReportsAPI.streamPath(latitude: 33.78, longitude: -84.38)
+        XCTAssertTrue(stream.hasPrefix("/map/reports/stream?"))
+        XCTAssertTrue(stream.contains("lat=33.78"))
+        XCTAssertTrue(stream.contains("lng=-84.38"))
+    }
+
+    func testRefusalsShowWhatToFix() {
+        func refused(_ status: Int, _ message: String) -> Error {
+            BytspotAPIClient.APIError.server(status: status, body: #"{"error":{"message":"\#(message)","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":\#(status)}}}"#)
+        }
+        XCTAssertEqual(NativeMapReportsAPI.message(for: refused(403, "Confirm your email to report on the Map.")), "Confirm your email to report on the Map.")
+        XCTAssertEqual(NativeMapReportsAPI.message(for: refused(400, "You can't vote on your own report.")), "You can't vote on your own report.")
+        XCTAssertEqual(NativeMapReportsAPI.message(for: refused(429, "Rate limit exceeded for map-report. Try again later.")), NativeMapReportsAPI.tooManyMessage)
+        XCTAssertEqual(NativeMapReportsAPI.message(for: refused(404, "That report has expired.")), NativeMapReportsAPI.expiredMessage)
+        XCTAssertEqual(NativeMapReportsAPI.message(for: refused(500, "boom")), NativeMapReportsAPI.offlineMessage)
+        XCTAssertEqual(NativeMapReportsAPI.message(for: URLError(.notConnectedToInternet)), NativeMapReportsAPI.offlineMessage)
+    }
+
+    func testServerReportsBecomeMapReports() throws {
+        let origin = CLLocationCoordinate2D(latitude: 33.7810, longitude: -84.3880)
+        let live = try XCTUnwrap(NativeCommunityReport.live(report(lat: 33.7955, mine: true), from: origin))
+        XCTAssertEqual(live.category, .police)
+        XCTAssertEqual(live.title, "Police reported")
+        XCTAssertEqual(live.distance, "1.0 mi")
+        XCTAssertEqual(live.minutesAgo, 4)
+        XCTAssertFalse(live.isConfirmed)
+        XCTAssertEqual(live.statusLabel, "Unconfirmed")
+        XCTAssertTrue(live.isMine)
+        XCTAssertNil(NativeCommunityReport.live(report(expires: Date().addingTimeInterval(-1)), from: origin), "expired")
+        XCTAssertNil(NativeCommunityReport.live(report(kind: "long_line"), from: origin), "a kind the Map doesn't show")
+
+        let pin = try XCTUnwrap(NativeMapReportPin(live))
+        XCTAssertEqual(pin.id, "r1")
+        XCTAssertEqual(pin.accessibilityLabel, "Police / Speed Trap reported, unconfirmed")
+        XCTAssertNil(NativeMapReportPin(NativeCommunityReport.samples[0]), "samples have no place on the real map")
+    }
+}

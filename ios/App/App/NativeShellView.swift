@@ -1761,6 +1761,7 @@ private struct NativeProfileHeaderCard: View {
 
     @EnvironmentObject private var membershipStore: NativeMembershipTierStore
     @AppStorage(NativeSignedInIdentity.displayNameKey) private var signedInDisplayName = ""
+    @State private var reporterBadge: String?
 
     // The local personal-info draft ("bytspot_profile_display_name") is
     // deliberately not used here: it is unscoped and may hold a previous
@@ -1812,6 +1813,10 @@ private struct NativeProfileHeaderCard: View {
                         Text(sessionStore.isAuthenticated ? "Member account" : "Guest account")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(NativeProfileStyle.muted)
+                        if let reporterBadge {
+                            NativeProfileMicroChip(reporterBadge, icon: "star.fill", color: NativeTheme.cyan)
+                                .accessibilityIdentifier("native-profile-reporter-badge")
+                        }
                     }
                     Spacer()
                 }
@@ -1831,6 +1836,10 @@ private struct NativeProfileHeaderCard: View {
         }
         .nativeProfileCard(accent: NativeTheme.purple)
         .accessibilityIdentifier("native-profile-header")
+        .task(id: sessionStore.isAuthenticated) {
+            guard sessionStore.isAuthenticated else { reporterBadge = nil; return }
+            reporterBadge = (try? await sessionStore.mapReportsAPI.standing())?.badge
+        }
     }
 
     private var tierLabel: String? {
@@ -21279,6 +21288,11 @@ struct NativeCommunityReport: Identifiable, Equatable {
     var isMine = false
     /// "still" or "gone" when the signed-in member voted on it.
     var myVote: String? = nil
+    var area: String? = nil
+    var shareURL: URL? = nil
+
+    /// "Midtown: Police reported", or the title alone outside a named area.
+    var shareText: String { area.map { "\($0): \(title)" } ?? title }
 
     var statusLabel: String { isConfirmed ? "Confirmed" : "Unconfirmed" }
 
@@ -21307,7 +21321,9 @@ struct NativeCommunityReport: Identifiable, Equatable {
             longitude: report.lng,
             isConfirmed: report.isConfirmed,
             isMine: report.mine == true,
-            myVote: report.myVote
+            myVote: report.myVote,
+            area: report.area,
+            shareURL: report.shareURL
         )
     }
 
@@ -21490,6 +21506,17 @@ private struct NativeCommunityReportVoteRow: View {
                         .lineLimit(1)
                 }
                 Spacer()
+                if let url = report.shareURL {
+                    Button(action: { _ = NativePartySharePresentation.share([report.shareText, url]) }) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 13, weight: .black))
+                            .foregroundColor(NativeTheme.textSecondary)
+                            .frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Share report")
+                    .accessibilityIdentifier("native-map-community-report-share")
+                }
             }
             if let note = Self.note(for: report) {
                 Text(note)

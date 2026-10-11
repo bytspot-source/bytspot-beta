@@ -8726,4 +8726,26 @@ final class NativeMapReportsTests: XCTestCase {
         XCTAssertEqual(pin.accessibilityLabel, "Police / Speed Trap reported, unconfirmed")
         XCTAssertNil(NativeMapReportPin(NativeCommunityReport.samples[0]), "samples have no place on the real map")
     }
+
+    func testReportsShareWithTheirAreaAndLink() throws {
+        let json = #"{"id":"r1","kind":"police","lat":33.78,"lng":-84.38,"venueId":null,"venueName":null,"status":"confirmed","agreeCount":2,"goneCount":0,"createdAt":"2026-10-11T22:00:00Z","expiresAt":"2099-10-11T22:30:00Z","area":"Midtown","shareUrl":"https://api.bytspot.app/alert/r1"}"#
+        let decoded = try JSONDecoder().decode(NativeMapReport.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.area, "Midtown")
+        XCTAssertEqual(decoded.shareURL?.absoluteString, "https://api.bytspot.app/alert/r1")
+        let live = try XCTUnwrap(NativeCommunityReport.live(decoded, from: nil))
+        XCTAssertEqual(live.shareText, "Midtown: Police reported")
+        XCTAssertEqual(live.shareURL, decoded.shareURL)
+
+        var outside = report()
+        outside.shareUrl = "http://example.com/alert/r1"
+        XCTAssertNil(outside.shareURL, "only an https link is shared")
+        XCTAssertEqual(NativeCommunityReport.live(outside, from: nil)?.shareText, "Police reported", "no area, title alone")
+    }
+
+    func testStandingDecodesTheBadge() throws {
+        XCTAssertEqual(NativeMapReportsAPI.standingPath, "/trpc/mapReports.standing")
+        let top = try JSONDecoder().decode(NativeMapReportStanding.self, from: Data(#"{"confirmedThisWeek":4,"badge":"Top Midtown reporter"}"#.utf8))
+        XCTAssertEqual(top, NativeMapReportStanding(confirmedThisWeek: 4, badge: "Top Midtown reporter"))
+        XCTAssertNil(try JSONDecoder().decode(NativeMapReportStanding.self, from: Data(#"{"confirmedThisWeek":0,"badge":null}"#.utf8)).badge)
+    }
 }

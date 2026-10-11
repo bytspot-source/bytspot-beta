@@ -4821,3 +4821,187 @@ extension NativeTabContentSnapshot {
     static let fallback = NativeTabContentSnapshot(venues: fallbackVenues, discoverCards: fallbackDiscoverCards + specialDiscoverCards, events: fallbackEvents, source: .fallback, lastUpdated: nil, errorMessage: nil)
     static let unresolved = NativeTabContentSnapshot(venues: [], discoverCards: fallbackDiscoverCards.filter { $0.id != "midtown-boutique-suite" }, events: [], source: .fallback, lastUpdated: nil, errorMessage: nil)
 }
+
+/// A Traffic Intel report from `mapReports`. Never says who reported or voted;
+/// `mine` and `myVote` are only set for the signed-in member reading the list.
+struct NativeMapReport: Codable, Equatable, Identifiable {
+    let id: String
+    let kind: String
+    let lat: Double
+    let lng: Double
+    let venueId: String?
+    let venueName: String?
+    let status: String
+    let agreeCount: Int
+    let goneCount: Int
+    let createdAt: String
+    let expiresAt: String
+    var mine: Bool?
+    var myVote: String?
+
+    var isConfirmed: Bool { status == "confirmed" }
+    var createdDate: Date? { Self.date(createdAt) }
+    var expiresDate: Date? { Self.date(expiresAt) }
+
+    func isActive(at now: Date) -> Bool {
+        guard let expires = expiresDate else { return false }
+        return expires > now
+    }
+
+    static func date(_ raw: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
+    }
+}
+
+/// One message from `/map/reports/stream`.
+enum NativeMapReportChange: Equatable {
+    case snapshot([NativeMapReport])
+    case upsert(NativeMapReport)
+    case remove(String)
+
+    static func decode(line: String) -> NativeMapReportChange? {
+        guard line.hasPrefix("data:") else { return nil }
+        let json = line.dropFirst("data:".count).trimmingCharacters(in: .whitespaces)
+        struct Envelope: Decodable {
+            let type: String
+            let reports: [NativeMapReport]?
+            let report: NativeMapReport?
+            let id: String?
+        }
+        guard let data = json.data(using: .utf8), let envelope = try? JSONDecoder().decode(Envelope.self, from: data) else { return nil }
+        switch envelope.type {
+        case "snapshot": return envelope.reports.map { .snapshot($0) }
+        case "upsert": return envelope.report.map { .upsert($0) }
+        case "remove": return envelope.id.map { .remove($0) }
+        default: return nil
+        }
+    }
+
+    /// The stream carries no viewer fields, so a report already in the list
+    /// keeps its `mine` and `myVote`.
+    func applied(to reports: [NativeMapReport]) -> [NativeMapReport] {
+        let previous = Dictionary(reports.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        func keepingViewer(_ report: NativeMapReport) -> NativeMapReport {
+            var merged = report
+            if let old = previous[report.id] {
+                merged.mine = merged.mine ?? old.mine
+                merged.myVote = merged.myVote ?? old.myVote
+            }
+            return merged
+        }
+        switch self {
+        case .snapshot(let fresh):
+            return fresh.map(keepingViewer)
+        case .upsert(let report):
+            let updated = keepingViewer(report)
+            guard reports.contains(where: { $0.id == report.id }) else { return [updated] + reports }
+            return reports.map { $0.id == report.id ? updated : $0 }
+        case .remove(let id):
+            return reports.filter { $0.id != id }
+        }
+    }
+}
+
+struct NativeMapReportResult: Decodable, Equatable {
+    let report: NativeMapReport
+    let removed: Bool
+    let merged: Bool?
+}
+
+struct NativeMapReportsAPI {
+    let client: BytspotAPIClient
+
+    static let radiusMiles = 1.0
+    static let listPath = "/trpc/mapReports.list"
+    static let submitPath = "/trpc/mapReports.submit"
+    static let votePath = "/trpc/mapReports.vote"
+
+    static func listInput(latitude: Double, longitude: Double) -> [String: Any] {
+        ["lat": latitude, "lng": longitude, "radiusMiles": radiusMiles]
+    }
+
+    static func submitInput(kind: String, latitude: Double, longitude: Double, clientReportID: String) -> [String: Any] {
+        ["kind": kind, "lat": latitude, "lng": longitude, "clientReportId": clientReportID]
+    }
+
+    static func voteInput(reportID: String, stillThere: Bool) -> [String: Any] {
+        ["reportId": reportID, "vote": stillThere ? "still" : "gone"]
+    }
+
+    static func streamPath(latitude: Double, longitude: Double) -> String {
+        var components = URLComponents()
+        components.path = "/map/reports/stream"
+        components.queryItems = [
+            URLQueryItem(name: "lat", value: String(latitude)),
+            URLQueryItem(name: "lng", value: String(longitude)),
+            URLQueryItem(name: "radiusMiles", value: String(radiusMiles)),
+        ]
+        return components.string ?? components.path
+    }
+
+    func list(latitude: Double, longitude: Double) async throws -> [NativeMapReport] {
+        struct List: Decodable { let reports: [NativeMapReport] }
+        let payload = try await client.trpcQueryPayload(path: Self.listPath, input: Self.listInput(latitude: latitude, longitude: longitude))
+        return try JSONDecoder().decode(List.self, from: JSONSerialization.data(withJSONObject: payload)).reports
+    }
+
+    func submit(kind: String, latitude: Double, longitude: Double, clientReportID: String) async throws -> NativeMapReportResult {
+        try await client.trpcDecode(NativeMapReportResult.self, path: Self.submitPath, method: "POST",
+                                    input: Self.submitInput(kind: kind, latitude: latitude, longitude: longitude, clientReportID: clientReportID))
+    }
+
+    func vote(reportID: String, stillThere: Bool) async throws -> NativeMapReportResult {
+        try await client.trpcDecode(NativeMapReportResult.self, path: Self.votePath, method: "POST",
+                                    input: Self.voteInput(reportID: reportID, stillThere: stillThere))
+    }
+
+    /// Live changes around a point until the connection drops. The server
+    /// pings every 25 s, so the request waits longer than that between bytes.
+    func changes(latitude: Double, longitude: Double) -> AsyncThrowingStream<NativeMapReportChange, Error> {
+        let client = self.client
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var request = try client.makeRequest(path: Self.streamPath(latitude: latitude, longitude: longitude))
+                    request.timeoutInterval = 60
+                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    let (bytes, response) = try await client.urlSession.bytes(for: request)
+                    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                        throw BytspotAPIClient.APIError.invalidResponse
+                    }
+                    for try await line in bytes.lines {
+                        if let change = NativeMapReportChange.decode(line: line) { continuation.yield(change) }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    static let offlineMessage = "Couldn't reach Bytspot. Check your connection and try again."
+    static let tooManyMessage = "You've sent a lot of reports. Try again later."
+    static let expiredMessage = "That report has expired."
+
+    /// A refusal that names what to fix (confirm your email, your own report)
+    /// is shown as written.
+    static func message(for error: Error) -> String {
+        guard case let BytspotAPIClient.APIError.server(status, body) = error else { return offlineMessage }
+        if status == 429 { return tooManyMessage }
+        if status == 404 { return expiredMessage }
+        let said = NativePlanDemandFailure.serverMessage(in: body)
+        if status == 400 || status == 403, !said.isEmpty, !said.hasPrefix("[") { return said }
+        return offlineMessage
+    }
+}
+
+extension BytspotSessionStore {
+    var mapReportsAPI: NativeMapReportsAPI {
+        let bearer = canAttachBearerToken ? self.token : nil
+        return NativeMapReportsAPI(client: BytspotAPIClient(tokenProvider: { bearer }))
+    }
+}

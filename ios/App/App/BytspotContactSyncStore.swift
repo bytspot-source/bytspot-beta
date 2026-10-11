@@ -19,6 +19,44 @@ struct NativeFriendSuggestion: Identifiable, Equatable {
     }
 }
 
+/// The link a member shares with people who are not on Bytspot yet. The web
+/// signup reads `?ref=` as the referrer.
+enum NativeFriendInviteLink {
+    static let message = "Join me on Bytspot"
+    static let base = "https://bytspot.app/"
+
+    static func url(forUserID userID: String?) -> URL? {
+        let trimmed = userID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return nil }
+        // The id is opaque, so everything but RFC 3986 unreserved characters
+        // is encoded; URLQueryItem would leave "+" and "/" as they are.
+        let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        guard let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: unreserved) else { return nil }
+        return URL(string: base + "?ref=" + encoded)
+    }
+
+    static func shareItems(forUserID userID: String?) -> [Any]? {
+        guard let url = url(forUserID: userID) else { return nil }
+        return [message, url]
+    }
+}
+
+/// The "Find friends on Bytspot" card on Home.
+enum NativeHomeFindFriendsCard {
+    static let dismissedKey = "bytspot_native_home_find_friends_dismissed"
+    static let title = "Find friends on Bytspot"
+    static let body = "See which of your contacts are already here. Your contacts stay on your phone. Only scrambled codes are sent to match them."
+
+    /// Members only, and only while iOS has not been asked about Contacts.
+    static func isVisible(isAuthenticated: Bool, isGuest: Bool, contactsStatus: CNAuthorizationStatus, dismissed: Bool) -> Bool {
+        isAuthenticated && !isGuest && contactsStatus == .notDetermined && !dismissed
+    }
+
+    static func matchedLabel(count: Int) -> String {
+        count == 1 ? "1 of your contacts is on Bytspot" : "\(count) of your contacts are on Bytspot"
+    }
+}
+
 /// Reads device contacts (permission-gated), hashes them with the shared
 /// `BytspotContactHasher` contract, syncs the salted hashes via
 /// `social.syncCloudContact`, and publishes ranked `social.suggestions`.

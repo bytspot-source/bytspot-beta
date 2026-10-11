@@ -134,7 +134,8 @@ enum NativeAuthSplashSelfTests {
     }
 
     private static func assertReactLaunchCopyIsMirrored() {
-        precondition(NativeAuthLaunchContract.appFlow == ["splash", "landing", "location", "vibe", "walk", "crew", "recommendations", "main"], "NativeAuthSplashSelfTests: App flow drifted from launch personalization source-of-truth.")
+        precondition(NativeAuthLaunchContract.appFlow == ["splash", "landing", "main"], "NativeAuthSplashSelfTests: first launch must go splash → landing → Home.")
+        precondition(NativeLaunchStage.allCases == [.splash, .landing, .auth], "NativeAuthSplashSelfTests: location and personalization must not return as launch stages.")
         precondition(NativeAuthLaunchContract.reactSources.contains("SplashScreen.tsx"), "NativeAuthSplashSelfTests: missing SplashScreen source guard.")
         precondition(NativeAuthLaunchContract.reactSources.contains("App.tsx onboarding quiz"), "NativeAuthSplashSelfTests: missing App.tsx onboarding quiz source guard.")
         precondition(NativeAuthLaunchContract.reactSources.contains("AuthenticationFlow.tsx"), "NativeAuthSplashSelfTests: missing auth source guard.")
@@ -148,8 +149,8 @@ enum NativeAuthSplashSelfTests {
         // Intent resolution for every offered answer, including the day,
         // late-night and sleep variants this file cannot see, is pinned in
         // NativeLaunchQuizIntentSelfTests.
-        precondition(NativeLaunchLocationContract.benefits.count == 3, "NativeAuthSplashSelfTests: location value screen must explain the user benefit before prompting.")
-        precondition(NativeLaunchRecommendationPresentation.capabilityTitles == ["Discover with context", "Simplify your arrival", "Keep everything together"], "NativeAuthSplashSelfTests: empty recommendations must hand off to a complete product preview.")
+        precondition(NativeHomeVibeCard.steps == [.vibe, .walk, .crew], "NativeAuthSplashSelfTests: the Home vibe card must ask the three launch questions in order.")
+        precondition(NativeHomeVibeCard.storageKey(for: .vibe) == NativeLaunchPersonalizationStorage.vibeKey && NativeHomeVibeCard.storageKey(for: .walk) == NativeLaunchPersonalizationStorage.walkKey && NativeHomeVibeCard.storageKey(for: .crew) == NativeLaunchPersonalizationStorage.crewKey, "NativeAuthSplashSelfTests: the Home vibe card must store answers under the launch keys.")
         let legacyVariants = [" ladybird grove and mess hall ", "LIVINGSTON", "Lyla   Lila"]
         precondition(legacyVariants.allSatisfy(NativeAuthLaunchContract.isLegacyAtlantaPickName), "NativeAuthSplashSelfTests: legacy Atlanta pick filtering must normalize case, whitespace, and '&'/'and' variants.")
         let filtered = NativeAuthLaunchContract.launchVenueCandidates(from: legacyVariants.enumerated().map { NativeVenueSummary(id: "legacy-\($0.offset)", name: $0.element, category: "parking", address: "Legacy", distance: "Here", rating: 5, latitude: 33.7866, longitude: -84.3833, crowd: nil, parking: NativeParkingSummary(totalAvailable: 99, priceLabel: "Free"), verifiedPatchId: nil, imageUrl: nil) })

@@ -4,6 +4,7 @@ import MapKit
 import UIKit
 import SwiftUI
 import Combine
+import Contacts
 @testable import App
 
 final class NativeMapOpenLifecycleTests: XCTestCase {
@@ -6484,7 +6485,8 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeLaunchPersonalizationStorage.vibeKey, "bytspot_native_launch_vibe")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.walkKey, "bytspot_native_launch_walk")
         XCTAssertEqual(NativeLaunchPersonalizationStorage.crewKey, "bytspot_native_launch_crew")
-        XCTAssertEqual(NativeAuthLaunchContract.appFlow, ["splash", "landing", "location", "vibe", "walk", "crew", "recommendations", "main"])
+        XCTAssertEqual(NativeAuthLaunchContract.appFlow, ["splash", "landing", "main"])
+        XCTAssertEqual(NativeLaunchStage.allCases, [.splash, .landing, .auth])
         XCTAssertEqual(BytspotNativeTab.allCases.map(\.rawValue), ["home", "plan", "host", "discover", "map", "concierge", "profile"])
         // Bottom bar carries five entries with Plan in the centre; Map is a
         // top-left destination and Profile the top-right avatar.
@@ -6522,23 +6524,71 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeLaunchPersonalizationStorage.token(for: "👫 Date night"), "date_night")
     }
 
-    @MainActor
-    func testLaunchLocationPresentationFollowsAuthorizationAndResolution() {
-        XCTAssertEqual(NativeLaunchLocationContract.phase(authorization: .notDetermined, hasResolvedLocation: false), .request)
-        XCTAssertEqual(NativeLaunchLocationContract.phase(authorization: .allowed, hasResolvedLocation: false), .locating)
-        XCTAssertEqual(NativeLaunchLocationContract.phase(authorization: .allowed, hasResolvedLocation: true), .ready)
-        XCTAssertEqual(NativeLaunchLocationContract.phase(authorization: .denied, hasResolvedLocation: false), .settings)
-        XCTAssertEqual(NativeLaunchLocationContract.phase(authorization: .restricted, hasResolvedLocation: false), .settings)
-        XCTAssertEqual(NativeLaunchLocationContract.phase(authorization: .unavailable, hasResolvedLocation: false), .unavailable)
+    func testHomeVibeCardVisibilityKeysOffVibeAndDismissalOnly() {
+        XCTAssertTrue(NativeHomeVibeCard.isVisible(vibe: "", dismissed: false))
+        XCTAssertTrue(NativeHomeVibeCard.isVisible(vibe: "  ", dismissed: false))
+        XCTAssertFalse(NativeHomeVibeCard.isVisible(vibe: "", dismissed: true))
+        XCTAssertFalse(NativeHomeVibeCard.isVisible(vibe: "drinks", dismissed: false))
+        XCTAssertEqual(NativeHomeVibeCard.dismissedKey, "bytspot_native_home_vibe_card_dismissed")
+        XCTAssertEqual(NativeHomeVibeCard.progressLabel(for: .vibe), "1 of 3")
+        XCTAssertEqual(NativeHomeVibeCard.progressLabel(for: .crew), "3 of 3")
+    }
+
+    func testHomeVibeCardAnswersStoreTheLaunchQuizTokens() throws {
+        let suiteName = "NativeHomeVibeCardTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(NativeHomeVibeCard.record("A good drink", for: .vibe, in: defaults), .walk)
+        XCTAssertEqual(defaults.string(forKey: NativeLaunchPersonalizationStorage.vibeKey), NativeLaunchPersonalizationStorage.token(for: "A good drink"))
+        XCTAssertFalse(defaults.bool(forKey: NativeLaunchPersonalizationStorage.completedKey))
+        XCTAssertEqual(NativeHomeVibeCard.record("A short walk", for: .walk, in: defaults), .crew)
+        XCTAssertEqual(defaults.string(forKey: NativeLaunchPersonalizationStorage.walkKey), "close")
+        XCTAssertNil(NativeHomeVibeCard.record("Two of us", for: .crew, in: defaults))
+        XCTAssertEqual(defaults.string(forKey: NativeLaunchPersonalizationStorage.crewKey), "date_night")
+        XCTAssertTrue(defaults.bool(forKey: NativeLaunchPersonalizationStorage.completedKey))
+        // The completed flag collapsing after sign-in must not bring the card back.
+        defaults.set(false, forKey: NativeLaunchPersonalizationStorage.completedKey)
+        XCTAssertFalse(NativeHomeVibeCard.isVisible(vibe: defaults.string(forKey: NativeLaunchPersonalizationStorage.vibeKey) ?? "", dismissed: false))
+    }
+
+    func testHomeFindFriendsCardShowsOnlyToMembersBeforeContactsAreAsked() {
+        XCTAssertTrue(NativeHomeFindFriendsCard.isVisible(isAuthenticated: true, isGuest: false, contactsStatus: .notDetermined, dismissed: false))
+        XCTAssertFalse(NativeHomeFindFriendsCard.isVisible(isAuthenticated: false, isGuest: false, contactsStatus: .notDetermined, dismissed: false))
+        XCTAssertFalse(NativeHomeFindFriendsCard.isVisible(isAuthenticated: true, isGuest: true, contactsStatus: .notDetermined, dismissed: false))
+        XCTAssertFalse(NativeHomeFindFriendsCard.isVisible(isAuthenticated: true, isGuest: false, contactsStatus: .notDetermined, dismissed: true))
+        XCTAssertFalse(NativeHomeFindFriendsCard.isVisible(isAuthenticated: true, isGuest: false, contactsStatus: .authorized, dismissed: false))
+        XCTAssertFalse(NativeHomeFindFriendsCard.isVisible(isAuthenticated: true, isGuest: false, contactsStatus: .denied, dismissed: false))
+        XCTAssertEqual(NativeHomeFindFriendsCard.dismissedKey, "bytspot_native_home_find_friends_dismissed")
+        XCTAssertEqual(NativeHomeFindFriendsCard.matchedLabel(count: 1), "1 of your contacts is on Bytspot")
+        XCTAssertEqual(NativeHomeFindFriendsCard.matchedLabel(count: 4), "4 of your contacts are on Bytspot")
+    }
+
+    func testFriendInviteLinkCarriesThePercentEncodedReferrer() {
+        XCTAssertEqual(NativeFriendInviteLink.url(forUserID: "user_123")?.absoluteString, "https://bytspot.app/?ref=user_123")
+        XCTAssertEqual(NativeFriendInviteLink.url(forUserID: "  abc-9  ")?.absoluteString, "https://bytspot.app/?ref=abc-9")
+        XCTAssertEqual(NativeFriendInviteLink.url(forUserID: "a b+c/d&e=f")?.absoluteString, "https://bytspot.app/?ref=a%20b%2Bc%2Fd%26e%3Df")
+        XCTAssertNil(NativeFriendInviteLink.url(forUserID: nil))
+        XCTAssertNil(NativeFriendInviteLink.url(forUserID: ""))
+        XCTAssertNil(NativeFriendInviteLink.url(forUserID: "   "))
+        XCTAssertNil(NativeFriendInviteLink.shareItems(forUserID: nil))
+        let items = NativeFriendInviteLink.shareItems(forUserID: "user_123")
+        XCTAssertEqual(items?.first as? String, "Join me on Bytspot")
+        XCTAssertEqual((items?.last as? URL)?.absoluteString, "https://bytspot.app/?ref=user_123")
+    }
+
+    func testSignOutClearsTheHomeCardDismissals() {
+        UserDefaults.standard.set(true, forKey: NativeHomeVibeCard.dismissedKey)
+        UserDefaults.standard.set(true, forKey: NativeHomeFindFriendsCard.dismissedKey)
+        NativeSignedInIdentity.clear()
+        XCTAssertNil(UserDefaults.standard.object(forKey: NativeHomeVibeCard.dismissedKey))
+        XCTAssertNil(UserDefaults.standard.object(forKey: NativeHomeFindFriendsCard.dismissedKey))
+        XCTAssertTrue(NativeAccountLocalData.isAccountScoped(NativeHomeVibeCard.dismissedKey))
+        XCTAssertTrue(NativeAccountLocalData.isAccountScoped(NativeHomeFindFriendsCard.dismissedKey))
     }
 
     @MainActor
-    func testLaunchRecommendationsRequireTrustworthyLiveVenueProvenance() {
-        XCTAssertEqual(NativeLaunchRecommendationPresentation.mode(location: .midtown, hasPicks: false, hasTrustworthyLiveVenueInventory: false, isRefreshing: false), .locationNeeded)
-        XCTAssertEqual(NativeLaunchRecommendationPresentation.mode(location: .verifiedMidtown, hasPicks: false, hasTrustworthyLiveVenueInventory: false, isRefreshing: true), .loading)
-        XCTAssertEqual(NativeLaunchRecommendationPresentation.mode(location: .verifiedMidtown, hasPicks: true, hasTrustworthyLiveVenueInventory: false, isRefreshing: false), .localSync)
-        XCTAssertEqual(NativeLaunchRecommendationPresentation.mode(location: .verifiedMidtown, hasPicks: true, hasTrustworthyLiveVenueInventory: true, isRefreshing: false), .livePicks)
-
+    func testHomeLaunchPicksRequireTrustworthyLiveVenueProvenance() {
         let liveVenue = NativeVenueSummary(id: "live-midtown-parking", name: "Live Midtown Parking", category: "parking", address: "1200 Peachtree St NE", distance: "0.3 mi", rating: 4.7, latitude: 33.7865, longitude: -84.3830, crowd: NativeCrowdSummary(level: 1, label: "Open", waitMins: 0), parking: NativeParkingSummary(totalAvailable: 18, priceLabel: "$6/hr"), verifiedPatchId: "LIVE-PARKING", imageUrl: nil)
         let providerCard = NativeDiscoverSummary(id: "provider-local-cafe", type: "coffee", title: "Local Cafe", subtitle: "Provider result", distance: "0.2 mi", rating: "4.8", icon: "cup.and.saucer.fill", verified: true, entryType: "free", cta: "View", imageUrl: nil, categoryLabel: "Coffee", badgeText: "APPLE MAPS", metadataLine: "Nearby", features: [], vibeScore: 8, availability: "Open", membershipRequired: false)
         let mixedFallback = NativeTabContentSnapshot(venues: NativeTabContentSnapshot.fallback.venues, discoverCards: [providerCard] + NativeTabContentSnapshot.fallback.discoverCards, events: NativeTabContentSnapshot.fallback.events, source: .mixed, lastUpdated: Date(), errorMessage: nil)
@@ -6574,7 +6624,6 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertTrue(trustedHomeIDs.contains("venue-live-midtown-parking"))
         XCTAssertTrue(trustedHomeIDs.contains("event-live-midtown-event"))
         XCTAssertFalse(trustedHomeIDs.contains("promo-venue-live-midtown-parking"))
-        XCTAssertEqual(NativeLaunchRecommendationPresentation.capabilityTitles.count, 3)
     }
 }
 

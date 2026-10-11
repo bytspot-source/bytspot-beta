@@ -1,6 +1,6 @@
 # Native Profile Product + Wireframe Contract
 
-Status: Profile real-data integration P1 in progress — native account panels wired to profile, vehicles, and payment boundary routes 2026-06-20
+Status: Profile real-data integration P1 in progress — native account panels wired to profile, vehicles, and payment boundary routes 2026-06-20  
 Scope: migrate `src/components/ProfileSection.tsx` into a professional native
 SwiftUI Account/Profile surface without treating Profile as a settings junk drawer.
 

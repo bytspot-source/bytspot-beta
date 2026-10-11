@@ -4715,6 +4715,8 @@ private struct NativeNetworkHubView: View {
     @State private var dismissedContactIDs: Set<String> = []
     @State private var safetyAction: NativeSafetyAction?
     @State private var hiddenPeople = NativeSafetyHiddenSet()
+    @State private var ownInvite: NativeInvite?
+    @State private var inviteCodeCopied = false
     let requestAuthentication: () -> Void
 
     init(initialCircleSnapshot: NativeSocialCircleSnapshot, requestAuthentication: @escaping () -> Void) {
@@ -5004,8 +5006,9 @@ private struct NativeNetworkHubView: View {
             if sessionStore.isAuthenticated {
                 NativeProfileEmailConfirmCard(sessionStore: sessionStore, compact: true)
                 Button(action: { Task { await contactSyncStore.syncDeviceContacts(sessionStore: sessionStore) } }) { NativeCTA(title: contactSyncStore.phase == .syncing ? "Syncing contacts…" : "Find people from contacts", color: NativeTheme.purple, foreground: .white) }.buttonStyle(.plain).disabled(isWorking || contactSyncStore.phase == .syncing || contactSyncStore.phase == .requesting)
-                if let inviteItems = NativeFriendInviteLink.shareItems(forUserID: sessionStore.authenticatedUserID) {
-                    Button(action: { _ = NativePartySharePresentation.share(inviteItems) }) { NativeCTA(title: "Invite friends", color: NativeTheme.purple.opacity(0.14), foreground: NativeTheme.purple) }
+                if let ownInvite { ownInviteCodeRow(ownInvite) }
+                if ownInvite != nil || NativeFriendInviteLink.url(forUserID: sessionStore.authenticatedUserID) != nil {
+                    Button(action: shareInvite) { NativeCTA(title: "Invite friends", color: NativeTheme.purple.opacity(0.14), foreground: NativeTheme.purple) }
                         .buttonStyle(.plain)
                         .accessibilityHint("Shares a link to join Bytspot.")
                         .accessibilityIdentifier("native-network-invite-friends")
@@ -5353,6 +5356,53 @@ private struct NativeNetworkHubView: View {
         return circleSnapshot.groups.first { $0.id == circleID }?.memberIDs.contains(personID) == true
     }
     private var api: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
+    private var inviteAPI: NativeAuthDataAPI { NativeAuthDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
+
+    private func ownInviteCodeRow(_ invite: NativeInvite) -> some View {
+        HStack(spacing: 10) {
+            Text(NativeInviteShare.codeLine(for: invite))
+                .font(.system(size: 13.5, weight: .bold))
+                .foregroundColor(NativeProfileStyle.title)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel("Your invite code: \(invite.code.map(String.init).joined(separator: " "))" + (invite.referralCount > 0 ? ", \(invite.referralCount) joined" : ""))
+                .accessibilityIdentifier("native-network-invite-code")
+            Spacer(minLength: 8)
+            Button(action: { copyInviteCode(invite.code) }) {
+                Label(inviteCodeCopied ? "Copied" : "Copy", systemImage: inviteCodeCopied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 12.5, weight: .black))
+                    .foregroundColor(NativeTheme.purple)
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(inviteCodeCopied ? "Invite code copied" : "Copy invite code")
+            .accessibilityIdentifier("native-network-invite-code-copy")
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 4)
+        .background(NativeProfileStyle.insetSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func copyInviteCode(_ code: String) {
+        UIPasteboard.general.string = code
+        nativeImpactLight()
+        inviteCodeCopied = true
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            inviteCodeCopied = false
+        }
+    }
+
+    private func shareInvite() {
+        let loaded = ownInvite
+        let userID = sessionStore.authenticatedUserID
+        let inviteAPI = inviteAPI
+        Task {
+            guard let items = await NativeInviteShare.resolveShareItems(loaded: loaded, userID: userID, fetch: { try await inviteAPI.invite() }) else { return }
+            _ = NativePartySharePresentation.share(items)
+        }
+    }
 
     private func beginAuthentication() {
         dismiss()
@@ -5361,8 +5411,9 @@ private struct NativeNetworkHubView: View {
 
     private func refreshNetwork() async {
         dismissedContactIDs = NativeNetworkDismissedContacts.load(userID: sessionStore.authenticatedUserID)
-        guard sessionStore.isAuthenticated else { circleSnapshot = .empty; invitations = []; peopleMetPartyID = nil; peopleMetOptedIn = false; peopleMetPeople = []; hostedParties = []; closedParties = []; attendedRooms = []; showingClosedRooms = false; roomStatusMessage = ""; return }
+        guard sessionStore.isAuthenticated else { ownInvite = nil; circleSnapshot = .empty; invitations = []; peopleMetPartyID = nil; peopleMetOptedIn = false; peopleMetPeople = []; hostedParties = []; closedParties = []; attendedRooms = []; showingClosedRooms = false; roomStatusMessage = ""; return }
         await contactSyncStore.refresh(sessionStore: sessionStore)
+        ownInvite = try? await inviteAPI.invite()
         circleSnapshot = await api.listSocialCirclesViaRpc()
         invitations = (try? await api.listSocialInvitationsViaRpc()) ?? []
         if selectedCircleID == nil { selectedCircleID = circleSnapshot.groups.first?.id }
@@ -7685,8 +7736,15 @@ private struct NativeHomeDashboardView: View {
     }
 
     private func shareFriendInvite() {
-        guard let items = NativeFriendInviteLink.shareItems(forUserID: sessionStore.authenticatedUserID) else { return }
-        _ = NativePartySharePresentation.share(items)
+        let userID = sessionStore.authenticatedUserID
+        let inviteAPI = NativeAuthDataAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in
+            guard let sessionStore, sessionStore.canAttachBearerToken else { return nil }
+            return sessionStore.token
+        }))
+        Task {
+            guard let items = await NativeInviteShare.resolveShareItems(loaded: nil, userID: userID, fetch: { try await inviteAPI.invite() }) else { return }
+            _ = NativePartySharePresentation.share(items)
+        }
     }
 
     private var noLocalRecommendationsSection: some View {

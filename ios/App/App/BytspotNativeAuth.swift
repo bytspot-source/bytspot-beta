@@ -444,6 +444,7 @@ final class NativeAuthCoordinator: ObservableObject {
             if sessionStore.updateSession(token: result.token, userID: result.userID, refreshToken: result.refreshToken) {
                 NativeSignedInIdentity.store(displayName: result.displayName)
                 NativeSignedInIdentity.recordRestoration(result.deletionCancelled, userID: result.userID)
+                NativePendingInviteCode.clear()
                 NativeEmailVerificationState.shared.clear()
                 status = .signedIn(provider: provider, displayName: result.displayName)
             } else {
@@ -472,6 +473,7 @@ final class NativeAuthCoordinator: ObservableObject {
             }
             NativeSignedInIdentity.store(displayName: response.user?.name)
             NativeSignedInIdentity.recordRestoration(response.deletionCancelled == true, userID: userID)
+            NativePendingInviteCode.clear()
             NativeEmailVerificationState.shared.clear()
             pendingLink = nil
             status = .signedIn(provider: link.provider, displayName: response.user?.name)

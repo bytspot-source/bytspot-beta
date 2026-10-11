@@ -41,6 +41,29 @@ enum NativeFriendInviteLink {
     }
 }
 
+/// Sharing a member's own invite code from `auth.invite`. The user-id link
+/// stays the fallback so sharing works while the server lacks invite codes.
+enum NativeInviteShare {
+    static func message(code: String) -> String {
+        "Join me on Bytspot. My invite code is \(code)."
+    }
+
+    static func shareItems(for invite: NativeInvite) -> [Any] {
+        guard let url = URL(string: invite.link) else { return [message(code: invite.code)] }
+        return [message(code: invite.code), url]
+    }
+
+    static func codeLine(for invite: NativeInvite) -> String {
+        invite.referralCount > 0 ? "Your invite code: \(invite.code) · \(invite.referralCount) joined" : "Your invite code: \(invite.code)"
+    }
+
+    static func resolveShareItems(loaded: NativeInvite?, userID: String?, fetch: () async throws -> NativeInvite) async -> [Any]? {
+        if let loaded { return shareItems(for: loaded) }
+        if let fetched = try? await fetch() { return shareItems(for: fetched) }
+        return NativeFriendInviteLink.shareItems(forUserID: userID)
+    }
+}
+
 /// The "Find friends on Bytspot" card on Home.
 enum NativeHomeFindFriendsCard {
     static let dismissedKey = "bytspot_native_home_find_friends_dismissed"

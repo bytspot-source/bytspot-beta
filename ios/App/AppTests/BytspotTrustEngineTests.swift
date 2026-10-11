@@ -6655,6 +6655,84 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual((items?.last as? URL)?.absoluteString, "https://bytspot.app/?ref=user_123")
     }
 
+    func testNativeInviteDecodesTheAuthInvitePayload() throws {
+        let data = Data(#"{"code":"AMA7K2","link":"https://bytspot.app/?ref=AMA7K2","referralCount":3}"#.utf8)
+        let invite = try JSONDecoder().decode(NativeInvite.self, from: data)
+        XCTAssertEqual(invite, NativeInvite(code: "AMA7K2", link: "https://bytspot.app/?ref=AMA7K2", referralCount: 3))
+    }
+
+    func testPendingInviteCodeNormalizesAndValidates() {
+        XCTAssertEqual(NativePendingInviteCode.normalized(" ama 7k2 "), "AMA7K2")
+        XCTAssertTrue(NativePendingInviteCode.isValid("ama7k2"))
+        XCTAssertFalse(NativePendingInviteCode.isValid("AMA7K"))
+        XCTAssertFalse(NativePendingInviteCode.isValid("AMA7K22"))
+        XCTAssertFalse(NativePendingInviteCode.isValid("AMO7K2"), "O is not in the invite alphabet")
+        XCTAssertFalse(NativePendingInviteCode.isValid("AMA0K2"), "0 is not in the invite alphabet")
+        XCTAssertFalse(NativePendingInviteCode.isValid("AMI1L2"))
+        XCTAssertFalse(NativePendingInviteCode.isValid("AMA-K2"))
+    }
+
+    func testPendingInviteCodeStoreOnlyReturnsValidCodesAndClears() throws {
+        let suite = "NativePendingInviteCodeTests"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertEqual(NativePendingInviteCode.storageKey, "bytspot_pending_invite_code")
+        XCTAssertNil(NativePendingInviteCode.current(in: defaults))
+        NativePendingInviteCode.save("ama7", in: defaults)
+        XCTAssertNil(NativePendingInviteCode.current(in: defaults), "A partial code is never sent")
+        NativePendingInviteCode.save("ama7k2", in: defaults)
+        XCTAssertEqual(NativePendingInviteCode.current(in: defaults), "AMA7K2")
+        NativePendingInviteCode.save("", in: defaults)
+        XCTAssertNil(defaults.object(forKey: NativePendingInviteCode.storageKey))
+        NativePendingInviteCode.save("AMA7K2", in: defaults)
+        NativePendingInviteCode.clear(in: defaults)
+        XCTAssertNil(NativePendingInviteCode.current(in: defaults))
+    }
+
+    func testSignInInputsCarryThePendingInviteCodeAsRef() {
+        let apple = NativeAuthDataAPI.appleSignInInput(identityToken: "tok", email: nil, name: nil, pendingInviteCode: "AMA7K2")
+        XCTAssertEqual(apple["ref"] as? String, "AMA7K2")
+        let appleDefault = NativeAuthDataAPI.appleSignInInput(identityToken: "tok", email: " a@b.co ", name: nil, pendingInviteCode: nil)
+        XCTAssertEqual(appleDefault["ref"] as? String, "native_ios")
+        XCTAssertEqual(appleDefault["email"] as? String, "a@b.co")
+        let google = NativeAuthDataAPI.googleSignInInput(idToken: "id", pendingInviteCode: "AMA7K2")
+        XCTAssertEqual(google["ref"] as? String, "AMA7K2")
+        XCTAssertEqual(google["surface"] as? String, NativeAuthRouteContract.googleConsumerSurface)
+        XCTAssertNil(NativeAuthDataAPI.googleSignInInput(idToken: "id", pendingInviteCode: nil)["ref"])
+    }
+
+    @MainActor
+    func testSignOutClearsThePendingInviteCode() {
+        let store = BytspotSessionStore(account: "native_invite_cleanup_\(UUID().uuidString)", service: "com.bytspot.invite-cleanup-tests")
+        NativePendingInviteCode.save("AMA7K2")
+        defer { NativePendingInviteCode.clear() }
+        store.signOut()
+        XCTAssertNil(NativePendingInviteCode.current())
+    }
+
+    func testInviteShareUsesTheCodeAndLink() {
+        let invite = NativeInvite(code: "AMA7K2", link: "https://bytspot.app/?ref=AMA7K2", referralCount: 0)
+        let items = NativeInviteShare.shareItems(for: invite)
+        XCTAssertEqual(items.first as? String, "Join me on Bytspot. My invite code is AMA7K2.")
+        XCTAssertEqual((items.last as? URL)?.absoluteString, "https://bytspot.app/?ref=AMA7K2")
+        XCTAssertEqual(NativeInviteShare.codeLine(for: invite), "Your invite code: AMA7K2")
+        XCTAssertEqual(NativeInviteShare.codeLine(for: NativeInvite(code: "AMA7K2", link: "", referralCount: 2)), "Your invite code: AMA7K2 · 2 joined")
+    }
+
+    func testInviteShareFallsBackToTheUserIDLink() async {
+        struct Unavailable: Error {}
+        let loaded = NativeInvite(code: "AMA7K2", link: "https://bytspot.app/?ref=AMA7K2", referralCount: 1)
+        let fromLoaded = await NativeInviteShare.resolveShareItems(loaded: loaded, userID: "user_123", fetch: { throw Unavailable() })
+        XCTAssertEqual((fromLoaded?.last as? URL)?.absoluteString, "https://bytspot.app/?ref=AMA7K2")
+        let fetched = await NativeInviteShare.resolveShareItems(loaded: nil, userID: "user_123", fetch: { loaded })
+        XCTAssertEqual(fetched?.first as? String, "Join me on Bytspot. My invite code is AMA7K2.")
+        let fallback = await NativeInviteShare.resolveShareItems(loaded: nil, userID: "user_123", fetch: { throw Unavailable() })
+        XCTAssertEqual(fallback?.first as? String, "Join me on Bytspot")
+        XCTAssertEqual((fallback?.last as? URL)?.absoluteString, "https://bytspot.app/?ref=user_123")
+        let none = await NativeInviteShare.resolveShareItems(loaded: nil, userID: nil, fetch: { throw Unavailable() })
+        XCTAssertNil(none)
+    }
+
     func testSignOutClearsTheHomeCardDismissals() {
         UserDefaults.standard.set(true, forKey: NativeHomeVibeCard.dismissedKey)
         UserDefaults.standard.set(true, forKey: NativeHomeFindFriendsCard.dismissedKey)

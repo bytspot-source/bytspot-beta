@@ -2015,18 +2015,79 @@ enum NativeAuthRouteContract {
     static let passwordRecoveryRoutes = ["/#/forgot-password", "/forgot-password", "/#/reset-password", "/reset-password"]
 }
 
+/// A member's own invite code from `auth.invite`.
+struct NativeInvite: Codable, Equatable {
+    let code: String
+    let link: String
+    let referralCount: Int
+}
+
+/// An invite code entered before an account exists. It rides along on the
+/// next sign-up or provider sign-in as `ref`, then is cleared.
+enum NativePendingInviteCode {
+    static let storageKey = "bytspot_pending_invite_code"
+    static let alphabet = Set("ABCDEFGHJKMNPQRSTUVWXYZ23456789")
+    static let length = 6
+
+    static func normalized(_ raw: String) -> String {
+        raw.uppercased().filter { !$0.isWhitespace }
+    }
+
+    static func isValid(_ raw: String) -> Bool {
+        let code = normalized(raw)
+        return code.count == length && code.allSatisfy { alphabet.contains($0) }
+    }
+
+    /// The stored code, only when it is a valid invite code.
+    static func current(in defaults: UserDefaults = .standard) -> String? {
+        guard let stored = defaults.string(forKey: storageKey), isValid(stored) else { return nil }
+        return normalized(stored)
+    }
+
+    static func save(_ raw: String, in defaults: UserDefaults = .standard) {
+        let code = normalized(raw)
+        if code.isEmpty { defaults.removeObject(forKey: storageKey) } else { defaults.set(code, forKey: storageKey) }
+    }
+
+    static func clear(in defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: storageKey)
+    }
+}
+
 struct NativeAuthDataAPI {
     var client: BytspotAPIClient
 
+    #if DEBUG
+    static let fixtureInvite = NativeInvite(code: "AMA7K2", link: "https://bytspot.app/?ref=AMA7K2", referralCount: 2)
+    #endif
+
     func appleSignIn(identityToken: String, email: String?, name: String?) async throws -> NativeAuthResponse {
-        var input: [String: Any] = ["identityToken": identityToken, "ref": "native_ios"]
-        if let email, !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { input["email"] = email.trimmingCharacters(in: .whitespacesAndNewlines) }
-        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { input["name"] = name.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let input = Self.appleSignInInput(identityToken: identityToken, email: email, name: name, pendingInviteCode: NativePendingInviteCode.current())
         return try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.appleSignIn", method: "POST", input: input)
     }
 
     func googleSignIn(idToken: String) async throws -> NativeAuthResponse {
-        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.googleSignIn", method: "POST", input: ["idToken": idToken, "surface": NativeAuthRouteContract.googleConsumerSurface])
+        try await client.trpcDecode(NativeAuthResponse.self, path: "/trpc/auth.googleSignIn", method: "POST", input: Self.googleSignInInput(idToken: idToken, pendingInviteCode: NativePendingInviteCode.current()))
+    }
+
+    func invite() async throws -> NativeInvite {
+        #if DEBUG
+        if NativeProfileDataAPI.authenticatedFixturesRequested { return Self.fixtureInvite }
+        #endif
+        return try await client.trpcDecode(NativeInvite.self, path: "/trpc/auth.invite")
+    }
+
+    static func appleSignInInput(identityToken: String, email: String?, name: String?, pendingInviteCode: String?) -> [String: Any] {
+        var input: [String: Any] = ["identityToken": identityToken, "ref": pendingInviteCode ?? "native_ios"]
+        if let email, !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { input["email"] = email.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { input["name"] = name.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return input
+    }
+
+    static func googleSignInInput(idToken: String, pendingInviteCode: String?) -> [String: Any] {
+        var input: [String: Any] = ["idToken": idToken, "surface": NativeAuthRouteContract.googleConsumerSurface]
+        if let pendingInviteCode { input["ref"] = pendingInviteCode }
+        return input
     }
 
     func signup(email: String, password: String, name: String, ref: String?) async throws -> NativeAuthResponse {
@@ -2201,10 +2262,12 @@ struct NativeProfileDataAPI {
     #if DEBUG
     static let fixtureEnvironmentKey = "BYT_NATIVE_PROFILE_DATA_FIXTURES"
 
-    private var usesAuthenticatedFixtures: Bool {
-        let raw = ProcessInfo.processInfo.environment[Self.fixtureEnvironmentKey]?.lowercased()
+    static var authenticatedFixturesRequested: Bool {
+        let raw = ProcessInfo.processInfo.environment[fixtureEnvironmentKey]?.lowercased()
         return NativeMigrationConfig.isNativeRootEnabled && (raw == "1" || raw == "true" || raw == "authenticated")
     }
+
+    private var usesAuthenticatedFixtures: Bool { Self.authenticatedFixturesRequested }
 
     static let fixtureProfile = NativeUserProfileRecord(id: "native-fixture-user", email: "member@example.com", name: "Preview Member", phone: "+1 555 0100", profileImage: nil, address: "Example City", birthday: "1994-04-03")
     static let fixtureVehicles = [NativeVehicleRecord(id: "veh_fixture_1", type: "sedan", make: "Tesla", model: "Model 3", year: 2026, color: "Midnight Blue", licensePlate: "BYT-424", photo: nil, vin: nil, transmissionType: "automatic", trunkCategory: "full")]

@@ -911,6 +911,7 @@ private struct NativeLandingScreen: View {
                                 .buttonStyle(.plain)
                                 .accessibilityHint("Opens sign up and log in with email and password.")
                                 .accessibilityIdentifier("native-launch-use-email")
+                            NativeLandingInviteCodeEntry()
                             if !error.isEmpty { NativeLaunchAuthErrorText(message: error) }
                         }
                         .padding(.top, sizing.compactHeight ? sizing.landingCopyGap : sizing.landingCopyGap - 4)
@@ -943,6 +944,69 @@ private struct NativeLandingScreen: View {
             ], center: .center, startRadius: 0, endRadius: size * 0.5))
             .frame(width: size, height: size)
             .position(x: x, y: y)
+    }
+}
+
+/// "Have an invite code?" on the landing screen. The code is kept in
+/// `NativePendingInviteCode` and sent with the next sign-up.
+private struct NativeLandingInviteCodeEntry: View {
+    @State private var expanded = NativePendingInviteCode.current() != nil
+    @State private var code = NativePendingInviteCode.current() ?? ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        if expanded {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    Image(systemName: "ticket.fill").font(.system(size: 14, weight: .bold)).foregroundColor(.white.opacity(0.42)).accessibilityHidden(true)
+                    TextField("Invite code", text: $code)
+                        .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white)
+                        .tint(NativeLaunchTheme.cyan)
+                        .textInputAutocapitalization(.characters)
+                        .disableAutocorrection(true)
+                        .submitLabel(.done)
+                        .focused($focused)
+                        .accessibilityLabel("Invite code")
+                        .accessibilityValue(code.isEmpty ? "Empty" : code.map(String.init).joined(separator: " "))
+                        .accessibilityHint(message ?? "Six letters and numbers from the person who invited you.")
+                        .accessibilityIdentifier("native-launch-invite-code-field")
+                }
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .background(Color.white.opacity(0.10))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(isValid ? NativeLaunchTheme.emerald.opacity(0.45) : Color.white.opacity(0.16), lineWidth: 1.5))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                if let message {
+                    Text(message)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(isValid ? NativeLaunchTheme.emerald : .orange.opacity(0.92))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 4)
+                        .accessibilityIdentifier("native-launch-invite-code-status")
+                }
+            }
+            .onChange(of: code) { newValue in
+                let limited = String(NativePendingInviteCode.normalized(newValue).prefix(NativePendingInviteCode.length))
+                if limited != newValue { code = limited; return }
+                NativePendingInviteCode.save(limited)
+            }
+        } else {
+            Button(action: { nativeAuthImpactLight(); expanded = true; focused = true }) {
+                Text("Have an invite code?").font(.system(size: 14, weight: .semibold)).foregroundColor(.white.opacity(0.62)).frame(maxWidth: .infinity).frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows a field for the invite code a friend sent you.")
+            .accessibilityIdentifier("native-launch-invite-code-toggle")
+        }
+    }
+
+    private var isValid: Bool { NativePendingInviteCode.isValid(code) }
+
+    private var message: String? {
+        if isValid { return "Code \(code) will be used when you sign up." }
+        if code.count == NativePendingInviteCode.length { return "That doesn't look like an invite code." }
+        return nil
     }
 }
 
@@ -1219,6 +1283,7 @@ enum NativePersonalizationStep: Equatable {
         guard sessionStore.updateSession(token: token, userID: userID, refreshToken: response.refreshToken) else { return false }
         NativeSignedInIdentity.store(displayName: response.user?.name)
         NativeSignedInIdentity.recordRestoration(response.deletionCancelled == true, userID: userID)
+        NativePendingInviteCode.clear()
         NativeEmailVerificationState.shared.record(emailVerified: response.emailVerified, userID: userID)
         return true
     }
@@ -1232,7 +1297,7 @@ struct NativeAuthenticationScreen: View {
     let onBack: () -> Void
     @State private var currentMode: NativeAuthMode
     @State private var name = ""
-    @State private var inviteCode = ""
+    @State private var inviteCode = NativePendingInviteCode.current() ?? ""
     @State private var email = ""
     @State private var password = ""
     @State private var loading = false

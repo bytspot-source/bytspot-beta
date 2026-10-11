@@ -108,6 +108,9 @@ final class BytspotContactSyncStore: ObservableObject {
     /// Request Contacts access, hash the address book, sync, then refresh.
     func syncDeviceContacts(sessionStore: BytspotSessionStore) async {
         guard sessionStore.isAuthenticated else { phase = .failed; return }
+        #if DEBUG
+        if Self.previewSuggestionsRequested { await refresh(sessionStore: sessionStore); return }
+        #endif
         let store = CNContactStore()
         switch CNContactStore.authorizationStatus(for: .contacts) {
         case .denied, .restricted:

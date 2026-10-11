@@ -6291,6 +6291,14 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertFalse(NativeAccountEmails.isHideMyEmail("privaterelay.appleid.com@example.com"))
     }
 
+    func testAccountEmailsFixturesDriveTheRealEmailPrompt() {
+        XCTAssertEqual(NativeAccountEmailsAPI.fixtureEnvironmentKey, "BYT_NATIVE_ACCOUNT_EMAILS_FIXTURE")
+        XCTAssertTrue(NativeAccountEmailsAPI.hideMyEmailFixture.needsRealEmailPrompt)
+        XCTAssertFalse(NativeAccountEmailsAPI.standardFixture.needsRealEmailPrompt)
+        XCTAssertEqual(NativeAccountEmailsAPI.fixture(named: "hideMyEmail"), NativeAccountEmailsAPI.hideMyEmailFixture)
+        XCTAssertEqual(NativeAccountEmailsAPI.fixture(named: nil), NativeAccountEmailsAPI.standardFixture)
+    }
+
     func testRealEmailPromptShowsOnlyForHideMyEmailMembersWhoCanAddOne() {
         let relay = "abc123@privaterelay.appleid.com"
         func emails(account: String, extras: [String], max: Int = 5) -> NativeAccountEmails {

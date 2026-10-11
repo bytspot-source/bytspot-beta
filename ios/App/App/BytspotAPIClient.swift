@@ -1981,24 +1981,88 @@ struct NativeAddEmailChallenge: Codable, Equatable {
 struct NativeAccountEmailsAPI {
     var client: BytspotAPIClient
 
+    #if DEBUG
+    static let fixtureEnvironmentKey = "BYT_NATIVE_ACCOUNT_EMAILS_FIXTURE"
+    static let standardFixture = NativeAccountEmails(accountEmail: .init(email: "member@example.com", confirmed: true), extraEmails: [.init(email: "member.work@example.com", addedAt: "2026-10-01T12:00:00.000Z")], maxExtraEmails: 5)
+    static let hideMyEmailFixture = NativeAccountEmails(accountEmail: .init(email: "x7k2p9q4m1@privaterelay.appleid.com", confirmed: true), extraEmails: [], maxExtraEmails: 5)
+
+    static func fixture(named raw: String?) -> NativeAccountEmails {
+        raw?.lowercased() == "hidemyemail" ? hideMyEmailFixture : standardFixture
+    }
+
+    nonisolated(unsafe) private static var fixtureState: NativeAccountEmails?
+    nonisolated(unsafe) private static var fixturePending: (email: String, makeAccountEmail: Bool)?
+
+    private static var currentFixture: NativeAccountEmails {
+        fixtureState ?? fixture(named: ProcessInfo.processInfo.environment[fixtureEnvironmentKey])
+    }
+
+    private static func updateFixture(_ change: (inout NativeAccountEmails) -> Void) -> NativeAccountEmails {
+        var emails = currentFixture
+        change(&emails)
+        fixtureState = emails
+        return emails
+    }
+    #endif
+
     func emails() async throws -> NativeAccountEmails {
-        try await client.trpcDecode(NativeAccountEmails.self, path: "/trpc/\(NativeAccountEmailsContract.listRoute)")
+        #if DEBUG
+        if NativeProfileDataAPI.authenticatedFixturesRequested { return Self.currentFixture }
+        #endif
+        return try await client.trpcDecode(NativeAccountEmails.self, path: "/trpc/\(NativeAccountEmailsContract.listRoute)")
     }
 
     func addEmail(_ email: String, makeAccountEmail: Bool) async throws -> NativeAddEmailChallenge {
-        try await send(NativeAccountEmailsContract.addRequest(email: email, makeAccountEmail: makeAccountEmail))
+        #if DEBUG
+        if NativeProfileDataAPI.authenticatedFixturesRequested {
+            let address = email.trimmingCharacters(in: .whitespacesAndNewlines)
+            Self.fixturePending = (address, makeAccountEmail)
+            let parts = address.split(separator: "@", maxSplits: 1)
+            let masked = parts.count == 2 ? "\(parts[0].prefix(1))***@\(parts[1])" : address
+            return NativeAddEmailChallenge(challengeId: "chal_fixture_add", maskedEmail: masked, expiresInSecs: 600, resendInSecs: 60)
+        }
+        #endif
+        return try await send(NativeAccountEmailsContract.addRequest(email: email, makeAccountEmail: makeAccountEmail))
     }
 
     func confirmAddEmail(challengeId: String, code: String) async throws -> NativeAccountEmails {
-        try await send(NativeAccountEmailsContract.confirmRequest(challengeId: challengeId, code: code))
+        #if DEBUG
+        if NativeProfileDataAPI.authenticatedFixturesRequested {
+            guard let pending = Self.fixturePending else { return Self.currentFixture }
+            Self.fixturePending = nil
+            return Self.updateFixture { emails in
+                if pending.makeAccountEmail {
+                    emails.extraEmails.append(.init(email: emails.accountEmail.email, addedAt: "2026-10-11T12:00:00.000Z"))
+                    emails.accountEmail = .init(email: pending.email, confirmed: true)
+                } else {
+                    emails.extraEmails.append(.init(email: pending.email, addedAt: "2026-10-11T12:00:00.000Z"))
+                }
+            }
+        }
+        #endif
+        return try await send(NativeAccountEmailsContract.confirmRequest(challengeId: challengeId, code: code))
     }
 
     func makeAccountEmail(_ email: String) async throws -> NativeAccountEmails {
-        try await send(NativeAccountEmailsContract.makeAccountEmailRequest(email: email))
+        #if DEBUG
+        if NativeProfileDataAPI.authenticatedFixturesRequested {
+            return Self.updateFixture { emails in
+                guard let index = emails.extraEmails.firstIndex(where: { $0.email == email }) else { return }
+                emails.extraEmails[index] = .init(email: emails.accountEmail.email, addedAt: emails.extraEmails[index].addedAt)
+                emails.accountEmail = .init(email: email, confirmed: true)
+            }
+        }
+        #endif
+        return try await send(NativeAccountEmailsContract.makeAccountEmailRequest(email: email))
     }
 
     func removeEmail(_ email: String) async throws -> NativeAccountEmails {
-        try await send(NativeAccountEmailsContract.removeRequest(email: email))
+        #if DEBUG
+        if NativeProfileDataAPI.authenticatedFixturesRequested {
+            return Self.updateFixture { $0.extraEmails.removeAll { $0.email == email } }
+        }
+        #endif
+        return try await send(NativeAccountEmailsContract.removeRequest(email: email))
     }
 
     private func send<T: Decodable>(_ request: NativeAccountEmailsContract.Request) async throws -> T {
@@ -2201,10 +2265,12 @@ struct NativeProfileDataAPI {
     #if DEBUG
     static let fixtureEnvironmentKey = "BYT_NATIVE_PROFILE_DATA_FIXTURES"
 
-    private var usesAuthenticatedFixtures: Bool {
-        let raw = ProcessInfo.processInfo.environment[Self.fixtureEnvironmentKey]?.lowercased()
+    static var authenticatedFixturesRequested: Bool {
+        let raw = ProcessInfo.processInfo.environment[fixtureEnvironmentKey]?.lowercased()
         return NativeMigrationConfig.isNativeRootEnabled && (raw == "1" || raw == "true" || raw == "authenticated")
     }
+
+    private var usesAuthenticatedFixtures: Bool { Self.authenticatedFixturesRequested }
 
     static let fixtureProfile = NativeUserProfileRecord(id: "native-fixture-user", email: "member@example.com", name: "Preview Member", phone: "+1 555 0100", profileImage: nil, address: "Example City", birthday: "1994-04-03")
     static let fixtureVehicles = [NativeVehicleRecord(id: "veh_fixture_1", type: "sedan", make: "Tesla", model: "Model 3", year: 2026, color: "Midnight Blue", licensePlate: "BYT-424", photo: nil, vin: nil, transmissionType: "automatic", trunkCategory: "full")]

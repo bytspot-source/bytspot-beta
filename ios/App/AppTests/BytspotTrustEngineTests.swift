@@ -4689,6 +4689,30 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativePartyStudioError.publishUserMessage(for: limited), "Too many publish attempts. Wait a moment and try again.")
     }
 
+    func testNativeHostStudioDetectsEmailConfirmationRefusal() {
+        func forbidden(_ status: Int, _ message: String) -> Error {
+            BytspotAPIClient.APIError.server(status: status, body: #"{"error":{"message":"\#(message)","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#)
+        }
+        let unconfirmed = forbidden(403, "Confirm your email to host a party.")
+        let unconfirmedByCode = forbidden(400, "Confirm your email to host a party.")
+        let suspended = forbidden(403, "This account has been suspended.")
+        let otherForbidden = forbidden(403, "Not allowed")
+
+        XCTAssertTrue(NativePartyStudioError.needsEmailConfirmation(unconfirmed))
+        XCTAssertTrue(NativePartyStudioError.needsEmailConfirmation(unconfirmedByCode))
+        XCTAssertEqual(NativePartyStudioError.publishUserMessage(for: unconfirmed), "Confirm your email to host a party.")
+
+        XCTAssertFalse(NativePartyStudioError.needsEmailConfirmation(suspended))
+        XCTAssertFalse(NativePartyStudioError.needsEmailConfirmation(otherForbidden))
+        XCTAssertFalse(NativePartyStudioError.needsEmailConfirmation(BytspotAPIClient.APIError.server(status: 403, body: "")))
+        XCTAssertEqual(NativePartyStudioError.publishUserMessage(for: suspended), "This account is not allowed to publish this party.")
+        XCTAssertEqual(NativePartyStudioError.publishUserMessage(for: otherForbidden), "This account is not allowed to publish this party.")
+
+        XCTAssertFalse(NativePartyStudioError.needsEmailConfirmation(BytspotAPIClient.APIError.server(status: 422, body: #"{"error":{"message":"Confirm your email to host a party."}}"#)))
+        XCTAssertFalse(NativePartyStudioError.needsEmailConfirmation(URLError(.notConnectedToInternet)))
+        XCTAssertFalse(NativePartyStudioError.needsEmailConfirmation(NativePartyStudioError.validation("Confirm your email to host a party.")))
+    }
+
     func testNativeHostStudioTemplateConfigurationRequiresMatchingSecureFormat() {
         let destinations = NativePartyHostDestinations(musicURL: "", merchURL: "", websiteURL: "", primarySocialPlatform: .instagram, primarySocialURL: "https://instagram.com/host")
         let release = NativePartyDraftInput(templateID: .releaseParty, title: "The Drop", tagline: "Tonight", startsAt: Date(), venueName: "The Loft", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, hostDestinations: destinations, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .releaseParty(.mix, ""))

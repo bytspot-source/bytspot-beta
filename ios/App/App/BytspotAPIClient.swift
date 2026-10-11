@@ -1905,6 +1905,97 @@ struct NativeSignInMethods: Codable, Equatable {
     }
 }
 
+/// More emails on one account. Friends find you by any of them and any of them
+/// signs in; the account email is where Bytspot sends everything.
+enum NativeAccountEmailsContract {
+    static let listRoute = "auth.emails"
+    static let addRoute = "auth.addEmail"
+    static let confirmRoute = "auth.confirmAddEmail"
+    static let makeAccountEmailRoute = "auth.makeAccountEmail"
+    static let removeRoute = "auth.removeEmail"
+
+    struct Request {
+        let path: String
+        let input: [String: Any]
+    }
+
+    static func addRequest(email: String, makeAccountEmail: Bool) -> Request {
+        Request(path: "/trpc/\(addRoute)", input: ["email": email.trimmingCharacters(in: .whitespacesAndNewlines), "makeAccountEmail": makeAccountEmail])
+    }
+
+    static func confirmRequest(challengeId: String, code: String) -> Request {
+        Request(path: "/trpc/\(confirmRoute)", input: ["challengeId": challengeId, "code": code])
+    }
+
+    static func makeAccountEmailRequest(email: String) -> Request {
+        Request(path: "/trpc/\(makeAccountEmailRoute)", input: ["email": email])
+    }
+
+    static func removeRequest(email: String) -> Request {
+        Request(path: "/trpc/\(removeRoute)", input: ["email": email])
+    }
+}
+
+struct NativeAccountEmails: Codable, Equatable {
+    struct AccountEmail: Codable, Equatable {
+        var email: String
+        var confirmed: Bool
+    }
+
+    struct ExtraEmail: Codable, Equatable, Identifiable {
+        var email: String
+        var addedAt: String
+        var id: String { email }
+    }
+
+    var accountEmail: AccountEmail
+    var extraEmails: [ExtraEmail]
+    var maxExtraEmails: Int
+
+    var canAddEmail: Bool { Self.canAddEmail(accountEmailConfirmed: accountEmail.confirmed, extraCount: extraEmails.count, maxExtraEmails: maxExtraEmails) }
+
+    /// The server refuses to add before the account email is confirmed or past the limit.
+    static func canAddEmail(accountEmailConfirmed: Bool, extraCount: Int, maxExtraEmails: Int) -> Bool {
+        accountEmailConfirmed && extraCount < maxExtraEmails
+    }
+}
+
+/// The code `auth.addEmail` sent to the new address.
+struct NativeAddEmailChallenge: Codable, Equatable {
+    var challengeId: String
+    var maskedEmail: String
+    var expiresInSecs: Int
+    var resendInSecs: Int
+}
+
+struct NativeAccountEmailsAPI {
+    var client: BytspotAPIClient
+
+    func emails() async throws -> NativeAccountEmails {
+        try await client.trpcDecode(NativeAccountEmails.self, path: "/trpc/\(NativeAccountEmailsContract.listRoute)")
+    }
+
+    func addEmail(_ email: String, makeAccountEmail: Bool) async throws -> NativeAddEmailChallenge {
+        try await send(NativeAccountEmailsContract.addRequest(email: email, makeAccountEmail: makeAccountEmail))
+    }
+
+    func confirmAddEmail(challengeId: String, code: String) async throws -> NativeAccountEmails {
+        try await send(NativeAccountEmailsContract.confirmRequest(challengeId: challengeId, code: code))
+    }
+
+    func makeAccountEmail(_ email: String) async throws -> NativeAccountEmails {
+        try await send(NativeAccountEmailsContract.makeAccountEmailRequest(email: email))
+    }
+
+    func removeEmail(_ email: String) async throws -> NativeAccountEmails {
+        try await send(NativeAccountEmailsContract.removeRequest(email: email))
+    }
+
+    private func send<T: Decodable>(_ request: NativeAccountEmailsContract.Request) async throws -> T {
+        try await client.trpcDecode(T.self, path: request.path, method: "POST", input: request.input)
+    }
+}
+
 enum NativeAuthRouteContract {
     static let routes = ["auth.signup", "auth.login", "auth.googleSignIn", "auth.appleSignIn"]
     static let storageKeys = ["bytspot_auth_token", "bytspot_user", "bytspot_user_name"]

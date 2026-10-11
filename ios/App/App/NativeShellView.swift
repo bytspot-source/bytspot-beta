@@ -2537,6 +2537,305 @@ private enum NativePaymentMethodsLedgerContract {
     static let accessibilityID = "native-payment-methods-ledger"
 }
 
+/// Every email on this account. A new one is added by the code sent to it;
+/// the account email can't be removed until another takes its place.
+private struct NativeAccountEmailsSection: View {
+    @ObservedObject var sessionStore: BytspotSessionStore
+    @State private var emails: NativeAccountEmails?
+    @State private var busyEmail: String?
+    @State private var message = ""
+    @State private var pending: PendingChange?
+    @State private var showAdd = false
+
+    private enum PendingChange: Identifiable {
+        case makeAccountEmail(String)
+        case remove(String)
+        var id: String { email }
+        var email: String {
+            switch self { case let .makeAccountEmail(email), let .remove(email): return email }
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Emails").font(.system(size: 15, weight: .black)).foregroundColor(NativeProfileStyle.title).accessibilityAddTraits(.isHeader)
+                if let emails {
+                    accountRow(emails.accountEmail)
+                    ForEach(emails.extraEmails) { extra in extraRow(extra) }
+                    if !emails.accountEmail.confirmed {
+                        Text("Confirm your account email to add another.").nativeBody(size: 12.5, color: NativeProfileStyle.muted)
+                    } else if emails.canAddEmail {
+                        Button(action: { nativeImpactLight(); message = ""; showAdd = true }) {
+                            Label("Add email", systemImage: "plus.circle.fill").font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.cyan).frame(minHeight: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(busyEmail != nil)
+                        .accessibilityLabel("Add email")
+                        .accessibilityIdentifier("native-profile-emails-add")
+                    }
+                } else if message.isEmpty {
+                    Text("Checking…").nativeBody(size: 12.5).frame(minHeight: 44)
+                }
+                if !message.isEmpty {
+                    Text(message).nativeBody(size: 12.5, color: .orange.opacity(0.92)).accessibilityLabel(message)
+                }
+            }
+            .padding(14)
+            .background(NativeProfileStyle.insetSurface)
+            .clipShape(RoundedRectangle(cornerRadius: NativeProfileStyle.rowRadius, style: .continuous))
+            Text("Friends can find you by any of these emails. Sign in with any of them.")
+                .nativeBody(size: 11.5, color: NativeProfileStyle.muted)
+                .padding(.horizontal, 4)
+        }
+        .accessibilityIdentifier("native-profile-emails")
+        .task { await load() }
+        .alert(alertTitle, isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }), presenting: pending) { change in
+            switch change {
+            case let .makeAccountEmail(email):
+                Button("Make account email") { makeAccountEmail(email) }
+            case let .remove(email):
+                Button("Remove", role: .destructive) { remove(email) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { change in
+            switch change {
+            case .makeAccountEmail:
+                Text("Bytspot will send everything here. \(emails?.accountEmail.email ?? "Your current account email") stays on your account.")
+            case .remove:
+                Text("You won't be able to sign in with it, and friends won't find you by it.")
+            }
+        }
+        .sheet(isPresented: $showAdd) {
+            NativeAddEmailSheet(api: api, onAdded: { updated in
+                emails = updated
+                showAdd = false
+            })
+        }
+    }
+
+    private var alertTitle: String {
+        switch pending {
+        case let .makeAccountEmail(email): return "Make \(email) your account email?"
+        case let .remove(email): return "Remove \(email)?"
+        case nil: return ""
+        }
+    }
+
+    private func accountRow(_ account: NativeAccountEmails.AccountEmail) -> some View {
+        let status = account.confirmed ? "Confirmed" : "Not confirmed"
+        return HStack(spacing: 10) {
+            Image(systemName: "envelope.fill").font(.system(size: 15, weight: .bold)).foregroundColor(NativeTheme.cyan).frame(width: 22).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(account.email).font(.system(size: 14, weight: .bold)).foregroundColor(NativeProfileStyle.title).lineLimit(1).truncationMode(.middle)
+                Text("Account email · \(status)").nativeBody(size: 12.5, color: account.confirmed ? NativeProfileStyle.body : .orange.opacity(0.92))
+            }
+            Spacer()
+        }
+        .frame(minHeight: 44)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(account.email), Account email, \(status)")
+        .accessibilityIdentifier("native-profile-emails-account")
+    }
+
+    private func extraRow(_ extra: NativeAccountEmails.ExtraEmail) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "envelope").font(.system(size: 15, weight: .bold)).foregroundColor(NativeTheme.cyan).frame(width: 22).accessibilityHidden(true)
+            Text(busyEmail == extra.email ? "Updating…" : extra.email)
+                .font(.system(size: 14, weight: .bold)).foregroundColor(NativeProfileStyle.title).lineLimit(1).truncationMode(.middle)
+                .accessibilityLabel("\(extra.email), extra email")
+            Spacer()
+            Menu {
+                Button(action: { pending = .makeAccountEmail(extra.email) }) { Label("Make account email", systemImage: "star") }
+                Button(role: .destructive, action: { pending = .remove(extra.email) }) { Label("Remove", systemImage: "trash") }
+            } label: {
+                Image(systemName: "ellipsis").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.cyan).frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .disabled(busyEmail != nil)
+            .accessibilityLabel("Options for \(extra.email)")
+        }
+        .frame(minHeight: 44)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var api: NativeAccountEmailsAPI { NativeAccountEmailsAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
+
+    @MainActor
+    private func load() async {
+        do {
+            emails = try await api.emails()
+        } catch {
+            message = NativeAuthDataAPI.signInMethodMessage(for: error, fallback: "We couldn't load your emails.")
+        }
+    }
+
+    private func makeAccountEmail(_ email: String) {
+        change(email, fallback: "We couldn't make \(email) your account email. Please try again.") { try await api.makeAccountEmail(email) }
+    }
+
+    private func remove(_ email: String) {
+        change(email, fallback: "We couldn't remove \(email). Please try again.") { try await api.removeEmail(email) }
+    }
+
+    private func change(_ email: String, fallback: String, _ request: @escaping () async throws -> NativeAccountEmails) {
+        nativeImpactLight()
+        busyEmail = email; message = ""
+        Task { @MainActor in
+            do {
+                emails = try await request()
+            } catch {
+                message = NativeAuthDataAPI.signInMethodMessage(for: error, fallback: fallback)
+            }
+            busyEmail = nil
+        }
+    }
+}
+
+/// Adds an email: `auth.addEmail` sends a code to it, `auth.confirmAddEmail`
+/// trades the code for the updated list.
+private struct NativeAddEmailSheet: View {
+    let api: NativeAccountEmailsAPI
+    let onAdded: (NativeAccountEmails) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var email = ""
+    @State private var makeAccountEmail = false
+    @State private var challenge: NativeAddEmailChallenge?
+    @State private var code = ""
+    @State private var sending = false
+    @State private var confirming = false
+    @State private var message = ""
+    @State private var resendAvailableAt = Date.distantPast
+    @FocusState private var codeFocused: Bool
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Add email").font(.system(size: 26, weight: .black)).foregroundColor(NativeProfileStyle.title).accessibilityAddTraits(.isHeader)
+                    Spacer()
+                    Button(action: { nativeImpactLight(); dismiss() }) {
+                        Text("Cancel").font(.system(size: 14, weight: .bold)).foregroundColor(NativeProfileStyle.body).frame(minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Cancel")
+                }
+                if let challenge { codeStep(challenge) } else { emailStep }
+                if !message.isEmpty {
+                    Text(message).nativeBody(size: 12.5, color: .orange.opacity(0.92)).frame(maxWidth: .infinity, alignment: .leading).accessibilityLabel(message)
+                }
+            }
+            .padding(20)
+        }
+        .background(NativeDeepSpaceGround())
+        .accessibilityIdentifier("native-profile-add-email")
+    }
+
+    private var emailStep: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            NativeProfileFormField(title: "Email", placeholder: "name@example.com", text: $email, keyboard: .emailAddress, capitalization: .never)
+                .textContentType(.emailAddress)
+            Toggle(isOn: $makeAccountEmail) {
+                Text("Make this my account email").font(.system(size: 14, weight: .bold)).foregroundColor(NativeProfileStyle.title)
+            }
+            .tint(NativeTheme.cyan)
+            .accessibilityLabel("Make this my account email")
+            Button(action: sendCode) { NativeCTA(title: sending ? "Sending…" : "Send code", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .opacity(canSend ? 1 : 0.45)
+                .accessibilityLabel("Send code")
+        }
+    }
+
+    private func codeStep(_ challenge: NativeAddEmailChallenge) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("We sent a code to \(challenge.maskedEmail). Enter it to add this email.").nativeBody(size: 14, color: NativeProfileStyle.body)
+            TextField("Code", text: $code)
+                .keyboardType(.numberPad)
+                .textContentType(.oneTimeCode)
+                .font(.system(size: 30, weight: .black, design: .monospaced))
+                .multilineTextAlignment(.center)
+                .foregroundColor(NativeProfileStyle.title)
+                .tint(NativeTheme.cyan)
+                .frame(minHeight: 60)
+                .background(NativeProfileStyle.insetSurface)
+                .clipShape(RoundedRectangle(cornerRadius: NativeProfileStyle.rowRadius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: NativeProfileStyle.rowRadius, style: .continuous).stroke(NativeProfileStyle.cardBorder, lineWidth: 1))
+                .focused($codeFocused)
+                .accessibilityLabel("\(NativeEmailVerificationContract.codeLength)-digit code")
+                .onChange(of: code) { newValue in
+                    let cleaned = NativeEmailVerificationContract.sanitizedCode(newValue)
+                    if cleaned != newValue { code = cleaned }
+                    if cleaned.count == NativeEmailVerificationContract.codeLength { confirm() }
+                }
+            Button(action: confirm) { NativeCTA(title: confirming ? "Checking…" : "Add email", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
+                .buttonStyle(.plain)
+                .disabled(!canConfirm)
+                .opacity(canConfirm ? 1 : 0.45)
+                .accessibilityLabel("Add email")
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let wait = max(0, Int(resendAvailableAt.timeIntervalSince(context.date).rounded(.up)))
+                Button(action: sendCode) {
+                    Text(sending ? "Sending…" : wait > 0 ? "Send a new code in \(wait)s" : "Send a new code")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(wait > 0 || sending ? NativeProfileStyle.muted : NativeTheme.cyan)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .disabled(wait > 0 || sending || confirming)
+                .accessibilityLabel(wait > 0 ? "Send a new code in \(wait) seconds" : "Send a new code")
+            }
+            Button(action: { self.challenge = nil; code = ""; message = "" }) {
+                Text("Use a different email").font(.system(size: 14, weight: .bold)).foregroundColor(NativeProfileStyle.body).frame(maxWidth: .infinity).frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Use a different email")
+        }
+        .onAppear { codeFocused = true }
+    }
+
+    private var canSend: Bool { NativeAuthInputValidator.emailIsValid(email) && !sending }
+    private var canConfirm: Bool { challenge != nil && code.count == NativeEmailVerificationContract.codeLength && !confirming }
+
+    private func sendCode() {
+        guard canSend else { return }
+        nativeImpactLight()
+        sending = true; message = ""
+        let address = email, makeAccount = makeAccountEmail
+        Task { @MainActor in
+            do {
+                let sent = try await api.addEmail(address, makeAccountEmail: makeAccount)
+                challenge = sent
+                code = ""
+                resendAvailableAt = Date().addingTimeInterval(TimeInterval(sent.resendInSecs))
+            } catch {
+                message = NativeAuthDataAPI.signInMethodMessage(for: error, fallback: "We couldn't send your code. Please try again.")
+            }
+            sending = false
+        }
+    }
+
+    private func confirm() {
+        guard canConfirm, let challenge else { return }
+        nativeImpactLight()
+        confirming = true; message = ""; codeFocused = false
+        let entered = code
+        Task { @MainActor in
+            do {
+                let updated = try await api.confirmAddEmail(challengeId: challenge.challengeId, code: entered)
+                confirming = false
+                onAdded(updated)
+            } catch {
+                confirming = false
+                message = NativeAuthDataAPI.signInMethodMessage(for: error, fallback: "We couldn't add this email. Please try again.")
+                code = ""
+                codeFocused = true
+            }
+        }
+    }
+}
+
 /// The ways into this account. Adding Apple or Google runs that provider's
 /// sheet while signed in, which is the proof the account is yours. A password
 /// is set through the emailed reset code. The last way in can't be removed.
@@ -2674,6 +2973,7 @@ private struct NativePersonalInformationPanel: View {
                 .disabled(isSaving)
             NativeProfilePanelNotice(title: isLoading ? "Loading profile…" : statusTitle, subtitle: statusSubtitle, icon: "checkmark.shield.fill", color: NativeTheme.emerald)
             if sessionStore.isAuthenticated {
+                NativeAccountEmailsSection(sessionStore: sessionStore)
                 NativeSignInMethodsSection(sessionStore: sessionStore, email: email)
             }
         }

@@ -79,7 +79,8 @@ source_guards() {
 
 build_app() {
   xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration "$CONFIGURATION" \
-    -destination "id=$UDID" -derivedDataPath "$DERIVED_DATA" CODE_SIGNING_ALLOWED=NO build
+    -destination "id=$UDID" -derivedDataPath "$DERIVED_DATA" \
+    CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= build
 }
 
 capture() {
@@ -225,6 +226,7 @@ xcrun simctl ui "$UDID" appearance light >/dev/null 2>&1 || true
 if [[ "${LIVE_AUTH_SMOKE:-0}" != "1" && "${RESET_NATIVE_ROOT_SMOKE:-1}" != "0" ]]; then
   xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
   xcrun simctl uninstall "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+  xcrun simctl keychain "$UDID" reset >/dev/null 2>&1 || true
 fi
 xcrun simctl install "$UDID" "$APP" >/dev/null
 xcrun simctl privacy "$UDID" grant location "$BUNDLE_ID" >/dev/null 2>&1 || true

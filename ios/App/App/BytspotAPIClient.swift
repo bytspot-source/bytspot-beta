@@ -833,11 +833,22 @@ enum NativePartyStudioError: LocalizedError, Equatable {
         }
     }
 
+    static let emailConfirmationMessage = "Confirm your email to host a party."
+
+    /// The server refuses hosting for an unconfirmed email with FORBIDDEN and
+    /// this exact message; other FORBIDDEN refusals carry their own message.
+    static func needsEmailConfirmation(_ error: Error) -> Bool {
+        guard case let BytspotAPIClient.APIError.server(status, body) = error else { return false }
+        guard status == 403 || body.contains("\"code\":\"FORBIDDEN\"") else { return false }
+        return NativeAuthDataAPI.serverMessage(in: body) == emailConfirmationMessage
+    }
+
     static func publishUserMessage(for error: Error) -> String {
         if let urlError = error as? URLError,
            [.timedOut, .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {
             return "We couldn't reach Bytspot. Check your connection and try again."
         }
+        if needsEmailConfirmation(error) { return emailConfirmationMessage }
         if case let BytspotAPIClient.APIError.server(status, _) = error {
             switch status {
             case 401: return "Your sign-in session expired. Sign in again before publishing."
@@ -2303,7 +2314,7 @@ struct NativeAuthDataAPI {
         return mode == .signup ? "We couldn't create your account. Please try again." : "We couldn't log you in. Please try again."
     }
 
-    private static func serverMessage(in body: String) -> String {
+    static func serverMessage(in body: String) -> String {
         guard let data = body.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) else { return "" }
         return findMessage(in: root) ?? ""

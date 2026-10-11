@@ -232,6 +232,7 @@ struct NativeHostStudioView: View {
     @State private var isLoadingArrivalVenues = false
     @State private var isBindingArrivalDestination = false
     @State private var showingPartyControl = false
+    @State private var showingEmailConfirm = false
 
     private static var defaultStart: Date {
         Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: Date().addingTimeInterval(86_400)) ?? Date().addingTimeInterval(86_400)
@@ -280,6 +281,17 @@ struct NativeHostStudioView: View {
         }
         .sheet(isPresented: $showingPartyControl) {
             if let party = publishPresentation.party { NativePartyControlView(partyID: party.id).environmentObject(sessionStore) }
+        }
+        .fullScreenCover(isPresented: $showingEmailConfirm) {
+            NativeEmailCodeEntryView(email: "", sessionStore: sessionStore, laterTitle: "Not now", onFinish: finishEmailConfirm)
+        }
+    }
+
+    private func finishEmailConfirm() {
+        showingEmailConfirm = false
+        if !NativeEmailVerificationState.shared.needsVerification(userID: sessionStore.authenticatedUserID),
+           publishPresentation.message == NativePartyStudioError.emailConfirmationMessage {
+            publishPresentation.message = ""
         }
     }
 
@@ -899,6 +911,11 @@ struct NativeHostStudioView: View {
             return
         }
         guard step == .invite else { withAnimation(studioAnimation) { step = step.next }; return }
+        if NativeEmailVerificationState.shared.needsVerification(userID: sessionStore.authenticatedUserID) {
+            publishPresentation.message = NativePartyStudioError.emailConfirmationMessage
+            showingEmailConfirm = true
+            return
+        }
         isPublishing = true
         publishTask = Task { await publish() }
     }
@@ -941,6 +958,10 @@ struct NativeHostStudioView: View {
         catch {
             Self.recordPublishFailure(error, stage: publishStage)
             publishPresentation.message = NativePartyStudioError.publishUserMessage(for: error)
+            if NativePartyStudioError.needsEmailConfirmation(error) {
+                NativeEmailVerificationState.shared.record(emailVerified: false, userID: sessionStore.authenticatedUserID)
+                showingEmailConfirm = true
+            }
         }
     }
 

@@ -1958,6 +1958,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
     case locationPrivacy, generalSettings, appearance, deleteAccount
     case blockedPeople, contactBytspot
     case privacyPolicy, termsOfService, disclaimer
+    case business
 
     var id: String { rawValue }
 
@@ -1995,6 +1996,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .privacyPolicy: return "Privacy Policy"
         case .termsOfService: return "Terms of Service"
         case .disclaimer: return "Disclaimer"
+        case .business: return "Bytspot for business"
         }
     }
     var eyebrow: String {
@@ -2008,6 +2010,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .locationPrivacy, .generalSettings, .appearance: return "SETTINGS"
         case .deleteAccount, .blockedPeople, .contactBytspot: return "SAFETY"
         case .privacyPolicy, .termsOfService, .disclaimer: return "LEGAL"
+        case .business: return "BUSINESS"
         }
     }
     var icon: String {
@@ -2033,6 +2036,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .privacyPolicy: return "shield.fill"
         case .termsOfService: return "doc.text.fill"
         case .disclaimer: return "exclamationmark.triangle.fill"
+        case .business: return "building.2.fill"
         }
     }
     var accent: Color {
@@ -2043,7 +2047,7 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
         case .appearance: return NativeTheme.purple
         case .deleteAccount: return NativeProfileStyle.danger
         case .vehicles, .savedSpots, .placesVisited, .parkingPreferences: return NativeTheme.emerald
-        case .privacyPolicy, .termsOfService, .disclaimer, .locationPrivacy, .generalSettings, .personalInformation, .notifications, .blockedPeople, .contactBytspot: return NativeTheme.cyan
+        case .privacyPolicy, .termsOfService, .disclaimer, .locationPrivacy, .generalSettings, .personalInformation, .notifications, .blockedPeople, .contactBytspot, .business: return NativeTheme.cyan
         }
     }
 }
@@ -2150,6 +2154,8 @@ private struct NativeProfilePanelSheet: View {
             NativeBlockedPeoplePanel()
         case .contactBytspot:
             NativeContactBytspotPanel()
+        case .business:
+            NativeSecureBandsPanel()
         case .privacyPolicy:
             NativeLegalPanel(document: .privacyPolicy)
         case .termsOfService:
@@ -2220,6 +2226,7 @@ private struct NativeProfilePanelSheet: View {
         case .privacyPolicy: return "Policy highlights are available in-app."
         case .termsOfService: return "Terms highlights are available in-app."
         case .disclaimer: return "Important service disclaimers stay easy to review."
+        case .business: return "Sign in with your business email to secure Bytspot bands, cards and tags before they go out."
         }
     }
 
@@ -2257,7 +2264,7 @@ private struct NativeProfilePanelSheet: View {
             return [("Auto", "Follows your iPhone appearance and system accessibility choices.", "iphone"), ("Dark", "Keeps Bytspot in its premium night interface.", "moon.stars.fill"), ("Light", "Uses high-contrast daytime surfaces when available.", "sun.max.fill")]
         case .deleteAccount:
             return [("Immediate", "Your account is deactivated and you are signed out as soon as you confirm.", "exclamationmark.triangle.fill"), ("30-day grace period", "Sign back in within 30 days to restore everything.", "clock.arrow.circlepath"), ("Then permanent", "After 30 days your data is erased and cannot be recovered.", "trash.fill")]
-        case .blockedPeople, .contactBytspot:
+        case .blockedPeople, .contactBytspot, .business:
             return []
         case .privacyPolicy:
             return [("Privacy summary", "Bytspot keeps sensitive location and account choices explicit.", "shield.fill"), ("Data handling", "Contact matching is designed to protect your address book.", "lock.doc.fill"), ("Review anytime", "Legal details stay available in Profile.", "checkmark.shield.fill")]
@@ -5788,7 +5795,8 @@ private enum NativeProfileMenuSectionKind: Equatable {
             return [
                 NativeProfileMenuItem(label: "Personal Information", subtitle: "Name, email, phone, and city", icon: "person.text.rectangle.fill", panel: .personalInformation),
                 NativeProfileMenuItem(label: "Payment Methods", subtitle: "Authorized checkout methods", icon: "creditcard.fill", panel: .paymentMethods),
-                NativeProfileMenuItem(label: "My Vehicles", subtitle: "Cars used for parking and valet", icon: "car.fill", panel: .vehicles)
+                NativeProfileMenuItem(label: "My Vehicles", subtitle: "Cars used for parking and valet", icon: "car.fill", panel: .vehicles),
+                NativeProfileMenuItem(label: "Bytspot for business", subtitle: "Secure bands, cards and tags", icon: "building.2.fill", panel: .business)
             ]
         case .preferences:
             return [
@@ -22181,7 +22189,7 @@ enum NativeAccountParitySelfTests {
     }
 
     private static func run() {
-        precondition(NativeProfileMenuSectionKind.account.items.map(\.label) == ["Personal Information", "Payment Methods", "My Vehicles"], "NativeAccountParitySelfTests: account controls drifted.")
+        precondition(NativeProfileMenuSectionKind.account.items.map(\.label) == ["Personal Information", "Payment Methods", "My Vehicles", "Bytspot for business"], "NativeAccountParitySelfTests: account controls drifted.")
         precondition(NativeProfileMenuSectionKind.preferences.items.map(\.label) == ["Vibe Preferences", "Parking Preferences", "Notifications", "Location & Privacy"], "NativeAccountParitySelfTests: preference controls drifted.")
         precondition(NativeProfileMenuSectionKind.appSettings.items.map(\.label) == ["General", "Appearance"], "NativeAccountParitySelfTests: theme must live under App Settings/Appearance.")
         precondition(NativeProfileMenuSectionKind.safetyLegal.items.map(\.label) == ["Blocked people", "Delete Account", "Privacy Policy", "Terms of Service", "Disclaimer", "Contact Bytspot"], "NativeAccountParitySelfTests: safety/legal section drifted.")
@@ -22192,7 +22200,7 @@ enum NativeAccountParitySelfTests {
         // tile via the Points row rather than a tile of its own.
         let reachablePanels = Set(NativeProfileAccountView.menuSectionOrder.flatMap { $0.items.map(\.panel) } + NativeProfileCommandGrid.tilePanels + [.points, .placesVisited])
         precondition(NativeProfileInteractionContract.accountPanels.allSatisfy(reachablePanels.contains), "NativeAccountParitySelfTests: account panels must be reachable from the Profile landing.")
-        precondition(NativeProfileMenuSectionKind.account.items.map(\.panel) == [.personalInformation, .paymentMethods, .vehicles], "NativeAccountParitySelfTests: account rows must open native panels, not hybrid Profile.")
+        precondition(NativeProfileMenuSectionKind.account.items.map(\.panel) == [.personalInformation, .paymentMethods, .vehicles, .business], "NativeAccountParitySelfTests: account rows must open native panels, not hybrid Profile.")
         precondition(NativeProfileInteractionContract.accountPanels == [.personalInformation, .paymentMethods, .vehicles], "NativeAccountParitySelfTests: account interaction panels must stay native.")
         precondition(NativeProfileInteractionContract.personalInfoKeys == ["bytspot_profile_display_name", "bytspot_profile_email", "bytspot_profile_phone", "bytspot_profile_city", "bytspot_profile_birthday"], "NativeAccountParitySelfTests: personal-info local draft keys drifted.")
         precondition(NativeProfileInteractionContract.vehicleKeys == ["bytspot_vehicle_make", "bytspot_vehicle_model", "bytspot_vehicle_year", "bytspot_vehicle_color", "bytspot_vehicle_plate_hint"], "NativeAccountParitySelfTests: vehicle local draft keys drifted.")
@@ -22216,7 +22224,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeArrivalLedgerContract.emptyTitle == "No upcoming arrivals" && NativeArrivalLedgerContract.accessibilityID == "native-arrival-ledger-panel", "NativeAccountParitySelfTests: Arrivals must use the native ledger panel, not generic placeholder rows.")
         precondition(NativeArrivalLedgerContract.summary.contains("parking reservations") && NativeArrivalLedgerContract.emptySubtitle.contains("after checkout or approval"), "NativeAccountParitySelfTests: Arrivals copy must describe real itinerary records and approval states.")
         precondition(NativeProfileMenuSectionKind.account.items.allSatisfy { $0.badge == nil }, "NativeAccountParitySelfTests: account rows should not show noisy NATIVE badges.")
-        precondition(NativeProfileMenuSectionKind.account.items.map(\.subtitle) == ["Name, email, phone, and city", "Authorized checkout methods", "Cars used for parking and valet"], "NativeAccountParitySelfTests: professional account subtitles drifted.")
+        precondition(NativeProfileMenuSectionKind.account.items.map(\.subtitle) == ["Name, email, phone, and city", "Authorized checkout methods", "Cars used for parking and valet", "Secure bands, cards and tags"], "NativeAccountParitySelfTests: professional account subtitles drifted.")
         precondition(NativeBoutiqueStayBookingContract.storageKey == "bytspot_native_boutique_stays", "NativeAccountParitySelfTests: Boutique Stay wallet storage key drifted.")
         precondition(NativeBoutiqueStayBookingContract.paymentMethods == ["Apple Pay", "Credit / Debit Card"], "NativeAccountParitySelfTests: Boutique Stay payment methods must stay explicit.")
         precondition(NativeBoutiqueStayBookingContract.awaitingHostApproval == "Awaiting Host Approval", "NativeAccountParitySelfTests: Boutique Stay wallet pending status must stay professional and specific.")

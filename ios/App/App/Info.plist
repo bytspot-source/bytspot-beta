@@ -97,7 +97,11 @@
     <key>NSCameraUsageDescription</key>
     <string>Bytspot uses your camera so you can share moments and post real-time updates from venues.</string>
     <key>NFCReaderUsageDescription</key>
-    <string>Bytspot uses NFC to verify venue patch stickers for fast, secure entry and access verification.</string>
+    <string>Bytspot uses NFC to read and secure Bytspot bands, cards and tags, and to verify venue patches.</string>
+    <key>com.apple.developer.nfc.readersession.iso7816.select-identifiers</key>
+    <array>
+        <string>D2760000850101</string>
+    </array>
     <key>NSMicrophoneUsageDescription</key>
     <string>Bytspot uses the microphone only when you tap voice search or voice concierge so you can speak parking, venue, and event requests instead of typing.</string>
     <key>NSSpeechRecognitionUsageDescription</key>

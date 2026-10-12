@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  bandActivationProblems,
   demoConsoleTransport,
   httpConsoleTransport,
   patchDraftProblems,
+  readBandSerial,
   readPassCode,
+  reviveBand,
+  reviveBands,
   reviveAnalytics,
   reviveBooking,
   reviveBookings,
@@ -240,4 +244,55 @@ test('patches go to their API paths, and a partner name is sent only for a partn
   );
   assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { kind: 'patch', locationId: 'loc_1', label: 'Door' });
   assert.deepEqual(JSON.parse(String(calls[2].init?.body)), { kind: 'patch' });
+});
+
+test('a band number reads the same typed, scanned or tapped', () => {
+  for (const raw of ['BYT424-0301', ' byt424-0301 ', 'BYT424-0301-b', 'https://bytspot.app/BYT424-0301', 'bytspot.app/BYT424-0301-G', 'https://bytspot.app/BYT424?patchId=BYT424-0301']) {
+    assert.equal(readBandSerial(raw), 'BYT424-0301', raw);
+  }
+  for (const raw of ['', 'BYT424', 'BYT424-0301-X', 'https://bytspot.app/at/ABCD2345']) {
+    assert.equal(readBandSerial(raw), undefined, raw);
+  }
+});
+
+test('a band is kept only with an id and a readable number, and unknown values are dropped', () => {
+  const base = { id: 'band_1', serial: 'BYT424-0301', state: 'active', tier: 'black', place: 'Main room', locationId: 'loc_1', activatedBySeatId: 'seat_1' };
+  const band = reviveBand(base);
+  assert.equal(band?.tier, 'black');
+  assert.equal(band?.state, 'active');
+  assert.equal(band && 'activatedBySeatId' in band, false);
+  assert.equal(reviveBand({ ...base, state: 'weird', tier: 'gold' })?.state, 'assigned');
+  assert.equal(reviveBand({ ...base, tier: 'gold' })?.tier, undefined);
+  assert.equal(reviveBand({ ...base, serial: 'table 4' }), undefined);
+  assert.equal(reviveBands({ bands: [base, { ...base, id: '' }] }).length, 1);
+});
+
+test('activating a band needs a band number and a place', () => {
+  assert.deepEqual(bandActivationProblems({ band: 'https://bytspot.app/BYT424-0301', locationId: 'loc_1', tier: 'green' }), []);
+  assert.deepEqual(bandActivationProblems({ band: 'table 4', locationId: '', tier: 'green' }), [
+    'Enter a band number like BYT424-0301, or scan the band',
+    'Choose one of your places',
+  ]);
+});
+
+test('bands go to their API paths, and a cleared code is sent as null', async () => {
+  const band = { id: 'band_1', serial: 'BYT424-0301', state: 'active', tier: 'green' };
+  const { authorized, calls } = stubFetch(() => ({ status: 200, body: { bands: [band], band, alreadyActive: true } }));
+  const api = httpConsoleTransport(authorized);
+  assert.equal((await api.bands()).value?.length, 1);
+  assert.equal((await api.activateBand({ band: ' BYT424-0301 ', locationId: 'loc_1', tier: 'green', vendorCode: ' ' })).value?.alreadyActive, true);
+  assert.equal((await api.editBand('band 1', { tier: 'black', vendorCode: '' })).value?.serial, 'BYT424-0301');
+  assert.equal((await api.markBandLost('band_1')).value?.id, 'band_1');
+  assert.deepEqual(
+    calls.map((call) => call.path),
+    ['/vendor/bands', '/vendor/bands/activate', '/vendor/bands/band%201', '/vendor/bands/band_1/lost'],
+  );
+  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { band: 'BYT424-0301', locationId: 'loc_1', tier: 'green' });
+  assert.deepEqual(JSON.parse(String(calls[2].init?.body)), { tier: 'black', vendorCode: null });
+});
+
+test('the demo build holds no bands', async () => {
+  const demo = demoConsoleTransport();
+  assert.deepEqual((await demo.bands()).value, []);
+  assert.equal((await demo.activateBand({ band: 'BYT424-0301', locationId: 'loc_1', tier: 'green' })).status, 404);
 });

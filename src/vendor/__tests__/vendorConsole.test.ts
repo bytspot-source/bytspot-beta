@@ -119,7 +119,7 @@ test('a home baker gets the same core loop as a hotel', () => {
 
   // Cottage collapses configuration instead.
   const bakerMore = ids(vendorSecondaryNav(baker));
-  for (const hidden of ['locations', 'staff', 'business', 'partnerships']) {
+  for (const hidden of ['locations', 'staff', 'business', 'partnerships', 'bands']) {
     assert.equal(bakerMore.includes(hidden), false, `cottage must not show ${hidden}`);
   }
   assert.ok(bakerMore.includes('payouts'));
@@ -152,6 +152,7 @@ test('navigation is derived from the same roles the ontology enforces', () => {
 
   // A manager runs the business without being able to move its money.
   assert.ok(managerMore.includes('staff'));
+  assert.ok(managerMore.includes('bands'));
   assert.equal(managerMore.includes('payouts'), false);
   assert.equal(managerMore.includes('partnerships'), false);
   assert.equal(canSeeFinancials('manager'), true);

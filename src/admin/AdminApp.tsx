@@ -32,6 +32,7 @@ type Vendor = {
   awaitingApproval: boolean; approvedAt: string | null; createdAt: string; missing: string[];
   locations: { label: string; address: string | null; state: string }[];
   videoHostingAt: string | null;
+  bands?: { total: number; active: number; lost: number; ranges: string[] };
 };
 type VenueMediaItem = { id: string; kind: 'cover' | 'gallery' | 'video'; position: number; mimeType: string; url: string };
 type VenueMediaList = { media: VenueMediaItem[]; videoAvailable: boolean; galleryCap: number };
@@ -660,6 +661,53 @@ function MediaReview() {
   );
 }
 
+/** Gives a business a range of Bytspot bands, or takes back the ones it never activated. */
+function VendorBands({ vendor, onChanged }: { vendor: Vendor; onChanged: () => Promise<void> }) {
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const bands = vendor.bands ?? { total: 0, active: 0, lost: 0, ranges: [] };
+
+  const run = async (release: boolean) => {
+    const range = { sellerId: vendor.sellerId, from: from.trim(), to: (to.trim() || from.trim()) };
+    if (!range.from) { setError('Enter the first band number, like BYT424-0301.'); return; }
+    setBusy(true); setError(null); setNote(null);
+    try {
+      if (release) {
+        const result = await trpc.admin.vendors.releaseBands.mutate(range);
+        setNote(`Took back ${result.released}.${result.kept ? ` ${result.kept} already activated or lost, so kept.` : ''}`);
+      } else {
+        const result = await trpc.admin.vendors.assignBands.mutate(range);
+        setNote(`Assigned ${result.added}.${result.alreadyHere ? ` ${result.alreadyHere} were already theirs.` : ''}`);
+      }
+      setFrom(''); setTo('');
+      await onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="admin-stack">
+      <p className="admin-small">
+        {bands.total ? `Bands: ${bands.total} (${bands.active} active, ${bands.lost} lost) · ${bands.ranges.join(', ')}` : 'No bands'}
+      </p>
+      <div className="admin-inline">
+        <input className={input} placeholder="First band, e.g. BYT424-0301" value={from} onChange={(e) => setFrom(e.target.value)} />
+        <input className={input} placeholder="Last band, e.g. BYT424-0400" value={to} onChange={(e) => setTo(e.target.value)} />
+        <Button kind="quiet" disabled={busy} onClick={() => run(false)}>Assign bands</Button>
+        <Button kind="quiet" disabled={busy} onClick={() => run(true)}>Take back</Button>
+      </div>
+      {note && <p className="admin-small">{note}</p>}
+      {error && <p className="admin-warn">{error}</p>}
+    </div>
+  );
+}
+
 function VendorsTab({ onCount }: { onCount: (awaiting: number) => void }) {
   const [vendors, setVendors] = useState<Vendor[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -726,6 +774,7 @@ function VendorsTab({ onCount }: { onCount: (awaiting: number) => void }) {
                 )}
                 <p className="admin-small">Joined {dateLabel(v.createdAt)}{v.approvedAt ? ` · Approved ${dateLabel(v.approvedAt)}` : ''}</p>
                 <p className="admin-small">{v.videoHostingAt ? `Premium video hosting since ${dateLabel(v.videoHostingAt)}` : 'No premium video hosting'}</p>
+                <VendorBands vendor={v} onChanged={load} />
               </div>
               <div className="admin-inline">
                 {!v.approvedAt && (

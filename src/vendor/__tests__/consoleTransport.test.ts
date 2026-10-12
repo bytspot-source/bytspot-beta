@@ -272,14 +272,20 @@ test('a band is kept only with an id and a readable number, and unknown values a
   assert.equal(reviveBand({ ...base, tier: 'gold' })?.tier, undefined);
   assert.equal(reviveBand({ ...base, serial: 'table 4' }), undefined);
   assert.equal(reviveBands({ bands: [base, { ...base, id: '' }] }).length, 1);
+  assert.equal(band?.form, 'band', 'a band from before types existed reads as a band');
+  assert.equal(reviveBand({ ...base, form: 'key_fob' })?.form, 'key_fob');
+  assert.equal(reviveBand({ ...base, form: 'wristwatch' })?.form, 'band');
+  assert.equal(reviveBand({ ...base, form: 'card', linkedUntil: '2026-10-21T11:00:00.000Z' })?.linkedUntil?.toISOString(), '2026-10-21T11:00:00.000Z');
 });
 
-test('activating a band needs a band number and a place', () => {
-  assert.deepEqual(bandActivationProblems({ band: 'https://bytspot.app/BYT424-0301', locationId: 'loc_1', tier: 'green' }), []);
-  assert.deepEqual(bandActivationProblems({ band: 'table 4', locationId: '', tier: 'green' }), [
+test('activating needs a number and a place, and a tier only for a band', () => {
+  assert.deepEqual(bandActivationProblems({ band: 'https://bytspot.app/BYT424-0301', form: 'band', locationId: 'loc_1', tier: 'green' }), []);
+  assert.deepEqual(bandActivationProblems({ band: 'table 4', form: 'band', locationId: '', tier: 'green' }), [
     'Enter a band number like BYT424-0301, or scan the band',
     'Choose one of your places',
   ]);
+  assert.deepEqual(bandActivationProblems({ band: 'BYT424-0301', form: 'band', locationId: 'loc_1' }), ['Choose a tier for the band']);
+  assert.deepEqual(bandActivationProblems({ band: 'BYT424-0301', form: 'epoxy', locationId: 'loc_1' }), []);
 });
 
 test('bands go to their API paths, and a cleared code is sent as null', async () => {
@@ -287,21 +293,25 @@ test('bands go to their API paths, and a cleared code is sent as null', async ()
   const { authorized, calls } = stubFetch(() => ({ status: 200, body: { bands: [band], band, alreadyActive: true } }));
   const api = httpConsoleTransport(authorized);
   assert.equal((await api.bands()).value?.length, 1);
-  assert.equal((await api.activateBand({ band: ' BYT424-0301 ', locationId: 'loc_1', tier: 'green', vendorCode: ' ' })).value?.alreadyActive, true);
+  assert.equal((await api.activateBand({ band: ' BYT424-0301 ', form: 'band', locationId: 'loc_1', tier: 'green', vendorCode: ' ' })).value?.alreadyActive, true);
   assert.equal((await api.editBand('band 1', { tier: 'black', vendorCode: '' })).value?.serial, 'BYT424-0301');
   assert.equal((await api.markBandLost('band_1')).value?.id, 'band_1');
+  await api.activateBand({ band: 'BYT424-0302', form: 'epoxy', locationId: 'loc_1', vendorCode: 'Table 4' });
+  await api.editBand('band_1', { form: 'key_fob' });
   assert.deepEqual(
     calls.map((call) => call.path),
-    ['/vendor/bands', '/vendor/bands/activate', '/vendor/bands/band%201', '/vendor/bands/band_1/lost'],
+    ['/vendor/bands', '/vendor/bands/activate', '/vendor/bands/band%201', '/vendor/bands/band_1/lost', '/vendor/bands/activate', '/vendor/bands/band_1'],
   );
-  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { band: 'BYT424-0301', locationId: 'loc_1', tier: 'green' });
+  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { band: 'BYT424-0301', form: 'band', locationId: 'loc_1', tier: 'green' });
   assert.deepEqual(JSON.parse(String(calls[2].init?.body)), { tier: 'black', vendorCode: null });
+  assert.deepEqual(JSON.parse(String(calls[4].init?.body)), { band: 'BYT424-0302', form: 'epoxy', locationId: 'loc_1', vendorCode: 'Table 4' });
+  assert.deepEqual(JSON.parse(String(calls[5].init?.body)), { form: 'key_fob' });
 });
 
 test('the demo build holds no bands', async () => {
   const demo = demoConsoleTransport();
   assert.deepEqual((await demo.bands()).value, []);
-  assert.equal((await demo.activateBand({ band: 'BYT424-0301', locationId: 'loc_1', tier: 'green' })).status, 404);
+  assert.equal((await demo.activateBand({ band: 'BYT424-0301', form: 'band', locationId: 'loc_1', tier: 'green' })).status, 404);
 });
 
 test('a ticket is kept only with an id, readable times and an https link', () => {
@@ -352,31 +362,45 @@ test('the demo build sells no tickets', async () => {
   assert.equal((await demo.createTicket({ locationId: 'loc_1', title: 'x', date: '2026-10-18', startTime: '13:00', endTime: '17:00', priceCents: 4500, quantity: 1 })).status, 409);
 });
 
-test('a band read at the door keeps its guest and the ticket only when both read', () => {
+test('an item read at the door keeps its guest, the bookings that read, and a member\'s visits', () => {
   const band = { id: 'band_1', serial: 'BYT424-0301', state: 'active', tier: 'platinum', holder: 'Ama', linkedAt: '2026-10-18T17:00:00.000Z' };
-  const read = reviveBandAtDoor({ band, booking: { id: 'ord_1', kind: 'ticket', startsAt: '2026-10-18T17:00:00.000Z', pass: 'ISSUED' } });
+  const read = reviveBandAtDoor({
+    band,
+    bookings: [
+      { id: 'ord_1', kind: 'ticket', startsAt: '2026-10-18T17:00:00.000Z', pass: 'ISSUED' },
+      { id: 'off_1', startsAt: 'soon' },
+      { id: 'off_2', kind: 'booking', startsAt: '2026-10-18T19:00:00.000Z', pass: 'ISSUED' },
+    ],
+  });
   assert.equal(read?.band.holder, 'Ama');
   assert.equal(read?.band.linkedAt?.toISOString(), '2026-10-18T17:00:00.000Z');
-  assert.equal(read?.booking?.kind, 'ticket');
+  assert.deepEqual(read?.bookings.map((row) => row.kind), ['ticket', 'booking']);
+  assert.equal(read?.member, undefined);
   assert.equal(reviveBandAtDoor({ band: { ...band, holder: '' } })?.band.holder, undefined);
-  assert.equal(reviveBandAtDoor({ band, booking: { id: 'ord_1', startsAt: 'soon' } })?.booking, undefined);
+  assert.deepEqual(reviveBandAtDoor({ band, bookings: 'nope' })?.bookings, []);
   assert.equal(reviveBandAtDoor({ band: { id: 'band_1', serial: 'table 4' } }), undefined);
+  const fob = reviveBandAtDoor({ band: { ...band, form: 'key_fob' }, bookings: [], member: { visits: 7.6, lastVisitAt: '2026-10-11T22:00:00.000Z' } });
+  assert.deepEqual(fob?.member, { visits: 7, lastVisitAt: new Date('2026-10-11T22:00:00.000Z') });
+  assert.equal(reviveBandAtDoor({ band, bookings: [], member: { visits: 'many' } })?.member, undefined);
 });
 
-test('a band is read and linked at the door through the pass routes', async () => {
+test('an item is read, linked and its member\'s visit logged through the pass routes', async () => {
   const band = { id: 'band_1', serial: 'BYT424-0301', state: 'active', holder: 'Ama' };
-  const { authorized, calls } = stubFetch(() => ({ status: 200, body: { band } }));
+  const { authorized, calls } = stubFetch(() => ({ status: 200, body: { band, member: { visits: 3 }, alreadyLogged: true } }));
   const api = httpConsoleTransport(authorized);
   assert.equal((await api.readBand(' https://bytspot.app/BYT424-0301 ')).value?.band.serial, 'BYT424-0301');
   assert.equal((await api.linkBand('BYT424-0301', 'ord_1')).value?.holder, 'Ama');
+  assert.deepEqual((await api.logVisit(' BYT424-0301 ')).value, { member: { visits: 3, lastVisitAt: undefined }, alreadyLogged: true });
   assert.deepEqual(
     calls.map((call) => call.path),
-    ['/vendor/passes/band', '/vendor/passes/band/link'],
+    ['/vendor/passes/band', '/vendor/passes/band/link', '/vendor/passes/band/visit'],
   );
   assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { band: 'https://bytspot.app/BYT424-0301' });
   assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { band: 'BYT424-0301', bookingId: 'ord_1' });
+  assert.deepEqual(JSON.parse(String(calls[2].init?.body)), { band: 'BYT424-0301' });
 
   const demo = demoConsoleTransport();
   assert.equal((await demo.readBand('BYT424-0301')).status, 404);
   assert.equal((await demo.linkBand('BYT424-0301', 'ord_1')).status, 404);
+  assert.equal((await demo.logVisit('BYT424-0301')).status, 404);
 });

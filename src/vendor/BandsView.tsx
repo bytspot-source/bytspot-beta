@@ -86,6 +86,7 @@ function BandRow({
     band.vendorCode ? `Your code ${band.vendorCode}` : undefined,
     band.holder ? `Linked to ${band.holder}` : undefined,
     band.holder && band.linkedUntil ? `until ${band.linkedUntil.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}` : undefined,
+    band.secured ? 'Secured: only a tap opens it' : undefined,
   ].filter(Boolean);
 
   return (

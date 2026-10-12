@@ -215,6 +215,8 @@ export interface Band {
   linkedAt?: Date;
   /** When the link ends by itself: a card at the end of the stay, an event fob after the show. */
   linkedUntil?: Date;
+  /** Its chip makes a fresh code on every tap, so only a tap opens it, not its printed number. */
+  secured: boolean;
 }
 
 /** A key fob member's visits to this business. */
@@ -475,6 +477,7 @@ export function reviveBand(json: Json): Band | undefined {
     holder: typeof json.holder === 'string' && json.holder ? json.holder : undefined,
     linkedAt: date(json.linkedAt),
     linkedUntil: date(json.linkedUntil),
+    secured: json.secured === true,
   };
 }
 

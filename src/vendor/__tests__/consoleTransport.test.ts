@@ -275,6 +275,9 @@ test('a band is kept only with an id and a readable number, and unknown values a
   assert.equal(band?.form, 'band', 'a band from before types existed reads as a band');
   assert.equal(reviveBand({ ...base, form: 'key_fob' })?.form, 'key_fob');
   assert.equal(reviveBand({ ...base, form: 'wristwatch' })?.form, 'band');
+  assert.equal(band?.secured, false);
+  assert.equal(reviveBand({ ...base, secured: true })?.secured, true);
+  assert.equal(reviveBand({ ...base, secured: 'yes' })?.secured, false);
   assert.equal(reviveBand({ ...base, form: 'card', linkedUntil: '2026-10-21T11:00:00.000Z' })?.linkedUntil?.toISOString(), '2026-10-21T11:00:00.000Z');
 });
 
@@ -398,6 +401,11 @@ test('an item is read, linked and its member\'s visit logged through the pass ro
   assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { band: 'https://bytspot.app/BYT424-0301' });
   assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { band: 'BYT424-0301', bookingId: 'ord_1' });
   assert.deepEqual(JSON.parse(String(calls[2].init?.body)), { band: 'BYT424-0301' });
+  const tapped = 'https://bytspot.app/BYT424-0301?picc_data=EF963FF7828658A599F3041510671E88&cmac=94EED9EE65337086';
+  await api.readBand(tapped);
+  await api.linkBand(tapped, 'ord_1');
+  assert.deepEqual(JSON.parse(String(calls[3].init?.body)), { band: tapped }, 'a tap keeps its fresh code for the server to check');
+  assert.deepEqual(JSON.parse(String(calls[4].init?.body)), { band: tapped, bookingId: 'ord_1' });
 
   const demo = demoConsoleTransport();
   assert.equal((await demo.readBand('BYT424-0301')).status, 404);

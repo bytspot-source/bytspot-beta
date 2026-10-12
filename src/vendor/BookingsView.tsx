@@ -225,6 +225,7 @@ function bandLine(band: Band): string {
     band.form === 'epoxy' && band.vendorCode ? band.vendorCode : undefined,
     band.holder ? `Linked to ${band.holder}` : undefined,
     band.holder && band.linkedUntil ? `until ${shortDate(band.linkedUntil)}` : undefined,
+    band.secured ? 'Secured' : undefined,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -318,7 +319,7 @@ export function ScannerView({ session, transport }: { session: VendorSession; tr
         setProblem(result.value ? '' : (result.blockers?.[0] ?? 'That did not load. Try again'));
         return;
       }
-      const result = await transport.readBand(serial!);
+      const result = await transport.readBand(raw);
       setBusy(false);
       setBand(result.value?.band);
       setFound(result.value?.bookings ?? []);
@@ -336,7 +337,7 @@ export function ScannerView({ session, transport }: { session: VendorSession; tr
         return;
       }
       setBusy(true);
-      const result = await transport.linkBand(serial, linkFrom.id);
+      const result = await transport.linkBand(raw, linkFrom.id);
       setBusy(false);
       if (!result.value) {
         setProblem(result.blockers?.[0] ?? 'That did not go through. Try again');

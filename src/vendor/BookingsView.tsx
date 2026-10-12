@@ -170,13 +170,13 @@ const PASS_VERDICTS: Record<Booking['pass'], string> = {
   REVOKED: 'Not valid: cancelled or marked as a no-show',
 };
 
-interface Detector {
+export interface Detector {
   detect: (source: HTMLVideoElement) => Promise<{ rawValue?: string }[]>;
 }
 
-function qrDetector(): Detector | undefined {
+export function qrDetector(formats: string[] = ['qr_code']): Detector | undefined {
   const Ctor = (window as unknown as { BarcodeDetector?: new (options: { formats: string[] }) => Detector }).BarcodeDetector;
-  return Ctor ? new Ctor({ formats: ['qr_code'] }) : undefined;
+  return Ctor ? new Ctor({ formats }) : undefined;
 }
 
 /** Reads a guest's pass by camera or by typing its code, then checks them in. */

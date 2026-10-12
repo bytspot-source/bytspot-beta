@@ -3,7 +3,7 @@ import type { PayoutAccount } from './profile.ts';
 import type { AuthorizedFetch, SetupResult, VendorWindow } from './setupTransport.ts';
 
 /**
- * Home, Bookings, Pass scanner, QR / NFC patches, Partnerships, Staff,
+ * Home, Bookings, Pass scanner, QR / NFC patches, Bands, Partnerships, Staff,
  * Availability, Analytics, Earnings, Payouts and Settings, against the API.
  *
  * Every screen gets a function, never the token, and every response is
@@ -172,10 +172,51 @@ export interface PatchDraft {
   partnerName?: string;
 }
 
+export type BandTier = 'green' | 'platinum' | 'black';
+export type BandState = 'assigned' | 'active' | 'lost';
+
+export const BAND_TIERS: { id: BandTier; label: string }[] = [
+  { id: 'green', label: 'Green' },
+  { id: 'platinum', label: 'Platinum' },
+  { id: 'black', label: 'Black' },
+];
+
+export interface Band {
+  id: string;
+  /** e.g. BYT424-0301, what the chip and the printed code carry. */
+  serial: string;
+  state: BandState;
+  tier?: BandTier;
+  vendorCode?: string;
+  locationId?: string;
+  place?: string;
+  activatedAt?: Date;
+  lostAt?: Date;
+}
+
+export interface BandActivation {
+  /** A band number, or the link its QR code or chip carries. */
+  band: string;
+  locationId: string;
+  tier: BandTier;
+  vendorCode?: string;
+}
+
+export interface BandEdit {
+  locationId?: string;
+  tier?: BandTier;
+  /** Null clears it. */
+  vendorCode?: string | null;
+}
+
 export interface ConsoleTransport {
   patches: (kind: PatchKind) => Promise<SetupResult<Patch[]>>;
   createPatch: (draft: PatchDraft) => Promise<SetupResult<Patch>>;
   archivePatch: (id: string, kind: PatchKind) => Promise<SetupResult<true>>;
+  bands: () => Promise<SetupResult<Band[]>>;
+  activateBand: (draft: BandActivation) => Promise<SetupResult<{ band: Band; alreadyActive: boolean }>>;
+  editBand: (id: string, edit: BandEdit) => Promise<SetupResult<Band>>;
+  markBandLost: (id: string) => Promise<SetupResult<Band>>;
   bookings: (when: BookingsWhen) => Promise<SetupResult<Booking[]>>;
   moveBooking: (id: string, operation: BookingMoveId) => Promise<SetupResult<Booking>>;
   verifyPass: (code: string) => Promise<SetupResult<Booking>>;
@@ -305,6 +346,59 @@ export function patchDraftProblems(draft: PatchDraft): string[] {
   if (!draft.label.trim()) problems.push(draft.kind === 'partner' ? 'Say where they will use it' : 'Say where it goes');
   else if (draft.label.trim().length > 60) problems.push('Keep the label under 60 characters');
   if (draft.kind === 'partner' && !draft.partnerName?.trim()) problems.push('Name the partner');
+  return problems;
+}
+
+const BAND_SERIAL = /^(BYT\d{3})-?(\d{4})(?:-?[GPB])?$/;
+
+/**
+ * The band number from a typed value, a scanned QR code or a tapped link, the
+ * same way the API reads it: `https://bytspot.app/BYT424-0301-b` is BYT424-0301.
+ */
+export function readBandSerial(raw: string): string | undefined {
+  let value = raw.trim();
+  if (!value || value.length > 300) return undefined;
+  if (value.includes('/')) {
+    try {
+      const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`);
+      value = url.searchParams.get('patchId') ?? url.searchParams.get('patch') ?? url.pathname.split('/').filter(Boolean).pop() ?? '';
+    } catch {
+      return undefined;
+    }
+  }
+  const match = BAND_SERIAL.exec(value.toUpperCase());
+  return match ? `${match[1]}-${match[2]}` : undefined;
+}
+
+/** Undefined for a band without an id or a readable number. */
+export function reviveBand(json: Json): Band | undefined {
+  const serial = str(json.serial);
+  if (!str(json.id) || !/^BYT\d{3}-\d{4}$/.test(serial)) return undefined;
+  const tier = BAND_TIERS.find((entry) => entry.id === json.tier)?.id;
+  return {
+    id: str(json.id),
+    serial,
+    state: json.state === 'active' || json.state === 'lost' ? json.state : 'assigned',
+    tier,
+    vendorCode: typeof json.vendorCode === 'string' ? json.vendorCode : undefined,
+    locationId: typeof json.locationId === 'string' ? json.locationId : undefined,
+    place: typeof json.place === 'string' ? json.place : undefined,
+    activatedAt: date(json.activatedAt),
+    lostAt: date(json.lostAt),
+  };
+}
+
+export function reviveBands(json: Json): Band[] {
+  const rows = Array.isArray(json.bands) ? (json.bands as Json[]) : [];
+  return rows.map(reviveBand).filter((row): row is Band => row !== undefined);
+}
+
+/** The refusals the API would give, checked before the round-trip. */
+export function bandActivationProblems(draft: BandActivation): string[] {
+  const problems: string[] = [];
+  if (!readBandSerial(draft.band)) problems.push('Enter a band number like BYT424-0301, or scan the band');
+  if (!draft.locationId) problems.push('Choose one of your places');
+  if ((draft.vendorCode?.trim().length ?? 0) > 40) problems.push('Keep your code under 40 characters');
   return problems;
 }
 
@@ -507,6 +601,32 @@ export function httpConsoleTransport(authorized: AuthorizedFetch): ConsoleTransp
         (json) => revivePatch((json.patch ?? {}) as Json),
       ),
     archivePatch: (id, kind) => send(`/vendor/patches/${encodeURIComponent(id)}/archive`, post({ kind }), () => true as const),
+    bands: () => send('/vendor/bands', get, reviveBands),
+    activateBand: (draft) =>
+      send(
+        '/vendor/bands/activate',
+        post({
+          band: draft.band.trim(),
+          locationId: draft.locationId,
+          tier: draft.tier,
+          ...(draft.vendorCode?.trim() ? { vendorCode: draft.vendorCode.trim() } : {}),
+        }),
+        (json) => {
+          const band = reviveBand((json.band ?? {}) as Json);
+          return band ? { band, alreadyActive: json.alreadyActive === true } : undefined;
+        },
+      ),
+    editBand: (id, edit) =>
+      send(
+        `/vendor/bands/${encodeURIComponent(id)}`,
+        post({
+          ...(edit.locationId ? { locationId: edit.locationId } : {}),
+          ...(edit.tier ? { tier: edit.tier } : {}),
+          ...(edit.vendorCode !== undefined ? { vendorCode: edit.vendorCode?.trim() || null } : {}),
+        }),
+        (json) => reviveBand((json.band ?? {}) as Json),
+      ),
+    markBandLost: (id) => send(`/vendor/bands/${encodeURIComponent(id)}/lost`, post({}), (json) => reviveBand((json.band ?? {}) as Json)),
     bookings: (when) => send(`/vendor/bookings?when=${encodeURIComponent(when)}`, get, reviveBookings),
     moveBooking: (id, operation) => send(`/vendor/bookings/${encodeURIComponent(id)}/state`, post({ operation }), booking),
     verifyPass: (code) => send('/vendor/passes/verify', post({ code }), booking),
@@ -539,6 +659,10 @@ export function demoConsoleTransport(): ConsoleTransport {
     patches: async () => ({ status: 200, value: [] }),
     createPatch: async () => ({ status: 409, blockers: ['Patches are not available in the demo build'] }),
     archivePatch: async () => ({ status: 404, blockers: ['That patch is not here'] }),
+    bands: async () => ({ status: 200, value: [] }),
+    activateBand: async () => ({ status: 404, blockers: ['Bands are not available in the demo build'] }),
+    editBand: async () => ({ status: 404, blockers: ['That band is not here'] }),
+    markBandLost: async () => ({ status: 404, blockers: ['That band is not here'] }),
     bookings: async () => ({ status: 200, value: [] }),
     moveBooking: async () => ({ status: 404, blockers: ['That booking is not here'] }),
     verifyPass: async () => ({ status: 404, blockers: ['No booking here has that pass'] }),

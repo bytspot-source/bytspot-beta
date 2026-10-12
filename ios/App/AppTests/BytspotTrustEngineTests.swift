@@ -5,6 +5,7 @@ import UIKit
 import SwiftUI
 import Combine
 import Contacts
+import CryptoKit
 @testable import App
 
 final class NativeMapOpenLifecycleTests: XCTestCase {
@@ -8747,5 +8748,70 @@ final class NativeMapReportsTests: XCTestCase {
         let top = try JSONDecoder().decode(NativeMapReportStanding.self, from: Data(#"{"confirmedThisWeek":4,"badge":"Top Midtown reporter"}"#.utf8))
         XCTAssertEqual(top, NativeMapReportStanding(confirmedThisWeek: 4, badge: "Top Midtown reporter"))
         XCTAssertNil(try JSONDecoder().decode(NativeMapReportStanding.self, from: Data(#"{"confirmedThisWeek":0,"badge":null}"#.utf8)).badge)
+    }
+
+    private func carried(_ id: String = "relay-0001", key: P256.Signing.PrivateKey = P256.Signing.PrivateKey(), at date: Date = Date()) throws -> NativeRelayedReport {
+        try NativeRelayedReport.make(kind: "police", latitude: 33.78, longitude: -84.38, clientReportID: id, keyID: "k1", privateKey: key, at: date)
+    }
+
+    func testASignedReportCannotBeChangedOnTheWay() throws {
+        let key = P256.Signing.PrivateKey()
+        let report = try carried(key: key)
+        XCTAssertTrue(report.isValid(at: Date()))
+        XCTAssertEqual(report.decoded?.keyId, "k1", "the key id is part of what is signed")
+        XCTAssertEqual(report.publicKey, key.publicKey.x963Representation.base64EncodedString())
+
+        let changed = NativeRelayedReport(keyId: report.keyId, publicKey: report.publicKey, payload: report.payload.replacingOccurrences(of: "police", with: "incident"), signature: report.signature)
+        XCTAssertFalse(changed.isValid(at: Date()))
+        let otherKey = NativeRelayedReport(keyId: report.keyId, publicKey: P256.Signing.PrivateKey().publicKey.x963Representation.base64EncodedString(), payload: report.payload, signature: report.signature)
+        XCTAssertFalse(otherKey.isValid(at: Date()))
+        let renamed = NativeRelayedReport(keyId: "k2", publicKey: report.publicKey, payload: report.payload, signature: report.signature)
+        XCTAssertFalse(renamed.isValid(at: Date()), "carried under another key id")
+        XCTAssertFalse(try carried(at: Date(timeIntervalSinceNow: -31 * 60)).isValid(at: Date()), "older than thirty minutes")
+    }
+
+    func testAPhoneHoldsEachReportOnceForThirtyMinutes() throws {
+        var inbox = NativeRelayInbox()
+        let now = Date()
+        let report = try carried(at: now)
+        XCTAssertTrue(inbox.add(report, isMine: true, now: now))
+        XCTAssertFalse(inbox.add(report, now: now), "already held")
+        XCTAssertTrue(inbox.mine.contains("relay-0001"))
+        let invalid = NativeRelayedReport(keyId: "k1", publicKey: report.publicKey, payload: report.payload, signature: try carried("relay-0002").signature)
+        XCTAssertFalse(inbox.add(invalid, now: now))
+        inbox.prune(now: now.addingTimeInterval(31 * 60))
+        XCTAssertTrue(inbox.reports.isEmpty)
+        XCTAssertTrue(inbox.mine.isEmpty)
+
+        for index in 0...NativeRelayInbox.capacity { inbox.add(try carried(String(format: "relay-%04d", index), at: now), now: now) }
+        XCTAssertEqual(inbox.reports.count, NativeRelayInbox.capacity)
+        XCTAssertEqual(inbox.reports.first?.id, "relay-0001", "the oldest is dropped")
+    }
+
+    func testACarriedReportShowsUnconfirmedUntilItReachesBytspot() throws {
+        let report = try carried()
+        let nearby = try XCTUnwrap(report.communityReport(from: nil, isMine: false))
+        XCTAssertEqual(nearby.statusLabel, "Unconfirmed · from a nearby phone")
+        XCTAssertNil(nearby.serverID)
+        XCTAssertNil(nearby.shareURL)
+        XCTAssertEqual(try XCTUnwrap(report.communityReport(from: nil, isMine: true)).statusLabel, "Unconfirmed · waiting for signal")
+        XCTAssertNil(NativeMapReportPin(nearby), "no pin until Bytspot has it")
+    }
+
+    func testRelayRequestsAndAnswers() throws {
+        XCTAssertEqual(NativeMapReportsAPI.registerRelayKeyPath, "/trpc/mapReports.registerRelayKey")
+        XCTAssertEqual(NativeMapReportsAPI.relayPath, "/trpc/mapReports.relay")
+        let report = try carried()
+        let sent = try XCTUnwrap(NativeMapReportsAPI.relayInput([report])["reports"] as? [[String: String]])
+        XCTAssertEqual(sent, [["keyId": "k1", "payload": report.payload, "signature": report.signature]], "the public key stays on the phones")
+
+        let json = #"[{"clientReportId":"relay-0001","status":"accepted","report":{"id":"r1","kind":"police","lat":33.78,"lng":-84.38,"venueId":null,"venueName":null,"status":"unconfirmed","agreeCount":1,"goneCount":0,"createdAt":"2026-10-11T22:00:00Z","expiresAt":"2099-10-11T22:30:00Z"},"removed":false},{"clientReportId":null,"status":"rejected","message":"That report could not be verified."}]"#
+        let results = try JSONDecoder().decode([NativeRelayResult].self, from: Data(json.utf8))
+        XCTAssertEqual(results.map(\.isAccepted), [true, false])
+        XCTAssertEqual(results[0].report?.id, "r1")
+
+        XCTAssertTrue(NativeMapReportsAPI.isNoSignal(URLError(.notConnectedToInternet)))
+        XCTAssertFalse(NativeMapReportsAPI.isNoSignal(URLError(.cancelled)))
+        XCTAssertFalse(NativeMapReportsAPI.isNoSignal(BytspotAPIClient.APIError.server(status: 403, body: "")), "Bytspot refused it; nothing to hold")
     }
 }

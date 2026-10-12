@@ -16662,6 +16662,9 @@ private struct NativeMapExploreView: View {
     @State private var vibeFilter: Int? = nil
     @State private var liveMapReports: [NativeMapReport] = []
     @State private var communityReportStatus: String?
+    @StateObject private var reportRelay = NativeReportRelay()
+    @AppStorage(NativeReportRelay.enabledKey) private var shareReportsNearby = false
+    @Environment(\.scenePhase) private var mapScenePhase
     @State private var recenterMode: NativeMapRecenterMode = .off
     @State private var mapZoomScale: CGFloat = 1
     @State private var pinchStartZoomScale: CGFloat = 1
@@ -16755,7 +16758,8 @@ private struct NativeMapExploreView: View {
     }
 
     private var visibleCommunityReports: [NativeCommunityReport] {
-        let live = liveMapReports.compactMap { NativeCommunityReport.live($0, from: routeOrigin) }
+        let carried = reportRelay.inbox.reports.compactMap { $0.communityReport(from: routeOrigin, isMine: reportRelay.inbox.mine.contains($0.id)) }
+        let live = liveMapReports.compactMap { NativeCommunityReport.live($0, from: routeOrigin) } + carried
         #if DEBUG
         if live.isEmpty && showsAtlantaSamples { return NativeCommunityReport.samples }
         #endif
@@ -17152,8 +17156,12 @@ private struct NativeMapExploreView: View {
         .onChange(of: headingProvider.userLocation?.timestamp) { _ in handleHeadingLocationChange() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in handleMapLocationChange() }
         .onChange(of: tabContentStore.snapshot) { _ in applySelectedPinPreviewIfRequested() }
-        .onDisappear { headingProvider.stopLocating(); headingProvider.stop() }
+        .onDisappear { headingProvider.stopLocating(); headingProvider.stop(); reportRelay.stop() }
         .task(id: communityReportsAreaKey) { await followCommunityReports() }
+        .task(id: sessionStore.authenticatedUserID) { await registerRelayKeyIfNeeded(); await uploadHeldReports() }
+        .onAppear { updateReportRelay() }
+        .onChange(of: shareReportsNearby) { _ in updateReportRelay() }
+        .onChange(of: mapScenePhase) { _ in updateReportRelay() }
     }
 
     private func startLocationGateIfNeeded() {
@@ -17771,6 +17779,56 @@ private struct NativeMapExploreView: View {
         liveMapReports = NativeMapReportChange.upsert(report).applied(to: liveMapReports)
     }
 
+    /// Passes reports between nearby phones only while the member has it on
+    /// and the app is in front; turning it on is what asks for Local Network.
+    private func updateReportRelay() {
+        if shareReportsNearby && mapScenePhase == .active { reportRelay.start() } else { reportRelay.stop() }
+    }
+
+    /// Registers this phone's signing key once per member, so its reports can
+    /// be carried by another phone when it has no signal.
+    private func registerRelayKeyIfNeeded() async {
+        guard sessionStore.isAuthenticated, let userID = sessionStore.authenticatedUserID,
+              var key = NativeRelayKey.loadOrCreate(userID: userID), key.keyID == nil,
+              let publicKey = key.publicKey,
+              let keyID = try? await sessionStore.mapReportsAPI.registerRelayKey(publicKey: publicKey) else { return }
+        key.keyID = keyID
+        key.save(userID: userID)
+    }
+
+    /// Sends the reports this phone holds whenever it is online and signed in.
+    private func uploadHeldReports() async {
+        while !Task.isCancelled {
+            reportRelay.prune()
+            let held = reportRelay.inbox.reports
+            if sessionStore.isAuthenticated && !held.isEmpty {
+                let api = sessionStore.mapReportsAPI
+                let mine = reportRelay.inbox.mine
+                for start in stride(from: 0, to: held.count, by: NativeMapReportsAPI.relayBatchSize) {
+                    let batch = Array(held[start..<min(start + NativeMapReportsAPI.relayBatchSize, held.count)])
+                    guard let results = try? await api.relay(batch) else { break }
+                    for result in results {
+                        guard result.isAccepted, let report = result.report else { continue }
+                        let isMine = result.clientReportId.map { mine.contains($0) } == true
+                        applyMapReportResult(NativeMapReportResult(report: report, removed: result.removed ?? false, merged: nil), mine: isMine, vote: nil)
+                        if isMine { communityReportStatus = NativeCommunityReport.sentMessage }
+                    }
+                    reportRelay.remove(ids: Set(batch.map(\.id)))
+                }
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000_000)
+        }
+    }
+
+    /// The member's report, signed so it can wait on this phone or travel
+    /// through a nearby one. Nil until this phone's key is registered.
+    private func signedReport(kind: String, at origin: CLLocationCoordinate2D, clientReportID: String) -> NativeRelayedReport? {
+        guard let userID = sessionStore.authenticatedUserID, let key = NativeRelayKey.load(userID: userID),
+              let keyID = key.keyID, let signingKey = key.signingKey else { return nil }
+        return try? NativeRelayedReport.make(kind: kind, latitude: origin.latitude, longitude: origin.longitude,
+                                             clientReportID: clientReportID, keyID: keyID, privateKey: signingKey)
+    }
+
     private func promptSignInFromTrafficIntel(title: String) {
         trafficIntelVenue = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
@@ -17784,14 +17842,20 @@ private struct NativeMapExploreView: View {
         communityReportStatus = nil
         nativeImpactLight()
         let api = sessionStore.mapReportsAPI
+        let clientReportID = UUID().uuidString
         Task {
             do {
-                let result = try await api.submit(kind: category.rawValue, latitude: origin.latitude, longitude: origin.longitude, clientReportID: UUID().uuidString)
+                let result = try await api.submit(kind: category.rawValue, latitude: origin.latitude, longitude: origin.longitude, clientReportID: clientReportID)
                 let merged = result.merged == true
                 applyMapReportResult(result, mine: !merged, vote: merged ? "still" : nil)
                 communityReportStatus = merged ? NativeCommunityReport.agreedMessage : NativeCommunityReport.reportedMessage
             } catch {
-                communityReportStatus = NativeMapReportsAPI.message(for: error)
+                if NativeMapReportsAPI.isNoSignal(error), let held = signedReport(kind: category.rawValue, at: origin, clientReportID: clientReportID) {
+                    reportRelay.hold(held, isMine: true)
+                    communityReportStatus = NativeCommunityReport.heldMessage
+                } else {
+                    communityReportStatus = NativeMapReportsAPI.message(for: error)
+                }
             }
         }
     }
@@ -21290,11 +21354,21 @@ struct NativeCommunityReport: Identifiable, Equatable {
     var myVote: String? = nil
     var area: String? = nil
     var shareURL: URL? = nil
+    /// Set while a report is held on a phone and hasn't reached Bytspot.
+    var carriedLabel: String? = nil
 
     /// "Midtown: Police reported", or the title alone outside a named area.
     var shareText: String { area.map { "\($0): \(title)" } ?? title }
 
-    var statusLabel: String { isConfirmed ? "Confirmed" : "Unconfirmed" }
+    var statusLabel: String {
+        if let carriedLabel { return "Unconfirmed · \(carriedLabel)" }
+        return isConfirmed ? "Confirmed" : "Unconfirmed"
+    }
+
+    static let fromNearbyPhoneLabel = "from a nearby phone"
+    static let waitingForSignalLabel = "waiting for signal"
+    static let heldMessage = "No signal. Your report is saved and is sent when your phone, or one nearby, is back online."
+    static let sentMessage = "Your saved report reached Bytspot."
 
     static let reportedMessage = "Reported. It shows as unconfirmed until someone nearby agrees."
     static let agreedMessage = "Already reported here. Your report counts as agreement."
@@ -21363,8 +21437,10 @@ private struct NativeCommunityReportsCard: View {
     let onVote: (NativeCommunityReport, Bool) -> Void
     let onReport: () -> Void
 
+    @AppStorage(NativeReportRelay.enabledKey) private var shareReportsNearby = false
+
     private var liveReports: [NativeCommunityReport] {
-        Array(reports.filter { $0.serverID != nil }.prefix(5))
+        Array(reports.filter { $0.serverID != nil || $0.carriedLabel != nil }.prefix(5))
     }
 
     private var grouped: [(NativeCommunityReport.Category, Int, NativeCommunityReport?)] {
@@ -21425,6 +21501,19 @@ private struct NativeCommunityReportsCard: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("native-map-community-report-trigger")
+            Toggle(isOn: $shareReportsNearby) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Share reports nearby")
+                        .font(.system(size: 13, weight: .black))
+                        .foregroundColor(NativeTheme.textPrimary)
+                    Text("With no signal, pass reports to phones near you with Bytspot open. Works while the app is open.")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(NativeTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .tint(NativeTheme.cyan)
+            .accessibilityIdentifier("native-map-share-reports-nearby")
             if let statusMessage {
                 Text(statusMessage)
                     .font(.system(size: 12, weight: .bold))
@@ -21538,6 +21627,7 @@ private struct NativeCommunityReportVoteRow: View {
 
     static func note(for report: NativeCommunityReport) -> String? {
         if report.isMine { return "Your report" }
+        if report.carriedLabel != nil { return "You can vote once it reaches Bytspot." }
         switch report.myVote {
         case "still": return "You said it's still there"
         case "gone": return "You said it's gone"

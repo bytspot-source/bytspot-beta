@@ -78,9 +78,14 @@ struct NativeRelayedReport: Codable, Equatable, Identifiable {
 }
 
 /// Reports this phone holds until it, or a phone it passes them to, reaches Bytspot.
-struct NativeRelayInbox: Equatable {
+struct NativeRelayInbox: Codable, Equatable {
     static let lifetime: TimeInterval = 30 * 60
     static let capacity = 50
+    /// Where held reports are kept between launches.
+    static var fileURL: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("held-map-reports.json")
+    }
 
     private(set) var reports: [NativeRelayedReport] = []
     /// Reports made on this phone.
@@ -160,16 +165,34 @@ struct NativeRelayKey: Codable {
     }
 }
 
-/// Passes held reports between phones near each other with Bytspot open and
-/// "Share reports nearby" on. iOS ends these connections when the app leaves
-/// the foreground, so it only runs while the Map is in use.
+/// Reports that reached Bytspot in one upload, for the Map to show.
+struct NativeRelayDelivery: Equatable {
+    struct Item: Equatable {
+        let result: NativeMapReportResult
+        let isMine: Bool
+    }
+
+    let id = UUID()
+    let items: [Item]
+}
+
+/// Holds reports on the phone, saved across launches, and sends them to
+/// Bytspot once it's back online. With "Share reports nearby" on, it also
+/// passes them between phones near each other with Bytspot open; iOS ends
+/// those connections when the app leaves the foreground.
 @MainActor
 final class NativeReportRelay: NSObject, ObservableObject {
     static let serviceType = "byt-reports"
     static let enabledKey = "bytspot.map.shareReportsNearby"
 
-    @Published private(set) var inbox = NativeRelayInbox()
+    @Published private(set) var inbox: NativeRelayInbox {
+        didSet { if inbox != oldValue { save() } }
+    }
     @Published private(set) var connectedPeers = 0
+    @Published private(set) var lastDelivery: NativeRelayDelivery?
+
+    private let storeURL: URL?
+    private var isUploading = false
 
     private let peer = MCPeerID(displayName: "Bytspot-\(UUID().uuidString.prefix(8))")
     private var session: MCSession?
@@ -177,6 +200,58 @@ final class NativeReportRelay: NSObject, ObservableObject {
     private var browser: MCNearbyServiceBrowser?
 
     var isRunning: Bool { session != nil }
+
+    init(storeURL: URL? = NativeRelayInbox.fileURL) {
+        self.storeURL = storeURL
+        var saved = storeURL.flatMap { try? Data(contentsOf: $0) }
+            .flatMap { try? JSONDecoder().decode(NativeRelayInbox.self, from: $0) } ?? NativeRelayInbox()
+        saved.prune()
+        inbox = saved
+        super.init()
+    }
+
+    private func save() {
+        guard var storeURL else { return }
+        do {
+            try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONEncoder().encode(inbox).write(to: storeURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try storeURL.setResourceValues(values)
+        } catch {}
+    }
+
+    /// Registers this phone's signing key once per member, so its reports can
+    /// be saved and carried by another phone when it has no signal.
+    func registerKeyIfNeeded(userID: String, api: NativeMapReportsAPI) async {
+        guard var key = NativeRelayKey.loadOrCreate(userID: userID), key.keyID == nil, let publicKey = key.publicKey,
+              let keyID = try? await api.registerRelayKey(publicKey: publicKey) else { return }
+        key.keyID = keyID
+        key.save(userID: userID)
+    }
+
+    /// Sends held reports to Bytspot, 25 at a time. Every answered report is
+    /// let go; accepted ones are published as `lastDelivery`.
+    func upload(using api: NativeMapReportsAPI) async {
+        inbox.prune()
+        guard !isUploading, !inbox.reports.isEmpty else { return }
+        isUploading = true
+        defer { isUploading = false }
+        let held = inbox.reports
+        let mine = inbox.mine
+        var delivered: [NativeRelayDelivery.Item] = []
+        for start in stride(from: 0, to: held.count, by: NativeMapReportsAPI.relayBatchSize) {
+            let batch = Array(held[start..<min(start + NativeMapReportsAPI.relayBatchSize, held.count)])
+            guard let results = try? await api.relay(batch) else { break }
+            for result in results {
+                guard result.isAccepted, let report = result.report else { continue }
+                delivered.append(.init(result: NativeMapReportResult(report: report, removed: result.removed ?? false, merged: nil),
+                                       isMine: result.clientReportId.map { mine.contains($0) } == true))
+            }
+            inbox.remove(ids: Set(batch.map(\.id)))
+        }
+        if !delivered.isEmpty { lastDelivery = NativeRelayDelivery(items: delivered) }
+    }
 
     func start() {
         guard session == nil else { return }

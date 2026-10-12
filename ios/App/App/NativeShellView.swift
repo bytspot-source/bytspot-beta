@@ -16662,9 +16662,7 @@ private struct NativeMapExploreView: View {
     @State private var vibeFilter: Int? = nil
     @State private var liveMapReports: [NativeMapReport] = []
     @State private var communityReportStatus: String?
-    @StateObject private var reportRelay = NativeReportRelay()
-    @AppStorage(NativeReportRelay.enabledKey) private var shareReportsNearby = false
-    @Environment(\.scenePhase) private var mapScenePhase
+    @EnvironmentObject private var reportRelay: NativeReportRelay
     @State private var recenterMode: NativeMapRecenterMode = .off
     @State private var mapZoomScale: CGFloat = 1
     @State private var pinchStartZoomScale: CGFloat = 1
@@ -17156,12 +17154,9 @@ private struct NativeMapExploreView: View {
         .onChange(of: headingProvider.userLocation?.timestamp) { _ in handleHeadingLocationChange() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in handleMapLocationChange() }
         .onChange(of: tabContentStore.snapshot) { _ in applySelectedPinPreviewIfRequested() }
-        .onDisappear { headingProvider.stopLocating(); headingProvider.stop(); reportRelay.stop() }
+        .onDisappear { headingProvider.stopLocating(); headingProvider.stop() }
         .task(id: communityReportsAreaKey) { await followCommunityReports() }
-        .task(id: sessionStore.authenticatedUserID) { await registerRelayKeyIfNeeded(); await uploadHeldReports() }
-        .onAppear { updateReportRelay() }
-        .onChange(of: shareReportsNearby) { _ in updateReportRelay() }
-        .onChange(of: mapScenePhase) { _ in updateReportRelay() }
+        .onChange(of: reportRelay.lastDelivery) { delivery in showDeliveredReports(delivery) }
     }
 
     private func startLocationGateIfNeeded() {
@@ -17779,45 +17774,11 @@ private struct NativeMapExploreView: View {
         liveMapReports = NativeMapReportChange.upsert(report).applied(to: liveMapReports)
     }
 
-    /// Passes reports between nearby phones only while the member has it on
-    /// and the app is in front; turning it on is what asks for Local Network.
-    private func updateReportRelay() {
-        if shareReportsNearby && mapScenePhase == .active { reportRelay.start() } else { reportRelay.stop() }
-    }
-
-    /// Registers this phone's signing key once per member, so its reports can
-    /// be carried by another phone when it has no signal.
-    private func registerRelayKeyIfNeeded() async {
-        guard sessionStore.isAuthenticated, let userID = sessionStore.authenticatedUserID,
-              var key = NativeRelayKey.loadOrCreate(userID: userID), key.keyID == nil,
-              let publicKey = key.publicKey,
-              let keyID = try? await sessionStore.mapReportsAPI.registerRelayKey(publicKey: publicKey) else { return }
-        key.keyID = keyID
-        key.save(userID: userID)
-    }
-
-    /// Sends the reports this phone holds whenever it is online and signed in.
-    private func uploadHeldReports() async {
-        while !Task.isCancelled {
-            reportRelay.prune()
-            let held = reportRelay.inbox.reports
-            if sessionStore.isAuthenticated && !held.isEmpty {
-                let api = sessionStore.mapReportsAPI
-                let mine = reportRelay.inbox.mine
-                for start in stride(from: 0, to: held.count, by: NativeMapReportsAPI.relayBatchSize) {
-                    let batch = Array(held[start..<min(start + NativeMapReportsAPI.relayBatchSize, held.count)])
-                    guard let results = try? await api.relay(batch) else { break }
-                    for result in results {
-                        guard result.isAccepted, let report = result.report else { continue }
-                        let isMine = result.clientReportId.map { mine.contains($0) } == true
-                        applyMapReportResult(NativeMapReportResult(report: report, removed: result.removed ?? false, merged: nil), mine: isMine, vote: nil)
-                        if isMine { communityReportStatus = NativeCommunityReport.sentMessage }
-                    }
-                    reportRelay.remove(ids: Set(batch.map(\.id)))
-                }
-            }
-            try? await Task.sleep(nanoseconds: 20_000_000_000)
-        }
+    /// Puts reports that reached Bytspot from this phone onto the Map.
+    private func showDeliveredReports(_ delivery: NativeRelayDelivery?) {
+        guard let delivery else { return }
+        for item in delivery.items { applyMapReportResult(item.result, mine: item.isMine, vote: nil) }
+        if delivery.items.contains(where: { $0.isMine }) { communityReportStatus = NativeCommunityReport.sentMessage }
     }
 
     /// The member's report, signed so it can wait on this phone or travel

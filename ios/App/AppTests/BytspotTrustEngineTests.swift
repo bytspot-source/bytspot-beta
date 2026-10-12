@@ -8788,6 +8788,20 @@ final class NativeMapReportsTests: XCTestCase {
         XCTAssertEqual(inbox.reports.first?.id, "relay-0001", "the oldest is dropped")
     }
 
+    @MainActor
+    func testHeldReportsAreSavedAcrossLaunches() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("held-\(UUID().uuidString)/held-map-reports.json")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let report = try carried()
+        NativeReportRelay(storeURL: file).hold(report, isMine: true)
+
+        let relaunched = NativeReportRelay(storeURL: file)
+        XCTAssertEqual(relaunched.inbox.reports, [report])
+        XCTAssertTrue(relaunched.inbox.mine.contains(report.id))
+        relaunched.remove(ids: [report.id])
+        XCTAssertTrue(NativeReportRelay(storeURL: file).inbox.reports.isEmpty, "a sent report is let go on disk too")
+    }
+
     func testACarriedReportShowsUnconfirmedUntilItReachesBytspot() throws {
         let report = try carried()
         let nearby = try XCTUnwrap(report.communityReport(from: nil, isMine: false))

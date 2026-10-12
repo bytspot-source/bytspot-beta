@@ -1,3 +1,4 @@
+import AVKit
 import Foundation
 import Combine
 import SwiftUI
@@ -561,6 +562,10 @@ struct NativeWindowListing: Codable, Identifiable, Equatable {
     let galleryUrls: [String]?
     let nextSlot: NativeWindowSlot
     let upcomingSlots: [NativeWindowSlot]?
+    /// This bookable's own website, else the place's. Older servers leave it out.
+    var website: String? = nil
+    /// This bookable's video, else the place's. Older servers leave it out.
+    var videoUrl: String? = nil
 
     var id: String { windowId }
     var takesAsks: Bool { intent == "request" }
@@ -577,9 +582,60 @@ struct NativeWindowListing: Codable, Identifiable, Equatable {
         return URL(string: "tel:\(phone)")
     }
     var websiteURL: URL? {
-        guard let website = place.website, let url = URL(string: website),
+        guard let website = website ?? place.website, let url = URL(string: website),
               ["https", "http"].contains(url.scheme?.lowercased() ?? "") else { return nil }
         return url
+    }
+    /// Played only from the API's own media route, never a stranger's file.
+    var videoURL: URL? {
+        guard let videoUrl, let url = URL(string: videoUrl), let host = url.host, !host.isEmpty else { return nil }
+        let scheme = url.scheme?.lowercased()
+        guard scheme == "https" || (scheme == "http" && host == "localhost") else { return nil }
+        let parts = url.path.split(separator: "/")
+        guard url.query == nil, url.fragment == nil, parts.count == 3, parts[0] == "media", parts[1] == "vendor" else { return nil }
+        return url
+    }
+}
+
+/// A bookable's video, loaded only when the guest taps play.
+struct NativeWindowVideo: View {
+    let url: URL
+    let poster: URL?
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        ZStack {
+            if let player {
+                VideoPlayer(player: player)
+            } else {
+                AsyncImage(url: poster) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    Color.white.opacity(0.06)
+                }
+                Button(action: {
+                    player = AVPlayer(url: url)
+                    player?.play()
+                }) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundColor(.black)
+                        .frame(width: 56, height: 56)
+                        .background(Circle().fill(NativeTheme.cyan))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Play video")
+                .accessibilityIdentifier("native-window-ask-play-video")
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 200)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .onChange(of: scenePhase) { phase in
+            if phase != .active { player?.pause() }
+        }
+        .onDisappear { player?.pause(); player = nil }
     }
 }
 
@@ -844,9 +900,22 @@ struct NativeWindowAskSheet: View {
 
     private var formView: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if let video = listing.videoURL {
+                NativeWindowVideo(url: video, poster: listing.imageURL)
+            }
             Text(listing.title)
                 .font(.system(size: 17, weight: .bold))
                 .foregroundColor(NativeTheme.textPrimary)
+            if let website = listing.websiteURL {
+                Link(destination: website) {
+                    Label(website.host ?? "Website", systemImage: "globe")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(NativeTheme.cyan)
+                        .frame(minHeight: 44)
+                }
+                .accessibilityLabel("\(listing.sellerName) website")
+                .accessibilityIdentifier("native-window-ask-website")
+            }
 
             Stepper(value: $partySize, in: 1...max(1, listing.maxGuests)) {
                 Text("\(partySize) \(partySize == 1 ? "guest" : "guests") · up to \(listing.maxGuests)")

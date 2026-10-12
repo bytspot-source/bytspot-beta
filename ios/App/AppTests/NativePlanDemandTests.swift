@@ -451,7 +451,7 @@ final class NativePlanFeasibilityTests: XCTestCase {
 
 /// Asking one vendor window from Discover, and finding the answer again.
 final class NativeWindowAskTests: XCTestCase {
-    private func listing(maxGuests: Int = 4, upcoming: [[String: Any]]? = nil, intent: String = "request") throws -> NativeWindowListing {
+    private func listing(maxGuests: Int = 4, upcoming: [[String: Any]]? = nil, intent: String = "request", extra: [String: Any] = [:]) throws -> NativeWindowListing {
         var json: [String: Any] = [
             "windowId": "win_1", "sellerId": "seller_1", "sellerName": "Peach Table Co", "skuTemplateId": "dining.table",
             "title": "Chef counter", "domain": "dining", "category": "Dining", "discoverType": "dining",
@@ -461,6 +461,7 @@ final class NativeWindowAskTests: XCTestCase {
             "nextSlot": ["startsAt": "2026-09-24T23:00:00.000Z", "remaining": 3],
         ]
         if let upcoming { json["upcomingSlots"] = upcoming }
+        json.merge(extra) { _, new in new }
         return try JSONDecoder().decode(NativeWindowListing.self, from: JSONSerialization.data(withJSONObject: json))
     }
 
@@ -477,6 +478,23 @@ final class NativeWindowAskTests: XCTestCase {
         XCTAssertEqual(card.callURL?.absoluteString, "tel:+14045550123")
         XCTAssertNil(card.websiteURL, "a non-web link is never opened")
         XCTAssertEqual(card.price, "$45")
+    }
+
+    func testABookablesOwnWebsiteWinsOverThePlaces() throws {
+        let own = try listing(extra: ["website": "https://shop.example/item"])
+        XCTAssertEqual(own.websiteURL?.absoluteString, "https://shop.example/item")
+        let fallback = try listing(extra: ["place": ["label": "Midtown", "website": "https://place.example/"]])
+        XCTAssertEqual(fallback.websiteURL?.absoluteString, "https://place.example/")
+        XCTAssertNil(try listing().videoURL, "an older server sends no video")
+    }
+
+    func testAVideoPlaysOnlyFromTheAPIsOwnMediaRoute() throws {
+        XCTAssertEqual(try listing(extra: ["videoUrl": "https://api.test/media/vendor/vid_1"]).videoURL?.absoluteString, "https://api.test/media/vendor/vid_1")
+        XCTAssertNotNil(try listing(extra: ["videoUrl": "http://localhost:4000/media/vendor/vid_1"]).videoURL)
+        XCTAssertNil(try listing(extra: ["videoUrl": "https://evil.test/x.mp4"]).videoURL)
+        XCTAssertNil(try listing(extra: ["videoUrl": "http://api.test/media/vendor/vid_1"]).videoURL)
+        XCTAssertNil(try listing(extra: ["videoUrl": "https://api.test/media/vendor/vid_1?x=1"]).videoURL)
+        XCTAssertNil(try listing(extra: ["videoUrl": NSNull()]).videoURL)
     }
 
     func testAnOlderServerWithoutUpcomingSlotsStillOffersTheNextOne() throws {

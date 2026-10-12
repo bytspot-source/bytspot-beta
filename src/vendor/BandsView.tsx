@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { qrDetector } from './BookingsView';
+import { BAND_CODE_FORMATS, ndefReader, qrDetector } from './BookingsView';
 import {
   BAND_TIERS,
   bandActivationProblems,
@@ -25,27 +25,8 @@ const FILTERS: { id: BandState | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
 ];
 
-/** The supplier prints a QR code or a barcode; read either. */
-const BAND_CODE_FORMATS = ['qr_code', 'code_128', 'code_39', 'data_matrix'];
-
 /** How many bands are drawn at once; searching narrows the rest. */
 const SHOWN = 100;
-
-interface NdefRecord {
-  recordType: string;
-  data?: DataView;
-}
-
-interface NdefReader {
-  scan: (options?: { signal?: AbortSignal }) => Promise<void>;
-  onreading: ((event: { message: { records: NdefRecord[] } }) => void) | null;
-  onreadingerror: (() => void) | null;
-}
-
-function ndefReader(): NdefReader | undefined {
-  const Ctor = (window as unknown as { NDEFReader?: new () => NdefReader }).NDEFReader;
-  return Ctor ? new Ctor() : undefined;
-}
 
 function tierLabel(tier?: BandTier): string {
   return BAND_TIERS.find((entry) => entry.id === tier)?.label ?? 'No tier';
@@ -71,7 +52,12 @@ function BandRow({
   const [tier, setTier] = useState<BandTier>(band.tier ?? 'green');
   const [vendorCode, setVendorCode] = useState(band.vendorCode ?? '');
 
-  const details = [tierLabel(band.tier), band.place, band.vendorCode ? `Your code ${band.vendorCode}` : undefined].filter(Boolean);
+  const details = [
+    tierLabel(band.tier),
+    band.place,
+    band.vendorCode ? `Your code ${band.vendorCode}` : undefined,
+    band.holder ? `Worn by ${band.holder}` : undefined,
+  ].filter(Boolean);
 
   return (
     <li className="vendor-card">

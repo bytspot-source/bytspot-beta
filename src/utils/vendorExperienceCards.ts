@@ -54,6 +54,10 @@ export type VendorInventoryCard = {
   coverUrl: string | null;
   galleryUrls: string[];
   menus?: VendorMenuFile[];
+  /** This bookable's own website, else the place's. */
+  website?: string | null;
+  /** This bookable's video, else the place's. */
+  videoUrl?: string | null;
   nextSlot: { startsAt: string; remaining: number };
   upcomingSlots?: { startsAt: string; remaining: number }[];
 };
@@ -177,10 +181,17 @@ function formatNextSlot(startsAt: string, now: Date): string {
   return `Next: ${day} ${time}`;
 }
 
+const VENDOR_MEDIA_URL = /^(https:\/\/[^/]+|http:\/\/localhost(:\d+)?)\/media\/vendor\/[^/?#]+$/;
+
+/** A video link only when it is the API's own media route. */
+export function vendorVideoFrom(url: string | null | undefined): string | undefined {
+  return typeof url === 'string' && VENDOR_MEDIA_URL.test(url) ? url : undefined;
+}
+
 /** Keeps only menu links shaped like the API's own media route, so a card never links out to a stranger's file. */
 export function menusFrom(menus: VendorMenuFile[] | undefined): VendorMenuFile[] {
   return (menus ?? []).filter(
-    (menu) => /^(https:\/\/[^/]+|http:\/\/localhost(:\d+)?)\/media\/vendor\/[^/?#]+$/.test(menu.url) && (menu.format === 'pdf' || menu.format === 'image'),
+    (menu) => VENDOR_MEDIA_URL.test(menu.url) && (menu.format === 'pdf' || menu.format === 'image'),
   );
 }
 
@@ -229,7 +240,10 @@ export function vendorInventoryToCard(
     discoverSource: 'bytspot_vendor',
     control: 'local',
     ...(item.place.phone ? { phoneNumber: item.place.phone } : {}),
-    ...(item.place.website && /^https?:\/\//i.test(item.place.website) ? { website: item.place.website } : {}),
+    ...((item.website ?? item.place.website) && /^https?:\/\//i.test(item.website ?? item.place.website ?? '')
+      ? { website: item.website ?? item.place.website ?? undefined }
+      : {}),
+    ...(vendorVideoFrom(item.videoUrl) ? { videoUrl: vendorVideoFrom(item.videoUrl) } : {}),
     ...(menusFrom(item.menus).length ? { menus: menusFrom(item.menus) } : {}),
     ...(item.intent === 'request'
       ? {

@@ -11,7 +11,7 @@ import { getVenueReviews, saveVenueReview, getAverageRating, type VenueReview } 
 import { addAccessPassToWallet, BYTSPOT_COMMERCE_EVENT, getAccessPassForProduct, getBytspotMembership, hasPlatinumAccess, replaceAccessPassesFromServer, type AccessPass, type AccessPassInput, upsertAccessPass } from '../utils/insiderCommerce';
 import { APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP } from '../utils/reviewBuild';
 import { AskSheet } from './AskSheet';
-import { menusFrom } from '../utils/vendorExperienceCards';
+import { menusFrom, vendorVideoFrom } from '../utils/vendorExperienceCards';
 import { tableBookingFrom } from '../utils/tableBooking';
 
 interface VenueDetailsProps {
@@ -86,6 +86,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [askOpen, setAskOpen] = useState(false);
   const venueMenus = menusFrom(venue?.menus);
+  const venueVideo = vendorVideoFrom(venue?.videoUrl);
   const [isFavorite, setIsFavorite] = useState(() => isSpotSaved(favoriteSpotId));
   const [activePass, setActivePass] = useState<AccessPass | null>(() => getAccessPassForProduct(accessProduct));
   const [membership, setMembership] = useState(() => getBytspotMembership());
@@ -732,6 +733,27 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
               )}
             </div>
           </motion.div>
+
+          {/* Video */}
+          {venueVideo && (
+            <motion.div
+              className="mb-6"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.35 }}
+            >
+              <h3 className="text-[20px] mb-3 text-white" style={{ fontWeight: 600 }}>
+                Video
+              </h3>
+              <video
+                className="w-full rounded-[16px] border border-white/30 bg-black"
+                src={venueVideo}
+                controls
+                playsInline
+                preload="metadata"
+              />
+            </motion.div>
+          )}
 
           {/* Menu */}
           {venueMenus.length > 0 && (

@@ -44,6 +44,7 @@ import {
   httpSetupTransport,
   httpWindowsTransport,
   blankTemplateId,
+  normalizeBookableWebsite,
   windowDraftProblems,
   type AuthorizedFetch,
   type SetupTransport,
@@ -148,7 +149,73 @@ function useWindows(transport: WindowsTransport) {
     [transport],
   );
 
-  return { windows, blockers, busy, create, setPublished };
+  const setWebsite = useCallback(
+    async (id: string, website: string): Promise<boolean> => {
+      if (website.trim() && !normalizeBookableWebsite(website)) {
+        setBlockers(['That website does not look right']);
+        return false;
+      }
+      setBusy(true);
+      const result = await transport.setWebsite(id, website);
+      setBusy(false);
+      if (!result.value) {
+        setBlockers(result.blockers ?? ['That did not save. Try again']);
+        return false;
+      }
+      setBlockers([]);
+      replace(result.value);
+      return true;
+    },
+    [transport],
+  );
+
+  return { windows, blockers, busy, create, setPublished, setWebsite };
+}
+
+/** A bookable's own website. Left empty, guests see the place's website. */
+function WindowWebsite({
+  window,
+  busy,
+  canEdit,
+  onSave,
+}: {
+  window: VendorWindow;
+  busy: boolean;
+  canEdit: boolean;
+  onSave: (id: string, website: string) => Promise<boolean>;
+}) {
+  const [value, setValue] = useState(window.website ?? '');
+  const changed = value.trim() !== (window.website ?? '');
+  if (!canEdit) {
+    return window.website ? <p className="vendor-muted">Website: {window.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}</p> : null;
+  }
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        void onSave(window.id, value).then((saved) => {
+          if (saved) setValue(normalizeBookableWebsite(value) ?? '');
+        });
+      }}
+    >
+      <label className="vendor-field">
+        <span>Website</span>
+        <input
+          type="url"
+          inputMode="url"
+          value={value}
+          maxLength={200}
+          placeholder="Leave empty to use your place's website"
+          onChange={(event) => setValue(event.target.value)}
+        />
+      </label>
+      {changed ? (
+        <button type="submit" className="vendor-chip vendor-chip-on" disabled={busy}>
+          {value.trim() ? 'Save website' : 'Remove website'}
+        </button>
+      ) : null}
+    </form>
+  );
 }
 
 /**
@@ -485,6 +552,7 @@ function BookablesView({
                   {window.published ? 'Take down' : 'Publish'}
                 </button>
               ) : null}
+              <WindowWebsite window={window} busy={owned.busy} canEdit={canPublish} onSave={owned.setWebsite} />
               <MediaPicker session={session} transport={media} parent="bookable" parentId={window.id} authorizedFetch={authorizedFetch} />
             </li>
           ))}

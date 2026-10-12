@@ -76,6 +76,8 @@ export interface DiscoverCard {
   ask?: VendorAsk;
   /** The place's own menu files, from the vendor console. */
   menus?: { url: string; format: 'pdf' | 'image' }[];
+  /** The vendor's own video for this bookable or its place. */
+  videoUrl?: string;
 }
 
 /** What a guest can ask a vendor window for: its id, party cap and open times. */

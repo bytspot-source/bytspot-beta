@@ -9,6 +9,7 @@ import {
   demoWindowsTransport,
   httpSetupTransport,
   httpWindowsTransport,
+  normalizeBookableWebsite,
   windowDraftProblems,
   type AuthorizedFetch,
 } from '../setupTransport.ts';
@@ -272,4 +273,32 @@ test('the business kind round-trips, and junk in the added list is dropped', asy
   assert.deepEqual(result.value?.extraBookableTypes, ['stay']);
   assert.equal(calls[0].path, '/vendor/profile');
   assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { extraBookableTypes: ['stay'] });
+});
+
+test('a bookable website is http(s) with a real host; a bare domain gets https', () => {
+  assert.equal(normalizeBookableWebsite('shop.example/item'), 'https://shop.example/item');
+  assert.equal(normalizeBookableWebsite('http://shop.example'), 'http://shop.example/');
+  assert.equal(normalizeBookableWebsite(''), undefined);
+  assert.equal(normalizeBookableWebsite('javascript:alert(1)'), undefined);
+  assert.equal(normalizeBookableWebsite('https://user:pw@shop.example'), undefined);
+  assert.equal(normalizeBookableWebsite('localhost'), undefined);
+});
+
+test('a bookable website is saved on its own path, and an empty one clears it', async () => {
+  const { authorized, calls } = stubFetch(() => ({
+    status: 200,
+    body: { id: 'win 1', skuTemplateId: 'shopping.personal-shopping', published: true, website: 'https://shop.example/item' },
+  }));
+  const api = httpWindowsTransport(authorized);
+  const saved = await api.setWebsite('win 1', ' shop.example/item ');
+  assert.equal(saved.value?.website, 'https://shop.example/item');
+  await api.setWebsite('win 1', '  ');
+  assert.equal(calls[0].path, '/vendor/windows/win%201/website');
+  assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { website: 'shop.example/item' });
+  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { website: null });
+});
+
+test('a website that is not http(s) is not kept from the server', async () => {
+  const { authorized } = stubFetch(() => ({ status: 200, body: { id: 'w', website: 'javascript:alert(1)' } }));
+  assert.equal((await httpWindowsTransport(authorized).setWebsite('w', '')).value?.website, undefined);
 });

@@ -44,7 +44,8 @@ function session(sellerOver: Partial<Seller> = {}, seatOver: Partial<Seat> = {})
 test('a menu belongs on a place, not a window, and video is offered only when the store is up', () => {
   assert.deepEqual(kindsFor('location'), ['cover', 'gallery', 'menu']);
   assert.deepEqual(kindsFor('location', true), ['cover', 'gallery', 'menu', 'video']);
-  assert.deepEqual(kindsFor('bookable', true), ['cover', 'gallery']);
+  assert.deepEqual(kindsFor('bookable', true), ['cover', 'gallery', 'video']);
+  assert.deepEqual(kindsFor('bookable'), ['cover', 'gallery']);
   assert.equal(planUpload({ parent: 'bookable', kind: 'menu', existing: [] }).ok, false);
   const closed = planUpload({ parent: 'location', kind: 'video', existing: [] });
   assert.equal(closed.ok, false);

@@ -181,6 +181,8 @@ export interface VendorWindow {
   intent: string;
   published: boolean;
   coverUrl?: string;
+  /** This bookable's own page. Guests fall back to the place's website. */
+  website?: string;
 }
 
 export interface WindowDraft {
@@ -210,6 +212,24 @@ export interface WindowsTransport {
   /** Always lands as a draft; nothing a guest can see until it is published. */
   create: (draft: WindowDraft) => Promise<SetupResult<VendorWindow>>;
   setPublished: (id: string, published: boolean) => Promise<SetupResult<VendorWindow>>;
+  /** An empty string clears it. */
+  setWebsite: (id: string, website: string) => Promise<SetupResult<VendorWindow>>;
+}
+
+/** The same check the API makes: http(s), a real host, no login in the link. A bare domain gets https. */
+export function normalizeBookableWebsite(raw: string): string | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  const value = /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
+    if (!url.hostname.includes('.') || url.username || url.password) return undefined;
+    const href = url.toString();
+    return href.length <= 200 ? href : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The refusals the API would give, checked before the round-trip. */
@@ -252,6 +272,7 @@ function reviveWindow(raw: unknown): VendorWindow {
     // Only an explicit true is published: a missing flag must read as a draft.
     published: json.published === true,
     coverUrl: typeof json.coverUrl === 'string' ? json.coverUrl : undefined,
+    website: typeof json.website === 'string' && /^https?:\/\//i.test(json.website) ? json.website : undefined,
   };
 }
 
@@ -276,6 +297,7 @@ export function httpWindowsTransport(authorized: AuthorizedFetch): WindowsTransp
     create: (draft) => send('/vendor/windows', post(draft), reviveWindow),
     setPublished: (id, published) =>
       send(`/vendor/windows/${encodeURIComponent(id)}/${published ? 'publish' : 'unpublish'}`, post({}), reviveWindow),
+    setWebsite: (id, website) => send(`/vendor/windows/${encodeURIComponent(id)}/website`, post({ website: website.trim() || null }), reviveWindow),
   };
 }
 
@@ -306,6 +328,14 @@ export function demoWindowsTransport(): WindowsTransport {
       const row = rows.find((entry) => entry.id === id);
       if (!row) return { status: 404, blockers: ['No such offering'] };
       row.published = published;
+      return { status: 200, value: { ...row } };
+    },
+    setWebsite: async (id, website) => {
+      const row = rows.find((entry) => entry.id === id);
+      if (!row) return { status: 404, blockers: ['No such offering'] };
+      const normalized = normalizeBookableWebsite(website);
+      if (website.trim() && !normalized) return { status: 422, blockers: ['That website does not look right'] };
+      row.website = normalized;
       return { status: 200, value: { ...row } };
     },
   };

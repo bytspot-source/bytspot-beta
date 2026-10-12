@@ -366,3 +366,21 @@ test('a request sent from a patch says which patch', async () => {
   await askTransport(client).send({ ...ask, viaPatch: 'ABCD2345' }, { partySize: 2, startsAt: ask.slots[0].startsAt });
   assert.equal((sent[0] as { viaPatch?: string }).viaPatch, 'ABCD2345');
 });
+
+test("a card uses the bookable's own website and video, and only the API's own video link", () => {
+  const now = new Date('2026-09-23T12:00:00Z');
+  const own = vendorInventoryToCard(
+    { ...inventoryItem, website: 'https://shop.example/item', videoUrl: 'https://api.test/media/vendor/vid_1' },
+    0,
+    now,
+  );
+  assert.equal(own?.website, 'https://shop.example/item');
+  assert.equal(own?.videoUrl, 'https://api.test/media/vendor/vid_1');
+  const fallback = vendorInventoryToCard(
+    { ...inventoryItem, place: { ...inventoryItem.place, website: 'https://place.example/' }, website: null, videoUrl: 'https://evil.test/x.mp4' },
+    0,
+    now,
+  );
+  assert.equal(fallback?.website, 'https://place.example/');
+  assert.equal(fallback?.videoUrl, undefined);
+});

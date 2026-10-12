@@ -287,7 +287,7 @@ export function MediaPicker({ session, transport, parent, parentId, authorizedFe
         );
       })}
 
-      {parent === 'location' && !videoAvailable ? <p className="vendor-muted">{VIDEO_HOSTING_NOTE}</p> : null}
+      {!videoAvailable ? <p className="vendor-muted">{VIDEO_HOSTING_NOTE}</p> : null}
       <p className="vendor-muted">Bytspot reviews every new photo, menu and video before guests see it.</p>
 
       {blockers.length > 0 ? (

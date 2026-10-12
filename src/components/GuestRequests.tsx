@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { trpc } from '../utils/trpc';
+import { GuestTickets } from './GuestTickets';
 import {
   askErrorMessage,
   askIsLive,
@@ -17,7 +18,7 @@ import {
 
 const POLL_MS = 15_000;
 
-/** Every request the guest has open or booked, with its offers to answer. */
+/** Tickets the guest bought, then every request they have open or booked, with its offers to answer. */
 export function GuestRequests() {
   const transport = useMemo(() => askTransport(trpc as AskClient), []);
   const [rows, setRows] = useState<AskStatus[] | undefined>(undefined);
@@ -66,6 +67,7 @@ export function GuestRequests() {
 
   return (
     <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-3 mt-2" data-testid="guest-requests">
+      <GuestTickets />
       {rows.length === 0 ? (
         <p className="py-16 text-center text-[14px] text-slate-300">
           No requests. Ask a place from its card on Discover and the answer lands here.

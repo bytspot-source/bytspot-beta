@@ -3,7 +3,7 @@ import type { PayoutAccount } from './profile.ts';
 import type { AuthorizedFetch, SetupResult, VendorWindow } from './setupTransport.ts';
 
 /**
- * Home, Bookings, Pass scanner, QR / NFC patches, Bands, Partnerships, Staff,
+ * Home, Bookings, Pass scanner, QR / NFC patches, Bands, Tickets, Partnerships, Staff,
  * Availability, Analytics, Earnings, Payouts and Settings, against the API.
  *
  * Every screen gets a function, never the token, and every response is
@@ -103,6 +103,8 @@ export type BookingsWhen = 'upcoming' | 'past';
 
 export interface Booking {
   id: string;
+  /** A ticket the guest bought for one of the business's dates, or an accepted offer. */
+  kind: 'booking' | 'ticket';
   title: string;
   where: string;
   locationId: string;
@@ -181,10 +183,26 @@ export const BAND_TIERS: { id: BandTier; label: string }[] = [
   { id: 'black', label: 'Black' },
 ];
 
+export type BandForm = 'band' | 'card' | 'event_fob' | 'key_fob' | 'epoxy';
+
+/** The five NFC items, each for its own Discover rail. Only a band has a tier. */
+export const BAND_FORMS: { id: BandForm; label: string; hint: string }[] = [
+  { id: 'band', label: 'Band', hint: 'Nights out. Stays linked to its guest.' },
+  { id: 'card', label: 'Card', hint: 'Stays. Free again when the stay ends.' },
+  { id: 'event_fob', label: 'Event fob', hint: 'Shows and events. Free again when the show ends.' },
+  { id: 'key_fob', label: 'Key fob', hint: 'Regular members. Logs their visits.' },
+  { id: 'epoxy', label: 'Table tag', hint: 'Fixed to a restaurant table. Diners tap it with their phone.' },
+];
+
+export function bandFormLabel(form: BandForm): string {
+  return BAND_FORMS.find((entry) => entry.id === form)?.label ?? 'Band';
+}
+
 export interface Band {
   id: string;
   /** e.g. BYT424-0301, what the chip and the printed code carry. */
   serial: string;
+  form: BandForm;
   state: BandState;
   tier?: BandTier;
   vendorCode?: string;
@@ -192,21 +210,81 @@ export interface Band {
   place?: string;
   activatedAt?: Date;
   lostAt?: Date;
+  /** First name of the guest it is linked to at the door. */
+  holder?: string;
+  linkedAt?: Date;
+  /** When the link ends by itself: a card at the end of the stay, an event fob after the show. */
+  linkedUntil?: Date;
+}
+
+/** A key fob member's visits to this business. */
+export interface MemberVisits {
+  visits: number;
+  lastVisitAt?: Date;
+}
+
+/** An item read at the door, and what its guest holds for now, its own rail first. */
+export interface BandAtDoor {
+  band: Band;
+  bookings: Booking[];
+  member?: MemberVisits;
 }
 
 export interface BandActivation {
   /** A band number, or the link its QR code or chip carries. */
   band: string;
+  form: BandForm;
   locationId: string;
-  tier: BandTier;
+  /** Required for a band. */
+  tier?: BandTier;
   vendorCode?: string;
 }
 
 export interface BandEdit {
+  form?: BandForm;
   locationId?: string;
   tier?: BandTier;
   /** Null clears it. */
   vendorCode?: string | null;
+}
+
+export type TicketState = 'on_sale' | 'sold_out' | 'stopped' | 'ended';
+
+/** A date the business sells tickets for itself, paid through Stripe. */
+export interface VendorTicket {
+  id: string;
+  locationId: string;
+  place: string;
+  title: string;
+  details?: string;
+  startsAt: Date;
+  endsAt: Date;
+  timezone?: string;
+  priceCents: number;
+  quantity: number;
+  sold: number;
+  state: TicketState;
+  /** Where a guest opens this date to buy it. Only an https link is kept. */
+  url: string;
+}
+
+export interface TicketDraft {
+  locationId: string;
+  title: string;
+  details?: string;
+  /** YYYY-MM-DD and HH:MM on the place's own clock. */
+  date: string;
+  startTime: string;
+  endTime: string;
+  priceCents: number;
+  quantity: number;
+}
+
+export interface TicketEdit {
+  title?: string;
+  details?: string;
+  priceCents?: number;
+  quantity?: number;
 }
 
 export interface ConsoleTransport {
@@ -217,9 +295,16 @@ export interface ConsoleTransport {
   activateBand: (draft: BandActivation) => Promise<SetupResult<{ band: Band; alreadyActive: boolean }>>;
   editBand: (id: string, edit: BandEdit) => Promise<SetupResult<Band>>;
   markBandLost: (id: string) => Promise<SetupResult<Band>>;
+  tickets: () => Promise<SetupResult<VendorTicket[]>>;
+  createTicket: (draft: TicketDraft) => Promise<SetupResult<VendorTicket>>;
+  editTicket: (id: string, edit: TicketEdit) => Promise<SetupResult<VendorTicket>>;
+  withdrawTicket: (id: string) => Promise<SetupResult<VendorTicket>>;
   bookings: (when: BookingsWhen) => Promise<SetupResult<Booking[]>>;
   moveBooking: (id: string, operation: BookingMoveId) => Promise<SetupResult<Booking>>;
   verifyPass: (code: string) => Promise<SetupResult<Booking>>;
+  readBand: (band: string) => Promise<SetupResult<BandAtDoor>>;
+  linkBand: (band: string, bookingId: string) => Promise<SetupResult<Band>>;
+  logVisit: (band: string) => Promise<SetupResult<{ member: MemberVisits; alreadyLogged: boolean }>>;
   earnings: (days: number) => Promise<SetupResult<Earnings>>;
   team: () => Promise<SetupResult<Team>>;
   invite: (draft: InviteDraft) => Promise<SetupResult<Team>>;
@@ -255,6 +340,7 @@ export function reviveBooking(json: Json): Booking | undefined {
   const pass = str(json.pass) as PassState;
   return {
     id: str(json.id),
+    kind: json.kind === 'ticket' ? 'ticket' : 'booking',
     title: str(json.title) || 'Booking',
     where: str(json.where),
     locationId: str(json.locationId),
@@ -378,6 +464,7 @@ export function reviveBand(json: Json): Band | undefined {
   return {
     id: str(json.id),
     serial,
+    form: BAND_FORMS.find((entry) => entry.id === json.form)?.id ?? 'band',
     state: json.state === 'active' || json.state === 'lost' ? json.state : 'assigned',
     tier,
     vendorCode: typeof json.vendorCode === 'string' ? json.vendorCode : undefined,
@@ -385,7 +472,26 @@ export function reviveBand(json: Json): Band | undefined {
     place: typeof json.place === 'string' ? json.place : undefined,
     activatedAt: date(json.activatedAt),
     lostAt: date(json.lostAt),
+    holder: typeof json.holder === 'string' && json.holder ? json.holder : undefined,
+    linkedAt: date(json.linkedAt),
+    linkedUntil: date(json.linkedUntil),
   };
+}
+
+export function reviveMemberVisits(json: Json): MemberVisits | undefined {
+  if (typeof json.visits !== 'number' || !Number.isFinite(json.visits)) return undefined;
+  return { visits: Math.max(0, Math.floor(json.visits)), lastVisitAt: date(json.lastVisitAt) };
+}
+
+/** Undefined without a readable band. Bookings that do not read are left off. */
+export function reviveBandAtDoor(json: Json): BandAtDoor | undefined {
+  const band = reviveBand((json.band ?? {}) as Json);
+  if (!band) return undefined;
+  const bookings = (Array.isArray(json.bookings) ? (json.bookings as Json[]) : [])
+    .map(reviveBooking)
+    .filter((row): row is Booking => row !== undefined);
+  const member = json.member ? reviveMemberVisits(json.member as Json) : undefined;
+  return member ? { band, bookings, member } : { band, bookings };
 }
 
 export function reviveBands(json: Json): Band[] {
@@ -398,7 +504,59 @@ export function bandActivationProblems(draft: BandActivation): string[] {
   const problems: string[] = [];
   if (!readBandSerial(draft.band)) problems.push('Enter a band number like BYT424-0301, or scan the band');
   if (!draft.locationId) problems.push('Choose one of your places');
+  if (draft.form === 'band' && !draft.tier) problems.push('Choose a tier for the band');
   if ((draft.vendorCode?.trim().length ?? 0) > 40) problems.push('Keep your code under 40 characters');
+  return problems;
+}
+
+const TICKET_STATES: TicketState[] = ['on_sale', 'sold_out', 'stopped', 'ended'];
+
+/** Undefined for a ticket without an id, readable times or an https link. */
+export function reviveTicket(json: Json): VendorTicket | undefined {
+  const startsAt = date(json.startsAt);
+  const endsAt = date(json.endsAt);
+  const url = str(json.url);
+  if (!str(json.id) || !startsAt || !endsAt) return undefined;
+  try {
+    if (new URL(url).protocol !== 'https:') return undefined;
+  } catch {
+    return undefined;
+  }
+  const state = str(json.state) as TicketState;
+  return {
+    id: str(json.id),
+    locationId: str(json.locationId),
+    place: str(json.place),
+    title: str(json.title) || 'Ticket',
+    details: typeof json.details === 'string' && json.details ? json.details : undefined,
+    startsAt,
+    endsAt,
+    timezone: typeof json.timezone === 'string' ? json.timezone : undefined,
+    priceCents: num(json.priceCents),
+    quantity: num(json.quantity),
+    sold: num(json.sold),
+    state: TICKET_STATES.includes(state) ? state : 'ended',
+    url,
+  };
+}
+
+export function reviveTickets(json: Json): VendorTicket[] {
+  const rows = Array.isArray(json.tickets) ? (json.tickets as Json[]) : [];
+  return rows.map(reviveTicket).filter((row): row is VendorTicket => row !== undefined);
+}
+
+/** The refusals the API would give, checked before the round-trip. */
+export function ticketDraftProblems(draft: TicketDraft): string[] {
+  const problems: string[] = [];
+  if (!draft.locationId) problems.push('Choose one of your places');
+  if (!draft.title.trim()) problems.push('Name the date, like Sunday buffet');
+  else if (draft.title.trim().length > 80) problems.push('Keep the name under 80 characters');
+  if ((draft.details?.trim().length ?? 0) > 500) problems.push('Keep the details under 500 characters');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date)) problems.push('Choose a date');
+  if (!/^\d{2}:\d{2}$/.test(draft.startTime) || !/^\d{2}:\d{2}$/.test(draft.endTime)) problems.push('Choose when it starts and ends');
+  if (!Number.isInteger(draft.priceCents) || draft.priceCents < 100) problems.push('Charge at least $1');
+  else if (draft.priceCents > 1_000_000) problems.push('Charge at most $10,000');
+  if (!Number.isInteger(draft.quantity) || draft.quantity < 1 || draft.quantity > 2000) problems.push('Sell between 1 and 2000');
   return problems;
 }
 
@@ -585,6 +743,7 @@ export function httpConsoleTransport(authorized: AuthorizedFetch): ConsoleTransp
   const windowPath = (id: string) => `/vendor/windows/${encodeURIComponent(id)}`;
 
   const booking = (json: Json) => reviveBooking((json.booking ?? {}) as Json);
+  const ticket = (json: Json) => reviveTicket((json.ticket ?? {}) as Json);
 
   return {
     patches: (kind) => send(`/vendor/patches?kind=${encodeURIComponent(kind)}`, get, revivePatches),
@@ -607,8 +766,9 @@ export function httpConsoleTransport(authorized: AuthorizedFetch): ConsoleTransp
         '/vendor/bands/activate',
         post({
           band: draft.band.trim(),
+          form: draft.form,
           locationId: draft.locationId,
-          tier: draft.tier,
+          ...(draft.tier ? { tier: draft.tier } : {}),
           ...(draft.vendorCode?.trim() ? { vendorCode: draft.vendorCode.trim() } : {}),
         }),
         (json) => {
@@ -620,6 +780,7 @@ export function httpConsoleTransport(authorized: AuthorizedFetch): ConsoleTransp
       send(
         `/vendor/bands/${encodeURIComponent(id)}`,
         post({
+          ...(edit.form ? { form: edit.form } : {}),
           ...(edit.locationId ? { locationId: edit.locationId } : {}),
           ...(edit.tier ? { tier: edit.tier } : {}),
           ...(edit.vendorCode !== undefined ? { vendorCode: edit.vendorCode?.trim() || null } : {}),
@@ -627,9 +788,45 @@ export function httpConsoleTransport(authorized: AuthorizedFetch): ConsoleTransp
         (json) => reviveBand((json.band ?? {}) as Json),
       ),
     markBandLost: (id) => send(`/vendor/bands/${encodeURIComponent(id)}/lost`, post({}), (json) => reviveBand((json.band ?? {}) as Json)),
+    tickets: () => send('/vendor/tickets', get, reviveTickets),
+    createTicket: (draft) =>
+      send(
+        '/vendor/tickets',
+        post({
+          locationId: draft.locationId,
+          title: draft.title.trim(),
+          ...(draft.details?.trim() ? { details: draft.details.trim() } : {}),
+          date: draft.date,
+          startTime: draft.startTime,
+          endTime: draft.endTime,
+          priceCents: draft.priceCents,
+          quantity: draft.quantity,
+        }),
+        ticket,
+      ),
+    editTicket: (id, edit) =>
+      send(
+        `/vendor/tickets/${encodeURIComponent(id)}`,
+        post({
+          ...(edit.title !== undefined ? { title: edit.title.trim() } : {}),
+          ...(edit.details !== undefined ? { details: edit.details.trim() } : {}),
+          ...(edit.priceCents !== undefined ? { priceCents: edit.priceCents } : {}),
+          ...(edit.quantity !== undefined ? { quantity: edit.quantity } : {}),
+        }),
+        ticket,
+      ),
+    withdrawTicket: (id) => send(`/vendor/tickets/${encodeURIComponent(id)}/withdraw`, post({}), ticket),
     bookings: (when) => send(`/vendor/bookings?when=${encodeURIComponent(when)}`, get, reviveBookings),
     moveBooking: (id, operation) => send(`/vendor/bookings/${encodeURIComponent(id)}/state`, post({ operation }), booking),
     verifyPass: (code) => send('/vendor/passes/verify', post({ code }), booking),
+    readBand: (band) => send('/vendor/passes/band', post({ band: band.trim() }), reviveBandAtDoor),
+    linkBand: (band, bookingId) =>
+      send('/vendor/passes/band/link', post({ band: band.trim(), bookingId }), (json) => reviveBand((json.band ?? {}) as Json)),
+    logVisit: (band) =>
+      send('/vendor/passes/band/visit', post({ band: band.trim() }), (json) => {
+        const member = reviveMemberVisits((json.member ?? {}) as Json);
+        return member ? { member, alreadyLogged: json.alreadyLogged === true } : undefined;
+      }),
     earnings: (days) => send(`/vendor/earnings?days=${encodeURIComponent(String(days))}`, get, reviveEarnings),
     team: () => send('/vendor/seats', get, reviveTeam),
     invite: (draft) => send('/vendor/seats', post(draft), reviveTeam),
@@ -663,9 +860,16 @@ export function demoConsoleTransport(): ConsoleTransport {
     activateBand: async () => ({ status: 404, blockers: ['Bands are not available in the demo build'] }),
     editBand: async () => ({ status: 404, blockers: ['That band is not here'] }),
     markBandLost: async () => ({ status: 404, blockers: ['That band is not here'] }),
+    tickets: async () => ({ status: 200, value: [] }),
+    createTicket: async () => ({ status: 409, blockers: ['Tickets are not available in the demo build'] }),
+    editTicket: async () => ({ status: 404, blockers: ['That ticket is not here'] }),
+    withdrawTicket: async () => ({ status: 404, blockers: ['That ticket is not here'] }),
     bookings: async () => ({ status: 200, value: [] }),
     moveBooking: async () => ({ status: 404, blockers: ['That booking is not here'] }),
     verifyPass: async () => ({ status: 404, blockers: ['No booking here has that pass'] }),
+    readBand: async () => ({ status: 404, blockers: ['Bands are not available in the demo build'] }),
+    linkBand: async () => ({ status: 404, blockers: ['Bands are not available in the demo build'] }),
+    logVisit: async () => ({ status: 404, blockers: ['Bands are not available in the demo build'] }),
     earnings: async (days) => ({
       status: 200,
       value: {

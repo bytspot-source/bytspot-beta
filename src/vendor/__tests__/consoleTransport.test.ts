@@ -8,6 +8,7 @@ import {
   readBandSerial,
   readPassCode,
   reviveBand,
+  reviveBandAtDoor,
   reviveBands,
   reviveAnalytics,
   reviveBooking,
@@ -150,6 +151,9 @@ test('a booking keeps only what the console shows, and unknown states read as cl
   assert.equal(booking?.paid, 'paid');
   assert.equal(booking && 'passCode' in booking, false);
   assert.equal(booking && 'guestEmail' in booking, false);
+
+  assert.equal(booking?.kind, 'booking');
+  assert.equal(reviveBooking({ id: 'ord_1', kind: 'ticket', startsAt: '2026-10-02T23:00:00Z' })?.kind, 'ticket');
 
   const odd = reviveBooking({ id: 'off_2', startsAt: '2026-10-02T23:00:00Z', state: 'weird', pass: 'weird', paid: 'weird' });
   assert.equal(odd?.state, 'past');
@@ -346,4 +350,33 @@ test('the demo build sells no tickets', async () => {
   const demo = demoConsoleTransport();
   assert.deepEqual((await demo.tickets()).value, []);
   assert.equal((await demo.createTicket({ locationId: 'loc_1', title: 'x', date: '2026-10-18', startTime: '13:00', endTime: '17:00', priceCents: 4500, quantity: 1 })).status, 409);
+});
+
+test('a band read at the door keeps its guest and the ticket only when both read', () => {
+  const band = { id: 'band_1', serial: 'BYT424-0301', state: 'active', tier: 'platinum', holder: 'Ama', linkedAt: '2026-10-18T17:00:00.000Z' };
+  const read = reviveBandAtDoor({ band, booking: { id: 'ord_1', kind: 'ticket', startsAt: '2026-10-18T17:00:00.000Z', pass: 'ISSUED' } });
+  assert.equal(read?.band.holder, 'Ama');
+  assert.equal(read?.band.linkedAt?.toISOString(), '2026-10-18T17:00:00.000Z');
+  assert.equal(read?.booking?.kind, 'ticket');
+  assert.equal(reviveBandAtDoor({ band: { ...band, holder: '' } })?.band.holder, undefined);
+  assert.equal(reviveBandAtDoor({ band, booking: { id: 'ord_1', startsAt: 'soon' } })?.booking, undefined);
+  assert.equal(reviveBandAtDoor({ band: { id: 'band_1', serial: 'table 4' } }), undefined);
+});
+
+test('a band is read and linked at the door through the pass routes', async () => {
+  const band = { id: 'band_1', serial: 'BYT424-0301', state: 'active', holder: 'Ama' };
+  const { authorized, calls } = stubFetch(() => ({ status: 200, body: { band } }));
+  const api = httpConsoleTransport(authorized);
+  assert.equal((await api.readBand(' https://bytspot.app/BYT424-0301 ')).value?.band.serial, 'BYT424-0301');
+  assert.equal((await api.linkBand('BYT424-0301', 'ord_1')).value?.holder, 'Ama');
+  assert.deepEqual(
+    calls.map((call) => call.path),
+    ['/vendor/passes/band', '/vendor/passes/band/link'],
+  );
+  assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { band: 'https://bytspot.app/BYT424-0301' });
+  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { band: 'BYT424-0301', bookingId: 'ord_1' });
+
+  const demo = demoConsoleTransport();
+  assert.equal((await demo.readBand('BYT424-0301')).status, 404);
+  assert.equal((await demo.linkBand('BYT424-0301', 'ord_1')).status, 404);
 });

@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  BAND_TIERS,
   formatCents,
+  readBandSerial,
   readPassCode,
   sameLocalDay,
+  type Band,
   type Booking,
   type BookingMoveId,
   type BookingsWhen,
@@ -179,37 +182,112 @@ export function qrDetector(formats: string[] = ['qr_code']): Detector | undefine
   return Ctor ? new Ctor({ formats }) : undefined;
 }
 
-/** Reads a guest's pass by camera or by typing its code, then checks them in. */
+/** The supplier prints a QR code or a barcode on a band; read either. */
+export const BAND_CODE_FORMATS = ['qr_code', 'code_128', 'code_39', 'data_matrix'];
+
+interface NdefRecord {
+  recordType: string;
+  data?: DataView;
+}
+
+export interface NdefReader {
+  scan: (options?: { signal?: AbortSignal }) => Promise<void>;
+  onreading: ((event: { message: { records: NdefRecord[] } }) => void) | null;
+  onreadingerror: (() => void) | null;
+}
+
+/** Web NFC, where the browser has it (Chrome on Android). */
+export function ndefReader(): NdefReader | undefined {
+  const Ctor = (window as unknown as { NDEFReader?: new () => NdefReader }).NDEFReader;
+  return Ctor ? new Ctor() : undefined;
+}
+
+function tierName(band: Band): string | undefined {
+  return BAND_TIERS.find((entry) => entry.id === band.tier)?.label;
+}
+
+/**
+ * The door: reads a guest's pass or band by camera, by tap or by typing, then
+ * checks them in. A paid ticket read by its pass can have a band linked to it,
+ * so the guest only taps next time. Either way it is one ticket, checked in once.
+ */
 export function ScannerView({ session, transport }: { session: VendorSession; transport: ConsoleTransport }) {
   const [code, setCode] = useState('');
   const [found, setFound] = useState<Booking | undefined>(undefined);
+  const [band, setBand] = useState<Band | undefined>(undefined);
+  const [linking, setLinking] = useState(false);
   const [problem, setProblem] = useState('');
+  const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [tapping, setTapping] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canCheckIn = session.capabilities.has('CHECK_IN');
   const cameraSupported = typeof window !== 'undefined' && 'BarcodeDetector' in window && !!navigator.mediaDevices?.getUserMedia;
+  const tapSupported = typeof window !== 'undefined' && 'NDEFReader' in window;
 
   const check = useCallback(
     async (raw: string) => {
+      setNote('');
       const pass = readPassCode(raw);
-      if (!pass) {
+      const serial = pass ? undefined : readBandSerial(raw);
+      if (!pass && !serial) {
         setFound(undefined);
-        setProblem('That is not a Bytspot pass. A pass code is 8 letters and numbers.');
+        setBand(undefined);
+        setProblem('That is not a Bytspot pass or band. A pass code is 8 letters and numbers; a band number looks like BYT424-0301.');
         return;
       }
       setBusy(true);
-      const result = await transport.verifyPass(pass);
+      if (pass) {
+        const result = await transport.verifyPass(pass);
+        setBusy(false);
+        setBand(undefined);
+        setFound(result.value);
+        setProblem(result.value ? '' : (result.blockers?.[0] ?? 'That did not load. Try again'));
+        return;
+      }
+      const result = await transport.readBand(serial!);
       setBusy(false);
-      setFound(result.value);
+      setBand(result.value?.band);
+      setFound(result.value?.booking);
       setProblem(result.value ? '' : (result.blockers?.[0] ?? 'That did not load. Try again'));
     },
     [transport],
   );
 
+  const link = useCallback(
+    async (raw: string) => {
+      const serial = readBandSerial(raw);
+      if (!serial || !found) {
+        setProblem('That is not a Bytspot band. Tap it again, scan its code or type its number, like BYT424-0301.');
+        return;
+      }
+      setBusy(true);
+      const result = await transport.linkBand(serial, found.id);
+      setBusy(false);
+      if (!result.value) {
+        setProblem(result.blockers?.[0] ?? 'That did not go through. Try again');
+        return;
+      }
+      setBand(result.value);
+      setLinking(false);
+      setCode('');
+      setProblem('');
+      setNote(`${serial} is linked to ${result.value.holder ?? 'this guest'}. Next time, tap the band.`);
+    },
+    [transport, found],
+  );
+
+  const read = useCallback((raw: string) => (linking ? link(raw) : check(raw)), [linking, link, check]);
+
   useEffect(() => {
     if (!scanning) return undefined;
-    const detector = qrDetector();
+    let detector: Detector | undefined;
+    try {
+      detector = qrDetector(BAND_CODE_FORMATS);
+    } catch {
+      detector = qrDetector();
+    }
     let stream: MediaStream | undefined;
     let frame = 0;
     let live = true;
@@ -220,8 +298,8 @@ export function ScannerView({ session, transport }: { session: VendorSession; tr
         const hit = (await detector.detect(videoRef.current)).find((row) => row.rawValue)?.rawValue;
         if (hit) {
           setScanning(false);
-          setCode(readPassCode(hit) ?? '');
-          await check(hit);
+          setCode(readPassCode(hit) ?? readBandSerial(hit) ?? '');
+          await read(hit);
           return;
         }
       } catch {
@@ -249,7 +327,27 @@ export function ScannerView({ session, transport }: { session: VendorSession; tr
       window.cancelAnimationFrame(frame);
       stream?.getTracks().forEach((track) => track.stop());
     };
-  }, [scanning, check]);
+  }, [scanning, read]);
+
+  useEffect(() => {
+    if (!tapping) return undefined;
+    const reader = ndefReader();
+    if (!reader) return undefined;
+    const stop = new AbortController();
+    reader.onreading = (event) => {
+      const record = event.message.records.find((entry) => entry.recordType === 'url' && entry.data);
+      const raw = record?.data ? new TextDecoder().decode(record.data) : '';
+      setTapping(false);
+      setCode(readBandSerial(raw) ?? '');
+      void read(raw);
+    };
+    reader.onreadingerror = () => setProblem('The band could not be read. Hold it still against the phone and try again.');
+    reader.scan({ signal: stop.signal }).catch(() => {
+      setTapping(false);
+      setProblem('NFC did not start. Allow NFC, or type the band number instead.');
+    });
+    return () => stop.abort();
+  }, [tapping, read]);
 
   const checkIn = async () => {
     if (!found) return;
@@ -264,15 +362,25 @@ export function ScannerView({ session, transport }: { session: VendorSession; tr
 
   const reset = () => {
     setFound(undefined);
+    setBand(undefined);
+    setLinking(false);
     setCode('');
     setProblem('');
+    setNote('');
   };
+
+  const canLink = canCheckIn && !band && found?.kind === 'ticket' && found.paid === 'paid' && (found.pass === 'ISSUED' || found.pass === 'ADMITTED');
+  const bandLine = band ? [band.serial, tierName(band), band.holder ? `Worn by ${band.holder}` : undefined].filter(Boolean).join(' · ') : '';
 
   return (
     <>
       <section className="vendor-card">
-        <h2 className="vendor-section-title">Check a pass</h2>
-        <p className="vendor-muted">Guests find their pass under My Requests in the Bytspot app.</p>
+        <h2 className="vendor-section-title">{linking ? 'Link a band' : 'Check a pass or a band'}</h2>
+        <p className="vendor-muted">
+          {linking
+            ? `Tap the band, scan its code or type its number. It will open ${found?.guestName ?? 'this guest'}'s tickets from now on.`
+            : 'Guests find their pass under My Requests in the Bytspot app. A guest with a linked band can tap it instead.'}
+        </p>
         {scanning ? <video ref={videoRef} className="vendor-scanner-video" muted playsInline /> : null}
         <div className="vendor-demand-actions">
           {cameraSupported ? (
@@ -280,31 +388,60 @@ export function ScannerView({ session, transport }: { session: VendorSession; tr
               {scanning ? 'Stop camera' : 'Scan with camera'}
             </button>
           ) : null}
+          {tapSupported ? (
+            <button type="button" className="vendor-chip vendor-chip-on" disabled={busy} onClick={() => setTapping((on) => !on)}>
+              {tapping ? 'Stop' : 'Tap a band'}
+            </button>
+          ) : null}
+          {linking ? (
+            <button type="button" className="vendor-chip" onClick={() => setLinking(false)}>
+              Cancel
+            </button>
+          ) : null}
         </div>
+        {tapping ? <p className="vendor-muted">Hold the band against the back of the phone.</p> : null}
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            void check(code);
+            void read(code);
           }}
         >
           <label className="vendor-field">
-            <span>Pass code</span>
+            <span>{linking ? 'Band number' : 'Pass code or band number'}</span>
             <input
               value={code}
               autoCapitalize="characters"
               autoComplete="off"
               spellCheck={false}
-              maxLength={20}
-              placeholder="ABCD-2345"
+              maxLength={linking ? 60 : 300}
+              placeholder={linking ? 'BYT424-0301' : 'ABCD-2345 or BYT424-0301'}
               onChange={(event) => setCode(event.target.value)}
             />
           </label>
           <button type="submit" className="vendor-chip" disabled={busy || !code.trim()}>
-            {busy ? 'Checking…' : 'Check pass'}
+            {busy ? 'Checking…' : linking ? 'Link band' : 'Check'}
           </button>
         </form>
         {problem ? <p className="vendor-muted vendor-reason-fixable">{problem}</p> : null}
+        {note ? <p className="vendor-muted">{note}</p> : null}
       </section>
+
+      {band && !found ? (
+        <section className="vendor-card">
+          <h2 className="vendor-section-title">{band.holder ? `No ticket for ${band.holder} right now` : 'Band not linked yet'}</h2>
+          <p className="vendor-muted">{bandLine}</p>
+          <p className="vendor-muted">
+            {band.holder
+              ? 'This band finds a paid ticket for today at its place. Ask for the ticket barcode, or the guest can buy one from your link.'
+              : "Scan the guest's ticket barcode, then tap Link a band and tap this band."}
+          </p>
+          <div className="vendor-demand-actions">
+            <button type="button" className="vendor-chip" onClick={reset}>
+              Next guest
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {found ? (
         <section className={found.pass === 'ISSUED' ? 'vendor-card vendor-card-verified' : 'vendor-card'}>
@@ -312,6 +449,7 @@ export function ScannerView({ session, transport }: { session: VendorSession; tr
           <p>
             <strong>{guestsLabel(found)}</strong>
           </p>
+          {band ? <p className="vendor-muted">Band {bandLine}</p> : null}
           <p className="vendor-muted">
             {dayLabel(found)} · {timeLabel(found)} · {found.title} · {found.where}
           </p>
@@ -326,6 +464,21 @@ export function ScannerView({ session, transport }: { session: VendorSession; tr
             {found.pass === 'ISSUED' && canCheckIn ? (
               <button type="button" className="vendor-chip vendor-chip-on" disabled={busy} onClick={() => void checkIn()}>
                 Check in
+              </button>
+            ) : null}
+            {canLink && !linking ? (
+              <button
+                type="button"
+                className="vendor-chip"
+                disabled={busy}
+                onClick={() => {
+                  setLinking(true);
+                  setCode('');
+                  setProblem('');
+                  setNote('');
+                }}
+              >
+                Link a band
               </button>
             ) : null}
             <button type="button" className="vendor-chip" onClick={reset}>

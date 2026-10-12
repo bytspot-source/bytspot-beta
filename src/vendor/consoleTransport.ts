@@ -103,6 +103,8 @@ export type BookingsWhen = 'upcoming' | 'past';
 
 export interface Booking {
   id: string;
+  /** A ticket the guest bought for one of the business's dates, or an accepted offer. */
+  kind: 'booking' | 'ticket';
   title: string;
   where: string;
   locationId: string;
@@ -192,6 +194,15 @@ export interface Band {
   place?: string;
   activatedAt?: Date;
   lostAt?: Date;
+  /** First name of the guest it is linked to at the door. */
+  holder?: string;
+  linkedAt?: Date;
+}
+
+/** A band read at the door, and the ticket its guest holds for now. */
+export interface BandAtDoor {
+  band: Band;
+  booking?: Booking;
 }
 
 export interface BandActivation {
@@ -263,6 +274,8 @@ export interface ConsoleTransport {
   bookings: (when: BookingsWhen) => Promise<SetupResult<Booking[]>>;
   moveBooking: (id: string, operation: BookingMoveId) => Promise<SetupResult<Booking>>;
   verifyPass: (code: string) => Promise<SetupResult<Booking>>;
+  readBand: (band: string) => Promise<SetupResult<BandAtDoor>>;
+  linkBand: (band: string, bookingId: string) => Promise<SetupResult<Band>>;
   earnings: (days: number) => Promise<SetupResult<Earnings>>;
   team: () => Promise<SetupResult<Team>>;
   invite: (draft: InviteDraft) => Promise<SetupResult<Team>>;
@@ -298,6 +311,7 @@ export function reviveBooking(json: Json): Booking | undefined {
   const pass = str(json.pass) as PassState;
   return {
     id: str(json.id),
+    kind: json.kind === 'ticket' ? 'ticket' : 'booking',
     title: str(json.title) || 'Booking',
     where: str(json.where),
     locationId: str(json.locationId),
@@ -428,7 +442,17 @@ export function reviveBand(json: Json): Band | undefined {
     place: typeof json.place === 'string' ? json.place : undefined,
     activatedAt: date(json.activatedAt),
     lostAt: date(json.lostAt),
+    holder: typeof json.holder === 'string' && json.holder ? json.holder : undefined,
+    linkedAt: date(json.linkedAt),
   };
+}
+
+/** Undefined without a readable band. A booking that does not read is left off. */
+export function reviveBandAtDoor(json: Json): BandAtDoor | undefined {
+  const band = reviveBand((json.band ?? {}) as Json);
+  if (!band) return undefined;
+  const booking = json.booking ? reviveBooking(json.booking as Json) : undefined;
+  return booking ? { band, booking } : { band };
 }
 
 export function reviveBands(json: Json): Band[] {
@@ -753,6 +777,9 @@ export function httpConsoleTransport(authorized: AuthorizedFetch): ConsoleTransp
     bookings: (when) => send(`/vendor/bookings?when=${encodeURIComponent(when)}`, get, reviveBookings),
     moveBooking: (id, operation) => send(`/vendor/bookings/${encodeURIComponent(id)}/state`, post({ operation }), booking),
     verifyPass: (code) => send('/vendor/passes/verify', post({ code }), booking),
+    readBand: (band) => send('/vendor/passes/band', post({ band: band.trim() }), reviveBandAtDoor),
+    linkBand: (band, bookingId) =>
+      send('/vendor/passes/band/link', post({ band: band.trim(), bookingId }), (json) => reviveBand((json.band ?? {}) as Json)),
     earnings: (days) => send(`/vendor/earnings?days=${encodeURIComponent(String(days))}`, get, reviveEarnings),
     team: () => send('/vendor/seats', get, reviveTeam),
     invite: (draft) => send('/vendor/seats', post(draft), reviveTeam),
@@ -793,6 +820,8 @@ export function demoConsoleTransport(): ConsoleTransport {
     bookings: async () => ({ status: 200, value: [] }),
     moveBooking: async () => ({ status: 404, blockers: ['That booking is not here'] }),
     verifyPass: async () => ({ status: 404, blockers: ['No booking here has that pass'] }),
+    readBand: async () => ({ status: 404, blockers: ['Bands are not available in the demo build'] }),
+    linkBand: async () => ({ status: 404, blockers: ['Bands are not available in the demo build'] }),
     earnings: async (days) => ({
       status: 200,
       value: {

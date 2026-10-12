@@ -4838,8 +4838,13 @@ struct NativeMapReport: Codable, Equatable, Identifiable {
     let expiresAt: String
     var mine: Bool?
     var myVote: String?
+    /// The named neighbourhood, e.g. "Midtown". Nil outside the mapped ones.
+    var area: String? = nil
+    /// The web page for sharing the report, readable without the app.
+    var shareUrl: String? = nil
 
     var isConfirmed: Bool { status == "confirmed" }
+    var shareURL: URL? { NativeVenueDetailsDTO.safeHTTPSURL(shareUrl) }
     var createdDate: Date? { Self.date(createdAt) }
     var expiresDate: Date? { Self.date(expiresAt) }
 
@@ -4910,6 +4915,13 @@ struct NativeMapReportResult: Decodable, Equatable {
     let merged: Bool?
 }
 
+/// From `mapReports.standing`: the member's confirmed reports this week, and
+/// "Top Midtown reporter" when they have the most there.
+struct NativeMapReportStanding: Decodable, Equatable {
+    let confirmedThisWeek: Int
+    let badge: String?
+}
+
 struct NativeMapReportsAPI {
     let client: BytspotAPIClient
 
@@ -4917,6 +4929,7 @@ struct NativeMapReportsAPI {
     static let listPath = "/trpc/mapReports.list"
     static let submitPath = "/trpc/mapReports.submit"
     static let votePath = "/trpc/mapReports.vote"
+    static let standingPath = "/trpc/mapReports.standing"
 
     static func listInput(latitude: Double, longitude: Double) -> [String: Any] {
         ["lat": latitude, "lng": longitude, "radiusMiles": radiusMiles]
@@ -4955,6 +4968,10 @@ struct NativeMapReportsAPI {
     func vote(reportID: String, stillThere: Bool) async throws -> NativeMapReportResult {
         try await client.trpcDecode(NativeMapReportResult.self, path: Self.votePath, method: "POST",
                                     input: Self.voteInput(reportID: reportID, stillThere: stillThere))
+    }
+
+    func standing() async throws -> NativeMapReportStanding {
+        try await client.trpcDecode(NativeMapReportStanding.self, path: Self.standingPath)
     }
 
     /// Live changes around a point until the connection drops. The server

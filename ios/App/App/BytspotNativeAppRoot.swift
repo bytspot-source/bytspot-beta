@@ -166,10 +166,29 @@ struct BytspotNativeAppRoot: View {
     @StateObject private var contactSyncStore = BytspotContactSyncStore()
     @StateObject private var appearanceRuntimeStore = NativeAppearanceRuntimeStore()
     @StateObject private var locationStore = NativeLocationStore()
+    @StateObject private var reportRelay = NativeReportRelay()
+    @AppStorage(NativeReportRelay.enabledKey) private var shareReportsNearby = false
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
     @AppStorage(NativeLaunchPersonalizationStorage.atmosphereKey) private var launchAtmosphere = ""
     @State private var didCompleteLaunchFlow = false
     @State private var showSignInAgain = false
+
+    /// Passes reports between nearby phones only while the member has it on
+    /// and the app is in front; turning it on is what asks for Local Network.
+    private func updateReportRelay(enabled: Bool? = nil, phase: ScenePhase? = nil) {
+        if enabled ?? shareReportsNearby, (phase ?? scenePhase) == .active { reportRelay.start() } else { reportRelay.stop() }
+    }
+
+    /// Sends reports saved on this phone whenever it is online and signed in.
+    private func sendHeldReports() async {
+        if sessionStore.isAuthenticated, let userID = sessionStore.authenticatedUserID {
+            await reportRelay.registerKeyIfNeeded(userID: userID, api: sessionStore.mapReportsAPI)
+        }
+        while !Task.isCancelled {
+            if sessionStore.isAuthenticated { await reportRelay.upload(using: sessionStore.mapReportsAPI) }
+            try? await Task.sleep(nanoseconds: 20_000_000_000)
+        }
+    }
 
     private var effectiveAppearance: NativeAppearanceMode {
         appearanceRuntimeStore.selectedMode ?? NativeAppearanceMode.previewOverride ?? NativeAppearanceMode.resolved(raw: appearanceRaw)
@@ -202,6 +221,7 @@ struct BytspotNativeAppRoot: View {
             .environmentObject(contactSyncStore)
             .environmentObject(appearanceRuntimeStore)
             .environmentObject(locationStore)
+            .environmentObject(reportRelay)
             .onAppear {
                 NativeSessionRenewer.shared.sessionStore = sessionStore
                 BytspotAPIClient.sessionRenewer = { refused in await NativeSessionRenewer.shared.renew(refusedToken: refused) }
@@ -209,6 +229,7 @@ struct BytspotNativeAppRoot: View {
                 navigation.drainPendingURLs()
                 bridgeStore.injectPatchScanBridgeSmokeTestIfRequested()
                 locationStore.startIfAuthorized()
+                updateReportRelay()
                 Task {
                     await NativePushService.shared.refreshAuthorizationStatus()
                     await NativePushService.shared.reconcile(sessionToken: sessionStore.canAttachBearerToken ? sessionStore.token : nil)
@@ -221,6 +242,8 @@ struct BytspotNativeAppRoot: View {
                 await membershipStore.refresh(sessionStore: sessionStore)
                 await contactSyncStore.refresh(sessionStore: sessionStore)
             }
+            .task(id: sessionStore.authenticatedUserID) { await sendHeldReports() }
+            .onChange(of: shareReportsNearby) { updateReportRelay(enabled: $0) }
             .onChange(of: sessionStore.token ?? "") { _ in
                 Task {
                     await tabContentStore.refresh(sessionStore: sessionStore, location: locationStore.coordinate)
@@ -231,10 +254,12 @@ struct BytspotNativeAppRoot: View {
                 }
             }
             .onChange(of: scenePhase) { phase in
+                updateReportRelay(phase: phase)
                 guard phase == .active else { return }
                 appearanceRuntimeStore.refreshSystemColorScheme()
                 Task {
                     await NativeSessionRenewer.shared.renewIfExpiringSoon()
+                    if sessionStore.isAuthenticated { await reportRelay.upload(using: sessionStore.mapReportsAPI) }
                     await membershipStore.refresh(sessionStore: sessionStore)
                     await NativePushService.shared.refreshAuthorizationStatus()
                     await NativePushService.shared.reconcile(sessionToken: sessionStore.canAttachBearerToken ? sessionStore.token : nil)

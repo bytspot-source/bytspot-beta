@@ -38,6 +38,7 @@
 		A13F03092C0FF00100000059 /* BytspotNativeAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03082C0FF00100000059 /* BytspotNativeAuth.swift */; };
 		A13F03112C0FF00100000061 /* NativeAuthSeamSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03102C0FF00100000061 /* NativeAuthSeamSelfTests.swift */; };
 		A13F03132C0FF00100000063 /* NativePatchRouteSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03122C0FF00100000063 /* NativePatchRouteSelfTests.swift */; };
+		B7E1A0012E0000000000F001 /* NativeReportRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E1A0002E0000000000F000 /* NativeReportRelay.swift */; };
 		A13F0A012D0000000000A001 /* BytspotContactHasher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0A002D0000000000A000 /* BytspotContactHasher.swift */; };
 		A13F0A032D0000000000A003 /* BytspotContactSyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0A022D0000000000A002 /* BytspotContactSyncStore.swift */; };
 		A13F0A052D0000000000A005 /* NativeContactSyncSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0A042D0000000000A004 /* NativeContactSyncSelfTests.swift */; };
@@ -145,6 +146,7 @@
 		A13F03082C0FF00100000059 /* BytspotNativeAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotNativeAuth.swift; sourceTree = "<group>"; };
 		A13F03102C0FF00100000061 /* NativeAuthSeamSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAuthSeamSelfTests.swift; sourceTree = "<group>"; };
 		A13F03122C0FF00100000063 /* NativePatchRouteSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePatchRouteSelfTests.swift; sourceTree = "<group>"; };
+		B7E1A0002E0000000000F000 /* NativeReportRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeReportRelay.swift; sourceTree = "<group>"; };
 		A13F0A002D0000000000A000 /* BytspotContactHasher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotContactHasher.swift; sourceTree = "<group>"; };
 		A13F0A022D0000000000A002 /* BytspotContactSyncStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotContactSyncStore.swift; sourceTree = "<group>"; };
 		A13F0A042D0000000000A004 /* NativeContactSyncSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeContactSyncSelfTests.swift; sourceTree = "<group>"; };
@@ -297,6 +299,7 @@
 				A13F03102C0FF00100000061 /* NativeAuthSeamSelfTests.swift */,
 				A13F03122C0FF00100000063 /* NativePatchRouteSelfTests.swift */,
 				A13F0A002D0000000000A000 /* BytspotContactHasher.swift */,
+				B7E1A0002E0000000000F000 /* NativeReportRelay.swift */,
 				A13F0A022D0000000000A002 /* BytspotContactSyncStore.swift */,
 				A13F0A042D0000000000A004 /* NativeContactSyncSelfTests.swift */,
 				A13F03142C0FF00100000065 /* NativePatchBookingSelfTests.swift */,
@@ -498,6 +501,7 @@
 				A13F03112C0FF00100000061 /* NativeAuthSeamSelfTests.swift in Sources */,
 				A13F03132C0FF00100000063 /* NativePatchRouteSelfTests.swift in Sources */,
 				A13F0A012D0000000000A001 /* BytspotContactHasher.swift in Sources */,
+				B7E1A0012E0000000000F001 /* NativeReportRelay.swift in Sources */,
 				A13F0A032D0000000000A003 /* BytspotContactSyncStore.swift in Sources */,
 				A13F0A052D0000000000A005 /* NativeContactSyncSelfTests.swift in Sources */,
 				A13F03152C0FF00100000065 /* NativePatchBookingSelfTests.swift in Sources */,

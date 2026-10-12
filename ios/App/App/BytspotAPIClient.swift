@@ -4915,6 +4915,17 @@ struct NativeMapReportResult: Decodable, Equatable {
     let merged: Bool?
 }
 
+/// One answer from `mapReports.relay`.
+struct NativeRelayResult: Decodable, Equatable {
+    let clientReportId: String?
+    let status: String
+    let report: NativeMapReport?
+    let removed: Bool?
+    let message: String?
+
+    var isAccepted: Bool { status == "accepted" }
+}
+
 /// From `mapReports.standing`: the member's confirmed reports this week, and
 /// "Top Midtown reporter" when they have the most there.
 struct NativeMapReportStanding: Decodable, Equatable {
@@ -4930,6 +4941,10 @@ struct NativeMapReportsAPI {
     static let submitPath = "/trpc/mapReports.submit"
     static let votePath = "/trpc/mapReports.vote"
     static let standingPath = "/trpc/mapReports.standing"
+    static let registerRelayKeyPath = "/trpc/mapReports.registerRelayKey"
+    static let relayPath = "/trpc/mapReports.relay"
+    /// The most reports the server takes in one `relay` call.
+    static let relayBatchSize = 25
 
     static func listInput(latitude: Double, longitude: Double) -> [String: Any] {
         ["lat": latitude, "lng": longitude, "radiusMiles": radiusMiles]
@@ -4974,6 +4989,21 @@ struct NativeMapReportsAPI {
         try await client.trpcDecode(NativeMapReportStanding.self, path: Self.standingPath)
     }
 
+    func registerRelayKey(publicKey: String) async throws -> String {
+        struct Registered: Decodable { let keyId: String }
+        return try await client.trpcDecode(Registered.self, path: Self.registerRelayKeyPath, method: "POST", input: ["publicKey": publicKey]).keyId
+    }
+
+    static func relayInput(_ reports: [NativeRelayedReport]) -> [String: Any] {
+        ["reports": reports.map { ["keyId": $0.keyId, "payload": $0.payload, "signature": $0.signature] }]
+    }
+
+    /// Uploads held reports. Each is answered in order, accepted or rejected.
+    func relay(_ reports: [NativeRelayedReport]) async throws -> [NativeRelayResult] {
+        struct Relayed: Decodable { let results: [NativeRelayResult] }
+        return try await client.trpcDecode(Relayed.self, path: Self.relayPath, method: "POST", input: Self.relayInput(reports)).results
+    }
+
     /// Live changes around a point until the connection drops. The server
     /// pings every 25 s, so the request waits longer than that between bytes.
     func changes(latitude: Double, longitude: Double) -> AsyncThrowingStream<NativeMapReportChange, Error> {
@@ -5001,6 +5031,12 @@ struct NativeMapReportsAPI {
     }
 
     static let offlineMessage = "Couldn't reach Bytspot. Check your connection and try again."
+
+    /// The request never reached Bytspot, as opposed to Bytspot refusing it.
+    static func isNoSignal(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        return urlError.code != .cancelled
+    }
     static let tooManyMessage = "You've sent a lot of reports. Try again later."
     static let expiredMessage = "That report has expired."
 

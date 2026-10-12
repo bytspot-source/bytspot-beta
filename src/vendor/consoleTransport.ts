@@ -3,7 +3,7 @@ import type { PayoutAccount } from './profile.ts';
 import type { AuthorizedFetch, SetupResult, VendorWindow } from './setupTransport.ts';
 
 /**
- * Home, Bookings, Pass scanner, QR / NFC patches, Bands, Partnerships, Staff,
+ * Home, Bookings, Pass scanner, QR / NFC patches, Bands, Tickets, Partnerships, Staff,
  * Availability, Analytics, Earnings, Payouts and Settings, against the API.
  *
  * Every screen gets a function, never the token, and every response is
@@ -209,6 +209,45 @@ export interface BandEdit {
   vendorCode?: string | null;
 }
 
+export type TicketState = 'on_sale' | 'sold_out' | 'stopped' | 'ended';
+
+/** A date the business sells tickets for itself, paid through Stripe. */
+export interface VendorTicket {
+  id: string;
+  locationId: string;
+  place: string;
+  title: string;
+  details?: string;
+  startsAt: Date;
+  endsAt: Date;
+  timezone?: string;
+  priceCents: number;
+  quantity: number;
+  sold: number;
+  state: TicketState;
+  /** Where a guest opens this date to buy it. Only an https link is kept. */
+  url: string;
+}
+
+export interface TicketDraft {
+  locationId: string;
+  title: string;
+  details?: string;
+  /** YYYY-MM-DD and HH:MM on the place's own clock. */
+  date: string;
+  startTime: string;
+  endTime: string;
+  priceCents: number;
+  quantity: number;
+}
+
+export interface TicketEdit {
+  title?: string;
+  details?: string;
+  priceCents?: number;
+  quantity?: number;
+}
+
 export interface ConsoleTransport {
   patches: (kind: PatchKind) => Promise<SetupResult<Patch[]>>;
   createPatch: (draft: PatchDraft) => Promise<SetupResult<Patch>>;
@@ -217,6 +256,10 @@ export interface ConsoleTransport {
   activateBand: (draft: BandActivation) => Promise<SetupResult<{ band: Band; alreadyActive: boolean }>>;
   editBand: (id: string, edit: BandEdit) => Promise<SetupResult<Band>>;
   markBandLost: (id: string) => Promise<SetupResult<Band>>;
+  tickets: () => Promise<SetupResult<VendorTicket[]>>;
+  createTicket: (draft: TicketDraft) => Promise<SetupResult<VendorTicket>>;
+  editTicket: (id: string, edit: TicketEdit) => Promise<SetupResult<VendorTicket>>;
+  withdrawTicket: (id: string) => Promise<SetupResult<VendorTicket>>;
   bookings: (when: BookingsWhen) => Promise<SetupResult<Booking[]>>;
   moveBooking: (id: string, operation: BookingMoveId) => Promise<SetupResult<Booking>>;
   verifyPass: (code: string) => Promise<SetupResult<Booking>>;
@@ -399,6 +442,57 @@ export function bandActivationProblems(draft: BandActivation): string[] {
   if (!readBandSerial(draft.band)) problems.push('Enter a band number like BYT424-0301, or scan the band');
   if (!draft.locationId) problems.push('Choose one of your places');
   if ((draft.vendorCode?.trim().length ?? 0) > 40) problems.push('Keep your code under 40 characters');
+  return problems;
+}
+
+const TICKET_STATES: TicketState[] = ['on_sale', 'sold_out', 'stopped', 'ended'];
+
+/** Undefined for a ticket without an id, readable times or an https link. */
+export function reviveTicket(json: Json): VendorTicket | undefined {
+  const startsAt = date(json.startsAt);
+  const endsAt = date(json.endsAt);
+  const url = str(json.url);
+  if (!str(json.id) || !startsAt || !endsAt) return undefined;
+  try {
+    if (new URL(url).protocol !== 'https:') return undefined;
+  } catch {
+    return undefined;
+  }
+  const state = str(json.state) as TicketState;
+  return {
+    id: str(json.id),
+    locationId: str(json.locationId),
+    place: str(json.place),
+    title: str(json.title) || 'Ticket',
+    details: typeof json.details === 'string' && json.details ? json.details : undefined,
+    startsAt,
+    endsAt,
+    timezone: typeof json.timezone === 'string' ? json.timezone : undefined,
+    priceCents: num(json.priceCents),
+    quantity: num(json.quantity),
+    sold: num(json.sold),
+    state: TICKET_STATES.includes(state) ? state : 'ended',
+    url,
+  };
+}
+
+export function reviveTickets(json: Json): VendorTicket[] {
+  const rows = Array.isArray(json.tickets) ? (json.tickets as Json[]) : [];
+  return rows.map(reviveTicket).filter((row): row is VendorTicket => row !== undefined);
+}
+
+/** The refusals the API would give, checked before the round-trip. */
+export function ticketDraftProblems(draft: TicketDraft): string[] {
+  const problems: string[] = [];
+  if (!draft.locationId) problems.push('Choose one of your places');
+  if (!draft.title.trim()) problems.push('Name the date, like Sunday buffet');
+  else if (draft.title.trim().length > 80) problems.push('Keep the name under 80 characters');
+  if ((draft.details?.trim().length ?? 0) > 500) problems.push('Keep the details under 500 characters');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date)) problems.push('Choose a date');
+  if (!/^\d{2}:\d{2}$/.test(draft.startTime) || !/^\d{2}:\d{2}$/.test(draft.endTime)) problems.push('Choose when it starts and ends');
+  if (!Number.isInteger(draft.priceCents) || draft.priceCents < 100) problems.push('Charge at least $1');
+  else if (draft.priceCents > 1_000_000) problems.push('Charge at most $10,000');
+  if (!Number.isInteger(draft.quantity) || draft.quantity < 1 || draft.quantity > 2000) problems.push('Sell between 1 and 2000');
   return problems;
 }
 
@@ -585,6 +679,7 @@ export function httpConsoleTransport(authorized: AuthorizedFetch): ConsoleTransp
   const windowPath = (id: string) => `/vendor/windows/${encodeURIComponent(id)}`;
 
   const booking = (json: Json) => reviveBooking((json.booking ?? {}) as Json);
+  const ticket = (json: Json) => reviveTicket((json.ticket ?? {}) as Json);
 
   return {
     patches: (kind) => send(`/vendor/patches?kind=${encodeURIComponent(kind)}`, get, revivePatches),
@@ -627,6 +722,34 @@ export function httpConsoleTransport(authorized: AuthorizedFetch): ConsoleTransp
         (json) => reviveBand((json.band ?? {}) as Json),
       ),
     markBandLost: (id) => send(`/vendor/bands/${encodeURIComponent(id)}/lost`, post({}), (json) => reviveBand((json.band ?? {}) as Json)),
+    tickets: () => send('/vendor/tickets', get, reviveTickets),
+    createTicket: (draft) =>
+      send(
+        '/vendor/tickets',
+        post({
+          locationId: draft.locationId,
+          title: draft.title.trim(),
+          ...(draft.details?.trim() ? { details: draft.details.trim() } : {}),
+          date: draft.date,
+          startTime: draft.startTime,
+          endTime: draft.endTime,
+          priceCents: draft.priceCents,
+          quantity: draft.quantity,
+        }),
+        ticket,
+      ),
+    editTicket: (id, edit) =>
+      send(
+        `/vendor/tickets/${encodeURIComponent(id)}`,
+        post({
+          ...(edit.title !== undefined ? { title: edit.title.trim() } : {}),
+          ...(edit.details !== undefined ? { details: edit.details.trim() } : {}),
+          ...(edit.priceCents !== undefined ? { priceCents: edit.priceCents } : {}),
+          ...(edit.quantity !== undefined ? { quantity: edit.quantity } : {}),
+        }),
+        ticket,
+      ),
+    withdrawTicket: (id) => send(`/vendor/tickets/${encodeURIComponent(id)}/withdraw`, post({}), ticket),
     bookings: (when) => send(`/vendor/bookings?when=${encodeURIComponent(when)}`, get, reviveBookings),
     moveBooking: (id, operation) => send(`/vendor/bookings/${encodeURIComponent(id)}/state`, post({ operation }), booking),
     verifyPass: (code) => send('/vendor/passes/verify', post({ code }), booking),
@@ -663,6 +786,10 @@ export function demoConsoleTransport(): ConsoleTransport {
     activateBand: async () => ({ status: 404, blockers: ['Bands are not available in the demo build'] }),
     editBand: async () => ({ status: 404, blockers: ['That band is not here'] }),
     markBandLost: async () => ({ status: 404, blockers: ['That band is not here'] }),
+    tickets: async () => ({ status: 200, value: [] }),
+    createTicket: async () => ({ status: 409, blockers: ['Tickets are not available in the demo build'] }),
+    editTicket: async () => ({ status: 404, blockers: ['That ticket is not here'] }),
+    withdrawTicket: async () => ({ status: 404, blockers: ['That ticket is not here'] }),
     bookings: async () => ({ status: 200, value: [] }),
     moveBooking: async () => ({ status: 404, blockers: ['That booking is not here'] }),
     verifyPass: async () => ({ status: 404, blockers: ['No booking here has that pass'] }),

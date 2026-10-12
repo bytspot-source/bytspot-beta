@@ -18,8 +18,11 @@ import {
   revivePayouts,
   reviveSlots,
   reviveTeam,
+  reviveTicket,
+  reviveTickets,
   safeDashboardUrl,
   sameLocalDay,
+  ticketDraftProblems,
 } from '../consoleTransport.ts';
 import type { AuthorizedFetch } from '../setupTransport.ts';
 
@@ -295,4 +298,52 @@ test('the demo build holds no bands', async () => {
   const demo = demoConsoleTransport();
   assert.deepEqual((await demo.bands()).value, []);
   assert.equal((await demo.activateBand({ band: 'BYT424-0301', locationId: 'loc_1', tier: 'green' })).status, 404);
+});
+
+test('a ticket is kept only with an id, readable times and an https link', () => {
+  const base = { id: 'tix_1', locationId: 'loc_1', place: 'Main room', title: 'Sunday buffet', details: '', startsAt: '2026-10-18T17:00:00.000Z', endsAt: '2026-10-18T21:00:00.000Z', timezone: 'America/New_York', priceCents: 4500, quantity: 80, sold: 3, state: 'on_sale', url: 'https://beta.bytspot.com/?ticket=tix_1', createdBySeatId: 'seat_1' };
+  const ticket = reviveTicket(base);
+  assert.equal(ticket?.state, 'on_sale');
+  assert.equal(ticket?.details, undefined);
+  assert.equal(ticket && 'createdBySeatId' in ticket, false);
+  assert.equal(reviveTicket({ ...base, state: 'weird' })?.state, 'ended');
+  assert.equal(reviveTicket({ ...base, url: 'javascript:alert(1)' }), undefined);
+  assert.equal(reviveTicket({ ...base, startsAt: 'soon' }), undefined);
+  assert.equal(reviveTickets({ tickets: [base, { ...base, id: '' }] }).length, 1);
+});
+
+test('putting a date on sale needs a place, a name, a date, times, a price and a cap', () => {
+  const draft = { locationId: 'loc_1', title: 'Sunday buffet', date: '2026-10-18', startTime: '13:00', endTime: '17:00', priceCents: 4500, quantity: 80 };
+  assert.deepEqual(ticketDraftProblems(draft), []);
+  assert.deepEqual(ticketDraftProblems({ ...draft, startTime: '20:00', endTime: '01:00' }), []);
+  assert.deepEqual(ticketDraftProblems({ locationId: '', title: ' ', date: '', startTime: '', endTime: '17:00', priceCents: 50, quantity: 0 }), [
+    'Choose one of your places',
+    'Name the date, like Sunday buffet',
+    'Choose a date',
+    'Choose when it starts and ends',
+    'Charge at least $1',
+    'Sell between 1 and 2000',
+  ]);
+});
+
+test('tickets go to their API paths with trimmed fields', async () => {
+  const ticket = { id: 'tix_1', startsAt: '2026-10-18T17:00:00.000Z', endsAt: '2026-10-18T21:00:00.000Z', state: 'on_sale', url: 'https://beta.bytspot.com/?ticket=tix_1' };
+  const { authorized, calls } = stubFetch(() => ({ status: 200, body: { tickets: [ticket], ticket } }));
+  const api = httpConsoleTransport(authorized);
+  assert.equal((await api.tickets()).value?.length, 1);
+  assert.equal((await api.createTicket({ locationId: 'loc_1', title: ' Brunch ', details: ' ', date: '2026-10-18', startTime: '13:00', endTime: '17:00', priceCents: 4500, quantity: 80 })).value?.id, 'tix_1');
+  assert.equal((await api.editTicket('tix 1', { priceCents: 5000 })).value?.id, 'tix_1');
+  assert.equal((await api.withdrawTicket('tix_1')).value?.id, 'tix_1');
+  assert.deepEqual(
+    calls.map((call) => call.path),
+    ['/vendor/tickets', '/vendor/tickets', '/vendor/tickets/tix%201', '/vendor/tickets/tix_1/withdraw'],
+  );
+  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { locationId: 'loc_1', title: 'Brunch', date: '2026-10-18', startTime: '13:00', endTime: '17:00', priceCents: 4500, quantity: 80 });
+  assert.deepEqual(JSON.parse(String(calls[2].init?.body)), { priceCents: 5000 });
+});
+
+test('the demo build sells no tickets', async () => {
+  const demo = demoConsoleTransport();
+  assert.deepEqual((await demo.tickets()).value, []);
+  assert.equal((await demo.createTicket({ locationId: 'loc_1', title: 'x', date: '2026-10-18', startTime: '13:00', endTime: '17:00', priceCents: 4500, quantity: 1 })).status, 409);
 });

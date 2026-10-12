@@ -78,6 +78,8 @@ import {
 } from './utils/personalization';
 import { trpc } from './utils/trpc';
 import { askTransport, formatSlotLabel, offerCheckoutReturn, SEEN_OFFERS_KEY, unseenOffers, type AskClient } from './utils/guestAsk';
+import { PENDING_TICKET_KEY, ticketLink } from './utils/guestTickets';
+import { TicketSheet } from './components/TicketSheet';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
 import { canonicalLegalPath } from './utils/nativeHandoffGuard';
 import { consumerPatchPath, focusProviderPatch, isLoggedInProviderPatchOwner, providerPatchPath, readProviderPatchIdFromPath } from './utils/providerPatchRouting';
@@ -366,8 +368,10 @@ function MarketplaceBookingReturnScreen({ status, onContinue }: { status: 'succe
 export default function App() {
   // Determine initial screen: skip splash/landing/auth if user already has a token
   const initialPatchDeepLink = typeof window !== 'undefined' ? extractPatchDeepLink(window.location.href) : null;
+  const initialTicketLink = typeof window !== 'undefined' ? ticketLink(window.location.search) : undefined;
   const hasAuthToken = !!localStorage.getItem('bytspot_auth_token');
-  const [currentScreen, setCurrentScreen] = useState<AppScreen>(hasAuthToken || initialPatchDeepLink ? 'main' : 'splash');
+  const [currentScreen, setCurrentScreen] = useState<AppScreen>(hasAuthToken || initialPatchDeepLink || initialTicketLink ? 'main' : 'splash');
+  const [openTicketId, setOpenTicketId] = useState<string | undefined>(initialTicketLink?.outcome === 'paid' ? undefined : initialTicketLink?.ticketId);
   const [activeTab, setActiveTab] = useState<Tab>('home');
   const reduceMotion = useReducedMotion();
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -1279,6 +1283,19 @@ export default function App() {
     // Handle Stripe return URLs (/premium/success, /parking/success, /profile/payment, /premium/cancelled)
     const path = window.location.pathname;
     const query = new URLSearchParams(window.location.search);
+    const ticketReturn = ticketLink(window.location.search);
+    if (ticketReturn) {
+      window.history.replaceState({}, '', '/');
+      if (ticketReturn.outcome === 'paid') {
+        localStorage.setItem('bytspot_profile_focus', 'requests');
+        setCurrentScreen('main');
+        setActiveTab('profile');
+        toast.success('Payment received', { description: 'Your ticket and its door pass show in My Requests.', duration: 6000 });
+      } else if (ticketReturn.outcome === 'cancelled') {
+        toast('Payment cancelled — no charges made.', { duration: 3000 });
+      }
+      return;
+    }
     const offerReturn = offerCheckoutReturn(window.location.search);
     if (offerReturn) {
       localStorage.setItem('bytspot_profile_focus', 'requests');
@@ -1539,6 +1556,11 @@ export default function App() {
         onComplete={() => {
           // Token is already stored by AuthenticationFlow — no override needed
           setCurrentScreen('main');
+          const pendingTicket = localStorage.getItem(PENDING_TICKET_KEY);
+          if (pendingTicket) {
+            localStorage.removeItem(PENDING_TICKET_KEY);
+            setOpenTicketId(pendingTicket);
+          }
           if (localStorage.getItem('bytspot_pending_booking_service')) {
             setActiveTab('discover');
             toast.success('Ready to book', { description: 'Review the service and continue to Stripe Checkout.' });
@@ -2588,6 +2610,18 @@ export default function App() {
 
         {/* Toast Notifications - ACCESSIBILITY: Screen reader announcements */}
         <Toaster position="top-center" />
+
+        {openTicketId ? (
+          <TicketSheet
+            ticketId={openTicketId}
+            onClose={() => setOpenTicketId(undefined)}
+            onSignIn={() => {
+              localStorage.setItem(PENDING_TICKET_KEY, openTicketId);
+              setOpenTicketId(undefined);
+              setCurrentScreen('auth');
+            }}
+          />
+        ) : null}
 
         {/* Ride Selection Modal */}
         <Suspense fallback={null}>

@@ -5,6 +5,7 @@ import { curatedServiceRecommendationCards, savedServiceRequestToCard, vendorInv
 import { discoverCardCapability, discoverCardControl } from '../mockData/discover.ts';
 import { controlFromCapability } from '../bookableProjection.ts';
 import { askErrorMessage, askIsLive, askProblems, askTransport, type AskClient } from '../guestAsk.ts';
+import type { TicketsClient } from '../guestTickets.ts';
 
 test('vendorServiceToCard maps patch-verified services into paid discover cards', () => {
   const card = vendorServiceToCard({
@@ -330,6 +331,43 @@ test('a booking pass reads in two groups of four and its QR names itself', async
   assert.equal(passLabel('ABCD2345'), 'ABCD-2345');
   assert.equal(passLabel('ODD'), 'ODD');
   assert.equal(passQrValue('ABCD2345'), 'BYTSPOT-PASS:ABCD2345');
+});
+
+test('a ticket link opens its ticket, and a Stripe return says how it went', async () => {
+  const { ticketLink } = await import('../guestTickets.ts');
+  assert.deepEqual(ticketLink('?ticket=cmv5ktu41'), { ticketId: 'cmv5ktu41' });
+  assert.deepEqual(ticketLink('?ticket=cmv5ktu41&checkout=ticket-paid&session_id=cs_1'), { ticketId: 'cmv5ktu41', outcome: 'paid' });
+  assert.deepEqual(ticketLink('?ticket=cmv5ktu41&checkout=ticket-cancelled'), { ticketId: 'cmv5ktu41', outcome: 'cancelled' });
+  assert.deepEqual(ticketLink('?ticket=cmv5ktu41&checkout=offer-paid'), { ticketId: 'cmv5ktu41' });
+  assert.equal(ticketLink('?ticket=%3Cscript%3E'), undefined);
+  assert.equal(ticketLink('?demand=d1'), undefined);
+});
+
+test('a ticket can be bought only while it is on sale, at its own price', async () => {
+  const { ticketAction, ticketWhen, ticketsTransport } = await import('../guestTickets.ts');
+  assert.deepEqual(ticketAction({ state: 'on_sale', priceCents: 4500, remaining: 3 }), { canBuy: true, label: 'Buy for $45.00' });
+  assert.equal(ticketAction({ state: 'on_sale', priceCents: 4500, remaining: 0 }).canBuy, false);
+  assert.equal(ticketAction({ state: 'sold_out', priceCents: 4500, remaining: 0 }).label, 'Sold out');
+  assert.equal(ticketAction({ state: 'stopped', priceCents: 4500, remaining: 3 }).canBuy, false);
+  assert.equal(ticketAction({ state: 'ended', priceCents: 4500, remaining: 3 }).canBuy, false);
+  assert.equal(
+    ticketWhen({ startsAt: '2026-10-18T17:00:00.000Z', endsAt: '2026-10-18T21:00:00.000Z', timezone: 'America/New_York' }),
+    'Sunday, Oct 18, 1:00 PM to 5:00 PM',
+  );
+
+  const calls: unknown[] = [];
+  const client = {
+    tickets: {
+      get: { query: async (input: unknown) => (calls.push(['get', input]), { id: 't1' }) },
+      checkout: { mutate: async (input: unknown) => (calls.push(['checkout', input]), { url: 'https://checkout.stripe.com/x' }) },
+      mine: { query: async () => (calls.push(['mine']), []) },
+    },
+  } as unknown as TicketsClient;
+  const transport = ticketsTransport(client);
+  await transport.get('t1');
+  assert.equal(await transport.buy('t1'), 'https://checkout.stripe.com/x');
+  await transport.mine();
+  assert.deepEqual(calls, [['get', { ticketId: 't1' }], ['checkout', { ticketId: 't1' }], ['mine']]);
 });
 
 test('a /at/ link is a patch code, and nothing else is', async () => {

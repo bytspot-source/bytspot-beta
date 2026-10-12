@@ -183,10 +183,26 @@ export const BAND_TIERS: { id: BandTier; label: string }[] = [
   { id: 'black', label: 'Black' },
 ];
 
+export type BandForm = 'band' | 'card' | 'event_fob' | 'key_fob' | 'epoxy';
+
+/** The five NFC items, each for its own Discover rail. Only a band has a tier. */
+export const BAND_FORMS: { id: BandForm; label: string; hint: string }[] = [
+  { id: 'band', label: 'Band', hint: 'Nights out. Stays linked to its guest.' },
+  { id: 'card', label: 'Card', hint: 'Stays. Free again when the stay ends.' },
+  { id: 'event_fob', label: 'Event fob', hint: 'Shows and events. Free again when the show ends.' },
+  { id: 'key_fob', label: 'Key fob', hint: 'Regular members. Logs their visits.' },
+  { id: 'epoxy', label: 'Table tag', hint: 'Fixed to a restaurant table. Diners tap it with their phone.' },
+];
+
+export function bandFormLabel(form: BandForm): string {
+  return BAND_FORMS.find((entry) => entry.id === form)?.label ?? 'Band';
+}
+
 export interface Band {
   id: string;
   /** e.g. BYT424-0301, what the chip and the printed code carry. */
   serial: string;
+  form: BandForm;
   state: BandState;
   tier?: BandTier;
   vendorCode?: string;
@@ -197,23 +213,35 @@ export interface Band {
   /** First name of the guest it is linked to at the door. */
   holder?: string;
   linkedAt?: Date;
+  /** When the link ends by itself: a card at the end of the stay, an event fob after the show. */
+  linkedUntil?: Date;
 }
 
-/** A band read at the door, and the ticket its guest holds for now. */
+/** A key fob member's visits to this business. */
+export interface MemberVisits {
+  visits: number;
+  lastVisitAt?: Date;
+}
+
+/** An item read at the door, and what its guest holds for now, its own rail first. */
 export interface BandAtDoor {
   band: Band;
-  booking?: Booking;
+  bookings: Booking[];
+  member?: MemberVisits;
 }
 
 export interface BandActivation {
   /** A band number, or the link its QR code or chip carries. */
   band: string;
+  form: BandForm;
   locationId: string;
-  tier: BandTier;
+  /** Required for a band. */
+  tier?: BandTier;
   vendorCode?: string;
 }
 
 export interface BandEdit {
+  form?: BandForm;
   locationId?: string;
   tier?: BandTier;
   /** Null clears it. */
@@ -276,6 +304,7 @@ export interface ConsoleTransport {
   verifyPass: (code: string) => Promise<SetupResult<Booking>>;
   readBand: (band: string) => Promise<SetupResult<BandAtDoor>>;
   linkBand: (band: string, bookingId: string) => Promise<SetupResult<Band>>;
+  logVisit: (band: string) => Promise<SetupResult<{ member: MemberVisits; alreadyLogged: boolean }>>;
   earnings: (days: number) => Promise<SetupResult<Earnings>>;
   team: () => Promise<SetupResult<Team>>;
   invite: (draft: InviteDraft) => Promise<SetupResult<Team>>;
@@ -435,6 +464,7 @@ export function reviveBand(json: Json): Band | undefined {
   return {
     id: str(json.id),
     serial,
+    form: BAND_FORMS.find((entry) => entry.id === json.form)?.id ?? 'band',
     state: json.state === 'active' || json.state === 'lost' ? json.state : 'assigned',
     tier,
     vendorCode: typeof json.vendorCode === 'string' ? json.vendorCode : undefined,
@@ -444,15 +474,24 @@ export function reviveBand(json: Json): Band | undefined {
     lostAt: date(json.lostAt),
     holder: typeof json.holder === 'string' && json.holder ? json.holder : undefined,
     linkedAt: date(json.linkedAt),
+    linkedUntil: date(json.linkedUntil),
   };
 }
 
-/** Undefined without a readable band. A booking that does not read is left off. */
+export function reviveMemberVisits(json: Json): MemberVisits | undefined {
+  if (typeof json.visits !== 'number' || !Number.isFinite(json.visits)) return undefined;
+  return { visits: Math.max(0, Math.floor(json.visits)), lastVisitAt: date(json.lastVisitAt) };
+}
+
+/** Undefined without a readable band. Bookings that do not read are left off. */
 export function reviveBandAtDoor(json: Json): BandAtDoor | undefined {
   const band = reviveBand((json.band ?? {}) as Json);
   if (!band) return undefined;
-  const booking = json.booking ? reviveBooking(json.booking as Json) : undefined;
-  return booking ? { band, booking } : { band };
+  const bookings = (Array.isArray(json.bookings) ? (json.bookings as Json[]) : [])
+    .map(reviveBooking)
+    .filter((row): row is Booking => row !== undefined);
+  const member = json.member ? reviveMemberVisits(json.member as Json) : undefined;
+  return member ? { band, bookings, member } : { band, bookings };
 }
 
 export function reviveBands(json: Json): Band[] {
@@ -465,6 +504,7 @@ export function bandActivationProblems(draft: BandActivation): string[] {
   const problems: string[] = [];
   if (!readBandSerial(draft.band)) problems.push('Enter a band number like BYT424-0301, or scan the band');
   if (!draft.locationId) problems.push('Choose one of your places');
+  if (draft.form === 'band' && !draft.tier) problems.push('Choose a tier for the band');
   if ((draft.vendorCode?.trim().length ?? 0) > 40) problems.push('Keep your code under 40 characters');
   return problems;
 }
@@ -726,8 +766,9 @@ export function httpConsoleTransport(authorized: AuthorizedFetch): ConsoleTransp
         '/vendor/bands/activate',
         post({
           band: draft.band.trim(),
+          form: draft.form,
           locationId: draft.locationId,
-          tier: draft.tier,
+          ...(draft.tier ? { tier: draft.tier } : {}),
           ...(draft.vendorCode?.trim() ? { vendorCode: draft.vendorCode.trim() } : {}),
         }),
         (json) => {
@@ -739,6 +780,7 @@ export function httpConsoleTransport(authorized: AuthorizedFetch): ConsoleTransp
       send(
         `/vendor/bands/${encodeURIComponent(id)}`,
         post({
+          ...(edit.form ? { form: edit.form } : {}),
           ...(edit.locationId ? { locationId: edit.locationId } : {}),
           ...(edit.tier ? { tier: edit.tier } : {}),
           ...(edit.vendorCode !== undefined ? { vendorCode: edit.vendorCode?.trim() || null } : {}),
@@ -780,6 +822,11 @@ export function httpConsoleTransport(authorized: AuthorizedFetch): ConsoleTransp
     readBand: (band) => send('/vendor/passes/band', post({ band: band.trim() }), reviveBandAtDoor),
     linkBand: (band, bookingId) =>
       send('/vendor/passes/band/link', post({ band: band.trim(), bookingId }), (json) => reviveBand((json.band ?? {}) as Json)),
+    logVisit: (band) =>
+      send('/vendor/passes/band/visit', post({ band: band.trim() }), (json) => {
+        const member = reviveMemberVisits((json.member ?? {}) as Json);
+        return member ? { member, alreadyLogged: json.alreadyLogged === true } : undefined;
+      }),
     earnings: (days) => send(`/vendor/earnings?days=${encodeURIComponent(String(days))}`, get, reviveEarnings),
     team: () => send('/vendor/seats', get, reviveTeam),
     invite: (draft) => send('/vendor/seats', post(draft), reviveTeam),
@@ -822,6 +869,7 @@ export function demoConsoleTransport(): ConsoleTransport {
     verifyPass: async () => ({ status: 404, blockers: ['No booking here has that pass'] }),
     readBand: async () => ({ status: 404, blockers: ['Bands are not available in the demo build'] }),
     linkBand: async () => ({ status: 404, blockers: ['Bands are not available in the demo build'] }),
+    logVisit: async () => ({ status: 404, blockers: ['Bands are not available in the demo build'] }),
     earnings: async (days) => ({
       status: 200,
       value: {

@@ -749,6 +749,22 @@ private enum NativePartyPendingImageTestSupport {
             context.fill(CGRect(origin: .zero, size: points))
         }
     }
+
+    /// Per-pixel random colour at 1x, which JPEG cannot compress well.
+    static func noiseImage(pixelWidth: Int, pixelHeight: Int) -> UIImage {
+        var generator = SystemRandomNumberGenerator()
+        var bytes = [UInt8](repeating: 255, count: pixelWidth * pixelHeight * 4)
+        for index in stride(from: 0, to: bytes.count, by: 4) {
+            bytes[index] = UInt8.random(in: 0...255, using: &generator)
+            bytes[index + 1] = UInt8.random(in: 0...255, using: &generator)
+            bytes[index + 2] = UInt8.random(in: 0...255, using: &generator)
+        }
+        let provider = CGDataProvider(data: Data(bytes) as CFData)!
+        let cgImage = CGImage(width: pixelWidth, height: pixelHeight, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: pixelWidth * 4,
+                              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                              provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+        return UIImage(cgImage: cgImage, scale: 1, orientation: .up)
+    }
 }
 
 /// CI-runnable promotion of the launch-time `NativeMapParitySelfTests` pure-function
@@ -4429,51 +4445,56 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertTrue(prepared.dataURI.hasPrefix("data:image/jpeg;base64,"))
     }
 
-    /// A host framed a 2.9:1 panorama in a 2.5:1 editor strip and guests got a
-    /// 1.2:1 crop of it. The cover is normalised so there is one declared shape
-    /// to frame for.
+    /// Covers are no longer centre-cropped: every shape a host picks reaches
+    /// the guest whole, scaled only so the long edge fits the pixel ceiling.
     @MainActor
-    func testPartyCoverIsNormalisedToTheDeclaredThreeTwoShape() throws {
-        let source = NativePartyPendingImageTestSupport.image(pixelWidth: 2400, pixelHeight: 1600, scale: 1)
-        let prepared = try XCTUnwrap(NativePartyPendingImage(image: source, shape: .cover))
-        let pixels = CGSize(width: prepared.preview.size.width * prepared.preview.scale,
-                            height: prepared.preview.size.height * prepared.preview.scale)
+    func testPartyCoverKeepsItsOwnShapeUnderTheLongEdgeCeiling() throws {
+        let cases: [(width: Int, height: Int, scale: CGFloat)] = [
+            (2400, 1600, 1),  // 3:2
+            (2900, 1000, 1),  // 2.9:1 panorama
+            (1080, 1350, 1),  // 4:5 flyer
+            (1080, 1920, 1),  // 9:16 story flyer
+            (3840, 2160, 3),  // 4K, points-scaled like PHPicker
+            (400, 267, 1)     // small legacy cover
+        ]
+        for source in cases {
+            let image = NativePartyPendingImageTestSupport.image(pixelWidth: source.width, pixelHeight: source.height, scale: source.scale)
+            let prepared = try XCTUnwrap(NativePartyPendingImage(image: image, shape: .cover))
+            let pixels = CGSize(width: prepared.preview.size.width * prepared.preview.scale,
+                                height: prepared.preview.size.height * prepared.preview.scale)
+            let label = "\(source.width)x\(source.height)"
 
-        XCTAssertEqual(pixels.width / pixels.height, NativePartyPendingImage.coverAspectRatio, accuracy: 0.01)
-        XCTAssertEqual(pixels.width, NativePartyPendingImage.coverPixelSize.width, accuracy: 1)
-        XCTAssertEqual(pixels.height, NativePartyPendingImage.coverPixelSize.height, accuracy: 1)
+            XCTAssertEqual(prepared.preview.scale, 1, label)
+            XCTAssertEqual(pixels.width / pixels.height, CGFloat(source.width) / CGFloat(source.height), accuracy: 0.01, label)
+            XCTAssertLessThanOrEqual(max(pixels.width, pixels.height), NativePartyPendingImage.maxPixelDimension, label)
+            let expectedLongEdge = min(CGFloat(max(source.width, source.height)), NativePartyPendingImage.maxPixelDimension)
+            XCTAssertEqual(max(pixels.width, pixels.height), expectedLongEdge, accuracy: 1, "\(label) must be neither cropped nor upscaled")
+        }
     }
 
-    /// A 2.9:1 panorama has the width to fill the box but only 828 rows.
-    /// `coverPixelSize` is a ceiling, so it comes out 3:2 and smaller rather
-    /// than upscaled to reach 1067 rows it never had.
+    /// High-detail noise is the worst case for JPEG. A tall cover that is over
+    /// the byte cap at the first quality must be stepped down under it, not
+    /// cropped to fit and not shipped over the cap.
     @MainActor
-    func testWidePanoramaCoverIsNotUpscaledToReachTheCeiling() throws {
-        let panorama = NativePartyPendingImageTestSupport.image(pixelWidth: 2400, pixelHeight: 828, scale: 1)
-        let prepared = try XCTUnwrap(NativePartyPendingImage(image: panorama, shape: .cover))
-        let pixels = CGSize(width: prepared.preview.size.width * prepared.preview.scale,
-                            height: prepared.preview.size.height * prepared.preview.scale)
-
-        XCTAssertEqual(pixels.width / pixels.height, NativePartyPendingImage.coverAspectRatio, accuracy: 0.01)
-        XCTAssertEqual(pixels.height, 828, accuracy: 1, "the source's own rows must survive untouched")
-        XCTAssertEqual(pixels.width, 1242, accuracy: 1)
-        XCTAssertLessThanOrEqual(pixels.width, NativePartyPendingImage.coverPixelSize.width)
+    func testPartyCoverStaysUnderTheByteCapForDetailedImages() throws {
+        let noisy = NativePartyPendingImageTestSupport.noiseImage(pixelWidth: 900, pixelHeight: 1600)
+        XCTAssertGreaterThan(try XCTUnwrap(noisy.jpegData(compressionQuality: 0.82)).count, NativePartyPendingImage.maxByteCount, "the fixture must exercise the quality loop")
+        let prepared = try XCTUnwrap(NativePartyPendingImage(image: noisy, shape: .cover))
+        let base64 = try XCTUnwrap(prepared.dataURI.components(separatedBy: "base64,").last)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(Data(base64Encoded: base64)).count, NativePartyPendingImage.maxByteCount)
+        XCTAssertEqual(prepared.preview.size.width, 900, accuracy: 1)
+        XCTAssertEqual(prepared.preview.size.height, 1600, accuracy: 1)
     }
 
-    /// Party flyers are usually portrait. They must still come out 3:2 rather
-    /// than reaching a guest surface as a tall image to be cropped again.
-    @MainActor
-    func testPortraitPartyFlyerIsCentreCroppedToThreeTwo() throws {
-        let flyer = NativePartyPendingImageTestSupport.image(pixelWidth: 1080, pixelHeight: 1920, scale: 1)
-        let prepared = try XCTUnwrap(NativePartyPendingImage(image: flyer, shape: .cover))
-        let pixels = CGSize(width: prepared.preview.size.width * prepared.preview.scale,
-                            height: prepared.preview.size.height * prepared.preview.scale)
-
-        XCTAssertEqual(pixels.width / pixels.height, NativePartyPendingImage.coverAspectRatio, accuracy: 0.01)
-        // 1080 wide cannot fill a 1600 box, so the output is the largest 3:2
-        // the source covers rather than an upscale.
-        XCTAssertEqual(pixels.width, 1080, accuracy: 1)
-        XCTAssertEqual(pixels.height, 720, accuracy: 1)
+    /// The editor tile previews the box the App Clip hero draws.
+    func testPartyCoverBoxIsTheCoverShapeClampedBetweenFourFiveAndThreeTwo() {
+        func box(_ width: CGFloat, _ height: CGFloat) -> CGFloat { NativePartyPendingImage.coverBoxAspectRatio(for: CGSize(width: width, height: height)) }
+        XCTAssertEqual(box(1600, 1067), 1600.0 / 1067.0, accuracy: 0.0001)
+        XCTAssertEqual(box(2900, 1000), 3.0 / 2.0, accuracy: 0.0001)
+        XCTAssertEqual(box(1080, 1350), 4.0 / 5.0, accuracy: 0.0001)
+        XCTAssertEqual(box(1080, 1920), 4.0 / 5.0, accuracy: 0.0001)
+        XCTAssertEqual(box(1000, 1000), 1, accuracy: 0.0001)
+        XCTAssertEqual(box(0, 0), 3.0 / 2.0, accuracy: 0.0001)
     }
 
     /// Album and recap photos are the host's own composition and keep it.

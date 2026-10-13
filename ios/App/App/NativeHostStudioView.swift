@@ -678,30 +678,37 @@ struct NativeHostStudioView: View {
     private var partyMediaEditor: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Cover poster").studioLabel()
-            Text(NativePartyPendingImage.coverSpecLabel).font(.footnote).foregroundColor(NativeTheme.textSecondary)
             Button(action: { showCoverPicker = true }) {
                 ZStack {
                     if let coverMedia {
-                        // A fill image reports the size it scaled to, so it is
-                        // pinned to the tile before it can widen the editor.
+                        // Both layers report the size they scaled to, so they
+                        // are pinned to the tile before they can widen the
+                        // editor. The fill copy only covers the bars left by
+                        // the fit, as the guest's hero does.
                         GeometryReader { proxy in
-                            Image(uiImage: coverMedia.preview).resizable().scaledToFill()
-                                .frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                            ZStack {
+                                Image(uiImage: coverMedia.preview).resizable().scaledToFill()
+                                    .frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                                    .blur(radius: 18, opaque: true)
+                                    .overlay(Color.black.opacity(0.38))
+                                Image(uiImage: coverMedia.preview).resizable().scaledToFit()
+                                    .frame(width: proxy.size.width, height: proxy.size.height)
+                            }
                         }
                     } else {
                         LinearGradient(colors: [NativeTheme.purple.opacity(0.7), NativeTheme.cyan.opacity(0.35)], startPoint: .topLeading, endPoint: .bottomTrailing)
                         Label("Choose cover poster", systemImage: "photo.badge.plus").font(.headline).padding(16)
                     }
                 }
-                // The tile is the declared poster shape, not a wide strip: a
-                // host framing a poster in 2.5:1 could not see the crop a
-                // guest gets.
+                // The tile is the box a guest's hero draws: the cover's own
+                // shape, clamped between 4:5 and 3:2.
                 .frame(maxWidth: .infinity)
-                .aspectRatio(NativePartyPendingImage.coverAspectRatio, contentMode: .fit)
+                .aspectRatio(NativePartyPendingImage.coverBoxAspectRatio(for: coverMedia?.preview.size ?? .zero), contentMode: .fit)
                 .clipped().clipShape(RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(NativeTheme.surfaceStroke))
             }.buttonStyle(.plain).accessibilityLabel(coverMedia == nil ? "Choose cover poster" : "Change cover poster")
-            Text("Anything else is centre-cropped to 3:2 when you publish.").font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                .accessibilityIdentifier("native-host-studio-cover-tile")
+            Text("Any shape works. Tall flyers show whole, up to 4:5; taller ones get soft edges.").font(.footnote).foregroundColor(NativeTheme.textSecondary)
             Text("Guests also see this poster behind the whole invite, dimmed. Recap photos go in Party Control after the room.").font(.footnote).foregroundColor(NativeTheme.textSecondary)
         }
     }
@@ -1328,19 +1335,19 @@ struct NativePartyPendingImage: Identifiable {
     static let maxPixelDimension: CGFloat = 1600
     static let maxByteCount = 600_000
 
-    /// Every guest surface crops the cover to its own height, so the shape a
-    /// host should hand us is declared once here and stated in the editor.
-    /// 3:2 at the pixel ceiling above.
-    static let coverAspectRatio: CGFloat = 3.0 / 2.0
-    static let coverPixelSize = CGSize(width: 1600, height: 1067)
-    static var coverSpecLabel: String {
-        "\(Int(coverPixelSize.width)) × \(Int(coverPixelSize.height)) · 3:2 landscape"
+    /// The App Clip hero sizes its cover box to the cover's own shape, clamped
+    /// between 4:5 and 3:2, and shows the cover whole inside it. Mirrors
+    /// `ClipPartyPoster.boxAspectRatio(for:)` so the editor tile previews the
+    /// box a guest gets.
+    static let coverTallestAspectRatio: CGFloat = 4.0 / 5.0
+    static let coverWidestAspectRatio: CGFloat = 3.0 / 2.0
+    static func coverBoxAspectRatio(for size: CGSize) -> CGFloat {
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return coverWidestAspectRatio }
+        return min(max(size.width / size.height, coverTallestAspectRatio), coverWidestAspectRatio)
     }
 
-    /// Album and recap photos keep the shape the host chose. Covers are
-    /// normalised, because every guest surface crops the cover to its own
-    /// height and five surfaces cropping five different shapes is not
-    /// something a host can frame for.
+    /// Album, recap photos and covers all keep the shape the host chose; the
+    /// Clip fits a cover whole rather than cropping it.
     enum Shape {
         case original
         case cover
@@ -1359,35 +1366,11 @@ struct NativePartyPendingImage: Identifiable {
         let pixelWidth = image.size.width * image.scale
         let pixelHeight = image.size.height * image.scale
         guard pixelWidth >= 1, pixelHeight >= 1 else { return nil }
-        let size: CGSize
-        let drawRect: CGRect
-        switch shape {
-        case .original:
-            let scale = min(1, Self.maxPixelDimension / max(pixelWidth, pixelHeight))
-            size = CGSize(width: max(1, (pixelWidth * scale).rounded()), height: max(1, (pixelHeight * scale).rounded()))
-            drawRect = CGRect(origin: .zero, size: size)
-        case .cover:
-            // `coverPixelSize` is a ceiling, not a guarantee: a source that
-            // cannot cover the box on both axes is emitted at 3:2 in the
-            // largest size it can fill, because upscaling to reach the box
-            // would invent rows.
-            let box = Self.coverPixelSize
-            let fit = min(1, pixelWidth / box.width, pixelHeight / box.height)
-            size = CGSize(width: max(1, (box.width * fit).rounded()), height: max(1, (box.height * fit).rounded()))
-            // Centre crop by drawing the source scaled to fill and letting the
-            // renderer's bounds take the middle.
-            let fill = max(size.width / pixelWidth, size.height / pixelHeight)
-            let drawSize = CGSize(width: pixelWidth * fill, height: pixelHeight * fill)
-            drawRect = CGRect(
-                x: (size.width - drawSize.width) / 2,
-                y: (size.height - drawSize.height) / 2,
-                width: drawSize.width,
-                height: drawSize.height
-            )
-        }
+        let scale = min(1, Self.maxPixelDimension / max(pixelWidth, pixelHeight))
+        let size = CGSize(width: max(1, (pixelWidth * scale).rounded()), height: max(1, (pixelHeight * scale).rounded()))
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
-        let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: drawRect) }
+        let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
         var quality: CGFloat = 0.82
         var data = rendered.jpegData(compressionQuality: quality)
         while let current = data, current.count > Self.maxByteCount, quality > 0.32 {

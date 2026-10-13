@@ -676,6 +676,18 @@ enum BytspotAviationFallbackTests {
         )
         let previewPayload: [String: Any] = ["id": "party-preview-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "accessMode": "free-rsvp", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Demo Host", "locationLabel": "Sample Venue", "locationDisclosure": "public"]
         precondition(PartyPassInvite.fromPayload(previewPayload)?.displayPosterURL == nil, "Party Loop: the deterministic App Clip preview must not depend on stock remote media.")
+        assertPartyPosterBoxContract()
+    }
+
+    private static func assertPartyPosterBoxContract() {
+        func box(_ width: CGFloat, _ height: CGFloat) -> CGFloat { ClipPartyPoster.boxAspectRatio(for: CGSize(width: width, height: height)) }
+        func near(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) < 0.0001 }
+        precondition(near(box(1600, 1067), 1600.0 / 1067.0), "Party poster: a published 3:2 cover keeps its own box.")
+        precondition(near(box(2900, 1000), 3.0 / 2.0), "Party poster: a 2.9:1 panorama is clamped to a 3:2 box.")
+        precondition(near(box(1080, 1350), 4.0 / 5.0), "Party poster: a 4:5 flyer keeps its own box.")
+        precondition(near(box(1080, 1920), 4.0 / 5.0), "Party poster: a 9:16 flyer is clamped to a 4:5 box.")
+        precondition(near(box(1000, 1000), 1), "Party poster: a square cover keeps a square box.")
+        precondition(near(box(0, 0), 3.0 / 2.0) && near(box(1200, 0), 3.0 / 2.0), "Party poster: an unknown size falls back to the published 3:2 box.")
     }
 }
 #endif

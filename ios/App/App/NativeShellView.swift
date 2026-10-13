@@ -9157,6 +9157,10 @@ enum NativeManualCheckInStore {
     }
 
     static func expireLegacyGlobalRecords() {
+        // Removing an absent key still posts a defaults-changed notification,
+        // which re-renders every @AppStorage view; called from a body, that
+        // loops forever and freezes Profile.
+        guard UserDefaults.standard.object(forKey: legacyStorageKey) != nil else { return }
         UserDefaults.standard.removeObject(forKey: legacyStorageKey)
     }
 

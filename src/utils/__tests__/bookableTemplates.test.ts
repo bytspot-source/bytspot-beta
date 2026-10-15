@@ -271,16 +271,15 @@ test('the five rails that used to resolve to nothing now carry inventory', () =>
   assert.equal(getBookableTemplate('fitness.group-class')?.timing.etaKind, 'none');
 });
 
-test('the native Discover feed reads its rail from the contract, not its own list', () => {
+test('the native Discover feed never pads a rail with generated cards', () => {
   const clientPath = join(dirname(fileURLToPath(import.meta.url)), '../../../ios/App/App/BytspotAPIClient.swift');
   const swift = readFileSync(clientPath, 'utf8');
 
-  // The rail and its minimum counts were hand-kept here and drifted: Services
-  // lost its feed while Cottage vendors were publishing into it.
+  // Rails used to be topped up to a minimum count with "Starter pick" clones.
+  // A thin rail now stays thin; only real listings appear.
   assert.equal(swift.includes('minimumCategoryFeedCounts'), false, 'the hardcoded feed count list is back');
-  assert.match(swift, /discoverFeedCategories/);
-  assert.match(swift, /visibleDiscoverCategories\(\)\.map \{ \(\$0\.id, \$0\.minimumFeedCount\) \}/);
-  assert.match(swift, /for \(type, target\) in discoverFeedCategories/);
+  assert.equal(swift.includes('discoverFeedCategories'), false, 'rail padding to a minimum count is back');
+  assert.doesNotMatch(swift, /func (ensureCategoryCoverage|categoryCoverageCard|categoryStarterCard)\b/);
 
   // Services is the rail that went missing, so it must carry a real count.
   assert.equal(getDiscoverCategory('service')?.minimumFeedCount, 3);

@@ -3223,9 +3223,8 @@ enum NativeDiscoverCardControl {
     static let local = "local"
     static let vendor = "vendor"
 
-    /// Legacy controlled listings. Broni's sample partner identity is not
-    /// connected supply; only real supplied authorization may grant control.
-    static let controlledCardIDs: Set<String> = ["gh-akwaaba-pass", "service-valet-ride", "group-transport"]
+    /// No listing is controlled by its ID alone; only real supplied authorization may grant control.
+    static let controlledCardIDs: Set<String> = []
 
     static func isControlled(cardID: String) -> Bool { controlledCardIDs.contains(cardID) }
 
@@ -3671,8 +3670,20 @@ struct NativeTabContentSnapshot: Equatable {
         }
     }
 
+    /// Identities of the retired offline fixtures. Seeded copies can still
+    /// arrive from the API and must not pass as live inventory.
+    private static let retiredFixtureVenues: [(id: String, name: String, latitude: Double, longitude: Double)] = [
+        ("colony-square", "Colony Square", 33.7878, -84.3832),
+        ("midtown-smart-parking", "Midtown Smart Parking", 33.7900, -84.3890),
+        ("arts-center-access", "Arts Center Access", 33.7790, -84.3760),
+    ]
+    private static let retiredFixtureEvents: [(id: String, title: String, venue: String)] = [
+        ("fifa-gh", "GH Akwaaba FIFA Matchday", "Mercedes-Benz Stadium"),
+        ("midtown-live", "Midtown Live Lounge", "Colony Square"),
+    ]
+
     static func isFallbackVenueFixture(_ venue: NativeVenueSummary) -> Bool {
-        fallbackVenues.contains { fixture in
+        retiredFixtureVenues.contains { fixture in
             venue.id.caseInsensitiveCompare(fixture.id) == .orderedSame
                 || (venue.name.caseInsensitiveCompare(fixture.name) == .orderedSame
                     && abs(venue.latitude - fixture.latitude) < 0.000_001
@@ -3681,7 +3692,7 @@ struct NativeTabContentSnapshot: Equatable {
     }
 
     static func isFallbackEventFixture(_ event: NativeEventSummary) -> Bool {
-        fallbackEvents.contains { fixture in
+        retiredFixtureEvents.contains { fixture in
             event.id.caseInsensitiveCompare(fixture.id) == .orderedSame
                 || (event.title.caseInsensitiveCompare(fixture.title) == .orderedSame
                     && event.venue.caseInsensitiveCompare(fixture.venue) == .orderedSame)
@@ -3814,7 +3825,7 @@ final class NativeTabContentStore: ObservableObject {
             snapshotOrigin = location
             bestValueOrigin = nil
             let fallback = Self.locationAwareSnapshot(.fallback, location: location)
-            snapshot = NativeTabContentSnapshot(venues: [], discoverCards: fallback.discoverCards, events: Self.visibleEvents([], location: location), source: .fallback, lastUpdated: Date(), errorMessage: "Fresh picks aren't available right now. Showing saved suggestions.")
+            snapshot = NativeTabContentSnapshot(venues: [], discoverCards: fallback.discoverCards, events: Self.visibleEvents([], location: location), source: .fallback, lastUpdated: Date(), errorMessage: "Picks near you aren't available right now. Try again shortly.")
         }
     }
 
@@ -3997,8 +4008,7 @@ final class NativeTabContentStore: ObservableObject {
 
     static func discoverCards(from venues: [NativeVenueSummary], services: [NativeDiscoverSummary] = []) -> [NativeDiscoverSummary] {
         let venueCards = venueDiscoverCards(from: venues)
-        let combined = Array(services + venueCards)
-        return combined.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : combined
+        return Array(services + venueCards)
     }
 
     static func homeDiscoverCards(venues: [NativeVenueSummary], events: [NativeEventSummary]) -> [NativeDiscoverSummary] {
@@ -4011,9 +4021,7 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     static func liveDiscoverCards(apiCards: [NativeDiscoverSummary], venues: [NativeVenueSummary], events: [NativeEventSummary] = [], services: [NativeDiscoverSummary] = [], placeCards: [NativeDiscoverSummary] = [], parties: [NativeDiscoverSummary] = [], valueOptions: [NativeLiveValueOption] = [], location: NativeLocationCoordinate = .midtown) -> [NativeDiscoverSummary] {
-        guard !location.isFallback else {
-            return locationAwareCards(NativeTabContentSnapshot.unresolved.discoverCards, sourceVenues: [], location: location)
-        }
+        guard !location.isFallback else { return [] }
         var merged: [NativeDiscoverSummary] = []
         // Open-door gatherings lead on scarcity, not preference: a venue is
         // still there tomorrow, a gathering has finite seats and ends tonight.
@@ -4028,79 +4036,34 @@ final class NativeTabContentStore: ObservableObject {
         appendUnique(eventDiscoverCards(from: events), to: &merged)
         appendUnique(nightlifeEventDiscoverCards(from: events), to: &merged)
         appendUnique(services, to: &merged)
-        let base = merged.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : merged
-        let complete = mergeBestValueCards(location.isFallback ? [] : valueOptions, into: ensureCategoryCoverage(base))
+        let complete = mergeBestValueCards(valueOptions, into: withRideHandoff(merged))
         return locationAwareCards(complete, sourceVenues: venues, location: location)
     }
 
     static func source(forVisibleDeck cards: [NativeDiscoverSummary], hasLiveInputs: Bool) -> NativeTabContentSnapshot.Source {
-        let curatedIDs = Set((NativeTabContentSnapshot.fallback.discoverCards + NativeTabContentSnapshot.specialDiscoverCards).map(\.id))
         let hasLiveCards = hasLiveInputs || cards.contains { card in
             card.badgeText.localizedCaseInsensitiveContains("LIVE")
                 || card.badgeText.localizedCaseInsensitiveContains("APPLE MAPS")
                 || card.badgeText.localizedCaseInsensitiveContains("GOOGLE")
                 || card.badgeText.localizedCaseInsensitiveContains("BEST VALUE")
         }
-        let hasCuratedCards = cards.contains { card in
-            card.badgeText.localizedCaseInsensitiveContains("CURATED")
-                || card.id.hasPrefix("starter-")
-                || curatedIDs.contains(card.id)
-        }
+        let hasCuratedCards = cards.contains { $0.badgeText.localizedCaseInsensitiveContains("CURATED") }
         if hasLiveCards && hasCuratedCards { return .mixed }
         if hasLiveCards { return .live }
         return hasCuratedCards || !cards.isEmpty ? .fallback : .fallback
     }
 
-    /// The Discover rail and its minimum card counts come from the shared
-    /// bookable-templates contract. They used to be two hand-kept lists here,
-    /// which drifted: the Services rail lost its feed while Cottage vendors
-    /// were publishing into it.
-    private static let discoverFeedCategories: [(id: String, minimum: Int)] = {
-        guard let catalog = BookableTemplateCatalog.shared else { return [] }
-        return catalog.visibleDiscoverCategories().map { ($0.id, $0.minimumFeedCount) }
-    }()
+    /// Categories are never padded with generated cards. The one exception is
+    /// Mobility: with no ride listings, it offers the Uber / Lyft handoff,
+    /// which is an action rather than a listing.
+    nonisolated static let rideHandoffCardID = "starter-mobility-1"
 
-    private static func ensureCategoryCoverage(_ cards: [NativeDiscoverSummary]) -> [NativeDiscoverSummary] {
-        var covered = cards
-        for (type, target) in discoverFeedCategories {
-            var categoryCards = covered.filter { $0.type == type }
-            if categoryCards.isEmpty, let starter = categoryStarterCard(type: type, index: 1) {
-                appendUnique([starter], to: &covered)
-                categoryCards = [starter]
-            }
-            while categoryCards.count < target, let template = categoryCards.first {
-                let next = categoryCoverageCard(from: template, type: type, index: categoryCards.count + 1)
-                appendUnique([next], to: &covered)
-                categoryCards.append(next)
-            }
-        }
-        return covered
+    nonisolated static var rideHandoffCard: NativeDiscoverSummary {
+        NativeDiscoverSummary(id: rideHandoffCardID, type: "mobility", title: "Get a Ride", subtitle: "Open Uber or Lyft with your pickup and drop-off.", distance: "Nearby", rating: "Uber · Lyft", icon: icon(for: "mobility"), verified: false, entryType: "free", cta: "Get a ride", imageUrl: nil, categoryLabel: "Mobility", badgeText: "UBER · LYFT", metadataLine: "Ride handoff", features: ["Mobility", "Uber", "Lyft"], vibeScore: 6, availability: "Available", membershipRequired: false)
     }
 
-    private static func categoryCoverageCard(from template: NativeDiscoverSummary, type: String, index: Int) -> NativeDiscoverSummary {
-        let label = label(for: type)
-        let prefixes = ["Best", "Nearby", "For you", "Tonight", "Popular", "Local", "Worth it", "Quick pick"]
-        let prefix = prefixes[(index - 1) % prefixes.count]
-        let live = template.badgeText.localizedCaseInsensitiveContains("LIVE") || template.metadataLine.localizedCaseInsensitiveContains("API")
-        // Coverage clones are synthetic rail filler: never controlled, even when
-        // cloned from a vendor card, so they can't inherit menu/booking chrome.
-        return NativeDiscoverSummary(id: "coverage-\(type)-\(index)-\(template.id)", type: type, title: "\(prefix) \(label): \(template.title)", subtitle: template.subtitle, distance: template.distance, rating: template.rating, icon: icon(for: type), verified: template.verified, entryType: template.entryType, cta: template.cta, imageUrl: template.imageUrl, categoryLabel: label, badgeText: live ? "LIVE API" : "CURATED", metadataLine: template.metadataLine, features: Array(([label, live ? "API powered" : "Starter pick"] + template.features).prefix(4)), vibeScore: min(10, template.vibeScore + 1), availability: template.availability, membershipRequired: template.membershipRequired, control: NativeDiscoverCardControl.local, latitude: template.latitude, longitude: template.longitude)
-    }
-
-    private static func categoryStarterCard(type: String, index: Int) -> NativeDiscoverSummary? {
-        if let existing = NativeTabContentSnapshot.fallback.discoverCards.first(where: { $0.type == type }) {
-            return existing
-        }
-        let label = label(for: type)
-        let copy: (title: String, subtitle: String, cta: String) = {
-            switch type {
-            case "shopping": return ("Shopping Around You", "Markets, gifts, fashion, boutiques, and local retail picks.", "Explore Shops")
-            case "mobility": return ("Get a Ride", "Open Uber or Lyft with your pickup and drop-off.", "Get a ride")
-            case "boutique_apartment": return ("Boutique Stay Nearby", "Short stays, retreats, resorts, and unique lodging options.", "View Stay")
-            default: return ("\(label) Nearby", "Starter picks while live inventory grows around you.", "Explore")
-            }
-        }()
-        return NativeDiscoverSummary(id: "starter-\(type)-\(index)", type: type, title: copy.title, subtitle: copy.subtitle, distance: "Nearby", rating: "Starter", icon: icon(for: type), verified: false, entryType: "free", cta: copy.cta, imageUrl: nil, categoryLabel: label, badgeText: "CURATED", metadataLine: "Starter feed", features: [label, "Starter pick", "More coming"], vibeScore: 6, availability: "Available", membershipRequired: false)
+    private static func withRideHandoff(_ cards: [NativeDiscoverSummary]) -> [NativeDiscoverSummary] {
+        cards.contains(where: { $0.type == "mobility" }) ? cards : cards + [rideHandoffCard]
     }
 
     private static func appendUnique(_ cards: [NativeDiscoverSummary], to merged: inout [NativeDiscoverSummary]) {
@@ -4309,14 +4272,9 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private static func locationAwareSnapshot(_ snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate) -> NativeTabContentSnapshot {
-        let venues = snapshot.source == .fallback ? fallbackVenues(for: location) : locationAwareVenues(snapshot.venues, location: location)
+        let venues = locationAwareVenues(snapshot.venues, location: location)
         let cards = locationAwareCards(snapshot.discoverCards, sourceVenues: snapshot.venues, location: location)
         return NativeTabContentSnapshot(venues: venues, discoverCards: cards, events: visibleEvents(snapshot.events, location: location), source: snapshot.source, lastUpdated: snapshot.lastUpdated, errorMessage: snapshot.errorMessage, bestValueOptions: location.isFallback ? [] : snapshot.bestValueOptions, hasLiveVenueInventory: snapshot.hasLiveVenueInventory, hasLiveEventInventory: snapshot.hasLiveEventInventory)
-    }
-
-    static func fallbackVenues(for location: NativeLocationCoordinate) -> [NativeVenueSummary] {
-        guard canUseCurrentEventFeed(at: location) else { return [] }
-        return locationAwareVenues(NativeTabContentSnapshot.fallbackVenues, location: location)
     }
 
     static func locationAwareVenues(_ venues: [NativeVenueSummary], location: NativeLocationCoordinate) -> [NativeVenueSummary] {
@@ -4329,11 +4287,7 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     static func locationAwareCards(_ cards: [NativeDiscoverSummary], sourceVenues: [NativeVenueSummary], location: NativeLocationCoordinate) -> [NativeDiscoverSummary] {
-        let fallbackCards = NativeTabContentSnapshot.fallbackDiscoverCards
-        let specialCards = NativeTabContentSnapshot.specialDiscoverCards
-        let curatedIDs = Set((fallbackCards + specialCards).map(\.id))
         let isAtlantaRegion = canUseCurrentEventFeed(at: location)
-        let venueCandidates = sourceVenues + (isAtlantaRegion ? NativeTabContentSnapshot.fallbackVenues : [])
         return cards.compactMap { card in
             // Nearby is already a geographic query; validate its coordinates
             // without matching it to an unrelated venue by title or ID fragment.
@@ -4343,42 +4297,27 @@ final class NativeTabContentStore: ObservableObject {
                       miles.isFinite, miles <= localVenueRadiusMiles else { return nil }
                 return card
             }
-            let canonicalID = curatedIDs.first { card.id == $0 || card.id.contains($0) }
+            if card.id == rideHandoffCardID { return location.isFallback ? nil : card }
             let hasPlaceProviderBadge = card.badgeText.localizedCaseInsensitiveContains("APPLE MAPS") || card.badgeText.localizedCaseInsensitiveContains("GOOGLE PLACES")
             let isLocalPlaceCard = hasPlaceProviderBadge && hasMeasuredLocalDistance(card.distance)
             let isLocationQueriedValueCard = card.badgeText.localizedCaseInsensitiveContains("BEST VALUE")
-            if location.isFallback {
-                guard canonicalID != nil,
-                      !specialCards.contains(where: { card.id == $0.id || card.id.contains($0.id) }),
-                      !card.id.contains("midtown-boutique-suite") else { return nil }
-                return genericCuratedCard(card)
-            }
-            if !isAtlantaRegion,
-               (specialCards.contains { card.id == $0.id || card.id.contains($0.id) } || card.id.contains("midtown-boutique-suite")) { return nil }
-            let venue = venueCandidates.first { $0.name.caseInsensitiveCompare(card.title) == .orderedSame || card.id.contains($0.id) }
+            if location.isFallback { return nil }
+            let venue = sourceVenues.first { $0.name.caseInsensitiveCompare(card.title) == .orderedSame || card.id.contains($0.id) }
             if let venue {
                 guard let miles = location.distanceMiles(toLatitude: venue.latitude, longitude: venue.longitude),
                       miles <= localVenueRadiusMiles else { return nil }
             }
             let isTrustedAtlantaNightlifeSuggestion = isAtlantaRegion
                 && (card.id.hasPrefix("nightlife-event-") || card.id.hasPrefix("starter-") || card.badgeText.localizedCaseInsensitiveContains("CURATED"))
-            if card.type == "nightlife", !curatedIDs.contains(card.id), !isLocalPlaceCard, !isTrustedAtlantaNightlifeSuggestion {
+            if card.type == "nightlife", !isLocalPlaceCard, !isTrustedAtlantaNightlifeSuggestion {
                 guard let venue,
                       let miles = location.distanceMiles(toLatitude: venue.latitude, longitude: venue.longitude),
                       miles <= nightlifeRadiusMiles else { return nil }
-            }
-            if !isAtlantaRegion,
-               canonicalID != nil || card.id.hasPrefix("starter-") || card.badgeText.localizedCaseInsensitiveContains("CURATED") {
-                return genericCuratedCard(card)
             }
             if !isAtlantaRegion, venue == nil, !isLocalPlaceCard, !isLocationQueriedValueCard { return nil }
             guard let venue, let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) else { return card }
             return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, control: card.control, latitude: card.latitude, longitude: card.longitude, address: card.address)
         }
-    }
-
-    private static func genericCuratedCard(_ card: NativeDiscoverSummary) -> NativeDiscoverSummary {
-        NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: "Nearby", rating: "Explore", icon: card.icon, verified: false, entryType: "free", cta: "Explore", imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: "CURATED", metadataLine: "Suggestions for your area", features: [card.categoryLabel, "Local ideas", "Check nearby"], vibeScore: card.vibeScore, availability: "Check nearby", membershipRequired: false)
     }
 
     private static func hasMeasuredLocalDistance(_ value: String) -> Bool {
@@ -4775,41 +4714,13 @@ final class NativeTabContentStore: ObservableObject {
 }
 
 extension NativeTabContentSnapshot {
-    static let fallbackVenues = [
-        NativeVenueSummary(id: "colony-square", name: "Colony Square", category: "dining", address: "1197 Peachtree St NE", distance: "0.4 mi", rating: 4.8, latitude: 33.7878, longitude: -84.3832, crowd: NativeCrowdSummary(level: 2, label: "Active", waitMins: 5), parking: NativeParkingSummary(totalAvailable: 14, priceLabel: "$8/hr"), verifiedPatchId: "BYT424-0301-P", imageUrl: URL(string: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=900&q=80")),
-        NativeVenueSummary(id: "midtown-smart-parking", name: "Midtown Smart Parking", category: "parking", address: "1380 W Peachtree St NW", distance: "0.6 mi", rating: 4.5, latitude: 33.7900, longitude: -84.3890, crowd: NativeCrowdSummary(level: 1, label: "Chill", waitMins: 0), parking: NativeParkingSummary(totalAvailable: 22, priceLabel: "$8/hr"), verifiedPatchId: nil, imageUrl: URL(string: "https://images.unsplash.com/photo-1506521781263-d8422e82f27a?auto=format&fit=crop&w=900&q=80")),
-        NativeVenueSummary(id: "arts-center-access", name: "Arts Center Access", category: "entertainment", address: "15th St NE", distance: "0.8 mi", rating: 4.7, latitude: 33.7790, longitude: -84.3760, crowd: NativeCrowdSummary(level: 3, label: "Busy", waitMins: 8), parking: NativeParkingSummary(totalAvailable: 38, priceLabel: "$12/hr"), verifiedPatchId: "BYT424-ARTS-P", imageUrl: URL(string: "https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?auto=format&fit=crop&w=900&q=80"))
-    ]
-
-    static let canonicalMobilityCards = [
-        NativeDiscoverSummary(id: "service-valet-ride", type: "mobility", title: "Private Airport Transfer", subtitle: "Request an airport transfer with clear pricing, vehicle fit, and My Access review.", distance: "Mobility", rating: "4.9", icon: "airplane.departure", verified: true, entryType: "paid", cta: "Request Transfer", imageUrl: URL(string: "https://images.unsplash.com/photo-1449965408869-eaa3f722e40d?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Mobility", badgeText: "Airport Ride", metadataLine: "Bytspot · Airport", features: ["Review estimate", "Authorization request", "My Access status"], vibeScore: 8, availability: "Estimate + review", membershipRequired: true, control: NativeDiscoverCardControl.vendor),
-        NativeDiscoverSummary(id: "group-transport", type: "mobility", title: "Group Transport", subtitle: "Plan vans, event shuttles, and private buses for a crew or airport transfer.", distance: "Group", rating: "4.8", icon: "bus.fill", verified: true, entryType: "paid", cta: "Plan Group Ride", imageUrl: URL(string: "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Mobility", badgeText: "Group Ride", metadataLine: "Vans · Shuttles · Private buses", features: ["Event shuttle", "Group ride", "Private bus"], vibeScore: 7, availability: "Request quote", membershipRequired: true, control: NativeDiscoverCardControl.vendor)
-    ]
-
-    static let canonicalServiceCards = [
-        NativeDiscoverSummary(id: "broni-home-taste", type: "service", title: "Broni Home Taste", subtitle: "First restaurant partner profile. Current menu and fulfillment details have not been supplied.", distance: "Service", rating: "New", icon: "fork.knife", verified: false, entryType: "free", cta: "Details", imageUrl: nil, categoryLabel: "Dining", badgeText: "Dining", metadataLine: "Partner profile · fulfillment not connected", features: [], vibeScore: 0, availability: "Details only", membershipRequired: false, control: NativeDiscoverCardControl.local),
-        NativeDiscoverSummary(id: "gh-akwaaba-pass", type: "service", title: "GH Akwaaba Pass", subtitle: "Ghana matchday access, ready on your phone.", distance: "Pass", rating: "4.9", icon: "ticket.fill", verified: true, entryType: "paid", cta: "View Pass", imageUrl: URL(string: "https://images.unsplash.com/photo-1522778119026-d647f0596c20?auto=format&fit=crop&w=1200&q=88"), categoryLabel: "Event Pass", badgeText: "Event Pass", metadataLine: "$50 • Digital pass ready", features: ["Fast-track entry", "VIP lounge access", "Digital pass delivery"], vibeScore: 9, availability: "Digital pass ready", membershipRequired: true, control: NativeDiscoverCardControl.vendor)
-    ]
-
-    static let specialDiscoverCards = canonicalMobilityCards + canonicalServiceCards
-
-    static let fallbackDiscoverCards = [
-        NativeDiscoverSummary(id: "coffee-walk", type: "coffee", title: "Morning Coffee Walk", subtitle: "Low-key cafés and brunch spots to explore around your area.", distance: "Nearby", rating: "Explore", icon: "cup.and.saucer.fill", verified: false, entryType: "free", cta: "Open details", imageUrl: URL(string: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Coffee", badgeText: "CURATED", metadataLine: "Suggestions for your area", features: ["Coffee", "Brunch", "Local ideas"], vibeScore: 6, availability: "Check nearby", membershipRequired: false),
-        NativeDiscoverSummary(id: "midtown-boutique-suite", type: "boutique_apartment", title: "Midtown Boutique Suite", subtitle: "Furnished short-stay ideas with secure entry and host support.", distance: "Midtown", rating: "Explore", icon: "house.fill", verified: false, entryType: "free", cta: "Explore", imageUrl: URL(string: "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=900&q=84"), categoryLabel: "Boutique Stay", badgeText: "CURATED", metadataLine: "Explore Midtown stays", features: ["Short stays", "Secure entry", "Host support"], vibeScore: 8, availability: "Check availability", membershipRequired: false),
-        NativeDiscoverSummary(id: "dinner-vibe", type: "dining", title: "Dinner Spots That Match Your Vibe", subtitle: "Restaurant ideas for food, dates, and group plans.", distance: "Nearby", rating: "Explore", icon: "fork.knife", verified: false, entryType: "free", cta: "Explore", imageUrl: URL(string: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Dining", badgeText: "CURATED", metadataLine: "Suggestions for your area", features: ["Dining", "Date night", "Local ideas"], vibeScore: 7, availability: "Check nearby", membershipRequired: false),
-        NativeDiscoverSummary(id: "nightlife-momentum", type: "nightlife", title: "Nightlife Near You", subtitle: "Bars, lounges, and live music to explore around your area.", distance: "Nearby", rating: "Explore", icon: "music.note", verified: false, entryType: "free", cta: "Explore", imageUrl: URL(string: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Nightlife", badgeText: "CURATED", metadataLine: "Around your area", features: ["Bars", "Live music", "Nightlife"], vibeScore: 8, availability: "Explore nearby", membershipRequired: false),
-        NativeDiscoverSummary(id: "smart-parking", type: "parking", title: "Smart Parking Before You Arrive", subtitle: "Parking ideas around your next destination.", distance: "Nearby", rating: "Explore", icon: "parkingsign.circle.fill", verified: false, entryType: "free", cta: "Explore", imageUrl: URL(string: "https://images.unsplash.com/photo-1506521781263-d8422e82f27a?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Parking", badgeText: "CURATED", metadataLine: "Suggestions for your area", features: ["Parking", "Plan ahead", "Local ideas"], vibeScore: 3, availability: "Check nearby", membershipRequired: false),
-        NativeDiscoverSummary(id: "events-worth", type: "entertainment", title: "Events Worth Leaving For", subtitle: "Shows, music, and experiences aligned with your interests.", distance: "Nearby", rating: "Explore", icon: "ticket.fill", verified: false, entryType: "free", cta: "Explore", imageUrl: URL(string: "https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Events", badgeText: "CURATED", metadataLine: "Suggestions for your area", features: ["Events", "Music", "Local ideas"], vibeScore: 7, availability: "Check nearby", membershipRequired: false),
-        NativeDiscoverSummary(id: "wellness-reset", type: "fitness", title: "Wellness Reset Nearby", subtitle: "Gyms, recovery, and movement ideas for a wellness day.", distance: "Nearby", rating: "Explore", icon: "figure.mind.and.body", verified: false, entryType: "free", cta: "Explore", imageUrl: URL(string: "https://images.unsplash.com/photo-1518611012118-696072aa579a?auto=format&fit=crop&w=900&q=80"), categoryLabel: "Fitness", badgeText: "CURATED", metadataLine: "Suggestions for your area", features: ["Fitness", "Wellness", "Local ideas"], vibeScore: 5, availability: "Check nearby", membershipRequired: false)
-    ]
-
-    static let fallbackEvents = [
-        NativeEventSummary(id: "fifa-gh", title: "GH Akwaaba FIFA Matchday", venue: "Mercedes-Benz Stadium", time: "Tonight", price: "Platinum", emoji: "🇬🇭", imageUrl: URL(string: "https://images.unsplash.com/photo-1522778119026-d647f0596c20?auto=format&fit=crop&w=900&q=80"), address: "1 AMB Dr NW, Atlanta, GA 30313", latitude: 33.7553, longitude: -84.4006),
-        NativeEventSummary(id: "midtown-live", title: "Midtown Live Lounge", venue: "Colony Square", time: "8:00 PM", price: "Free", emoji: "🎶", imageUrl: URL(string: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=900&q=80"), address: "1197 Peachtree St NE, Atlanta, GA 30361", latitude: 33.7851, longitude: -84.3834)
-    ]
+    // Bytspot ships no invented venues, cards or events: with nothing live, the deck is empty.
+    static let fallbackVenues: [NativeVenueSummary] = []
+    static let fallbackDiscoverCards: [NativeDiscoverSummary] = []
+    static let fallbackEvents: [NativeEventSummary] = []
 
     static let fallback = NativeTabContentSnapshot(venues: fallbackVenues, discoverCards: fallbackDiscoverCards, events: fallbackEvents, source: .fallback, lastUpdated: nil, errorMessage: nil)
-    static let unresolved = NativeTabContentSnapshot(venues: [], discoverCards: fallbackDiscoverCards.filter { $0.id != "midtown-boutique-suite" }, events: [], source: .fallback, lastUpdated: nil, errorMessage: nil)
+    static let unresolved = NativeTabContentSnapshot(venues: [], discoverCards: [], events: [], source: .fallback, lastUpdated: nil, errorMessage: nil)
 }
 
 /// A Traffic Intel report from `mapReports`. Never says who reported or voted;

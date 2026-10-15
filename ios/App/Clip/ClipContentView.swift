@@ -209,11 +209,90 @@ private struct ClipPartyInviteStateView: View {
 
 // MARK: - Party Pass
 
-/// The shape Host Studio declares to hosts (1600x1067) and centre-crops covers
-/// to on publish. The hero pins itself to this ratio off the container width so
-/// a poster framed against that spec arrives uncropped and never resizes the card.
+/// Host Studio publishes a cover in its own shape. The hero box takes that
+/// shape, clamped so a panorama cannot shrink the card to a strip and a tall
+/// flyer cannot push the invitation off the screen. Host Studio's editor tile
+/// mirrors this rule in `NativePartyPendingImage.coverBoxAspectRatio(for:)`.
 enum ClipPartyPoster {
-    static let aspectRatio: CGFloat = 3.0 / 2.0
+    static let tallestAspectRatio: CGFloat = 4.0 / 5.0
+    static let widestAspectRatio: CGFloat = 3.0 / 2.0
+
+    /// Width over height. An unknown or degenerate size falls back to 3:2,
+    /// the shape every previously published cover already has.
+    static func boxAspectRatio(for size: CGSize) -> CGFloat {
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return widestAspectRatio }
+        return min(max(size.width / size.height, tallestAspectRatio), widestAspectRatio)
+    }
+}
+
+/// Loads a poster once so the hero can size its box from the bitmap and draw
+/// it twice (fitted, plus a blurred fill behind it) without a second fetch.
+@MainActor
+private final class ClipPosterImageLoader: ObservableObject {
+    @Published private(set) var image: UIImage?
+    @Published private(set) var fill: UIImage?
+    private var loadedURL: URL?
+
+    func load(_ url: URL) async {
+        guard loadedURL != url else { return }
+        loadedURL = url
+        image = nil
+        fill = nil
+        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
+        let (decoded, backdrop) = await Task.detached(priority: .userInitiated) { () -> (UIImage?, UIImage?) in
+            guard let decoded = UIImage(data: data)?.preparingForDisplay() ?? UIImage(data: data) else { return (nil, nil) }
+            return (decoded, Self.boxFill(for: decoded))
+        }.value
+        guard loadedURL == url, let decoded else { return }
+        image = decoded
+        fill = backdrop
+    }
+
+    /// The bitmap aspect-filled into the box's own shape, drawn small because
+    /// it is only ever shown blurred. Cropped here rather than by `scaledToFill`
+    /// so the fill layer is exactly box-sized and never measures wider.
+    nonisolated static func boxFill(for image: UIImage) -> UIImage? {
+        let source = image.size
+        guard source.width > 0, source.height > 0 else { return nil }
+        let ratio = ClipPartyPoster.boxAspectRatio(for: source)
+        let target = CGSize(width: 240, height: (240 / ratio).rounded())
+        let scale = max(target.width / source.width, target.height / source.height)
+        let drawn = CGSize(width: source.width * scale, height: source.height * scale)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            image.draw(in: CGRect(x: (target.width - drawn.width) / 2, y: (target.height - drawn.height) / 2, width: drawn.width, height: drawn.height))
+        }
+    }
+}
+
+/// The cover drawn whole inside a box the caller has already sized. Bars left
+/// by the fit are filled with a blurred, dimmed copy of the same bitmap. Both
+/// layers are exactly box-sized so neither can report the size it scaled to.
+private struct ClipPosterBox: View {
+    let image: UIImage?
+    let fill: UIImage?
+    let size: CGSize
+
+    var body: some View {
+        ZStack {
+            if let fill {
+                Image(uiImage: fill).resizable()
+                    .frame(width: size.width, height: size.height)
+                    .blur(radius: 22, opaque: true)
+                    .overlay(Color.black.opacity(0.38))
+                    .accessibilityHidden(true)
+            }
+            if let image {
+                Image(uiImage: image).resizable().scaledToFit()
+                    .frame(width: size.width, height: size.height)
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .clipped()
+    }
 }
 
 /// Fill-scaled image that reports the container's size, not the bitmap's.
@@ -222,10 +301,9 @@ enum ClipPartyPoster {
 /// ScrollView / ZStack that contains it.
 private struct ClipContainedFillImage: View {
     let url: URL
-    /// Filling is right for the hero, which is a poster-shaped card. It is
-    /// wrong full-bleed: covering a tall phone with a 3:2 poster scales it to
-    /// the screen height and leaves only the middle third of its width on
-    /// screen, so the poster reads as an enlarged fragment of itself.
+    /// Filling is wrong full-bleed: covering a tall phone with a 3:2 poster
+    /// scales it to the screen height and leaves only the middle third of its
+    /// width on screen, so the poster reads as an enlarged fragment of itself.
     var contentMode: ContentMode = .fill
 
     var body: some View {
@@ -269,6 +347,7 @@ struct PartyPassClipView: View {
     /// Resolves are also generation-bound. Access remains fail-closed after a
     /// scene transition until the current active scene has a fresh response.
     @State private var passResolverGeneration = UUID()
+    @StateObject private var posterLoader = ClipPosterImageLoader()
 
     /// Confirmed access turns the whole surface emerald: the guest is past the
     /// door decision, so the tier accent — which advertises what they had to
@@ -366,7 +445,7 @@ struct PartyPassClipView: View {
                         header
                         // The hero is pinned to the viewport width so a poster
                         // can never drive its own size: the padded content width
-                        // is the only bound that keeps a 3:2 card on-screen.
+                        // is the only bound that keeps the cover box on-screen.
                         hero(containerWidth: viewport.size.width - 40)
                         passSummary
                         attendeePassCard
@@ -394,6 +473,9 @@ struct PartyPassClipView: View {
         .sheet(isPresented: $showShareSheet) { ClipShareSheet(items: [invite.canonicalURL].compactMap { $0 }) }
         .accessibilityIdentifier("party-pass-clip")
         .task(id: invite.id) { await resolvePass() }
+        .task(id: invite.displayPosterURL) {
+            if let poster = invite.displayPosterURL { await posterLoader.load(poster) }
+        }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else {
                 invalidatePassResolution()
@@ -432,45 +514,101 @@ struct PartyPassClipView: View {
         }
     }
 
-    private func hero(containerWidth: CGFloat) -> some View {
-        ZStack(alignment: .bottomLeading) {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(LinearGradient(colors: [ClipTheme.panelElevated, ClipTheme.panel], startPoint: .topLeading, endPoint: .bottomTrailing))
-            if let poster = invite.displayPosterURL {
-                // Fitting, not filling: a host frames a flyer to be read, and
-                // a legacy poster that predates the 3:2 spec would otherwise
-                // lose whatever sits outside the crop.
-                ClipContainedFillImage(url: poster, contentMode: .fit)
+    private var heroSurface: some View {
+        RoundedRectangle(cornerRadius: 28, style: .continuous)
+            .fill(LinearGradient(colors: [ClipTheme.panelElevated, ClipTheme.panel], startPoint: .topLeading, endPoint: .bottomTrailing))
+    }
+
+    // The tier requirement is stated once, here. Repeating it beside this
+    // badge and again as a pass metric read as three separate rules rather
+    // than one.
+    private var heroBadge: some View {
+        HStack {
+            Text(tierPresentation.heroBadge).font(.system(size: 9, weight: .black, design: .rounded)).tracking(1.2)
+                .foregroundColor(accent).padding(.horizontal, 10).padding(.vertical, 7)
+                .background(Capsule().fill(Color.black.opacity(0.44))).overlay(Capsule().stroke(accent.opacity(0.42)))
+                .accessibilityIdentifier("party-pass-hero-badge")
+            Spacer()
+        }
+    }
+
+    private var heroTitle: some View {
+        Text(invite.title).font(.system(size: 36, weight: .bold, design: .serif)).foregroundColor(.white).lineLimit(3).minimumScaleFactor(0.78).fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("party-pass-hero-title")
+    }
+
+    @ViewBuilder private func hero(containerWidth: CGFloat) -> some View {
+        if invite.displayPosterURL != nil {
+            coverHero(containerWidth: containerWidth)
+        } else {
+            plainHero
+        }
+    }
+
+    /// The cover sits whole at the top of the card and the words sit under it,
+    /// so a flyer that carries its own type is never printed over.
+    private func coverHero(containerWidth: CGFloat) -> some View {
+        // The box is measured off the container width, never off the bitmap
+        // or the text: deriving height from an unbounded ScrollView let a
+        // portrait poster enlarge the whole template. Until the bitmap lands
+        // the box holds the 3:2 shape every earlier cover was published in.
+        let ratio = ClipPartyPoster.boxAspectRatio(for: posterLoader.image?.size ?? .zero)
+        let coverSize = CGSize(width: max(0, containerWidth), height: max(0, containerWidth) / ratio)
+        return VStack(alignment: .leading, spacing: 0) {
+            // VoiceOver gets one element the size of the box, not the bitmaps.
+            ClipPosterBox(image: posterLoader.image, fill: posterLoader.fill, size: coverSize)
+                .accessibilityHidden(true)
+                .overlay(
+                    Rectangle().fill(Color.clear).contentShape(Rectangle())
+                        .accessibilityElement()
+                        .accessibilityLabel("Party cover")
+                        .accessibilityAddTraits(.isImage)
+                        .accessibilityIdentifier("party-pass-hero-cover")
+                )
+                .overlay(alignment: .top) {
+                    LinearGradient(colors: [Color.black.opacity(0.42), .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 64)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+                .overlay(alignment: .topLeading) { heroBadge.padding(17).padding(.horizontal, 3) }
+            VStack(alignment: .leading, spacing: 12) {
+                heroTitle
+                heroMetadata
             }
+            .padding(17)
+            .padding([.horizontal, .bottom], 3)
+        }
+        .frame(width: max(0, containerWidth), alignment: .leading)
+        .background(heroSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 28).stroke(Color.white.opacity(0.15)))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("party-pass-hero")
+    }
+
+    private var plainHero: some View {
+        ZStack(alignment: .bottomLeading) {
+            heroSurface
             LinearGradient(colors: [Color.black.opacity(0.08), Color.black.opacity(0.36), Color.black.opacity(0.92)], startPoint: .top, endPoint: .bottom)
-            // The tier requirement is stated once, here. Repeating it beside
-            // this badge and again as a pass metric read as three separate
-            // rules rather than one.
             // Badge and title share one stack so the card's height accounts
             // for both. As separate overlays a title that wrapped to three
             // lines grew upward and printed through the badge.
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text(tierPresentation.heroBadge).font(.system(size: 9, weight: .black, design: .rounded)).tracking(1.2)
-                        .foregroundColor(accent).padding(.horizontal, 10).padding(.vertical, 7)
-                        .background(Capsule().fill(Color.black.opacity(0.44))).overlay(Capsule().stroke(accent.opacity(0.42)))
-                    Spacer()
-                }
+                heroBadge
                 Spacer(minLength: 12)
-                Text(invite.title).font(.system(size: 36, weight: .bold, design: .serif)).foregroundColor(.white).lineLimit(3).minimumScaleFactor(0.78).fixedSize(horizontal: false, vertical: true)
+                heroTitle
                 heroMetadata
             }
             .padding(17)
             .padding([.horizontal, .bottom], 3)
         }
         .frame(maxWidth: .infinity)
-        // A poster fixes the card to a 3:2 box measured off the container width,
-        // never off its own bitmap or the text overlay: deriving height from an
-        // unbounded ScrollView let a portrait poster enlarge the whole template.
-        .frame(height: invite.displayPosterURL == nil ? nil : containerWidth / ClipPartyPoster.aspectRatio)
-        .frame(minHeight: invite.displayPosterURL == nil ? 292 : nil)
+        .frame(minHeight: 292)
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 28).stroke(Color.white.opacity(0.15)))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("party-pass-hero")
     }
 
     @ViewBuilder private var heroMetadata: some View {

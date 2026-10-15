@@ -13,7 +13,6 @@ import { createPortal } from 'react-dom';
 import type { MapFunction, MapViewMode } from './map/mapTypes';
 import { toast } from 'sonner@2.0.3';
 import { ParkingSpotDetails } from './ParkingSpotDetails';
-import { ParkingReservationFlow } from './ParkingReservationFlow';
 import { TrafficIntelligencePanel } from './TrafficIntelligencePanel';
 import { useVenues } from '../utils/hooks/useVenues';
 import { getTrendingVenueIds } from '../utils/venueHours';
@@ -33,23 +32,6 @@ import { SpatialBottomSheetFrame } from './map/SpatialBottomSheetFrame';
 import { type PendingPatchScan, useMapPatchScanner } from './map/useMapPatchScanner';
 import { useMapParkingData } from './map/useMapParkingData';
 import { BYTSPOT_COMMERCE_EVENT, PLATINUM_SUBSCRIPTION_PLAN } from '../utils/insiderCommerce';
-
-type ReservationSpot = {
-  id: string;
-  name: string;
-  address: string;
-  distance: number;
-  walkTime: number;
-  price: number;
-  availability: number;
-  total: number;
-  securityRating: number;
-  rating: number;
-  reviews: number;
-  features: string[];
-  iotEnabled: boolean;
-  lastUpdate?: Date | string;
-};
 
 const PLATINUM_MAP_FUNCTIONS: readonly MapFunction[] = ['ai-navigation', 'spot-radar', 'traffic-intelligence'];
 
@@ -265,7 +247,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   const [droppedPinServiceIntent, setDroppedPinServiceIntent] = useState<DroppedPinServiceIntent>('White-Glove Valet Pickup');
   const [shouldRecenter, setShouldRecenter] = useState(false);
   const [zoomDirection, setZoomDirection] = useState(0);
-  const [reservationSpot, setReservationSpot] = useState<ReservationSpot | null>(null);
 
   // ─── Vibe-centric filter state ─────────────────────────────────────────────
   const [vibeFilter, setVibeFilter] = useState<number | null>(null);         // 1|2|3|4|null
@@ -316,9 +297,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
   const membershipRefreshGeneration = useRef(0);
 
-  // Refs so callbacks never close over stale values
-  const parkingDataRef = useRef(parkingData);
-  const selectedSpotRef = useRef(selectedSpot);
   const [filters, setFilters] = useState<FilterState>({
     priceRange: [0, 20],
     securityLevel: ['basic', 'standard', 'premium'],
@@ -327,9 +305,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
     showPremiumOnly: false,
   });
 
-  // Keep refs in sync
-  useEffect(() => { parkingDataRef.current = parkingData; }, [parkingData]);
-  useEffect(() => { selectedSpotRef.current = selectedSpot; }, [selectedSpot]);
 
   // Auto-hide the "Live Updates Active" pill after a brief moment so the map stays clean
   useEffect(() => {
@@ -612,37 +587,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   useEffect(() => {
     if (!hasPlatinumMembership) setShowTrafficIntel(false);
   }, [hasPlatinumMembership]);
-
-  // Stable reserve callback — reads from refs so never stale
-  const handleSpotReserve = useCallback((spotId: number) => {
-    const data = parkingDataRef.current;
-    const spot = data.find((s: ParkingSpot) => s.id === spotId)
-      || data.find((s: ParkingSpot) => s.id === selectedSpotRef.current);
-    setShowSpotDetails(false);
-    setSelectedSpot(null);
-    if (spot) {
-      setReservationSpot({
-        id: spot.id.toString(),
-        name: spot.name,
-        address: '123 Peachtree St NE, Atlanta, GA',
-        distance: 0.3,
-        walkTime: 4,
-        price: spot.price,
-        availability: spot.available,
-        total: spot.total,
-        securityRating: spot.securityLevel === 'premium' ? 5 : spot.securityLevel === 'standard' ? 4 : 3,
-        rating: 4.7,
-        reviews: 128,
-        features: [
-          spot.hasEVCharging ? 'EV Charging' : null,
-          spot.isCovered ? 'Covered' : null,
-          spot.hasCameras ? 'Security Cameras' : null,
-          spot.isPremium ? 'Premium' : null,
-        ].filter(Boolean) as string[],
-        iotEnabled: true,
-      });
-    }
-  }, []);
 
   const handleVerifyVenueAccess = useCallback((venue: ApiVenue) => {
     setPeekVenue(venue);
@@ -1307,7 +1251,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
           setShowSpotDetails(false);
           setSelectedSpot(null);
         }}
-        onReserve={handleSpotReserve}
         onNavigate={(spotId) => {
           const spot = parkingData.find(s => s.id === spotId);
           setShowSpotDetails(false);
@@ -1325,20 +1268,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
         isExpanded={mapMode === 'traffic'}
         onToggle={toggleTrafficIntel}
       />
-
-      {/* Parking Reservation Flow — portal escapes Leaflet z-index stacking */}
-      {createPortal(
-        <AnimatePresence>
-          {reservationSpot && (
-            <ParkingReservationFlow
-              spot={reservationSpot}
-              isDarkMode={isDarkMode}
-              onClose={() => setReservationSpot(null)}
-            />
-          )}
-        </AnimatePresence>,
-        document.body
-      )}
 
       <SpatialBottomSheetFrame
         isVisible={shouldShowSpatialSheet}

@@ -2,15 +2,15 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, MapPin, Star, Navigation, Clock, Shield, Camera, 
   Zap, Umbrella, DollarSign, Phone, Share2, Heart,
-  ChevronRight, CheckCircle, AlertCircle, Car, Smartphone,
+  ChevronRight, CheckCircle, AlertCircle, Smartphone,
   CreditCard, Info
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner@2.0.3';
 import { saveSpot, isSpotSaved, removeSavedSpot } from '../utils/savedSpots';
-import { impactLight, impactMedium, impactHeavy, notifySuccess, selectionChanged } from '../utils/haptics';
+import { impactLight, impactMedium, notifySuccess } from '../utils/haptics';
 
-type AvailabilityStatus = 'available' | 'limited' | 'full';
+type AvailabilityStatus = 'available' | 'limited' | 'full' | 'unknown';
 type SecurityLevel = 'basic' | 'standard' | 'premium';
 type EVConnectorType = 'tesla' | 'ccs' | 'chademo' | 'j1772';
 
@@ -45,7 +45,6 @@ interface ParkingSpotDetailsProps {
   spot: ParkingSpot | null;
   isOpen: boolean;
   onClose: () => void;
-  onReserve: (spotId: number) => void;
   onNavigate: (spotId: number) => void;
   isDarkMode: boolean;
 }
@@ -61,12 +60,10 @@ export function ParkingSpotDetails({
   spot, 
   isOpen, 
   onClose, 
-  onReserve, 
   onNavigate,
   isDarkMode 
 }: ParkingSpotDetailsProps) {
   const [isFavorite, setIsFavorite] = useState(false);
-  const [selectedDuration, setSelectedDuration] = useState(2); // hours
 
   const springConfig = {
     type: "spring" as const,
@@ -87,6 +84,7 @@ export function ParkingSpotDetails({
 
   // Calculate availability status
   const getAvailabilityStatus = (): AvailabilityStatus => {
+    if (spot.total <= 0) return 'unknown';
     const percentage = (spot.available / spot.total) * 100;
     if (percentage === 0) return 'full';
     if (percentage < 25) return 'limited';
@@ -94,7 +92,7 @@ export function ParkingSpotDetails({
   };
 
   const status = getAvailabilityStatus();
-  const percentage = Math.round((spot.available / spot.total) * 100);
+  const percentage = spot.total > 0 ? Math.round((spot.available / spot.total) * 100) : 0;
 
   // Get status color and text
   const getStatusInfo = () => {
@@ -120,14 +118,18 @@ export function ParkingSpotDetails({
           text: 'Full',
           icon: AlertCircle 
         };
+      case 'unknown':
+        return { 
+          color: 'rgba(255, 255, 255, 0.7)', 
+          bg: 'rgba(255, 255, 255, 0.08)',
+          text: 'Availability unknown',
+          icon: Info 
+        };
     }
   };
 
   const statusInfo = getStatusInfo();
   const StatusIcon = statusInfo.icon;
-
-  // Calculate total price
-  const totalPrice = spot.price * selectedDuration;
 
   // Default values for optional fields
   const rating = spot.rating || 0;
@@ -140,23 +142,8 @@ export function ParkingSpotDetails({
   const hostName = spot.hostName || 'Provider unavailable';
   const responseTime = spot.responseTime || 'Response time unavailable';
 
-  const amenities = spot.amenities || [
-    'Security Cameras',
-    'Well Lit',
-    'Wheelchair Accessible',
-    'Credit Card Accepted',
-    'Mobile App Access',
-    'Height Clearance 7ft',
-  ];
-
-  const handleReserve = () => {
-    impactHeavy();
-    onReserve(spot.id);
-    toast.success('Reservation Started', {
-      description: `Reserving ${spot.name} for ${selectedDuration} hours`,
-      duration: 3000,
-    });
-  };
+  const amenities = spot.amenities || [];
+  const rateLabel = spot.price > 0 ? `$${spot.price}/hour posted` : 'Rate posted at the lot';
 
   const handleNavigate = () => {
     impactMedium();
@@ -310,15 +297,17 @@ export function ParkingSpotDetails({
                   </h2>
 
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="flex items-center gap-1.5">
-                      <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" strokeWidth={2} />
-                      <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>
-                        {rating.toFixed(1)}
-                      </span>
-                      <span className="text-[15px] text-white/70" style={{ fontWeight: 400 }}>
-                        ({reviews})
-                      </span>
-                    </div>
+                    {reviews > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" strokeWidth={2} />
+                        <span className="text-[15px] text-white" style={{ fontWeight: 600 }}>
+                          {rating.toFixed(1)}
+                        </span>
+                        <span className="text-[15px] text-white/70" style={{ fontWeight: 400 }}>
+                          ({reviews})
+                        </span>
+                      </div>
+                    )}
                     
                     {spot.isPremium && (
                       <div className="px-2.5 py-1 rounded-full bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-400/40">
@@ -361,7 +350,7 @@ export function ParkingSpotDetails({
                         >
                           {statusInfo.text}
                         </span>
-                        <span 
+                        {status !== 'unknown' && <span 
                           className="text-[14px]" 
                           style={{ 
                             fontWeight: 600,
@@ -369,9 +358,9 @@ export function ParkingSpotDetails({
                           }}
                         >
                           {spot.available}/{spot.total} spots
-                        </span>
+                        </span>}
                       </div>
-                      <div className="w-full h-1.5 rounded-full bg-white/20 overflow-hidden">
+                      {status !== 'unknown' && <div className="w-full h-1.5 rounded-full bg-white/20 overflow-hidden">
                         <motion.div
                           className="h-full rounded-full"
                           style={{ backgroundColor: statusInfo.color }}
@@ -379,7 +368,7 @@ export function ParkingSpotDetails({
                           animate={{ width: `${percentage}%` }}
                           transition={{ duration: 0.6, ease: "easeOut" }}
                         />
-                      </div>
+                      </div>}
                     </div>
                   </div>
                 </div>
@@ -390,21 +379,35 @@ export function ParkingSpotDetails({
                 <div className="flex flex-col items-center p-3 rounded-[14px] bg-white/5 border border-white/20">
                   <DollarSign className="w-5 h-5 text-green-400 mb-1.5" strokeWidth={2.5} />
                   <span className="text-[16px] text-white mb-0.5" style={{ fontWeight: 700 }}>
-                    ${spot.price}
+                    {spot.price > 0 ? `$${spot.price}` : 'Rate'}
                   </span>
                   <span className="text-[11px] text-white/70" style={{ fontWeight: 500 }}>
-                    per hour
+                    {spot.price > 0 ? 'per hour' : 'posted at lot'}
                   </span>
                 </div>
 
                 <div className="flex flex-col items-center p-3 rounded-[14px] bg-white/5 border border-white/20">
-                  <MapPin className="w-5 h-5 text-blue-400 mb-1.5" strokeWidth={2.5} />
-                  <span className="text-[16px] text-white mb-0.5" style={{ fontWeight: 700 }}>
-                    {distance} mi
-                  </span>
-                  <span className="text-[11px] text-white/70" style={{ fontWeight: 500 }}>
-                    {walkTime} min walk
-                  </span>
+                  {distance > 0 ? (
+                    <>
+                      <MapPin className="w-5 h-5 text-blue-400 mb-1.5" strokeWidth={2.5} />
+                      <span className="text-[16px] text-white mb-0.5" style={{ fontWeight: 700 }}>
+                        {distance} mi
+                      </span>
+                      <span className="text-[11px] text-white/70" style={{ fontWeight: 500 }}>
+                        {walkTime} min walk
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <CreditCard className="w-5 h-5 text-blue-400 mb-1.5" strokeWidth={2.5} />
+                      <span className="text-[16px] text-white mb-0.5" style={{ fontWeight: 700 }}>
+                        Pay
+                      </span>
+                      <span className="text-[11px] text-white/70" style={{ fontWeight: 500 }}>
+                        at the lot
+                      </span>
+                    </>
+                  )}
                 </div>
 
                 <div className="flex flex-col items-center p-3 rounded-[14px] bg-white/5 border border-white/20">
@@ -500,7 +503,7 @@ export function ParkingSpotDetails({
               </div>
 
               {/* Additional Amenities */}
-              <div className="px-6 py-4 border-t border-white/10">
+              {amenities.length > 0 && <div className="px-6 py-4 border-t border-white/10">
                 <h3 className="text-[17px] text-white mb-3" style={{ fontWeight: 600 }}>
                   Additional Amenities
                 </h3>
@@ -514,7 +517,7 @@ export function ParkingSpotDetails({
                     </div>
                   ))}
                 </div>
-              </div>
+              </div>}
 
               {/* Description */}
               <div className="px-6 py-4 border-t border-white/10">
@@ -537,15 +540,17 @@ export function ParkingSpotDetails({
                     <p className="text-[14px] text-white mb-1" style={{ fontWeight: 500 }}>
                       {address}
                     </p>
-                    <p className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
-                      {distance} miles away • {walkTime} min walk
-                    </p>
+                    {distance > 0 && (
+                      <p className="text-[13px] text-white/70" style={{ fontWeight: 400 }}>
+                        {distance} miles away • {walkTime} min walk
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
 
               {/* Provider Information */}
-              <div className="px-6 py-4 border-t border-white/10">
+              {spot.hostName && <div className="px-6 py-4 border-t border-white/10">
                 <h3 className="text-[17px] text-white mb-3" style={{ fontWeight: 600 }}>
                   Provided By
                 </h3>
@@ -578,51 +583,7 @@ export function ParkingSpotDetails({
                     <Phone className="w-5 h-5 text-white" strokeWidth={2.5} />
                   </motion.button>
                 </div>
-              </div>
-
-              {/* Duration Selector */}
-              {!spot.isReserved && status !== 'full' && (
-                <div className="px-6 py-4 border-t border-white/10">
-                  <h3 className="text-[17px] text-white mb-3" style={{ fontWeight: 600 }}>
-                    Select Duration
-                  </h3>
-                  <div className="grid grid-cols-4 gap-2">
-                    {[1, 2, 4, 8].map((hours) => (
-                      <motion.button
-                        key={hours}
-                        onClick={() => {
-                          selectionChanged();
-                          setSelectedDuration(hours);
-                        }}
-                        className={`p-3 rounded-[14px] border-2 ${
-                          selectedDuration === hours
-                            ? 'bg-purple-500/20 border-purple-400'
-                            : 'bg-white/5 border-white/20'
-                        }`}
-                        whileTap={{ scale: 0.95 }}
-                        transition={springConfig}
-                      >
-                        <div 
-                          className={`text-[16px] mb-0.5 ${
-                            selectedDuration === hours ? 'text-white' : 'text-white/70'
-                          }`}
-                          style={{ fontWeight: 700 }}
-                        >
-                          {hours}h
-                        </div>
-                        <div 
-                          className={`text-[11px] ${
-                            selectedDuration === hours ? 'text-white/90' : 'text-white/60'
-                          }`}
-                          style={{ fontWeight: 500 }}
-                        >
-                          ${spot.price * hours}
-                        </div>
-                      </motion.button>
-                    ))}
-                  </div>
-                </div>
-              )}
+              </div>}
 
               {/* Bottom Actions */}
               <div className="sticky bottom-0 px-6 py-4 bg-[#1C1C1E]/95 backdrop-blur-2xl border-t border-white/20">
@@ -647,16 +608,16 @@ export function ParkingSpotDetails({
                 ) : (
                   <div className="flex items-center justify-between p-3 rounded-[14px] bg-white/5 border border-white/20 mb-3">
                     <div>
-                      <div className="text-[13px] text-white/70 mb-0.5" style={{ fontWeight: 500 }}>
-                        Total for {selectedDuration}h
+                      <div className="text-[17px] text-white mb-0.5" style={{ fontWeight: 700 }}>
+                        Pay at the lot
                       </div>
-                      <div className="text-[24px] text-white" style={{ fontWeight: 700 }}>
-                        ${totalPrice}
+                      <div className="text-[13px] text-white/70" style={{ fontWeight: 500 }}>
+                        No payment in Bytspot
                       </div>
                     </div>
                     <div className="text-right">
                       <div className="text-[11px] text-white/70 mb-0.5" style={{ fontWeight: 500 }}>
-                        ${spot.price}/hour
+                        {rateLabel}
                       </div>
                       {status === 'limited' && (
                         <div className="text-[11px] text-yellow-400" style={{ fontWeight: 600 }}>
@@ -667,7 +628,7 @@ export function ParkingSpotDetails({
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3">
                   <motion.button
                     onClick={handleNavigate}
                     className="py-3.5 px-4 rounded-[14px] bg-white/10 border-2 border-white/30 flex items-center justify-center gap-2"
@@ -676,23 +637,9 @@ export function ParkingSpotDetails({
                   >
                     <Navigation className="w-5 h-5 text-white" strokeWidth={2.5} />
                     <span className="text-[16px] text-white" style={{ fontWeight: 600 }}>
-                      Navigate
+                      Directions
                     </span>
                   </motion.button>
-
-                  {status !== 'full' && !spot.isReserved && (
-                    <motion.button
-                      onClick={handleReserve}
-                      className="py-3.5 px-4 rounded-[14px] bg-gradient-to-r from-purple-500 to-cyan-500 border-2 border-white/30 flex items-center justify-center gap-2"
-                      whileTap={{ scale: 0.98 }}
-                      transition={springConfig}
-                    >
-                      <Car className="w-5 h-5 text-white" strokeWidth={2.5} />
-                      <span className="text-[16px] text-white" style={{ fontWeight: 600 }}>
-                        Reserve Now
-                      </span>
-                    </motion.button>
-                  )}
                 </div>
               </div>
             </div>

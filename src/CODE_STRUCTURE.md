@@ -45,7 +45,7 @@ Shared Features:
 ├── VenueDetails.tsx              # Venue detail modal
 ├── VenueInsiderDetails.tsx       # Insider venue modal
 ├── ParkingSpotDetails.tsx        # Parking detail view
-├── ParkingReservationFlow.tsx    # Parking booking flow
+├── ParkingReservationFlow.tsx    # Parking lot sheet (pay at the lot, directions)
 └── ValetFlow.tsx                 # Valet booking flow
 
 Settings & Preferences:
@@ -322,7 +322,7 @@ User Input → Search Classifier → Category/Navigation Decision
 
 ### Medium Components (200-500 lines)
 - VenueDetails.tsx - Venue detail modal
-- ParkingReservationFlow.tsx - Multi-step booking
+- ParkingReservationFlow.tsx - Lot details, pay at the lot, directions
 - ValetFlow.tsx - Valet booking with add-ons
 - EphemeralStoriesViewer.tsx - Story viewer
 - ProfileSection.tsx - Settings hub

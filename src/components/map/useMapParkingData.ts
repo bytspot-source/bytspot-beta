@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { trpc, type ApiVenue } from '../../utils/trpc';
 import {
-  FALLBACK_ATLANTA_PARKING,
   mergeParkingSources,
   placeToParkingSpot,
   venueToParkingSpot,
@@ -16,7 +15,7 @@ export function useMapParkingData(options: {
   fallbackCenter: readonly [number, number];
 }): MapParkingSpot[] {
   const { apiVenues, userCoords, fallbackCenter } = options;
-  const [parkingData, setParkingData] = useState<MapParkingSpot[]>(FALLBACK_ATLANTA_PARKING);
+  const [parkingData, setParkingData] = useState<MapParkingSpot[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,11 +28,11 @@ export function useMapParkingData(options: {
       .then((res: { places?: Array<{ placeId: string; name: string; lat: number; lng: number }> }) => {
         if (cancelled) return;
         const places = (res.places ?? []).map(placeToParkingSpot);
-        setParkingData(mergeParkingSources({ vendor: venueProvided, places, fallback: FALLBACK_ATLANTA_PARKING }));
+        setParkingData(mergeParkingSources({ vendor: venueProvided, places }));
       })
       .catch(() => {
         if (cancelled) return;
-        setParkingData(mergeParkingSources({ vendor: venueProvided, places: [], fallback: FALLBACK_ATLANTA_PARKING }));
+        setParkingData(mergeParkingSources({ vendor: venueProvided, places: [] }));
       });
 
     return () => { cancelled = true; };

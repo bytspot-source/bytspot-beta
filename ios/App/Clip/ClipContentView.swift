@@ -230,35 +230,64 @@ enum ClipPartyPoster {
 @MainActor
 private final class ClipPosterImageLoader: ObservableObject {
     @Published private(set) var image: UIImage?
+    @Published private(set) var fill: UIImage?
     private var loadedURL: URL?
 
     func load(_ url: URL) async {
         guard loadedURL != url else { return }
         loadedURL = url
         image = nil
+        fill = nil
         guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
-        let decoded = await Task.detached(priority: .userInitiated) { UIImage(data: data)?.preparingForDisplay() ?? UIImage(data: data) }.value
+        let (decoded, backdrop) = await Task.detached(priority: .userInitiated) { () -> (UIImage?, UIImage?) in
+            guard let decoded = UIImage(data: data)?.preparingForDisplay() ?? UIImage(data: data) else { return (nil, nil) }
+            return (decoded, Self.boxFill(for: decoded))
+        }.value
         guard loadedURL == url, let decoded else { return }
         image = decoded
+        fill = backdrop
+    }
+
+    /// The bitmap aspect-filled into the box's own shape, drawn small because
+    /// it is only ever shown blurred. Cropped here rather than by `scaledToFill`
+    /// so the fill layer is exactly box-sized and never measures wider.
+    nonisolated static func boxFill(for image: UIImage) -> UIImage? {
+        let source = image.size
+        guard source.width > 0, source.height > 0 else { return nil }
+        let ratio = ClipPartyPoster.boxAspectRatio(for: source)
+        let target = CGSize(width: 240, height: (240 / ratio).rounded())
+        let scale = max(target.width / source.width, target.height / source.height)
+        let drawn = CGSize(width: source.width * scale, height: source.height * scale)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            image.draw(in: CGRect(x: (target.width - drawn.width) / 2, y: (target.height - drawn.height) / 2, width: drawn.width, height: drawn.height))
+        }
     }
 }
 
 /// The cover drawn whole inside a box the caller has already sized. Bars left
 /// by the fit are filled with a blurred, dimmed copy of the same bitmap. Both
-/// layers are pinned to the box so neither can report the size it scaled to.
+/// layers are exactly box-sized so neither can report the size it scaled to.
 private struct ClipPosterBox: View {
     let image: UIImage?
+    let fill: UIImage?
     let size: CGSize
 
     var body: some View {
         ZStack {
-            if let image {
-                Image(uiImage: image).resizable().scaledToFill()
-                    .frame(width: size.width, height: size.height).clipped()
+            if let fill {
+                Image(uiImage: fill).resizable()
+                    .frame(width: size.width, height: size.height)
                     .blur(radius: 22, opaque: true)
                     .overlay(Color.black.opacity(0.38))
+                    .accessibilityHidden(true)
+            }
+            if let image {
                 Image(uiImage: image).resizable().scaledToFit()
                     .frame(width: size.width, height: size.height)
+                    .accessibilityHidden(true)
             }
         }
         .frame(width: size.width, height: size.height)
@@ -526,11 +555,16 @@ struct PartyPassClipView: View {
         let ratio = ClipPartyPoster.boxAspectRatio(for: posterLoader.image?.size ?? .zero)
         let coverSize = CGSize(width: max(0, containerWidth), height: max(0, containerWidth) / ratio)
         return VStack(alignment: .leading, spacing: 0) {
-            ClipPosterBox(image: posterLoader.image, size: coverSize)
-                .accessibilityElement()
-                .accessibilityLabel("Party cover")
-                .accessibilityAddTraits(.isImage)
-                .accessibilityIdentifier("party-pass-hero-cover")
+            // VoiceOver gets one element the size of the box, not the bitmaps.
+            ClipPosterBox(image: posterLoader.image, fill: posterLoader.fill, size: coverSize)
+                .accessibilityHidden(true)
+                .overlay(
+                    Rectangle().fill(Color.clear).contentShape(Rectangle())
+                        .accessibilityElement()
+                        .accessibilityLabel("Party cover")
+                        .accessibilityAddTraits(.isImage)
+                        .accessibilityIdentifier("party-pass-hero-cover")
+                )
                 .overlay(alignment: .top) {
                     LinearGradient(colors: [Color.black.opacity(0.42), .clear], startPoint: .top, endPoint: .bottom)
                         .frame(height: 64)

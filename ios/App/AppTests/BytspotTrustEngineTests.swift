@@ -4497,6 +4497,23 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(box(0, 0), 3.0 / 2.0, accuracy: 0.0001)
     }
 
+    /// The blurred layer behind the fitted cover is pre-cropped to the box, so
+    /// the editor tile measures the box and not the bitmap scaled to fill it.
+    @MainActor
+    func testPartyCoverFillLayerIsCroppedToTheBox() throws {
+        let cases: [(width: Int, height: Int)] = [(2900, 1000), (1080, 1920), (1600, 1067)]
+        for source in cases {
+            let image = NativePartyPendingImageTestSupport.image(pixelWidth: source.width, pixelHeight: source.height, scale: 1)
+            let prepared = try XCTUnwrap(NativePartyPendingImage(image: image, shape: .cover))
+            let fill = try XCTUnwrap(prepared.boxFill, "\(source.width)x\(source.height)")
+            let expected = NativePartyPendingImage.coverBoxAspectRatio(for: prepared.preview.size)
+            XCTAssertEqual(fill.size.width / fill.size.height, expected, accuracy: 0.01, "\(source.width)x\(source.height)")
+            XCTAssertEqual(fill.size.width, 240, accuracy: 1)
+        }
+        let album = try XCTUnwrap(NativePartyPendingImage(image: NativePartyPendingImageTestSupport.image(pixelWidth: 1080, pixelHeight: 1920, scale: 1)))
+        XCTAssertNil(album.boxFill, "only covers draw a box fill")
+    }
+
     /// Album and recap photos are the host's own composition and keep it.
     @MainActor
     func testAlbumPhotosKeepTheirOwnShape() throws {

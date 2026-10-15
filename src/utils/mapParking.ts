@@ -7,8 +7,8 @@
  *   2. Google Places    — discovery-only results from trpc.places.nearbySearch
  *      with `type: parking`. Live availability is unknown so fields are zeroed
  *      and consumers should treat them as "third-party listings".
- *   3. Static fallback  — `FALLBACK_ATLANTA_PARKING` ships with the bundle so
- *      a cold-started API or offline device still has pins to render.
+ *
+ * There is no bundled list: with neither source, the map has no parking pins.
  *
  * Helpers are deliberately pure and side-effect free so they can be unit
  * tested without rendering MapSection or hitting the network.
@@ -37,21 +37,9 @@ export interface MapParkingSpot {
   securityLevel: SecurityLevel;
   hasCameras: boolean;
   isReserved: boolean;
-  /** Origin of this row — vendor wins, places fills gaps, fallback ships static. */
+  /** Origin of this row — vendor wins, places fills gaps. */
   source: ParkingSource;
 }
-
-/** Static seed for cold-start / offline. Atlanta Midtown garages. */
-export const FALLBACK_ATLANTA_PARKING: MapParkingSpot[] = [
-  { id: 1, lat: 33.7844, lng: -84.3862, name: '1380 W Peachtree Garage', available: 22, total: 45, price: 8, isPremium: true, hasEVCharging: true, evConnectorTypes: ['ccs'], isCovered: true, securityLevel: 'premium', hasCameras: true, isReserved: false, source: 'fallback' },
-  { id: 2, lat: 33.7852, lng: -84.3845, name: 'Colony Square Garage',    available: 14, total: 60, price: 6, isPremium: false, hasEVCharging: false, isCovered: true, securityLevel: 'standard', hasCameras: true, isReserved: false, source: 'fallback' },
-  { id: 3, lat: 33.7791, lng: -84.3838, name: 'Federal Reserve Garage',  available:  3, total: 35, price: 10, isPremium: true, hasEVCharging: true, evConnectorTypes: ['tesla', 'ccs'], isCovered: true, securityLevel: 'premium', hasCameras: true, isReserved: false, source: 'fallback' },
-  { id: 4, lat: 33.7810, lng: -84.3886, name: 'Midtown Promenade',       available: 35, total: 80, price: 5, isPremium: false, hasEVCharging: true, evConnectorTypes: ['j1772'], isCovered: false, securityLevel: 'standard', hasCameras: false, isReserved: false, source: 'fallback' },
-  { id: 5, lat: 33.7820, lng: -84.3823, name: 'Peachtree Center',        available: 28, total: 50, price: 7, isPremium: false, hasEVCharging: false, isCovered: false, securityLevel: 'standard', hasCameras: true, isReserved: false, source: 'fallback' },
-  { id: 6, lat: 33.7727, lng: -84.3876, name: 'Fox Theatre Parking',     available: 12, total: 30, price: 9, isPremium: true, hasEVCharging: false, isCovered: false, securityLevel: 'premium', hasCameras: true, isReserved: true,  source: 'fallback' },
-  { id: 7, lat: 33.7780, lng: -84.3849, name: 'Biltmore Hotel Garage',   available:  5, total: 25, price: 12, isPremium: true, hasEVCharging: true, evConnectorTypes: ['tesla'], isCovered: true, securityLevel: 'premium', hasCameras: true, isReserved: false, source: 'fallback' },
-  { id: 8, lat: 33.7859, lng: -84.3857, name: 'Pershing Point Garage',   available: 18, total: 40, price: 6, isPremium: false, hasEVCharging: false, isCovered: false, securityLevel: 'basic', hasCameras: false, isReserved: false, source: 'fallback' },
-];
 
 /** djb2-style stable hash so a string id maps to a stable positive integer. */
 export function stableNumericId(seed: string): number {
@@ -112,19 +100,16 @@ function nearby(a: MapParkingSpot, b: MapParkingSpot): boolean {
 
 /**
  * Merge tiered parking sources. Vendor entries are always kept. Places entries
- * are kept only when they don't overlap a vendor pin. Fallback entries are
- * kept only when both vendor and places are empty (true cold-start).
+ * are kept only when they don't overlap a vendor pin.
  */
 export function mergeParkingSources(opts: {
   vendor: MapParkingSpot[];
   places: MapParkingSpot[];
-  fallback: MapParkingSpot[];
 }): MapParkingSpot[] {
-  const { vendor, places, fallback } = opts;
+  const { vendor, places } = opts;
   const out: MapParkingSpot[] = [...vendor];
   for (const p of places) {
     if (!out.some(existing => nearby(existing, p))) out.push(p);
   }
-  if (out.length === 0) return [...fallback];
   return out;
 }

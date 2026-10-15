@@ -7,8 +7,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import * as mapParking from '../mapParking.ts';
 import {
-  FALLBACK_ATLANTA_PARKING,
   mergeParkingSources,
   placeToParkingSpot,
   stableNumericId,
@@ -34,7 +34,7 @@ test('stableNumericId: deterministic for the same input', () => {
   assert.notEqual(stableNumericId('abc'), stableNumericId('abd'));
 });
 
-test('stableNumericId: keeps clear of fallback id range (1-99)', () => {
+test('stableNumericId: stays in the six-digit id range', () => {
   for (const seed of ['venue:v1', 'place:p1', 'venue:long-id-here']) {
     assert.ok(stableNumericId(seed) >= 100_000, `expected ${stableNumericId(seed)} >= 100000`);
   }
@@ -99,37 +99,28 @@ const placeNear: MapParkingSpot = placeToParkingSpot({ placeId: 'near', name: 'N
 const placeFar:  MapParkingSpot = placeToParkingSpot({ placeId: 'far',  name: 'Far',    lat: 33.80,    lng: -84.40 });
 
 test('mergeParkingSources: vendor entries always retained', () => {
-  const out = mergeParkingSources({ vendor: [vendorA], places: [], fallback: FALLBACK_ATLANTA_PARKING });
+  const out = mergeParkingSources({ vendor: [vendorA], places: [] });
   assert.equal(out.length, 1);
   assert.equal(out[0].source, 'vendor');
 });
 
 test('mergeParkingSources: places near a vendor pin are dropped', () => {
-  const out = mergeParkingSources({ vendor: [vendorA], places: [placeNear, placeFar], fallback: [] });
+  const out = mergeParkingSources({ vendor: [vendorA], places: [placeNear, placeFar] });
   // placeNear within ~30m of vendorA → dropped. placeFar kept.
   assert.equal(out.length, 2);
   assert.equal(out.filter(s => s.source === 'places').length, 1);
   assert.equal(out.find(s => s.source === 'places')!.name, 'Far');
 });
 
-test('mergeParkingSources: fallback only when both vendor and places are empty', () => {
-  const out = mergeParkingSources({ vendor: [], places: [], fallback: FALLBACK_ATLANTA_PARKING });
-  assert.equal(out.length, FALLBACK_ATLANTA_PARKING.length);
-  assert.ok(out.every(s => s.source === 'fallback'));
-});
-
-test('mergeParkingSources: fallback NOT used when vendor or places have entries', () => {
-  const out1 = mergeParkingSources({ vendor: [vendorA], places: [], fallback: FALLBACK_ATLANTA_PARKING });
-  assert.ok(out1.every(s => s.source !== 'fallback'));
-
-  const out2 = mergeParkingSources({ vendor: [], places: [placeFar], fallback: FALLBACK_ATLANTA_PARKING });
-  assert.ok(out2.every(s => s.source !== 'fallback'));
+test('mergeParkingSources: no sources means no pins, not a bundled garage list', () => {
+  assert.deepEqual(mergeParkingSources({ vendor: [], places: [] }), []);
+  assert.equal('FALLBACK_ATLANTA_PARKING' in mapParking, false);
 });
 
 test('mergeParkingSources: result is a fresh array (no mutation of inputs)', () => {
   const vendor = [vendorA];
   const places = [placeFar];
-  mergeParkingSources({ vendor, places, fallback: [] });
+  mergeParkingSources({ vendor, places });
   assert.equal(vendor.length, 1);
   assert.equal(places.length, 1);
 });

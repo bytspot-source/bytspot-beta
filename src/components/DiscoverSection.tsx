@@ -761,22 +761,16 @@ export function DiscoverSection({ isDarkMode, onNavigateToMap, onShowBottomNav, 
       setBookingServiceMessage(null);
       handleServiceCardCta(card);
     } else if (card.type === 'parking') {
-      // Convert DiscoverCard to ParkingSpot format
+      const distance = parseFloat(card.distance.replace(' mi', ''));
       const parkingSpot = {
         id: card.id.toString(),
         name: card.name,
-        address: card.location || 'Atlanta, GA',
-        distance: parseFloat(card.distance.replace(' mi', '')),
-        walkTime: Math.ceil(parseFloat(card.distance.replace(' mi', '')) * 15), // Estimate walk time
-        price: parseInt(card.price?.replace('$', '').replace('/hr', '') || '0'),
-        availability: card.spots || 0,
-        total: card.spots ? Math.ceil(card.spots * 1.5) : 50, // Estimate total spots
-        securityRating: card.rating ? card.rating : 4.5,
-        rating: card.rating || 4.5,
-        reviews: Math.floor(Math.random() * 500) + 100, // Random reviews count
+        address: card.location,
+        distance: Number.isFinite(distance) ? distance : undefined,
+        price: parseFloat(card.price?.replace('$', '').replace('/hr', '') || '') || 0,
         features: card.features || [],
-        iotEnabled: card.features?.some(f => f.includes('EV') || f.includes('Security')) || false,
-        lastUpdate: new Date(),
+        lat: card._lat,
+        lng: card._lng,
       };
       setSelectedParkingSpot(parkingSpot);
     } else if (!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && !APPLE_REVIEW_HIDE_PROVIDER_AND_VALET && card.type === 'valet') {

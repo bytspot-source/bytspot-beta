@@ -8,6 +8,9 @@ import Contacts
 import CryptoKit
 @testable import App
 
+/// IDs of the retired sample partner cards; none may reach a guest deck.
+private let retiredSampleCardIDs: Set<String> = ["service-valet-ride", "group-transport", "broni-home-taste", "gh-akwaaba-pass"]
+
 final class NativeMapOpenLifecycleTests: XCTestCase {
     /// A fresh reader on each mount, with no child-owned acknowledgement.
     /// This exercises the production value through the same Binding lifetime;
@@ -283,12 +286,11 @@ final class NativeDiscoverM6BrowseTests: XCTestCase {
 
     @MainActor
     func testRetainedServiceCardsUseTheirSuppliedCategoriesNotTheirTitles() throws {
-        let broni = try XCTUnwrap(NativeTabContentSnapshot.canonicalServiceCards.first { $0.title == "Broni Home Taste" })
-        XCTAssertTrue(NativeDiscoverBookablePresentation.matchesCategory(broni.type, filter: "eat_drink", sourceCategory: broni.categoryLabel))
-        XCTAssertFalse(NativeDiscoverBookablePresentation.matchesCategory(broni.type, filter: "services", sourceCategory: broni.categoryLabel))
-        XCTAssertEqual(NativeDiscoverBrowsePolicy.referencePresentation(for: broni).capability, .details)
-        XCTAssertNil(broni.imageUrl)
-        for card in NativeTabContentSnapshot.canonicalMobilityCards {
+        let kitchen = NativeDiscoverSummary(id: "partner-kitchen", type: "service", title: "Partner Kitchen", subtitle: "", distance: "Service", rating: "New", icon: "fork.knife", verified: false, entryType: "free", cta: "Plan Dining", imageUrl: nil, categoryLabel: "Dining", badgeText: "", metadataLine: "", features: [], vibeScore: 6, availability: "", membershipRequired: false)
+        XCTAssertTrue(NativeDiscoverBookablePresentation.matchesCategory(kitchen.type, filter: "eat_drink", sourceCategory: kitchen.categoryLabel))
+        XCTAssertFalse(NativeDiscoverBookablePresentation.matchesCategory(kitchen.type, filter: "services", sourceCategory: kitchen.categoryLabel))
+        XCTAssertEqual(NativeDiscoverBrowsePolicy.referencePresentation(for: kitchen).capability, .details)
+        for card in [NativeTabContentStore.rideHandoffCard] {
             XCTAssertTrue(NativeDiscoverBookablePresentation.matchesCategory(card.type, filter: "move", sourceCategory: card.categoryLabel))
             XCTAssertEqual(NativeDiscoverBrowsePolicy.referencePresentation(for: card).capability, .details)
         }
@@ -311,8 +313,8 @@ final class NativeDiscoverM6BrowseTests: XCTestCase {
 
     @MainActor
     func testLegacySummaryControlAndVerificationNeverPromoteReferenceCTA() {
-        let references = NativeTabContentSnapshot.fallback.discoverCards + NativeTabContentSnapshot.canonicalServiceCards + NativeTabContentSnapshot.canonicalMobilityCards
-        XCTAssertFalse(references.isEmpty)
+        let verifiedVendorShaped = NativeDiscoverSummary(id: "vendor-shaped", type: "service", title: "Vendor Shaped", subtitle: "", distance: "Pass", rating: "4.9", icon: "ticket.fill", verified: true, entryType: "paid", cta: "View Pass", imageUrl: nil, categoryLabel: "Event Pass", badgeText: "", metadataLine: "", features: [], vibeScore: 9, availability: "Available", membershipRequired: true, control: NativeDiscoverCardControl.vendor)
+        let references = [NativeTabContentStore.rideHandoffCard, verifiedVendorShaped]
         for card in references {
             let presentation = NativeDiscoverBrowsePolicy.referencePresentation(for: card)
             XCTAssertEqual(presentation.capability, .details)
@@ -1438,7 +1440,9 @@ final class BytspotTrustEngineTests: XCTestCase {
         // A sample partner identity is not fulfillment authority.
         XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: "broni-home-taste"))
         XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: "broni"))
-        XCTAssertTrue(NativeDiscoverCardControl.isControlled(cardID: "gh-akwaaba-pass"))
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: "gh-akwaaba-pass"))
+        XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: "service-valet-ride"))
+        XCTAssertTrue(NativeDiscoverCardControl.controlledCardIDs.isEmpty)
         // Local dining/coverage/Google-shaped IDs are not.
         XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: "dinner-vibe"))
         XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: "coverage-dining-1-dinner-vibe"))
@@ -1471,12 +1475,12 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(section?.highlights.contains("Menu preview") ?? true)
     }
 
-    func testCanonicalDiscoverCardsCarryVendorControlAndClonesStayLocal() {
-        XCTAssertTrue(NativeTabContentSnapshot.canonicalServiceCards.allSatisfy {
-            $0.control == ($0.id == "broni-home-taste" ? NativeDiscoverCardControl.local : NativeDiscoverCardControl.vendor)
-        })
-        XCTAssertTrue(NativeTabContentSnapshot.canonicalMobilityCards.allSatisfy { $0.control == NativeDiscoverCardControl.vendor })
-        XCTAssertTrue(NativeTabContentSnapshot.fallbackDiscoverCards.allSatisfy { $0.control == NativeDiscoverCardControl.local }, "Curated fallback cards must stay local.")
+    func testOfflineDeckIsEmptyAndTheRideHandoffStaysLocal() {
+        XCTAssertTrue(NativeTabContentSnapshot.fallback.discoverCards.isEmpty)
+        XCTAssertTrue(NativeTabContentSnapshot.fallback.venues.isEmpty)
+        XCTAssertTrue(NativeTabContentSnapshot.fallback.events.isEmpty)
+        XCTAssertTrue(NativeTabContentSnapshot.unresolved.discoverCards.isEmpty)
+        XCTAssertEqual(NativeTabContentStore.rideHandoffCard.control, NativeDiscoverCardControl.local)
     }
 
     func testServicesRailOnlyListsControlledVendorCards() {
@@ -1605,7 +1609,8 @@ final class BytspotTrustEngineTests: XCTestCase {
         let atlanta = NativeLocationCoordinate.verifiedMidtown
         let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
         let option = NativeLiveValueOption(id: "atlanta-parking", productType: "parking", title: "Midtown Parking", providerName: "Bytspot", source: "live", estimatedTotalCents: 800, marketReferenceCents: 1200, distanceMeters: 320, availability: "Available", priceParityScore: 90, valueScore: 90, eligible: true, explanation: [])
-        let atlantaSnapshot = NativeTabContentSnapshot(venues: NativeTabContentSnapshot.fallback.venues, discoverCards: NativeTabContentSnapshot.fallback.discoverCards, events: NativeTabContentSnapshot.fallback.events, source: .mixed, lastUpdated: Date(), errorMessage: nil, bestValueOptions: [option])
+        let atlantaVenue = NativeVenueSummary(id: "atlanta-venue", name: "Peachtree Venue", category: "dining", address: "Peachtree St NE", distance: "0.2 mi", rating: 4.5, latitude: 33.7870, longitude: -84.3835, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: ""), verifiedPatchId: nil, imageUrl: nil)
+        let atlantaSnapshot = NativeTabContentSnapshot(venues: [atlantaVenue], discoverCards: [], events: [], source: .mixed, lastUpdated: Date(), errorMessage: nil, bestValueOptions: [option])
 
         let current = NativeTabContentStore.locationSafeSnapshot(atlantaSnapshot, origin: atlanta, bestValueOrigin: atlanta, current: atlanta)
         let stale = NativeTabContentStore.locationSafeSnapshot(atlantaSnapshot, origin: atlanta, bestValueOrigin: atlanta, current: seattle)
@@ -1616,7 +1621,7 @@ final class BytspotTrustEngineTests: XCTestCase {
             XCTAssertTrue(snapshot.venues.isEmpty)
             XCTAssertTrue(snapshot.events.isEmpty)
             XCTAssertTrue(snapshot.bestValueOptions.isEmpty)
-            XCTAssertTrue(Set(snapshot.discoverCards.map(\.id)).isDisjoint(with: Set(NativeTabContentSnapshot.specialDiscoverCards.map(\.id))))
+            XCTAssertTrue(Set(snapshot.discoverCards.map(\.id)).isDisjoint(with: retiredSampleCardIDs))
             let copy = snapshot.discoverCards.flatMap { [$0.title, $0.subtitle, $0.metadataLine] }.joined(separator: " ")
             XCTAssertFalse(copy.localizedCaseInsensitiveContains("Atlanta"))
             XCTAssertFalse(copy.localizedCaseInsensitiveContains("Midtown"))
@@ -1626,7 +1631,7 @@ final class BytspotTrustEngineTests: XCTestCase {
     @MainActor
     func testUnresolvedLocationPublishesNeutralContentAndRejectsDerivedBestValueCards() {
         let option = NativeLiveValueOption(id: "fallback-parking", productType: "parking", title: "Midtown Smart Parking", providerName: "Bytspot", source: "live", estimatedTotalCents: 800, marketReferenceCents: 1200, distanceMeters: 320, availability: "Available", priceParityScore: 90, valueScore: 90, eligible: true, explanation: [])
-        let unresolvedCards = NativeTabContentStore.liveDiscoverCards(apiCards: NativeTabContentSnapshot.fallback.discoverCards, venues: NativeTabContentSnapshot.fallback.venues, events: NativeTabContentSnapshot.fallback.events, services: NativeTabContentSnapshot.specialDiscoverCards, valueOptions: [option], location: .midtown)
+        let unresolvedCards = NativeTabContentStore.liveDiscoverCards(apiCards: NativeTabContentSnapshot.fallback.discoverCards, venues: NativeTabContentSnapshot.fallback.venues, events: NativeTabContentSnapshot.fallback.events, valueOptions: [option], location: .midtown)
         let verifiedAtlantaCards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [], valueOptions: [option], location: .verifiedMidtown)
         let store = NativeTabContentStore()
         let unresolvedCopy = (unresolvedCards.flatMap { [$0.title, $0.subtitle, $0.metadataLine] } + [NativeLocationCoordinate.midtown.displayName, NativeLocationCoordinate.midtown.shortLabel]).joined(separator: " ")
@@ -1634,9 +1639,8 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(store.snapshot.venues.isEmpty)
         XCTAssertTrue(store.snapshot.events.isEmpty)
         XCTAssertTrue(store.snapshot.bestValueOptions.isEmpty)
-        XCTAssertTrue(NativeTabContentStore.fallbackVenues(for: .midtown).isEmpty)
         XCTAssertFalse(unresolvedCards.contains { $0.badgeText.localizedCaseInsensitiveContains("BEST VALUE") })
-        XCTAssertTrue(Set(unresolvedCards.map(\.id)).isDisjoint(with: Set(NativeTabContentSnapshot.specialDiscoverCards.map(\.id))))
+        XCTAssertTrue(Set(unresolvedCards.map(\.id)).isDisjoint(with: retiredSampleCardIDs))
         XCTAssertFalse(unresolvedCopy.localizedCaseInsensitiveContains("Atlanta"))
         XCTAssertFalse(unresolvedCopy.localizedCaseInsensitiveContains("Midtown"))
         XCTAssertTrue(verifiedAtlantaCards.contains { $0.badgeText.localizedCaseInsensitiveContains("BEST VALUE") })
@@ -1802,26 +1806,24 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     @MainActor
-    func testLiveDiscoverCardsGuaranteeUsableCategoryFeedsWhenApiIsSparse() {
+    func testSparseApiDeckIsNotPaddedWithGeneratedCards() {
         let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [venue(name: "One Restaurant", category: "restaurant", address: "API dining row")], events: [], location: .verifiedMidtown)
-        let minimums = ["dining": 4, "nightlife": 4, "entertainment": 6, "shopping": 3, "parking": 3, "coffee": 3, "fitness": 3, "boutique_apartment": 3, "mobility": 3]
 
-        for (type, count) in minimums {
-            XCTAssertGreaterThanOrEqual(cards.filter { $0.type == type }.count, count, "\(type) should not open as an empty or thin Discover feed.")
-        }
         XCTAssertTrue(cards.contains { $0.type == "dining" && $0.badgeText == "LIVE API" })
-        XCTAssertTrue(cards.contains { $0.type == "shopping" && $0.badgeText == "CURATED" })
+        XCTAssertFalse(cards.contains { $0.badgeText == "CURATED" || $0.id.hasPrefix("coverage-") })
+        XCTAssertEqual(cards.filter { $0.id.hasPrefix("starter-") }.map(\.id), [NativeTabContentStore.rideHandoffCardID])
+        XCTAssertTrue(cards.filter { $0.type == "shopping" || $0.type == "boutique_apartment" || $0.type == "fitness" }.isEmpty)
         XCTAssertTrue(cards.allSatisfy { $0.type != "mobility" || $0.categoryLabel == "Mobility" })
-        XCTAssertTrue(cards.allSatisfy { $0.type != "boutique_apartment" || $0.categoryLabel == "Boutique Stay" })
     }
 
     @MainActor
     func testDiscoverSourceReflectsMixedLiveAndCuratedCoverage() {
         let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [venue(name: "One Restaurant", category: "restaurant", address: "API dining row")], events: [], location: .verifiedMidtown)
+        let curated = NativeDiscoverSummary(id: "curated", type: "dining", title: "Curated", subtitle: "", distance: "Nearby", rating: "Explore", icon: "fork.knife", verified: false, entryType: "free", cta: "Explore", imageUrl: nil, categoryLabel: "Dining", badgeText: "CURATED", metadataLine: "", features: [], vibeScore: 6, availability: "", membershipRequired: false)
 
-        XCTAssertEqual(NativeTabContentStore.source(forVisibleDeck: cards, hasLiveInputs: true), .mixed)
-        XCTAssertEqual(NativeTabContentStore.source(forVisibleDeck: [cards.first { $0.badgeText == "LIVE API" }!], hasLiveInputs: true), .live)
-        XCTAssertEqual(NativeTabContentStore.source(forVisibleDeck: [cards.first { $0.badgeText == "CURATED" }!], hasLiveInputs: false), .fallback)
+        XCTAssertEqual(NativeTabContentStore.source(forVisibleDeck: cards, hasLiveInputs: true), .live, "The ride handoff does not make a live deck curated.")
+        XCTAssertEqual(NativeTabContentStore.source(forVisibleDeck: cards + [curated], hasLiveInputs: true), .mixed)
+        XCTAssertEqual(NativeTabContentStore.source(forVisibleDeck: [curated], hasLiveInputs: false), .fallback)
     }
 
     @MainActor
@@ -2016,32 +2018,30 @@ final class BytspotTrustEngineTests: XCTestCase {
 
     @MainActor
     func testNearbyPlacesLeadTheVisibleDeck() {
-        let curated = NativeTabContentSnapshot.fallback.discoverCards
         let local = NativeDiscoverSummary(id: "local-nightlife", type: "nightlife", title: "Nearby Nightlife", subtitle: "Near you", distance: "0.4 mi", rating: "Nearby", icon: "music.note", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Nightlife", badgeText: "APPLE MAPS", metadataLine: "Nearby", features: ["Nightlife"], vibeScore: 7, availability: "Nearby", membershipRequired: false)
         let location = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
 
-        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: curated, venues: [], placeCards: [local], location: location)
+        let cards = NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [], placeCards: [local], location: location)
 
-        XCTAssertEqual(cards.first?.id, local.id)
         XCTAssertGreaterThan(NativeDiscoverRanking.nearbySourcePriority(local.badgeText), NativeDiscoverRanking.nearbySourcePriority("CURATED"))
-        XCTAssertTrue(Set(cards.map(\.id)).isDisjoint(with: Set(NativeTabContentSnapshot.specialDiscoverCards.map(\.id))))
-        let fallback = cards.first { $0.id == "nightlife-momentum" }
-        XCTAssertEqual(fallback?.title, "Nightlife Near You")
-        XCTAssertEqual(fallback?.distance, "Nearby")
-        XCTAssertEqual(fallback?.badgeText, "CURATED")
+        XCTAssertEqual(cards.map(\.id), [local.id, NativeTabContentStore.rideHandoffCardID], "Categories are not padded with generated cards; only the Uber / Lyft handoff is added.")
+    }
+
+    @MainActor
+    func testAnEmptyAreaShowsOnlyTheRideHandoffAndNoLocationShowsNothing() {
+        let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
+        XCTAssertEqual(NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [], location: seattle).map(\.id), [NativeTabContentStore.rideHandoffCardID])
+        XCTAssertTrue(NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [], location: .midtown).isEmpty)
+        XCTAssertTrue(NativeTabContentStore.discoverCards(from: []).isEmpty)
     }
 
     @MainActor
     func testNonAtlantaFallbackIsGenericAndRegionSafe() {
         let location = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
-        let cards = NativeTabContentStore.locationAwareCards(NativeTabContentSnapshot.fallback.discoverCards, sourceVenues: NativeTabContentSnapshot.fallback.venues, location: location)
-        let specialIDs = NativeTabContentSnapshot.specialDiscoverCards.map(\.id)
+        let curatedFromAPI = NativeDiscoverSummary(id: "dinner-vibe", type: "dining", title: "Dinner Spots That Match Your Vibe", subtitle: "", distance: "Nearby", rating: "Explore", icon: "fork.knife", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Dining", badgeText: "CURATED", metadataLine: "Suggestions for your area", features: [], vibeScore: 6, availability: "Check nearby", membershipRequired: false)
+        let cards = NativeTabContentStore.locationAwareCards([curatedFromAPI], sourceVenues: [], location: location)
 
-        XCTAssertTrue(NativeTabContentStore.fallbackVenues(for: location).isEmpty)
-        XCTAssertFalse(cards.contains { card in specialIDs.contains { card.id.contains($0) } })
-        XCTAssertFalse(cards.contains { $0.id.contains("midtown-boutique-suite") })
-        XCTAssertTrue(cards.allSatisfy { $0.distance == "Nearby" && $0.metadataLine == "Suggestions for your area" && $0.availability == "Check nearby" })
-        XCTAssertFalse(cards.contains { $0.metadataLine.rangeOfCharacter(from: .decimalDigits) != nil || $0.metadataLine.contains("$") })
+        XCTAssertTrue(cards.isEmpty, "A curated card with no place behind it is not shown.")
     }
 
     @MainActor
@@ -2935,7 +2935,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: "venue", sourceCategory: nil))
         XCTAssertTrue(NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: "dining", sourceCategory: "Dining"))
         XCTAssertTrue(NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: "venue", sourceCategory: "museum"))
-        for card in NativeTabContentSnapshot.fallback.discoverCards {
+        for card in [NativeTabContentStore.rideHandoffCard] {
             XCTAssertTrue(NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: card.type, sourceCategory: card.categoryLabel), card.id)
         }
     }
@@ -6824,7 +6824,9 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         let providerCard = NativeDiscoverSummary(id: "provider-local-cafe", type: "coffee", title: "Local Cafe", subtitle: "Provider result", distance: "0.2 mi", rating: "4.8", icon: "cup.and.saucer.fill", verified: true, entryType: "free", cta: "View", imageUrl: nil, categoryLabel: "Coffee", badgeText: "APPLE MAPS", metadataLine: "Nearby", features: [], vibeScore: 8, availability: "Open", membershipRequired: false)
         let mixedFallback = NativeTabContentSnapshot(venues: NativeTabContentSnapshot.fallback.venues, discoverCards: [providerCard] + NativeTabContentSnapshot.fallback.discoverCards, events: NativeTabContentSnapshot.fallback.events, source: .mixed, lastUpdated: Date(), errorMessage: nil)
         let erroredLive = NativeTabContentSnapshot(venues: [liveVenue], discoverCards: [], events: [], source: .live, lastUpdated: Date(), errorMessage: "Refresh failed", hasLiveVenueInventory: true)
-        let spoofedFallback = NativeTabContentSnapshot(venues: NativeTabContentSnapshot.fallback.venues, discoverCards: [providerCard], events: [], source: .live, lastUpdated: Date(), errorMessage: nil, hasLiveVenueInventory: true)
+        let seededFixture = NativeVenueSummary(id: "seeded-colony", name: "Colony Square", category: "market", address: "1197 Peachtree St NE", distance: "0.4 mi", rating: nil, latitude: 33.7878, longitude: -84.3832, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: ""), verifiedPatchId: nil, imageUrl: nil)
+        XCTAssertTrue(NativeTabContentSnapshot.isFallbackVenueFixture(seededFixture), "A seeded copy of a retired fixture is not live inventory.")
+        let spoofedFallback = NativeTabContentSnapshot(venues: [seededFixture], discoverCards: [providerCard], events: [], source: .live, lastUpdated: Date(), errorMessage: nil, hasLiveVenueInventory: true)
         let venueCard = NativeDiscoverSummary(id: "venue-live-midtown-parking", type: "parking", title: "Live Midtown Parking", subtitle: "Live venue", distance: "0.3 mi", rating: "4.7", icon: "parkingsign.circle.fill", verified: true, entryType: "free", cta: "Route", imageUrl: nil, categoryLabel: "Parking", badgeText: "LIVE API", metadataLine: "18 spots", features: [], vibeScore: 8, availability: "Open", membershipRequired: false)
         let liveEvent = NativeEventSummary(id: "live-midtown-event", title: "Live Midtown Event", venue: "Live Hall", time: "Tonight", price: "Free", emoji: "🎟️", imageUrl: nil)
         let liveEventCard = NativeDiscoverSummary(id: "event-live-midtown-event", type: "entertainment", title: "Live Midtown Event", subtitle: "Live Hall", distance: "Tonight", rating: "Live", icon: "ticket.fill", verified: true, entryType: "free", cta: "View Event", imageUrl: nil, categoryLabel: "Events", badgeText: "LIVE EVENT", metadataLine: "Tonight", features: [], vibeScore: 8, availability: "Tonight", membershipRequired: false)

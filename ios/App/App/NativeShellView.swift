@@ -403,9 +403,13 @@ struct BytspotNativeShellView: View {
     }
 
     private static var previewPartnerMenuRequested: Bool {
+        #if DEBUG
         guard NativeMigrationConfig.isNativeRootEnabled else { return false }
         let raw = (ProcessInfo.processInfo.environment["BYT_NATIVE_PARTNER_MENU_PREVIEW"] ?? nativeLaunchArgument("byt-native-partner-menu-preview"))?.lowercased()
         return ["1", "true", "yes"].contains(raw ?? "")
+        #else
+        return false
+        #endif
     }
 
     private var effectiveAppearance: NativeAppearanceMode {
@@ -6663,7 +6667,7 @@ enum NativeSearchRouter {
         CategorySpec(filter: "coffee", title: "Coffee nearby", subtitle: "Walkable cafés and quick stops", icon: "cup.and.saucer.fill", keywords: ["coffee", "cafe", "café", "brunch", "tea"]),
         CategorySpec(filter: "shopping", title: "Shopping nearby", subtitle: "Retail, malls, markets, and local stores", icon: "bag.fill", keywords: ["shopping", "shop", "shops", "mall", "malls", "store", "retail", "market"]),
         CategorySpec(filter: "entertainment", title: "Events tonight", subtitle: "Tickets, music, passes, and experiences", icon: "ticket.fill", keywords: ["event", "events", "ticket", "tickets", "music", "show", "concert", "pass", "matchday"]),
-        CategorySpec(filter: "mobility", title: "Airport ride", subtitle: "Private transfers, vans, and route handoff", icon: "airplane.departure", keywords: ["ride", "airport", "transfer", "valet", "driver", "uber", "lyft", "transport", "shuttle"]),
+        CategorySpec(filter: "mobility", title: "Get a ride", subtitle: "Uber or Lyft with your pickup and drop-off", icon: "car.fill", keywords: ["ride", "airport", "transfer", "valet", "driver", "uber", "lyft", "transport", "shuttle"]),
         CategorySpec(filter: "nightlife", title: "Nightlife", subtitle: "Bars, lounges, and evening energy", icon: "music.note", keywords: ["night", "nightlife", "bar", "bars", "drinks", "cocktail", "club"]),
         CategorySpec(filter: "fitness", title: "Fitness nearby", subtitle: "Gyms, recovery, and wellness options", icon: "figure.mind.and.body", keywords: ["fitness", "gym", "wellness", "workout", "recovery"])
     ]
@@ -8116,11 +8120,11 @@ private struct NativeHomeDashboardView: View {
         venue.id == valetRideServiceID || venue.name.localizedCaseInsensitiveContains("Private Airport Transfer") || venue.name.localizedCaseInsensitiveContains("Valet Premium Ride")
     }
 
-    static let valetRideServiceID = "service-valet-ride"
+    static let valetRideServiceID = NativeTabContentStore.rideHandoffCardID
 
     static func primaryCTATitle(for card: NativeDiscoverSummary) -> String {
         if card.nearbyParty != nil { return "Details" }
-        if card.id == Self.valetRideServiceID { return "Request Transfer" }
+        if card.id == Self.valetRideServiceID { return "Get a ride" }
         if card.type == "boutique_apartment" { return "View Stay" }
         if card.type == "coffee" { return "Plan Stop" }
         if card.type == "parking" { return "Route" }
@@ -11884,6 +11888,7 @@ private struct NativeDiscoverView: View {
     @State private var signInAfterPlanDismissal = false
     @State private var detailVenue: NativeVenueSummary?
     @State private var detailOffering: NativePlanBookableOffering?
+    @State private var showRideHandoff = false
     @State private var routeVenue: NativeVenueSummary?
     @State private var discoverStatusMessage: String?
     @ObservedObject private var transactions = NativeDiscoverTransactionStore.shared
@@ -11940,9 +11945,8 @@ private struct NativeDiscoverView: View {
     static let filterEnvironmentKey = "BYT_NATIVE_DISCOVER_FILTER"
     static let filterDefaultsKey = "bytspot_native_discover_filter"
 
-#if DEBUG
-    static let curatedCards: [DiscoverCardSpec] = NativeTabContentSnapshot.fallback.discoverCards.map(Self.spec(from:))
-#endif
+    static let emptyDeckTitle = "Nothing near you yet"
+    static let emptyDeckSubtitle = "Places and plans appear here as businesses near you list them."
 
     var body: some View {
         ScrollView {
@@ -11984,6 +11988,9 @@ private struct NativeDiscoverView: View {
         .onChange(of: selectedFilter) { _ in discoverCardIndex = 0 }
         .onChange(of: rankedCards.map(\.browseID)) { ids in
             discoverCardIndex = min(discoverCardIndex, max(ids.count - 1, 0))
+        }
+        .sheet(isPresented: $showRideHandoff) {
+            NativeValetPremiumRideSheet(openNativeTab: openNativeTab, openNativeAccess: openNativeAccess, openNativeAuth: openNativeAuth)
         }
         .sheet(item: $detailVenue) { venue in
             let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess, onRideBookingCompleted: onRideBookingCompleted, offering: detailOffering, offeringUserID: catalogUserID)
@@ -12121,8 +12128,17 @@ private struct NativeDiscoverView: View {
         VStack(spacing: 24) {
             NativeWindowAskRail(coordinate: locationStore.coordinate, openAuth: openNativeAuth)
             if rankedCards.isEmpty {
-                Button("No options in this category yet. Explore all") { selectedFilter = nil }
-                    .font(.headline).foregroundColor(.white).frame(minHeight: 44)
+                if selectedFilter == nil {
+                    VStack(spacing: 6) {
+                        Text(Self.emptyDeckTitle).font(.headline).foregroundColor(.white)
+                        Text(regionalSnapshot.errorMessage ?? Self.emptyDeckSubtitle).nativeBody(size: 13).multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .accessibilityIdentifier("native-discover-empty")
+                } else {
+                    Button("No options in this category yet. Explore all") { selectedFilter = nil }
+                        .font(.headline).foregroundColor(.white).frame(minHeight: 44)
+                }
             } else {
                 if let card = rankedCards.indices.contains(discoverCardIndex) ? rankedCards[discoverCardIndex] : rankedCards.first {
                     if #available(iOS 18.0, *) {
@@ -12305,6 +12321,7 @@ private struct NativeDiscoverView: View {
 
     private func openDiscoverDetails(_ card: DiscoverCardSpec) {
         if card.nearbyParty != nil { openNearbyInvitation(card); return }
+        if card.id == NativeTabContentStore.rideHandoffCardID { showRideHandoff = true; return }
         if let offering = card.offering {
             guard catalog.rows(for: catalogUserID).contains(offering) else {
                 discoverStatusMessage = "This option changed. Refresh Discover and try again."
@@ -14368,7 +14385,6 @@ private struct NativeVenueDetailView: View {
         showStayBooking = true
     }
 
-    private var partnerMenu: PartnerMenu { PartnerMenu.sample(for: venue) }
 
     private var menuTier: BytspotTier {
         if let patchId = venue.verifiedPatchId?.uppercased(), !patchId.isEmpty {
@@ -21621,11 +21637,9 @@ enum NativeHomeParitySelfTests {
         let visibleHomeCopy = NativeHomeDashboardView.visibleHomeSurfaceLabels.joined(separator: " | ")
         precondition(!NativeHomeDashboardView.prohibitedContextSnapshotLabels.contains { visibleHomeCopy.localizedCaseInsensitiveContains($0) }, "NativeHomeParitySelfTests: native Home must not expose context snapshot placeholder copy.")
         precondition(!NativeHomeCopyContract.containsUnprovenAvailabilityClaim(actions.map(\.subtitle) + NativeHomeDashboardView.visibleHomeSurfaceLabels), "NativeHomeParitySelfTests: native Home must not claim current stay availability without dedicated provenance.")
-        precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.fallback.discoverCards.first { $0.type == "boutique_apartment" }!) == "View Stay", "NativeHomeParitySelfTests: boutique stay AI Pick CTA must be category-aware.")
-        precondition(NativeHomeDashboardView.primaryCTATitle(for: NativeTabContentSnapshot.canonicalMobilityCards[0]) == "Request Transfer", "NativeHomeParitySelfTests: airport transfer CTA must open the native request-booking flow.")
-        let broniProfile = NativeTabContentSnapshot.canonicalServiceCards[0]
-        precondition(broniProfile.control == NativeDiscoverCardControl.local && !NativeDiscoverCardControl.isControlled(cardID: broniProfile.id), "NativeHomeParitySelfTests: Broni partner identity must not grant fulfillment authority.")
-        precondition(NativeHomeDashboardView.primaryCTATitle(for: broniProfile) == "Plan Dining", "NativeHomeParitySelfTests: listed Broni uses the existing non-transactional dining action, not a supplied menu or booking.")
+        let rideCard = NativeTabContentStore.rideHandoffCard
+        precondition(NativeHomeDashboardView.primaryCTATitle(for: rideCard) == "Get a ride", "NativeHomeParitySelfTests: the ride card opens the Uber / Lyft handoff.")
+        precondition(rideCard.control == NativeDiscoverCardControl.local && NativeDiscoverCardControl.controlledCardIDs.isEmpty, "NativeHomeParitySelfTests: no listing is controlled by its ID alone.")
         precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "drinks", walk: "close", crew: "group").prefix(3) == ["nightlife", "coffee", "entertainment"], "NativeHomeParitySelfTests: AI Pick personalization ranking drifted for nightlife/group tokens.")
         precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "stay", walk: "medium", crew: "safe").first == "boutique_apartment", "NativeHomeParitySelfTests: AI Pick must prefer boutique stay for stay tokens.")
         precondition(NativeHomeDashboardView.personalizedAIPickTypes(vibe: "ride", walk: "medium", crew: "safe").first == "mobility", "NativeHomeParitySelfTests: AI Pick must prefer mobility for ride tokens.")
@@ -22041,19 +22055,11 @@ enum NativeDiscoverParitySelfTests {
         }
         precondition(NativeDiscoverView.categoryLabels.joined(separator: " → ") == NativeDiscoverView.categoryRailRegressionOrderDescription, "NativeDiscoverParitySelfTests: native category rail order drifted.")
         precondition(NativeDiscoverView.debugCategoryRailFilterOrder() == NativeDiscoverView.categoryRailRegressionFilterOrder, "NativeDiscoverParitySelfTests: native category rail filter mapping drifted.")
-        precondition(NativeDiscoverView.curatedCards.map(\.title) == ["Morning Coffee Walk", "Midtown Boutique Suite", "Dinner Spots That Match Your Vibe", "Nightlife Near You", "Smart Parking Before You Arrive", "Events Worth Leaving For", "Wellness Reset Nearby"], "NativeDiscoverParitySelfTests: curated fallback cards drifted from the approved native deck.")
-        precondition(NativeDiscoverView.curatedCards.map(\.type) == ["coffee", "boutique_apartment", "dining", "nightlife", "parking", "entertainment", "fitness"], "NativeDiscoverParitySelfTests: curated fallback card types drifted.")
-        let valetRideCard = NativeTabContentSnapshot.canonicalMobilityCards.first { $0.id == "service-valet-ride" }!
-        precondition(valetRideCard.cta == "Request Transfer" && valetRideCard.availability == "Estimate + review", "NativeDiscoverParitySelfTests: airport transfer must show estimate/review before request booking.")
-        precondition(valetRideCard.metadataLine == "Bytspot · Airport", "NativeDiscoverParitySelfTests: airport transfer metadata must not name a provider Bytspot is not connected to.")
-        precondition(valetRideCard.features == ["Review estimate", "Authorization request", "My Access status"], "NativeDiscoverParitySelfTests: airport transfer must use request-booking feature copy.")
-        precondition(NativeTabContentSnapshot.canonicalMobilityCards.map(\.title) == ["Private Airport Transfer", "Group Transport"], "NativeDiscoverParitySelfTests: Mobility fallback cards drifted.")
-        precondition(NativeTabContentSnapshot.canonicalMobilityCards.map(\.categoryLabel) == ["Mobility", "Mobility"], "NativeDiscoverParitySelfTests: Mobility cards must use the top-level Mobility category.")
-        precondition(NativeTabContentSnapshot.specialDiscoverCards.map(\.title).prefix(2) == ["Private Airport Transfer", "Group Transport"], "NativeDiscoverParitySelfTests: Mobility cards must stay first in the native special Discover merge.")
-        let coffeeCard = NativeDiscoverView.curatedCards.first(where: { $0.type == "coffee" })!
-        precondition(NativeDiscoverView.venueForDetail(coffeeCard, venues: []).discoverType == "coffee", "NativeDiscoverParitySelfTests: Coffee card must resolve to a coffee detail venue.")
-        precondition(NativeDiscoverView.curatedCards.allSatisfy { $0.offering == nil && $0.presentation.primaryActionTitle == nil && $0.presentation.actionHex == nil }, "NativeDiscoverParitySelfTests: reference text and control never grant booking capability.")
-        precondition(coffeeCard.presentation.statusLabel == "Listed" && coffeeCard.presentation.availabilityLine == "Place discovery · Bytspot does not control availability", "NativeDiscoverParitySelfTests: references cannot claim verified availability.")
+        precondition(NativeTabContentSnapshot.fallback.discoverCards.isEmpty && NativeTabContentSnapshot.fallback.venues.isEmpty && NativeTabContentSnapshot.fallback.events.isEmpty, "NativeDiscoverParitySelfTests: the offline deck holds no invented venues, cards or events.")
+        let coffeeReference = NativeDiscoverView.spec(from: NativeDiscoverSummary(id: "coffee-reference", type: "coffee", title: "Coffee reference", subtitle: "", distance: "Nearby", rating: "Explore", icon: "cup.and.saucer.fill", verified: false, entryType: "free", cta: "Open details", imageUrl: nil, categoryLabel: "Coffee", badgeText: "", metadataLine: "", features: ["Coffee"], vibeScore: 6, availability: "Check nearby", membershipRequired: false))
+        precondition(NativeDiscoverView.venueForDetail(coffeeReference, venues: []).discoverType == "coffee", "NativeDiscoverParitySelfTests: Coffee card must resolve to a coffee detail venue.")
+        precondition(coffeeReference.offering == nil && coffeeReference.presentation.primaryActionTitle == nil && coffeeReference.presentation.actionHex == nil, "NativeDiscoverParitySelfTests: reference text and control never grant booking capability.")
+        precondition(coffeeReference.presentation.statusLabel == "Listed" && coffeeReference.presentation.availabilityLine == "Place discovery · Bytspot does not control availability", "NativeDiscoverParitySelfTests: references cannot claim verified availability.")
         // The card vocabulary is exactly these five words, each with its own ring.
         precondition(NativeDiscoverBookableCapability.displayOrder.map(\.statusLabel) == ["Book", "Order", "Request", "External", "Listed"], "NativeDiscoverParitySelfTests: discover card capability vocabulary drifted.")
         precondition(Set(NativeDiscoverBookableCapability.displayOrder.map(\.ringStyle)).count == 4, "NativeDiscoverParitySelfTests: every capability needs a distinguishable ring.")
@@ -22067,9 +22073,6 @@ enum NativeDiscoverParitySelfTests {
         }, "NativeDiscoverParitySelfTests: food search must offer Eat & Drink discovery without requiring a sample partner to outrank other results.")
         let parkingSearch = NativeSearchRouter.suggestions(query: "parking", snapshot: .fallback, limit: 3)
         if case .map(_, "Smart Parking") = parkingSearch.first?.route {} else { preconditionFailure("NativeDiscoverParitySelfTests: parking intent must route to Map before unrelated premium vendors.") }
-        precondition(NativeTabContentSnapshot.canonicalServiceCards.map(\.title) == ["Broni Home Taste", "GH Akwaaba Pass"], "NativeDiscoverParitySelfTests: canonical service labels drifted.")
-        precondition(NativeTabContentSnapshot.canonicalServiceCards.map(\.categoryLabel) == ["Dining", "Event Pass"], "NativeDiscoverParitySelfTests: special service cards should use user-facing labels, not backend Services wording.")
-        precondition(!NativeTabContentSnapshot.canonicalServiceCards.map(\.badgeText).contains("PAID CHECKOUT"), "NativeDiscoverParitySelfTests: paid-checkout backend copy must not show on Discover cards.")
         precondition(NativeValetMobilityContract.providerName == "Bytspot Mobility" && NativeValetMobilityContract.appClipMode == "api-proxy-no-sdk", "NativeDiscoverParitySelfTests: Valet must remain API-proxy/no-SDK for App Clip size.")
         precondition(NativeValetMobilityContract.backendRoutes == NativeMobilityRouteContract.routes, "NativeDiscoverParitySelfTests: Valet backend route contract must mirror NativeMobilityDataAPI.")
         precondition(NativeValetRideWalletStore.storageKey == "bytspot_native_valet_rides", "NativeDiscoverParitySelfTests: Valet ride wallet storage key drifted.")
@@ -22141,9 +22144,7 @@ enum NativePhase4TabContentSelfTests {
 
     private static func run() {
         let fallback = NativeTabContentSnapshot.fallback
-        precondition(fallback.venues.map(\.name).prefix(3) == ["Colony Square", "Midtown Smart Parking", "Arts Center Access"], "NativePhase4TabContentSelfTests: fallback venue fixtures drifted.")
-        precondition(!fallback.discoverCards.contains { NativeTabContentSnapshot.specialDiscoverCards.map(\.id).contains($0.id) }, "NativePhase4TabContentSelfTests: sample partner cards must not fill the offline deck.")
-        precondition(fallback.events.map(\.title).contains("GH Akwaaba FIFA Matchday"), "NativePhase4TabContentSelfTests: event fallback missing GH Akwaaba.")
+        precondition(fallback.venues.isEmpty && fallback.discoverCards.isEmpty && fallback.events.isEmpty, "NativePhase4TabContentSelfTests: the offline deck holds no invented venues, cards or events.")
         precondition(NativeTabContentStore.icon(for: "parking") == "parkingsign.circle.fill", "NativePhase4TabContentSelfTests: Discover icon mapping drifted.")
         precondition(NativeConciergeView.suggestionPrompts == ["Find parking nearby", "Check stay dates", "Access my booking", "What’s open now?"], "NativePhase4TabContentSelfTests: Concierge suggestions drifted.")
     }

@@ -2,6 +2,11 @@ import XCTest
 import Combine
 @testable import App
 
+/// A listed partner with a supplied category and no granted authority.
+private func partnerKitchenCard() -> NativeDiscoverSummary {
+    NativeDiscoverSummary(id: "partner-kitchen", type: "service", title: "Partner Kitchen", subtitle: "", distance: "Service", rating: "New", icon: "fork.knife", verified: false, entryType: "free", cta: "Details", imageUrl: nil, categoryLabel: "Dining", badgeText: "", metadataLine: "", features: [], vibeScore: 6, availability: "", membershipRequired: false)
+}
+
 @MainActor
 final class NativeM5DetailTests: XCTestCase {
     private func offering(_ capability: String, kind: NativePlanBookableSelection.SourceKind = .party,
@@ -48,7 +53,7 @@ final class NativeM5DetailTests: XCTestCase {
     func testDetailShowsTheSameBrowseCategoryAsItsCard() {
         // A partner appearing as Eat & Drink on the card and Services on the
         // detail reads as two different places.
-        let card = NativeTabContentSnapshot.canonicalServiceCards.first { $0.id == "broni-home-taste" }!
+        let card = partnerKitchenCard()
         let venue = NativeLocationAwareUIContent.unresolvedVenue(id: card.id, name: card.title, category: card.type,
             address: "", distance: card.distance, imageURL: card.imageUrl, sourceCategory: card.categoryLabel)
         let cardRail = NativeDiscoverBookablePresentation.referenceRail(type: card.type, sourceCategory: card.categoryLabel)
@@ -63,14 +68,11 @@ final class NativeM5DetailTests: XCTestCase {
     /// Atlanta restaurant — partner visibility is earned with a real address,
     /// never by exempting supply from location scoping.
     func testLocationBoundPartnerStaysHiddenUntilLocationResolves() {
-        let ids = Set(NativeTabContentSnapshot.unresolved.discoverCards.map(\.id))
-        XCTAssertTrue(ids.isDisjoint(with: Set(NativeTabContentSnapshot.specialDiscoverCards.map(\.id))))
-        XCTAssertFalse(ids.contains("broni-home-taste"))
-        XCTAssertFalse(ids.contains("midtown-boutique-suite"))
+        XCTAssertTrue(NativeTabContentSnapshot.unresolved.discoverCards.isEmpty)
         XCTAssertTrue(NativeTabContentSnapshot.unresolved.venues.isEmpty)
         XCTAssertTrue(NativeTabContentSnapshot.unresolved.events.isEmpty)
         // A sample partner is never shown as if it were live, wherever the guest is.
-        XCTAssertFalse(NativeTabContentSnapshot.fallback.discoverCards.contains { $0.id == "broni-home-taste" })
+        XCTAssertTrue(NativeTabContentSnapshot.fallback.discoverCards.isEmpty)
     }
 
     // MARK: Four-surface authority contract
@@ -111,7 +113,7 @@ final class NativeM5DetailTests: XCTestCase {
     /// Booking and Ordering are intent vocabulary only: no supply currently
     /// mounts them, so no surface may render an executable row for them.
     func testBookingAndOrderingIntentsNeverExecuteOnAnySurface() {
-        let partnerCard = NativeTabContentSnapshot.canonicalServiceCards.first { $0.id == "broni-home-taste" }!
+        let partnerCard = partnerKitchenCard()
         let supplies = [
             NativeDiscoverBookablePresentation(),
             NativeDiscoverBookablePresentation(offering: offering("request", kind: .coffeeSpot, category: "coffee")),
@@ -233,13 +235,8 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertEqual(requestRows.last?.accessibilityTitle, "Requesting: Available")
     }
 
-    func testBroniPartnerProfileDoesNotInventAuthorityOrMedia() throws {
-        let card = try XCTUnwrap(NativeTabContentSnapshot.canonicalServiceCards.first)
-        XCTAssertEqual(card.title, "Broni Home Taste")
-        XCTAssertNil(card.imageUrl)
-        XCTAssertEqual(card.cta, "Details")
-        XCTAssertEqual(card.features, [])
-        XCTAssertFalse(card.verified)
+    func testPartnerProfileDoesNotInventAuthority() throws {
+        let card = partnerKitchenCard()
         XCTAssertEqual(card.control, NativeDiscoverCardControl.local)
         XCTAssertFalse(NativeDiscoverCardControl.isControlled(cardID: card.id))
         let presentation = NativeDiscoverBrowsePolicy.referencePresentation(for: card)

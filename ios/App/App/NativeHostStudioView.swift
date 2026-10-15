@@ -687,10 +687,12 @@ struct NativeHostStudioView: View {
                         // the fit, as the guest's hero does.
                         GeometryReader { proxy in
                             ZStack {
-                                Image(uiImage: coverMedia.preview).resizable().scaledToFill()
-                                    .frame(width: proxy.size.width, height: proxy.size.height).clipped()
-                                    .blur(radius: 18, opaque: true)
-                                    .overlay(Color.black.opacity(0.38))
+                                if let fill = coverMedia.boxFill {
+                                    Image(uiImage: fill).resizable()
+                                        .frame(width: proxy.size.width, height: proxy.size.height)
+                                        .blur(radius: 18, opaque: true)
+                                        .overlay(Color.black.opacity(0.38))
+                                }
                                 Image(uiImage: coverMedia.preview).resizable().scaledToFit()
                                     .frame(width: proxy.size.width, height: proxy.size.height)
                             }
@@ -1355,6 +1357,10 @@ struct NativePartyPendingImage: Identifiable {
 
     let id = UUID()
     let preview: UIImage
+    /// The preview aspect-filled into the cover box, for the blurred layer
+    /// behind the fitted cover. Pre-cropped like `ClipPosterLoader.boxFill`
+    /// so the layer is exactly box-sized and the tile never reports wider.
+    let boxFill: UIImage?
     let dataURI: String
 
     init?(image: UIImage, shape: Shape = .original) {
@@ -1379,7 +1385,23 @@ struct NativePartyPendingImage: Identifiable {
         }
         guard let data, data.count <= Self.maxByteCount else { return nil }
         preview = rendered
+        boxFill = shape == .cover ? Self.boxFill(for: rendered) : nil
         dataURI = "data:image/jpeg;base64," + data.base64EncodedString()
+    }
+
+    static func boxFill(for image: UIImage) -> UIImage? {
+        let source = image.size
+        guard source.width > 0, source.height > 0 else { return nil }
+        let ratio = coverBoxAspectRatio(for: source)
+        let target = CGSize(width: 240, height: (240 / ratio).rounded())
+        let scale = max(target.width / source.width, target.height / source.height)
+        let drawn = CGSize(width: source.width * scale, height: source.height * scale)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            image.draw(in: CGRect(x: (target.width - drawn.width) / 2, y: (target.height - drawn.height) / 2, width: drawn.width, height: drawn.height))
+        }
     }
 }
 

@@ -3997,8 +3997,7 @@ final class NativeTabContentStore: ObservableObject {
 
     static func discoverCards(from venues: [NativeVenueSummary], services: [NativeDiscoverSummary] = []) -> [NativeDiscoverSummary] {
         let venueCards = venueDiscoverCards(from: venues)
-        let serviceCards = mergeCanonicalDiscoverCards(into: services)
-        let combined = Array(serviceCards + venueCards)
+        let combined = Array(services + venueCards)
         return combined.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : combined
     }
 
@@ -4029,7 +4028,6 @@ final class NativeTabContentStore: ObservableObject {
         appendUnique(eventDiscoverCards(from: events), to: &merged)
         appendUnique(nightlifeEventDiscoverCards(from: events), to: &merged)
         appendUnique(services, to: &merged)
-        if canUseCurrentEventFeed(at: location) { appendUnique(NativeTabContentSnapshot.specialDiscoverCards, to: &merged) }
         let base = merged.isEmpty ? NativeTabContentSnapshot.fallback.discoverCards : merged
         let complete = mergeBestValueCards(location.isFallback ? [] : valueOptions, into: ensureCategoryCoverage(base))
         return locationAwareCards(complete, sourceVenues: venues, location: location)
@@ -4090,14 +4088,14 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private static func categoryStarterCard(type: String, index: Int) -> NativeDiscoverSummary? {
-        if let existing = (NativeTabContentSnapshot.fallback.discoverCards + NativeTabContentSnapshot.specialDiscoverCards).first(where: { $0.type == type }) {
+        if let existing = NativeTabContentSnapshot.fallback.discoverCards.first(where: { $0.type == type }) {
             return existing
         }
         let label = label(for: type)
         let copy: (title: String, subtitle: String, cta: String) = {
             switch type {
             case "shopping": return ("Shopping Around You", "Markets, gifts, fashion, boutiques, and local retail picks.", "Explore Shops")
-            case "mobility": return ("Mobility Options Nearby", "Transfers, rides, charters, rentals, and group movement options.", "Request")
+            case "mobility": return ("Get a Ride", "Open Uber or Lyft with your pickup and drop-off.", "Get a ride")
             case "boutique_apartment": return ("Boutique Stay Nearby", "Short stays, retreats, resorts, and unique lodging options.", "View Stay")
             default: return ("\(label) Nearby", "Starter picks while live inventory grows around you.", "Explore")
             }
@@ -4559,14 +4557,6 @@ final class NativeTabContentStore: ObservableObject {
         return resolved.isEmpty ? nil : resolved.joined(separator: ", ")
     }
 
-    private static func mergeCanonicalDiscoverCards(into liveServices: [NativeDiscoverSummary]) -> [NativeDiscoverSummary] {
-        var cards = liveServices
-        for canonical in NativeTabContentSnapshot.specialDiscoverCards.reversed() where !cards.contains(where: { $0.id == canonical.id || $0.title.caseInsensitiveCompare(canonical.title) == .orderedSame }) {
-            cards.insert(canonical, at: 0)
-        }
-        return cards
-    }
-
     private static func venueFeatureChips(_ venue: NativeVenueSummary) -> [String] {
         var chips = [label(for: venue.discoverType), venue.crowd?.label ?? "Open"]
         if venue.parking.totalAvailable > 0 { chips.append("\(venue.parking.totalAvailable) spots") }
@@ -4818,7 +4808,7 @@ extension NativeTabContentSnapshot {
         NativeEventSummary(id: "midtown-live", title: "Midtown Live Lounge", venue: "Colony Square", time: "8:00 PM", price: "Free", emoji: "🎶", imageUrl: URL(string: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=900&q=80"), address: "1197 Peachtree St NE, Atlanta, GA 30361", latitude: 33.7851, longitude: -84.3834)
     ]
 
-    static let fallback = NativeTabContentSnapshot(venues: fallbackVenues, discoverCards: fallbackDiscoverCards + specialDiscoverCards, events: fallbackEvents, source: .fallback, lastUpdated: nil, errorMessage: nil)
+    static let fallback = NativeTabContentSnapshot(venues: fallbackVenues, discoverCards: fallbackDiscoverCards, events: fallbackEvents, source: .fallback, lastUpdated: nil, errorMessage: nil)
     static let unresolved = NativeTabContentSnapshot(venues: [], discoverCards: fallbackDiscoverCards.filter { $0.id != "midtown-boutique-suite" }, events: [], source: .fallback, lastUpdated: nil, errorMessage: nil)
 }
 

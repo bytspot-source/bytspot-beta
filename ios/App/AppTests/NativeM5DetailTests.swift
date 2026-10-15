@@ -69,8 +69,8 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertFalse(ids.contains("midtown-boutique-suite"))
         XCTAssertTrue(NativeTabContentSnapshot.unresolved.venues.isEmpty)
         XCTAssertTrue(NativeTabContentSnapshot.unresolved.events.isEmpty)
-        // Resolved-location browsing is where the partner legitimately appears.
-        XCTAssertTrue(NativeTabContentSnapshot.fallback.discoverCards.contains { $0.id == "broni-home-taste" })
+        // A sample partner is never shown as if it were live, wherever the guest is.
+        XCTAssertFalse(NativeTabContentSnapshot.fallback.discoverCards.contains { $0.id == "broni-home-taste" })
     }
 
     // MARK: Four-surface authority contract

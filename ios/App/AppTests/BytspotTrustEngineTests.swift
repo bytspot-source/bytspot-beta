@@ -2518,7 +2518,12 @@ final class BytspotTrustEngineTests: XCTestCase {
         let atlanta = NativeLocationCoordinate(latitude: 33.7866, longitude: -84.3833, isFallback: false)
         XCTAssertEqual(NativeConciergeRegionPresentation.cityName(for: atlanta), "Midtown")
         XCTAssertTrue(NativeConciergeRegionPresentation.welcomeMessage(for: atlanta).contains("Midtown"))
-        XCTAssertTrue(NativeConciergeRegionPresentation.fallbackResponse(for: .parking, location: atlanta).contains("Midtown Smart Parking"))
+        for topic in [NativeConciergeRegionPresentation.Topic.parking, .stay, .open, .general] {
+            let reply = NativeConciergeRegionPresentation.fallbackResponse(for: topic, location: atlanta)
+            for invented in ["Midtown Smart Parking", "22 spots", "Broni", "Akwaaba", "Midtown Boutique Suite", "available now"] {
+                XCTAssertFalse(reply.contains(invented), "offline Concierge must not claim availability it has not checked")
+            }
+        }
         XCTAssertTrue(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Find parking nearby", location: atlanta))
     }
 
@@ -8843,5 +8848,33 @@ final class NativeMapReportsTests: XCTestCase {
         XCTAssertTrue(NativeMapReportsAPI.isNoSignal(URLError(.notConnectedToInternet)))
         XCTAssertFalse(NativeMapReportsAPI.isNoSignal(URLError(.cancelled)))
         XCTAssertFalse(NativeMapReportsAPI.isNoSignal(BytspotAPIClient.APIError.server(status: 403, body: "")), "Bytspot refused it; nothing to hold")
+    }
+}
+
+/// Parking near the guest comes from Apple Maps; Bytspot routes there and the guest pays the lot.
+final class NativeNearbyParkingTests: XCTestCase {
+    private let origin = NativeLocationCoordinate(latitude: 33.7866, longitude: -84.3833, isFallback: false)
+
+    func testAnAppleMapsLotBecomesAParkingPinThatClaimsNoSpacesOrPrice() throws {
+        let lot = try XCTUnwrap(NativeNearbyParking.venue(name: " Deck A ", address: "10 Peachtree St", latitude: 33.7880, longitude: -84.3840, origin: origin))
+        XCTAssertEqual(lot.name, "Deck A")
+        XCTAssertEqual(lot.discoverType, "parking")
+        XCTAssertFalse(lot.parking.isKnown, "Apple Maps does not tell us how many spaces are free")
+        XCTAssertEqual(lot.parking.priceLabel, NativeNearbyParking.payAtLotLabel)
+        XCTAssertNil(lot.verifiedPatchId)
+    }
+
+    func testALotWithoutANameOrPlaceIsDropped() {
+        XCTAssertNil(NativeNearbyParking.venue(name: "  ", address: nil, latitude: 33.78, longitude: -84.38, origin: origin))
+        XCTAssertNil(NativeNearbyParking.venue(name: "Deck", address: nil, latitude: 0, longitude: 0, origin: origin))
+    }
+
+    func testALotBytspotAlreadyListsIsNotShownTwice() throws {
+        let listed = try XCTUnwrap(NativeNearbyParking.venue(name: "Listed Garage", address: nil, latitude: 33.7880, longitude: -84.3840, origin: origin))
+        let sameSpot = try XCTUnwrap(NativeNearbyParking.venue(name: "Garage Entrance", address: nil, latitude: 33.7882, longitude: -84.3840, origin: origin))
+        let sameName = try XCTUnwrap(NativeNearbyParking.venue(name: "listed garage", address: nil, latitude: 33.7950, longitude: -84.3900, origin: origin))
+        let elsewhere = try XCTUnwrap(NativeNearbyParking.venue(name: "Deck B", address: nil, latitude: 33.7950, longitude: -84.3900, origin: origin))
+        let merged = NativeNearbyParking.merge([sameSpot, sameName, elsewhere], into: [listed])
+        XCTAssertEqual(merged.map(\.name), ["Listed Garage", "Deck B"])
     }
 }

@@ -83,9 +83,11 @@ struct NativeOwnSale: Codable, Equatable, Identifiable {
     let buyerLimit: Int
     let providers: [String]
     let requests: [NativeSaleRequest]
+    var photoUrl: String? = nil
     var id: String { saleId }
 
     var isOpen: Bool { state == "open" }
+    var photoURL: URL? { NativePrivateSalePolicy.photoURL(photoUrl) }
     var windowStartDate: Date? { ISO8601DateFormatter.partyControlDate(from: windowStart) }
     var windowEndDate: Date? { ISO8601DateFormatter.partyControlDate(from: windowEnd) }
     var shareURL: URL? { NativePartyShareLink.url(from: shareUrl) }
@@ -98,7 +100,7 @@ struct NativeOwnSaleList: Codable {
     let sales: [NativeOwnSale]
 }
 
-struct NativeSaleCreated: Codable { let saleId: String; let shareUrl: String }
+struct NativeSaleCreated: Codable { let saleId: String; let shareUrl: String; var photoUrl: String? = nil }
 
 /// What a share link shows. `areaLabel` and `myRequest` only when signed in; never the meet point.
 struct NativeSaleListing: Codable, Equatable {
@@ -111,9 +113,11 @@ struct NativeSaleListing: Codable, Equatable {
     let areaLabel: String?
     let isSeller: Bool
     let myRequest: String?
+    var photoUrl: String? = nil
 
     var windowStartDate: Date? { ISO8601DateFormatter.partyControlDate(from: windowStart) }
     var windowEndDate: Date? { ISO8601DateFormatter.partyControlDate(from: windowEnd) }
+    var photoURL: URL? { NativePrivateSalePolicy.photoURL(photoUrl) }
 }
 
 struct NativeSalePayHandle: Codable, Equatable, Identifiable {
@@ -137,10 +141,12 @@ struct NativeSaleBuyerCard: Codable, Equatable, Identifiable {
     let windowEnd: String
     let arrivedAt: String?
     let pay: [NativeSalePayHandle]
+    var photoUrl: String? = nil
     var id: String { saleId }
 
     var windowStartDate: Date? { ISO8601DateFormatter.partyControlDate(from: windowStart) }
     var windowEndDate: Date? { ISO8601DateFormatter.partyControlDate(from: windowEnd) }
+    var photoURL: URL? { NativePrivateSalePolicy.photoURL(photoUrl) }
     var meetRoutePoint: NativeM2RoutePoint? { NativeM2RoutePoint(latitude: meetPoint.lat, longitude: meetPoint.lng) }
     var meetName: String { meetPoint.placeName ?? meetPoint.areaLabel ?? "The meet point" }
 }
@@ -212,6 +218,24 @@ enum NativePrivateSalePolicy {
         if end <= start { return "The meet window has to end after it starts." }
         if end.timeIntervalSince(start) > maxWindow { return "The meet window can be at most 4 hours long." }
         return nil
+    }
+
+    /// What still stops "Create sale", in form order, in plain words. Empty when the sale can be created.
+    static func missingSteps(title: String, priceText: String, hasMeetPoint: Bool, start: Date, end: Date,
+                             chosenProviders: Int, now: Date = Date()) -> [String] {
+        var steps: [String] = []
+        if !(3...80).contains(title.trimmingCharacters(in: .whitespacesAndNewlines).count) { steps.append("Add a name for the item (3–80 characters)") }
+        if priceCents(from: priceText) == nil { steps.append("Enter a price") }
+        if !hasMeetPoint { steps.append("Pick the meet point from the search results") }
+        if windowProblem(start: start, end: end, now: now) != nil { steps.append("Fix the meet window") }
+        if chosenProviders == 0 { steps.append("Add a payment handle and turn it on") }
+        return steps
+    }
+
+    /// Only an https photo the server sent is loaded.
+    static func photoURL(_ raw: String?) -> URL? {
+        guard let raw, let url = URL(string: raw), url.scheme?.lowercased() == "https", url.host != nil else { return nil }
+        return url
     }
 
     /// An hour from now, on the next quarter hour.
@@ -335,17 +359,36 @@ struct NativePrivateSalesAPI {
         try decode(NativeOwnSaleList.self, try await client.trpcPayload(path: "/trpc/sales.mine"))
     }
 
-    func create(title: String, priceCents: Int, place: NativePlaceSearchResult, latitude: Double, longitude: Double,
-                start: Date, end: Date, buyerLimit: Int, providers: [NativeSalePaymentProvider]) async throws -> NativeSaleCreated {
+    /// `photo` is sent only when the seller chose one, so a server without photos still accepts the sale.
+    static func createInput(title: String, priceCents: Int, place: NativePlaceSearchResult, latitude: Double, longitude: Double,
+                            start: Date, end: Date, buyerLimit: Int, providers: [NativeSalePaymentProvider], photo: String? = nil) -> [String: Any] {
         var meetPoint: [String: Any] = ["lat": latitude, "lng": longitude, "placeName": String(place.name.prefix(80))]
         if let area = NativePrivateSalePolicy.areaLabel(fromAddress: place.address) { meetPoint["areaLabel"] = area }
-        let payload = try await client.trpcPayload(path: "/trpc/sales.create", method: "POST", input: [
+        var input: [String: Any] = [
             "title": title, "priceCents": priceCents, "meetPoint": meetPoint,
             "windowStart": ISO8601DateFormatter.partyControlInstant.string(from: start),
             "windowEnd": ISO8601DateFormatter.partyControlInstant.string(from: end),
             "buyerLimit": buyerLimit, "providers": providers.map(\.rawValue),
-        ])
+        ]
+        if let photo { input["photo"] = photo }
+        return input
+    }
+
+    func create(title: String, priceCents: Int, place: NativePlaceSearchResult, latitude: Double, longitude: Double,
+                start: Date, end: Date, buyerLimit: Int, providers: [NativeSalePaymentProvider], photo: String? = nil) async throws -> NativeSaleCreated {
+        let payload = try await client.trpcPayload(path: "/trpc/sales.create", method: "POST", input: Self.createInput(
+            title: title, priceCents: priceCents, place: place, latitude: latitude, longitude: longitude,
+            start: start, end: end, buyerLimit: buyerLimit, providers: providers, photo: photo))
         return try decode(NativeSaleCreated.self, payload)
+    }
+
+    /// A nil `dataURI` removes the photo.
+    static func setPhotoInput(saleID: String, dataURI: String?) -> [String: Any] {
+        ["saleId": saleID, "photo": dataURI ?? NSNull()]
+    }
+
+    func setPhoto(saleID: String, dataURI: String?) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/sales.setPhoto", method: "POST", input: Self.setPhotoInput(saleID: saleID, dataURI: dataURI))
     }
 
     func updateWindow(saleID: String, start: Date, end: Date) async throws {
@@ -466,6 +509,64 @@ private struct NativeSaleSheetHeader: View {
     }
 }
 
+/// The item photo in a 4:3 tile. Both layers are pinned to the tile before
+/// they can widen the sheet, as Host Studio's cover tile does.
+private struct NativeSalePhotoTile: View {
+    var image: UIImage? = nil
+    var url: URL? = nil
+    var emptyTitle = "Add a photo"
+
+    var body: some View {
+        ZStack {
+            if let image {
+                GeometryReader { proxy in
+                    ZStack {
+                        Image(uiImage: image).resizable().scaledToFill()
+                            .frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                            .blur(radius: 18, opaque: true)
+                            .overlay(Color.black.opacity(0.38))
+                        Image(uiImage: image).resizable().scaledToFit()
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                    }
+                }
+            } else if let url {
+                GeometryReader { proxy in
+                    AsyncImage(url: url) { phase in
+                        if let loaded = phase.image {
+                            loaded.resizable().scaledToFill().frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                        } else {
+                            Color.white.opacity(0.06).overlay(Image(systemName: "photo").foregroundColor(NativeTheme.textTertiary))
+                        }
+                    }
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                }
+            } else {
+                Color.white.opacity(0.06)
+                Label(emptyTitle, systemImage: "photo.badge.plus").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.cyan)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .aspectRatio(4.0 / 3.0, contentMode: .fit)
+        .clipped().clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.12)))
+    }
+}
+
+/// A fixed-size square of the item photo for list rows and cards.
+private struct NativeSalePhotoThumb: View {
+    let url: URL
+    var side: CGFloat = 44
+
+    var body: some View {
+        AsyncImage(url: url) { phase in
+            if let loaded = phase.image { loaded.resizable().scaledToFill() } else { Color.white.opacity(0.08) }
+        }
+        .frame(width: side, height: side)
+        .clipped().clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .accessibilityHidden(true)
+    }
+}
+
 // MARK: - Network → Hosting card
 
 /// One card in Network → Hosting: open sales, the membership limit and
@@ -543,6 +644,7 @@ struct NativePrivateSalesCard: View {
     private func saleRow(_ sale: NativeOwnSale) -> some View {
         Button(action: { nativeImpactLight(); sheet = .manage(sale.saleId) }) {
             HStack(spacing: 12) {
+                if let photo = sale.photoURL { NativeSalePhotoThumb(url: photo) }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(sale.title).font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
                     Text("\(NativePrivateSalePolicy.priceLabel(cents: sale.priceCents)) · \(sale.windowStartDate?.formatted(date: .abbreviated, time: .shortened) ?? "")")
@@ -743,15 +845,19 @@ struct NativePrivateSaleCreateView: View {
     @State private var busy = false
     @State private var message = ""
     @State private var created: NativeSaleCreated?
+    @State private var photo: NativePartyPendingImage?
+    @State private var pickingPhoto = false
 
     private var end: Date { start.addingTimeInterval(TimeInterval(minutes * 60)) }
     private var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var priceCents: Int? { NativePrivateSalePolicy.priceCents(from: priceText) }
     private var windowProblem: String? { NativePrivateSalePolicy.windowProblem(start: start, end: end) }
-    private var canCreate: Bool {
-        (3...80).contains(trimmedTitle.count) && priceCents != nil && place?.latitude != nil && place?.longitude != nil
-            && windowProblem == nil && !chosen.isEmpty && !busy
+    private var missingSteps: [String] {
+        NativePrivateSalePolicy.missingSteps(title: title, priceText: priceText,
+                                             hasMeetPoint: place?.latitude != nil && place?.longitude != nil,
+                                             start: start, end: end, chosenProviders: chosen.count)
     }
+    private var canCreate: Bool { missingSteps.isEmpty && !busy }
 
     var body: some View {
         NavigationView {
@@ -770,9 +876,41 @@ struct NativePrivateSaleCreateView: View {
         .tint(NativeTheme.cyan)
         .accessibilityIdentifier("native-private-sale-create")
         .task { await loadHandles() }
+        .sheet(isPresented: $pickingPhoto) {
+            NativePartyPhotoPicker(selectionLimit: 1) { images in setPhoto(images.first) }
+        }
+    }
+
+    private func setPhoto(_ image: UIImage?) {
+        guard let image else { return }
+        guard let prepared = NativePartyPendingImage(image: image) else { message = "That photo could not be prepared."; return }
+        photo = prepared
+        message = ""
     }
 
     @ViewBuilder private var form: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            NativeSaleLabel(text: "Photo")
+            Button(action: { pickingPhoto = true }) {
+                NativeSalePhotoTile(image: photo?.preview)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(photo == nil ? "Add a photo" : "Change photo")
+            .accessibilityIdentifier("native-private-sale-photo-tile")
+            if photo != nil {
+                HStack(spacing: 16) {
+                    Button("Change") { pickingPhoto = true }.foregroundColor(NativeTheme.cyan)
+                    Button("Remove") { photo = nil }.foregroundColor(NativeTheme.orange)
+                        .accessibilityIdentifier("native-private-sale-photo-remove")
+                }
+                .font(.system(size: 12.5, weight: .black)).frame(minHeight: 44).buttonStyle(.plain)
+            } else {
+                Text("Add a photo so buyers can see the item.")
+                    .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+            }
+        }
+        .saleCard()
+
         VStack(alignment: .leading, spacing: 12) {
             NativeSaleLabel(text: "Item")
             TextField("What are you selling?", text: $title).saleField()
@@ -839,6 +977,17 @@ struct NativePrivateSaleCreateView: View {
         }
         .saleCard()
 
+        if !missingSteps.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("To create the sale:").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textSecondary)
+                ForEach(missingSteps, id: \.self) { step in
+                    Label(step, systemImage: "circle").font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.amber)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("native-private-sale-missing-steps")
+        }
         NativeSalePrimaryButton(title: "Create sale and get link", busy: busy) { Task { await create() } }
             .disabled(!canCreate)
             .accessibilityIdentifier("native-private-sale-create-submit")
@@ -884,6 +1033,11 @@ struct NativePrivateSaleCreateView: View {
                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                     }
                     .buttonStyle(.plain)
+                }
+                if !placeQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(places.isEmpty ? "Search, then tap a result to use it as the meet point." : "Tap a result to use it as the meet point.")
+                        .font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.amber)
+                        .accessibilityIdentifier("native-private-sale-meet-hint")
                 }
             }
             Text("Pick a public place, never your home. Only buyers you approve see it, rounded to about 30 m, and only until the window ends.")
@@ -937,7 +1091,8 @@ struct NativePrivateSaleCreateView: View {
         do {
             created = try await api.create(title: trimmedTitle, priceCents: priceCents, place: place, latitude: latitude, longitude: longitude,
                                            start: start, end: end, buyerLimit: buyerLimit,
-                                           providers: NativeSalePaymentProvider.allCases.filter { chosen.contains($0) })
+                                           providers: NativeSalePaymentProvider.allCases.filter { chosen.contains($0) },
+                                           photo: photo?.dataURI)
             message = ""
         } catch {
             message = NativePrivateSaleFailure.message(for: error, fallback: "The sale couldn't be created.")
@@ -958,12 +1113,14 @@ struct NativePrivateSaleManageView: View {
     @State private var newStart = NativePrivateSalePolicy.defaultStart()
     @State private var newMinutes = 60
     @State private var confirmClose = false
+    @State private var pickingPhoto = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
                 NativeSaleSheetHeader(eyebrow: "Private Sale", title: sale?.title ?? "Sale")
                 if let sale {
+                    if sale.isOpen { photoCard(sale) }
                     summary(sale)
                     if sale.isOpen {
                         requests(sale)
@@ -993,6 +1150,37 @@ struct NativePrivateSaleManageView: View {
         } message: {
             Text("The link stops working at once for every buyer.")
         }
+        .sheet(isPresented: $pickingPhoto) {
+            NativePartyPhotoPicker(selectionLimit: 1) { images in
+                guard let image = images.first else { return }
+                guard let prepared = NativePartyPendingImage(image: image) else { message = "That photo could not be prepared."; return }
+                Task { await setPhoto(prepared.dataURI) }
+            }
+        }
+    }
+
+    private func photoCard(_ sale: NativeOwnSale) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            NativeSaleLabel(text: "Photo")
+            Button(action: { pickingPhoto = true }) {
+                NativeSalePhotoTile(url: sale.photoURL, emptyTitle: "Add photo")
+            }
+            .buttonStyle(.plain)
+            .disabled(busy)
+            .accessibilityLabel(sale.photoURL == nil ? "Add photo" : "Change photo")
+            .accessibilityIdentifier("native-private-sale-manage-photo")
+            if sale.photoURL != nil {
+                HStack(spacing: 16) {
+                    Button("Change") { pickingPhoto = true }.foregroundColor(NativeTheme.cyan)
+                    Button("Remove") { Task { await setPhoto(nil) } }.foregroundColor(NativeTheme.orange)
+                }
+                .font(.system(size: 12.5, weight: .black)).frame(minHeight: 44).buttonStyle(.plain).disabled(busy)
+            } else {
+                Text("Add a photo so buyers can see the item.")
+                    .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+            }
+        }
+        .saleCard()
     }
 
     private func summary(_ sale: NativeOwnSale) -> some View {
@@ -1149,6 +1337,15 @@ struct NativePrivateSaleManageView: View {
         busy = true; defer { busy = false }
         do { try await api.updateWindow(saleID: saleID, start: start, end: end); editingWindow = false; message = "" } catch {
             message = NativePrivateSaleFailure.message(for: error, fallback: "The meet window couldn't change.")
+        }
+        await reload()
+    }
+
+    @MainActor private func setPhoto(_ dataURI: String?) async {
+        guard let api else { return }
+        busy = true; defer { busy = false }
+        do { try await api.setPhoto(saleID: saleID, dataURI: dataURI); message = "" } catch {
+            message = NativePrivateSaleFailure.message(for: error, fallback: "The photo couldn't be saved.")
         }
         await reload()
     }
@@ -1342,6 +1539,10 @@ struct NativePrivateSaleBuyerView: View {
                 Spacer()
                 if let target = safetyTarget { NativeSafetyMenu(target: target, action: $safetyAction).padding(.vertical, -12) }
             }
+            if let photo = listing.photoURL ?? card?.photoURL {
+                NativeSalePhotoTile(url: photo).accessibilityLabel("Photo of \(listing.title)")
+                    .accessibilityIdentifier("native-private-sale-buyer-photo")
+            }
             Text(listing.title).font(.system(size: 22, weight: .black)).accessibilityAddTraits(.isHeader)
             Text("\(NativePrivateSalePolicy.priceLabel(cents: listing.priceCents)) · from \(listing.sellerName)")
                 .font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.cyan)
@@ -1391,7 +1592,11 @@ struct NativePrivateSaleBuyerView: View {
     private func meetCard(_ card: NativeSaleBuyerCard) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             NativeSaleLabel(text: "Meet point")
-            NativeSaleMeetSummary(card: card)
+            HStack(alignment: .top, spacing: 10) {
+                NativeSaleMeetSummary(card: card)
+                Spacer(minLength: 0)
+                if let photo = card.photoURL ?? listing?.photoURL { NativeSalePhotoThumb(url: photo, side: 52) }
+            }
             if card.meetRoutePoint != nil {
                 NativeSalePrimaryButton(title: "Show on Map") { showOnMap(card) }
                     .accessibilityIdentifier("native-private-sale-show-on-map")
@@ -1478,6 +1683,7 @@ struct NativePrivateSaleMapCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
+                if let photo = card.photoURL { NativeSalePhotoThumb(url: photo, side: 52) }
                 VStack(alignment: .leading, spacing: 3) {
                     NativeSaleLabel(text: "Private Sale · Meet", color: NativeTheme.purple)
                     Text(card.title).font(.system(size: 18, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)

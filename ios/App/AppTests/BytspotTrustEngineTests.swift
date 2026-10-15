@@ -5799,6 +5799,83 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertFalse(storeSource.contains("AppStorage"))
     }
 
+    func testPrivateSaleMissingStepsNameOnlyWhatIsMissing() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let start = now.addingTimeInterval(3600), end = start.addingTimeInterval(3600)
+        func steps(title: String = "Desk lamp", price: String = "25", meet: Bool = true,
+                   start: Date = start, end: Date = end, providers: Int = 1) -> [String] {
+            NativePrivateSalePolicy.missingSteps(title: title, priceText: price, hasMeetPoint: meet,
+                                                 start: start, end: end, chosenProviders: providers, now: now)
+        }
+        XCTAssertEqual(steps(), [])
+        XCTAssertEqual(steps(title: " ab "), ["Add a name for the item (3–80 characters)"])
+        XCTAssertEqual(steps(title: String(repeating: "a", count: 81)), ["Add a name for the item (3–80 characters)"])
+        XCTAssertEqual(steps(price: ""), ["Enter a price"])
+        XCTAssertEqual(steps(price: "12.345"), ["Enter a price"])
+        XCTAssertEqual(steps(meet: false), ["Pick the meet point from the search results"])
+        XCTAssertEqual(steps(start: now.addingTimeInterval(-600), end: now.addingTimeInterval(600)), ["Fix the meet window"])
+        XCTAssertEqual(steps(providers: 0), ["Add a payment handle and turn it on"])
+        XCTAssertEqual(steps(title: "", price: "", meet: false, end: start, providers: 0), [
+            "Add a name for the item (3–80 characters)", "Enter a price", "Pick the meet point from the search results",
+            "Fix the meet window", "Add a payment handle and turn it on",
+        ])
+    }
+
+    func testPrivateSalePhotoIsOptionalOnTheWire() throws {
+        let decoder = JSONDecoder()
+        let ownJSON = """
+        {"saleId":"s1","title":"Desk lamp","priceCents":2500,"state":"open","shareUrl":"https://bytspot.com/s/s1",
+         "meetPoint":null,"windowStart":"2026-10-09T18:00:00.000Z","windowEnd":"2026-10-09T19:00:00.000Z",
+         "buyerLimit":1,"providers":["venmo"],"requests":[]%@}
+        """
+        let listingJSON = """
+        {"saleId":"s1","title":"Desk lamp","priceCents":2500,"sellerName":"Ada","windowStart":"2026-10-09T18:00:00.000Z",
+         "windowEnd":"2026-10-09T19:00:00.000Z","areaLabel":null,"isSeller":false,"myRequest":null%@}
+        """
+        let cardJSON = """
+        {"saleId":"s1","title":"Desk lamp","priceCents":2500,"sellerName":"Ada",
+         "meetPoint":{"lat":33.757,"lng":-84.364,"placeName":null,"areaLabel":null},
+         "windowStart":"2026-10-09T18:00:00.000Z","windowEnd":"2026-10-09T19:00:00.000Z","arrivedAt":null,"pay":[]%@}
+        """
+        let createdJSON = #"{"saleId":"s1","shareUrl":"https://bytspot.com/s/s1"%@}"#
+        let photo = "https://bytspot-api.onrender.com/media/sales/s1"
+        func data(_ template: String, _ extra: String) -> Data { Data(String(format: template, extra).utf8) }
+
+        for extra in ["", #","photoUrl":null"#] {
+            XCTAssertNil(try decoder.decode(NativeOwnSale.self, from: data(ownJSON, extra)).photoURL)
+            XCTAssertNil(try decoder.decode(NativeSaleListing.self, from: data(listingJSON, extra)).photoURL)
+            XCTAssertNil(try decoder.decode(NativeSaleBuyerCard.self, from: data(cardJSON, extra)).photoURL)
+            XCTAssertNil(try decoder.decode(NativeSaleCreated.self, from: data(createdJSON, extra)).photoUrl)
+        }
+        let withPhoto = ",\"photoUrl\":\"\(photo)\""
+        XCTAssertEqual(try decoder.decode(NativeOwnSale.self, from: data(ownJSON, withPhoto)).photoURL?.absoluteString, photo)
+        XCTAssertEqual(try decoder.decode(NativeSaleListing.self, from: data(listingJSON, withPhoto)).photoURL?.absoluteString, photo)
+        XCTAssertEqual(try decoder.decode(NativeSaleBuyerCard.self, from: data(cardJSON, withPhoto)).photoURL?.absoluteString, photo)
+        XCTAssertEqual(try decoder.decode(NativeSaleCreated.self, from: data(createdJSON, withPhoto)).photoUrl, photo)
+        XCTAssertNil(NativePrivateSalePolicy.photoURL("http://example.com/a.jpg"), "Only https photos load.")
+        XCTAssertNil(NativePrivateSalePolicy.photoURL("data:image/jpeg;base64,AAAA"))
+
+        let place = NativePlaceSearchResult(id: "p1", name: "Krog Street Market", address: "99 Krog St NE, Atlanta, GA 30307",
+                                            category: "market", latitude: 33.757, longitude: -84.364, rating: nil, photoUrl: nil, provider: "google_places")
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        func input(photo: String?) -> [String: Any] {
+            NativePrivateSalesAPI.createInput(title: "Desk lamp", priceCents: 2500, place: place, latitude: 33.757, longitude: -84.364,
+                                              start: start, end: start.addingTimeInterval(3600), buyerLimit: 1, providers: [.venmo], photo: photo)
+        }
+        XCTAssertNil(input(photo: nil)["photo"], "No photo key, so a server without photos still accepts the sale.")
+        XCTAssertEqual(input(photo: "data:image/jpeg;base64,AAAA")["photo"] as? String, "data:image/jpeg;base64,AAAA")
+        XCTAssertEqual(input(photo: nil)["providers"] as? [String], ["venmo"])
+
+        let set = NativePrivateSalesAPI.setPhotoInput(saleID: "s1", dataURI: "data:image/jpeg;base64,AAAA")
+        XCTAssertEqual(set["saleId"] as? String, "s1")
+        XCTAssertEqual(set["photo"] as? String, "data:image/jpeg;base64,AAAA")
+        let removal = NativePrivateSalesAPI.setPhotoInput(saleID: "s1", dataURI: nil)
+        XCTAssertTrue(removal["photo"] is NSNull)
+        let body = try JSONSerialization.jsonObject(with: BytspotAPIClient.trpcMutationBody(removal)) as? [String: Any]
+        XCTAssertTrue(body?["photo"] is NSNull, "Removal sends photo: null.")
+        XCTAssertEqual(body?.count, 2)
+    }
+
     // MARK: - Coffee (Phase 2 iOS surface)
 
     func testCoffeeSpotDecodesOnlyWhatACardMayRender() throws {

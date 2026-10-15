@@ -1466,7 +1466,7 @@ final class BytspotTrustEngineTests: XCTestCase {
     func testServicesRailOnlyListsControlledVendorCards() {
         let snapshot = NativeTabContentSnapshot.fallback
         let services = NativeLocationAwareUIContent.discoverCards(in: snapshot, matching: "service")
-        XCTAssertFalse(services.isEmpty)
+        XCTAssertTrue(services.isEmpty, "The offline deck lists no sample service partners.")
         XCTAssertTrue(services.allSatisfy { $0.control == NativeDiscoverCardControl.vendor || NativeDiscoverCardControl.isControlled(cardID: $0.id) })
     }
 

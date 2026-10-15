@@ -1057,6 +1057,22 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertFalse(NativeManualCheckInStore.hasRecentCheckIn(venueID: checkedVenue.id, scope: .signedOut, now: Date(timeIntervalSince1970: 1_735_000_260)))
     }
 
+    func testManualCheckInStoreReadsDoNotWriteDefaultsWhenLegacyKeyIsAbsent() {
+        // Profile and Access render these reads inside view bodies; a defaults write there
+        // re-renders every @AppStorage view and loops forever.
+        UserDefaults.standard.removeObject(forKey: NativeManualCheckInStore.legacyStorageKey)
+        var notifications = 0
+        let observer = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: UserDefaults.standard, queue: nil) { _ in notifications += 1 }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        for _ in 0..<5 {
+            _ = NativeManualCheckInStore.all(scope: .signedOut)
+            _ = NativeManualCheckInStore.pointsLabel(scope: .signedOut)
+        }
+
+        XCTAssertEqual(notifications, 0, "Reading check-ins with no legacy records must not post UserDefaults.didChangeNotification")
+    }
+
     func testManualCheckInSyncContextUsesCapturedTokenAfterSessionSwitch() throws {
         var liveToken: String? = "account-a-token"
         let context = NativeManualCheckInSyncContext.authenticated(token: liveToken)

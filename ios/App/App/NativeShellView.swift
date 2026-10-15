@@ -4196,6 +4196,10 @@ private struct NativeProfileSavedSpotsPanel: View {
                 Text("SAVED").font(.system(size: 10.5, weight: .black)).tracking(1.0).foregroundColor(NativeTheme.textTertiary)
                 Text("Places worth returning to or reviewing.").nativeBody(size: 12)
             }
+            if spots.isEmpty {
+                Text(NativeSavedPlacesBoardContract.emptyMessage).nativeBody(size: 12)
+                    .accessibilityIdentifier("native-saved-places-empty")
+            }
             ForEach(spots) { spot in
                 NativeSavedPlaceBoardCard(
                     spot: spot,
@@ -4215,6 +4219,7 @@ private struct NativeProfileSavedSpotsPanel: View {
 private enum NativeSavedPlacesBoardContract {
     static let summary = "Saved places keep venue and access details together for quick review."
     static let accessibilityID = "native-saved-places-board"
+    static let emptyMessage = "Nothing saved yet."
 }
 
 private struct NativeSavedPlaceBoardCard: View {
@@ -4384,7 +4389,6 @@ private struct NativeProfilePlacesVisitedPanel: View {
 
 private struct NativeProfileSavedSpot: Identifiable, Equatable {
     let id: String; let title: String; let subtitle: String; let meta: String; let icon: String; let verified: Bool
-    static let fallbackFixtureTitles = ["Colony Square", "Midtown Smart Parking", "Broni Home Taste", "GH Akwaaba Pass"]
 
     var kindLabel: String {
         if title.localizedCaseInsensitiveContains("parking") || icon.contains("parking") { return "Parking" }
@@ -4400,14 +4404,9 @@ private struct NativeProfileSavedSpot: Identifiable, Equatable {
         return "Saved for review"
     }
 
+    /// Only places the guest saved. Nearby venues and listings are not saved places.
     static func saved(from snapshot: NativeTabContentSnapshot) -> [NativeProfileSavedSpot] {
-        let venues = snapshot.venues.prefix(2).map { venue in
-            NativeProfileSavedSpot(id: "venue-\(venue.id)", title: venue.name, subtitle: venue.address, meta: "\(venue.distance) · \(venue.parking.priceLabel)", icon: NativeTabContentStore.icon(for: venue.discoverType), verified: venue.verifiedPatchId != nil)
-        }
-        let services = snapshot.discoverCards.filter { ["broni-home-taste", "gh-akwaaba-pass"].contains($0.id) }.prefix(2).map { card in
-            NativeProfileSavedSpot(id: "service-\(card.id)", title: card.title, subtitle: card.subtitle, meta: card.metadataLine, icon: card.icon, verified: card.verified)
-        }
-        return Array((venues + services).prefix(4))
+        []
     }
 }
 
@@ -4422,16 +4421,10 @@ private struct NativeProfileVisitActivity: Identifiable {
     }
 
     static func timeline(from snapshot: NativeTabContentSnapshot, manualScope: NativeManualCheckInScope) -> [NativeProfileVisitActivity] {
-        let checkInItems = NativeManualCheckInStore.all(scope: manualScope).prefix(4).map { record in
+        // Only the guest's own check-ins; nearby venues and events are not visits.
+        Array(NativeManualCheckInStore.all(scope: manualScope).prefix(6).map { record in
             NativeProfileVisitActivity(id: "checkin-\(record.id)", title: "Manual check-in · \(record.venueName)", subtitle: record.address, meta: record.profileMetaLine, icon: "checkmark.seal.fill", color: NativeTheme.emerald)
-        }
-        let eventItems = snapshot.events.prefix(1).map { event in
-            NativeProfileVisitActivity(id: "event-\(event.id)", title: "Pass viewed · \(event.title)", subtitle: event.venue, meta: "\(event.time) · \(event.price)", icon: "ticket.fill", color: NativeTheme.purple)
-        }
-        let venueItems = snapshot.venues.prefix(2).map { venue in
-            NativeProfileVisitActivity(id: "venue-\(venue.id)", title: "Checked in · \(venue.name)", subtitle: venue.address, meta: venue.crowd?.label ?? "Recent visit", icon: NativeTabContentStore.icon(for: venue.discoverType), color: venue.discoverType == "parking" ? NativeTheme.emerald : NativeTheme.cyan)
-        }
-        return Array((checkInItems + eventItems + venueItems).prefix(6))
+        })
     }
 }
 
@@ -22000,9 +21993,8 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfilePanel.p2SocialActivityPanels == [.savedSpots, .placesVisited], "NativeAccountParitySelfTests: Profile must not reintroduce a redundant Friends panel.")
         precondition(NativeSavedPlacesBoardContract.accessibilityID == "native-saved-places-board", "NativeAccountParitySelfTests: Saved Places must use the Saved Places Board, not generic stat cards.")
         precondition(NativeSavedPlacesBoardContract.summary.contains("venue and access details"), "NativeAccountParitySelfTests: Saved Places details-only copy drifted.")
-        precondition(NativeProfileSavedSpot.fallbackFixtureTitles == ["Colony Square", "Midtown Smart Parking", "Broni Home Taste", "GH Akwaaba Pass"], "NativeAccountParitySelfTests: Saved Places native fixture contract drifted.")
-        precondition(NativeProfileSavedSpot.saved(from: .fallback).map(\.title) == NativeProfileSavedSpot.fallbackFixtureTitles, "NativeAccountParitySelfTests: Saved Places panel must render curated native rows.")
-        precondition(NativeProfileSavedSpot.saved(from: .fallback).first?.kindLabel == "Place", "NativeAccountParitySelfTests: Saved Places Board should describe type as text, not rely on large category icons.")
+        precondition(NativeProfileSavedSpot.saved(from: .fallback).isEmpty, "NativeAccountParitySelfTests: Saved Places must not list nearby venues or sample partners the guest never saved.")
+        precondition(NativeProfileSavedSpot(id: "venue-x", title: "Colony Square", subtitle: "", meta: "", icon: "mappin", verified: false).kindLabel == "Place", "NativeAccountParitySelfTests: Saved Places Board should describe type as text, not rely on large category icons.")
         precondition(NativeProfileP3Contract.settingsPanels == [.notifications, .locationPrivacy, .generalSettings, .appearance], "NativeAccountParitySelfTests: P3 settings panels must stay native.")
         precondition(NativeProfileP3Contract.safetyLegalPanels == [.blockedPeople, .deleteAccount, .privacyPolicy, .termsOfService, .disclaimer, .contactBytspot], "NativeAccountParitySelfTests: P3 safety/legal panels must stay native.")
         precondition(NativeProfileP3Contract.legalTitles == NativeLegalDocument.allCases.map(\.title), "NativeAccountParitySelfTests: Native legal document titles drifted.")
@@ -22150,7 +22142,7 @@ enum NativePhase4TabContentSelfTests {
     private static func run() {
         let fallback = NativeTabContentSnapshot.fallback
         precondition(fallback.venues.map(\.name).prefix(3) == ["Colony Square", "Midtown Smart Parking", "Arts Center Access"], "NativePhase4TabContentSelfTests: fallback venue fixtures drifted.")
-        precondition(fallback.discoverCards.contains { $0.title == "Broni Home Taste" } && fallback.discoverCards.contains { $0.title == "GH Akwaaba Pass" }, "NativePhase4TabContentSelfTests: special Discover cards missing.")
+        precondition(!fallback.discoverCards.contains { NativeTabContentSnapshot.specialDiscoverCards.map(\.id).contains($0.id) }, "NativePhase4TabContentSelfTests: sample partner cards must not fill the offline deck.")
         precondition(fallback.events.map(\.title).contains("GH Akwaaba FIFA Matchday"), "NativePhase4TabContentSelfTests: event fallback missing GH Akwaaba.")
         precondition(NativeTabContentStore.icon(for: "parking") == "parkingsign.circle.fill", "NativePhase4TabContentSelfTests: Discover icon mapping drifted.")
         precondition(NativeConciergeView.suggestionPrompts == ["Find parking nearby", "Check stay dates", "Access my booking", "What’s open now?"], "NativePhase4TabContentSelfTests: Concierge suggestions drifted.")

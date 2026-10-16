@@ -2415,17 +2415,6 @@ struct NativeProfileDataAPI {
         return try await client.trpcDecode(NativePaymentSetupSession.self, path: "/trpc/payments.setupSession", method: "POST", input: ["successPath": "/profile/payment", "cancelPath": "/profile/payment"])
     }
 
-    func createPaymentCheckout(input: [String: Any]) async throws -> NativeCheckoutSession {
-        NativeCheckoutSession(payload: try await client.trpcPayload(path: "/trpc/payments.checkout", method: "POST", input: input))
-    }
-
-    func createParkingCheckout(input: [String: Any]) async throws -> NativeCheckoutSession {
-        try await createPaymentCheckout(input: input)
-    }
-
-    func createBookingCheckout(input: [String: Any]) async throws -> NativeCheckoutSession {
-        NativeCheckoutSession(payload: try await client.trpcPayload(path: "/trpc/booking.createCheckout", method: "POST", input: input))
-    }
 
     func loadWalletLedger(limit: Int = 20) async throws -> NativeWalletLedgerSnapshot {
         try await client.trpcDecode(NativeWalletLedgerSnapshot.self, path: "/trpc/native.walletLedger", method: "POST", input: ["limit": limit])

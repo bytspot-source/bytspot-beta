@@ -2538,7 +2538,7 @@ private struct NativeAppearancePanel: View {
 }
 
 private enum NativeProfileInteractionContract {
-    static let accountPanels: [NativeProfilePanel] = [.personalInformation, .paymentMethods, .vehicles]
+    static let accountPanels: [NativeProfilePanel] = [.personalInformation, .vehicles]
     static let personalInfoKeys = ["bytspot_profile_display_name", "bytspot_profile_email", "bytspot_profile_phone", "bytspot_profile_city", "bytspot_profile_birthday"]
     static let vehicleKeys = ["bytspot_vehicle_make", "bytspot_vehicle_model", "bytspot_vehicle_year", "bytspot_vehicle_color", "bytspot_vehicle_plate_hint"]
     static let paymentKeys = ["bytspot_payment_apple_pay_preferred", "bytspot_payment_setup_staged"]
@@ -5795,7 +5795,6 @@ private enum NativeProfileMenuSectionKind: Equatable {
         case .account:
             return [
                 NativeProfileMenuItem(label: "Personal Information", subtitle: "Name, email, phone, and city", icon: "person.text.rectangle.fill", panel: .personalInformation),
-                NativeProfileMenuItem(label: "Payment Methods", subtitle: "Authorized checkout methods", icon: "creditcard.fill", panel: .paymentMethods),
                 NativeProfileMenuItem(label: "My Vehicles", subtitle: "Cars used for parking and valet", icon: "car.fill", panel: .vehicles),
                 NativeProfileMenuItem(label: "Bytspot for business", subtitle: "Secure bands, cards and tags", icon: "building.2.fill", panel: .business)
             ]
@@ -9177,57 +9176,6 @@ enum NativeManualCheckInStore {
     }
 }
 
-private enum NativePrepaidCheckoutContract {
-    static let successPath = "/booking/success"
-    static let cancelPath = "/booking/cancelled"
-    static let pendingTitle = "Stripe Authorization Pending"
-    static let pendingSubtitle = "Complete the secure Stripe checkout to authorize this prepaid booking. Your card details stay with Stripe."
-    static let unavailableMessage = "Stripe checkout did not return a secure payment link. Try again or use Concierge."
-    static let failedMessage = "Could not start Stripe checkout. Check your connection and try again."
-
-    @MainActor
-    static func open(_ session: NativeCheckoutSession) async -> Bool {
-        guard let raw = session.checkoutURLString, let url = URL(string: raw) else { return false }
-        return await withCheckedContinuation { continuation in
-            UIApplication.shared.open(url, options: [:]) { success in
-                continuation.resume(returning: success)
-            }
-        }
-    }
-
-    static func cents(from amountLabel: String) -> Int {
-        let numeric = amountLabel.replacingOccurrences(of: ",", with: "").split { !(($0 >= "0" && $0 <= "9") || $0 == ".") }.first.flatMap { Double($0) } ?? 0
-        return Int((numeric * 100).rounded())
-    }
-}
-
-private struct NativePrepaidCheckoutPendingPanel: View {
-    let title: String
-    let subtitle: String
-    let amount: String
-    let accent: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 11) {
-                NativeIcon(symbol: "lock.shield.fill", color: accent)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).nativeTitle(18)
-                    Text(subtitle).nativeBody(size: 12.5).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-            }
-            NativeTransactionLedger(entries: [
-                NativeTransactionLedgerEntry("Authorization", "Stripe checkout", valueColor: accent),
-                NativeTransactionLedgerEntry("Amount", amount),
-                NativeTransactionLedgerEntry("Card handling", "Stripe hosted")
-            ])
-        }
-        .padding(16)
-        .nativePanel()
-    }
-}
-
 private struct NativeParkingReservationRecord: Codable, Equatable, Identifiable {
     let id: String
     let reservationCode: String
@@ -9423,7 +9371,6 @@ private struct NativeBoutiqueStayBookingSheet: View {
     @State private var selectedPayment = NativeBoutiqueStayBookingContract.paymentMethods[0]
     @State private var pendingRequest: NativeStayRequestRecord?
     @State private var submitted = false
-    @State private var isStartingCheckout = false
     @State private var statusLine = NativeBoutiqueStayBookingContract.availabilityTitle
     @State private var didRunPreviewAutoRequest = false
 
@@ -9432,7 +9379,6 @@ private struct NativeBoutiqueStayBookingSheet: View {
     private var horizontalPadding: CGFloat { UIScreen.main.bounds.width < 380 ? 14 : 18 }
     private var arrivalPickerSelection: String { showsArrivalCalendar || !NativeBoutiqueStayBookingContract.arrivalOptions.contains(selectedArrival) ? "Choose dates" : selectedArrival }
     private var totalDueLabel: String { NativeBoutiqueStayBookingContract.estimatedTotalLabel(for: selectedNights) }
-    private var paymentsAPI: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -9658,10 +9604,10 @@ private struct NativeBoutiqueStayBookingSheet: View {
     }
 
     private var requestButton: some View {
-        Button(action: startStayCheckout) {
+        Button(action: createPendingRequest) {
             HStack(spacing: 9) {
-                Image(systemName: isStartingCheckout ? "lock.shield.fill" : "paperplane.fill").font(.system(size: 14, weight: .black))
-                Text(isStartingCheckout ? "Opening Stripe…" : NativeBoutiqueStayBookingContract.primaryCTA).font(.system(size: 15, weight: .black))
+                Image(systemName: "paperplane.fill").font(.system(size: 14, weight: .black))
+                Text(NativeBoutiqueStayBookingContract.primaryCTA).font(.system(size: 15, weight: .black))
                 Spacer(minLength: 0)
                 Text(totalDueLabel).font(.system(size: 10, weight: .black, design: .monospaced)).tracking(1).padding(.horizontal, 8).frame(height: 23).background(Color.black.opacity(0.18)).clipShape(Capsule())
             }
@@ -9675,7 +9621,6 @@ private struct NativeBoutiqueStayBookingSheet: View {
             .shadow(color: accent.opacity(0.24), radius: 12, x: 0, y: 7)
         }
             .buttonStyle(.plain)
-            .disabled(isStartingCheckout)
             .accessibilityIdentifier("native-boutique-stay-request-availability")
     }
 
@@ -9742,55 +9687,6 @@ private struct NativeBoutiqueStayBookingSheet: View {
         pendingRequest = request
         statusLine = NativeBoutiqueStayBookingContract.confirmationTitle
         withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { submitted = true }
-    }
-
-    private func startStayCheckout() {
-        nativeImpactLight()
-        guard sessionStore.isAuthenticated else {
-            statusLine = "Sign in before payment authorization."
-            onOpenAuth?()
-            return
-        }
-        guard !isStartingCheckout else { return }
-        isStartingCheckout = true
-        statusLine = "Preparing secure Stripe checkout."
-        Task {
-            do {
-                let session = try await paymentsAPI.createPaymentCheckout(input: stayCheckoutInput())
-                if await NativePrepaidCheckoutContract.open(session) {
-                    statusLine = "Stripe checkout opened. Complete authorization; host approval still controls capture."
-                    createPendingRequest()
-                } else {
-                    statusLine = session.message ?? NativePrepaidCheckoutContract.unavailableMessage
-                }
-            } catch {
-                statusLine = NativePrepaidCheckoutContract.failedMessage
-            }
-            isStartingCheckout = false
-        }
-    }
-
-    private func stayCheckoutInput() -> [String: Any] {
-        let amountCents = NativePrepaidCheckoutContract.cents(from: totalDueLabel)
-        return [
-            "spotId": "native-boutique-stay-\(venue.id)",
-            "spotName": venue.name,
-            "address": venue.address,
-            "duration": NativeBoutiqueStayBookingContract.nightCount(for: selectedNights),
-            "totalCost": Double(amountCents) / 100.0,
-            "successPath": NativePrepaidCheckoutContract.successPath,
-            "cancelPath": NativePrepaidCheckoutContract.cancelPath,
-            "source": "native-boutique-stay",
-            "productType": "boutique_stay",
-            "metadata": [
-                "venueId": venue.id,
-                "venueName": venue.name,
-                "arrivalLabel": selectedArrival,
-                "nightsLabel": selectedNights,
-                "amountCents": amountCents,
-                "captureMode": "manual_after_host_approval"
-            ]
-        ]
     }
 
     private func runPreviewAutoRequestIfNeeded() {
@@ -10578,7 +10474,6 @@ private struct NativeValetPremiumRideSheet: View {
     @State private var statusMessage = ""
     @State private var liveQuote: NativeValetQuote?
     @State private var confirmedRide: NativeMobilityRideRecord?
-    @State private var didRunAutorun = false
     @State private var didPrepareCardDetailEntry = false
     @State private var showFareBreakdown = false
     @State private var pickupPlace: NativeValetPlace?
@@ -10587,8 +10482,6 @@ private struct NativeValetPremiumRideSheet: View {
     @StateObject private var currentLocation = NativeValetLocationProvider()
 
     private var quote: NativeValetQuote { liveQuote ?? .preview(for: selectedService) }
-    private var mobilityAPI: NativeMobilityDataAPI { NativeMobilityDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
-    private var paymentsAPI: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
     private var accent: Color { NativeTheme.cyan }
     private var vehicleOptions: [NativeValetServiceClass] { [.businessSedan, .businessSUV, .firstClass, .vanShuttle] }
     private var readinessSubtitle: String {
@@ -10981,32 +10874,6 @@ private struct NativeValetPremiumRideSheet: View {
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    private var primaryCTA: some View {
-        Button(action: advance) {
-            HStack(spacing: 9) {
-                if isWorking {
-                    ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.85)
-                } else if let icon = primaryIcon {
-                    Image(systemName: icon).font(.system(size: 15, weight: .black))
-                }
-                Text(primaryTitle).font(.system(size: 15.5, weight: .black))
-            }
-            .foregroundColor(isWorking ? .white : NativeProfileStyle.onVibrant)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 52)
-            .background {
-                if isWorking { NativeProfileStyle.muted }
-                else { LinearGradient(colors: [accent, accent.opacity(0.82)], startPoint: .topLeading, endPoint: .bottomTrailing) }
-            }
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.16), lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .shadow(color: accent.opacity(isWorking ? 0 : 0.22), radius: 12, x: 0, y: 7)
-        }
-        .buttonStyle(.plain)
-        .disabled(isWorking)
-        .accessibilityIdentifier("native-valet-primary-cta")
-    }
-
     private var secondaryActions: some View {
         HStack(spacing: 10) {
             Button(action: { nativeImpactLight(); openNativeTab(.concierge); dismiss() }) { NativeCTA(title: "Ask Concierge", color: NativeTheme.selectedControlSurface, foreground: NativeTheme.textPrimary) }
@@ -11016,22 +10883,10 @@ private struct NativeValetPremiumRideSheet: View {
         }
     }
 
-    private var isWorking: Bool { [.quoting, .requesting].contains(state) }
-
     private var livePhase: NativeValetLivePanel.Phase? {
         switch state {
         case .quoting: return .quoting
         case .requesting: return .requesting
-        default: return nil
-        }
-    }
-
-    private var primaryIcon: String? {
-        switch state {
-        case .intro, .serviceSelection, .routeEntry, .failed, .cancelled: return "magnifyingglass"
-        case .quoteReady: return sessionStore.isAuthenticated ? "paperplane.fill" : "person.crop.circle.badge.checkmark"
-        case .requestReceived: return "wallet.pass.fill"
-        case .tracking: return "wallet.pass.fill"
         default: return nil
         }
     }
@@ -11089,223 +10944,8 @@ private struct NativeValetPremiumRideSheet: View {
             .clipShape(Capsule())
     }
 
-    private var primaryTitle: String {
-        switch state {
-        case .intro, .serviceSelection, .routeEntry, .failed, .cancelled: return "Check Availability"
-        case .quoting: return "Checking Availability…"
-        case .quoteReady: return sessionStore.isAuthenticated ? "Request Booking" : "Sign in to Request"
-        case .requesting: return "Sending Request…"
-        case .requestReceived: return "Open My Access"
-        case .tracking: return "Open My Access"
-        }
-    }
-
     private var showsQuote: Bool { [.quoteReady, .requesting, .requestReceived, .tracking].contains(state) }
     private var showsStatus: Bool { [.requestReceived, .tracking].contains(state) }
-
-    private func advance() {
-        nativeImpactLight()
-        switch state {
-        case .intro, .serviceSelection, .routeEntry, .failed, .cancelled:
-            state = .quoting; statusMessage = "Checking pricing and vehicle availability for this itinerary."
-            Task { await requestLiveQuote() }
-        case .quoteReady:
-            guard sessionStore.isAuthenticated else {
-                statusMessage = "Sign in to request booking. Pricing remains available for review before authorization."
-                openNativeAuth()
-                return
-            }
-            state = .requesting; statusMessage = "Sending your booking request for authorization review."
-            Task { await submitBookingRequest() }
-        case .requestReceived:
-            openNativeAccess(); dismiss()
-        case .tracking:
-            openNativeAccess(); dismiss()
-        case .quoting, .requesting:
-            break
-        }
-    }
-
-    private func requestLiveQuote() async {
-        do {
-            let record = try await mobilityAPI.createQuote(input: quoteInput())
-            liveQuote = NativeValetQuote(record: record, fallbackService: selectedService)
-            state = .quoteReady
-            statusMessage = "Estimate ready. Request booking when you want Bytspot Mobility to review authorization."
-        } catch {
-            liveQuote = nil
-            state = .failed
-            statusMessage = NativeValetMobilityContract.unavailableMessage
-        }
-    }
-
-    private func submitBookingRequest() async {
-        guard liveQuote != nil else {
-            state = .failed
-            statusMessage = NativeValetMobilityContract.unavailableMessage
-            return
-        }
-        do {
-            state = .requesting
-            statusMessage = "Preparing secure Stripe authorization."
-            let checkout = try await paymentsAPI.createPaymentCheckout(input: airportCheckoutInput())
-            guard await NativePrepaidCheckoutContract.open(checkout) else {
-                state = .quoteReady
-                statusMessage = checkout.message ?? NativePrepaidCheckoutContract.unavailableMessage
-                return
-            }
-            statusMessage = "Stripe checkout opened. Submitting the transfer request as pending authorization."
-            let ride = try await mobilityAPI.createBookingRequest(input: bookingRequestInput())
-            let displayRide = ride.asPendingAuthorizationRequest(service: selectedService)
-            confirmedRide = displayRide
-            NativeValetRideWalletStore.upsert(NativeValetRideWalletRecord(ride: displayRide, quote: quote, pickup: pickup, dropoff: dropoff))
-            state = .requestReceived
-            statusMessage = "Request received. Authorization is pending; no payment has been captured."
-        } catch {
-            #if DEBUG
-            if Self.autorunMode == "confirm" {
-                let fallback = fallbackBookingRequestRecord()
-                confirmedRide = fallback
-                NativeValetRideWalletStore.upsert(NativeValetRideWalletRecord(ride: fallback, quote: quote, pickup: pickup, dropoff: dropoff))
-                state = .requestReceived
-                statusMessage = "Preview request received. Authorization is pending; no payment has been captured."
-                return
-            }
-            #endif
-            state = .quoteReady
-            statusMessage = "We couldn't send this booking request. Check your connection and try again, or ask Concierge for assistance."
-        }
-    }
-
-    private func fallbackBookingRequestRecord() -> NativeMobilityRideRecord {
-        NativeMobilityRideRecord(
-            id: "BYT-REQ-\(Int(Date().timeIntervalSince1970))",
-            quoteId: quote.id,
-            provider: NativeValetMobilityContract.providerName,
-            providerReservationId: nil,
-            reservationReference: nil,
-            status: NativeValetRideWalletRecord.pendingAuthorizationStatus,
-            serviceClass: selectedService.rawValue,
-            serviceTitle: selectedService.title,
-            priceLabel: quote.price,
-            etaLabel: quote.eta,
-            pickupLabel: pickup,
-            dropoffLabel: dropoff,
-            vehicleLabel: selectedService.title,
-            driverLabel: "Assigned after authorization",
-            driverName: nil,
-            vehiclePlate: nil,
-            vehicleMakeModel: selectedService.title,
-            vehicleColor: nil,
-            trackingUrl: nil,
-            createdAt: ISO8601DateFormatter().string(from: Date())
-        )
-    }
-
-    private func quoteInput() -> [String: Any] {
-        [
-            "provider": "bytspot",
-            "bookingType": "private_airport_transfer",
-            "serviceClass": selectedService.rawValue,
-            "serviceTitle": selectedService.title,
-            "bytspotTier": selectedService.bytspotTier.rawValue,
-            "pickup": pickup,
-            "dropoff": dropoff,
-            "passengers": Int(passengers) ?? 1,
-            "luggage": Int(luggage) ?? 0,
-            "pickupTimeLabel": pickupTime,
-            "pickupTime": ISO8601DateFormatter().string(from: Date()),
-            "flightNumber": flightNumber.trimmingCharacters(in: .whitespacesAndNewlines),
-            "appClipMode": NativeValetMobilityContract.appClipMode
-        ]
-    }
-
-    private func bookingRequestInput() -> [String: Any] {
-        var input = quoteInput()
-        input["quoteId"] = quote.id
-        input["priceLabel"] = quote.price
-        input["etaLabel"] = quote.eta
-        input["pickupLabel"] = quote.pickup
-        input["dropoffLabel"] = dropoff
-        input["cancellationLabel"] = quote.cancellation
-        input["source"] = "native-private-airport-transfer"
-        input["requestMode"] = "request_booking"
-        input["requestedStatus"] = NativeValetRideWalletRecord.pendingAuthorizationStatus
-        input["paymentGatewayStatus"] = "stripe_checkout_pending"
-        input["captureMode"] = "manual_after_authorization"
-        input["expectedResponseTemplate"] = [
-            "providerReservationId": "string?",
-            "status": "pending_authorization|authorization_approved|driver_matching|assigned|cancelled",
-            "driverName": "string?",
-            "vehicleMakeModel": "string?",
-            "vehicleColor": "string?",
-            "vehiclePlate": "string?",
-            "trackingUrl": "url?"
-        ]
-        return input
-    }
-
-    private func airportCheckoutInput() -> [String: Any] {
-        let amountCents = NativePrepaidCheckoutContract.cents(from: quote.price)
-        return [
-            "spotId": "native-private-airport-transfer",
-            "spotName": selectedService.title,
-            "address": "\(pickup) → \(dropoff)",
-            "duration": 1,
-            "totalCost": Double(amountCents) / 100.0,
-            "successPath": NativePrepaidCheckoutContract.successPath,
-            "cancelPath": NativePrepaidCheckoutContract.cancelPath,
-            "source": "native-private-airport-transfer",
-            "productType": "airport_transfer",
-            "metadata": [
-                "quoteId": quote.id,
-                "serviceClass": selectedService.rawValue,
-                "serviceTitle": selectedService.title,
-                "amountCents": amountCents,
-                "pickupLabel": pickup,
-                "dropoffLabel": dropoff,
-                "pickupTimeLabel": pickupTime,
-                "captureMode": "manual_after_authorization"
-            ]
-        ]
-    }
-
-    private func runAutorunIfRequested() async {
-        guard !isCardDetailEntry, !didRunAutorun, let mode = Self.autorunMode else { return }
-        didRunAutorun = true
-        try? await Task.sleep(nanoseconds: 450_000_000)
-        state = .quoting
-        statusMessage = "Checking pricing and vehicle availability for this itinerary."
-        await requestLiveQuote()
-        if mode == "confirm" {
-            state = .requesting
-            statusMessage = "Sending your booking request for authorization review."
-            await submitBookingRequest()
-        }
-    }
-
-    fileprivate static var autorunMode: String? {
-        #if DEBUG
-        let raw = ProcessInfo.processInfo.environment["BYT_NATIVE_VALET_AUTORUN"]?.lowercased()
-        return ["quote", "confirm"].contains(raw ?? "") ? raw : nil
-        #else
-        return nil
-        #endif
-    }
-}
-
-private extension NativeMobilityRideRecord {
-    func asPendingAuthorizationRequest(service: NativeValetServiceClass) -> NativeMobilityRideRecord {
-        var ride = self
-        ride.status = NativeValetRideWalletRecord.pendingAuthorizationStatus
-        ride.driverName = nil
-        ride.driverLabel = "Assigned after authorization"
-        ride.vehiclePlate = nil
-        ride.vehicleLabel = ride.vehicleLabel ?? service.title
-        ride.vehicleMakeModel = ride.vehicleMakeModel ?? service.title
-        ride.trackingUrl = nil
-        return ride
-    }
 }
 
 private struct NativeValetLivePanel: View {
@@ -14792,8 +14432,6 @@ private struct NativeMenuCheckoutSheet: View {
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @State private var selectedPayment = NativeMenuCheckoutContract.paymentMethods[0]
     @State private var confirmed: NativeMenuOrderRecord?
-    @State private var isStartingCheckout = false
-    @State private var checkoutMessage = ""
 
     private var accent: Color { BytspotTheme.accent(for: tier) }
     private let transactionAccent = NativeTransactionVisuals.pendingAccent
@@ -14803,7 +14441,6 @@ private struct NativeMenuCheckoutSheet: View {
     private var totalCents: Int { lineItems.reduce(0) { $0 + $1.subtotalCents } }
     private var itemCount: Int { lineItems.reduce(0) { $0 + $1.quantity } }
     private var totalLabel: String { PartnerMenu.formatPrice(cents: totalCents, currencyCode: menu.currencyCode) }
-    private var paymentsAPI: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -14916,9 +14553,7 @@ private struct NativeMenuCheckoutSheet: View {
     }
 
     private var confirmButton: some View {
-        Button(action: startMenuCheckout) { NativeCTA(title: isStartingCheckout ? "Opening Stripe…" : "\(NativeMenuCheckoutContract.primaryCTA) · \(totalLabel)", color: accent, foreground: .black) }
-            .buttonStyle(.plain)
-            .disabled(itemCount == 0 || isStartingCheckout)
+        NativeCTA(title: "Order at the counter · \(totalLabel)", color: NativeTheme.selectedControlSurface, foreground: NativeTheme.textPrimary)
             .accessibilityIdentifier("native-menu-checkout-confirm")
     }
 
@@ -14954,60 +14589,6 @@ private struct NativeMenuCheckoutSheet: View {
 
     private func sectionHeader(_ title: String, _ subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 3) { Text(title).nativeTitle(16); Text(subtitle).nativeBody(size: 12.5) }
-    }
-
-    private func startMenuCheckout() {
-        nativeImpactLight()
-        guard itemCount > 0 else { return }
-        guard isAuthenticated && sessionStore.isAuthenticated else {
-            checkoutMessage = "Sign in before prepaid menu checkout."
-            onOpenAuth?()
-            return
-        }
-        guard !isStartingCheckout else { return }
-        isStartingCheckout = true
-        checkoutMessage = "Preparing secure Stripe checkout."
-        Task {
-            do {
-                let session = try await paymentsAPI.createPaymentCheckout(input: menuCheckoutInput())
-                if await NativePrepaidCheckoutContract.open(session) {
-                    checkoutMessage = "Stripe checkout opened. The venue receives the order after payment confirmation."
-                    markMenuCheckoutPending()
-                } else {
-                    checkoutMessage = session.message ?? NativePrepaidCheckoutContract.unavailableMessage
-                }
-            } catch {
-                checkoutMessage = NativePrepaidCheckoutContract.failedMessage
-            }
-            isStartingCheckout = false
-        }
-    }
-
-    private func menuCheckoutInput() -> [String: Any] {
-        [
-            "spotId": "native-menu-\(menu.venueId)",
-            "spotName": menu.venueName,
-            "address": menu.venueName,
-            "duration": 1,
-            "totalCost": Double(totalCents) / 100.0,
-            "successPath": NativePrepaidCheckoutContract.successPath,
-            "cancelPath": NativePrepaidCheckoutContract.cancelPath,
-            "source": "native-menu-checkout",
-            "productType": "menu_order",
-            "metadata": [
-                "venueId": menu.venueId,
-                "venueName": menu.venueName,
-                "amountCents": totalCents,
-                "itemCount": itemCount,
-                "captureMode": "automatic_after_checkout"
-            ]
-        ]
-    }
-
-    private func markMenuCheckoutPending() {
-        let record = NativeMenuOrderRecord.paymentPending(menu: menu, quantities: quantities, paymentLabel: selectedPayment)
-        NativeMenuOrderStore.upsert(record)
-        withAnimation { confirmed = record }
     }
 }
 
@@ -21963,7 +21544,7 @@ enum NativeAccountParitySelfTests {
     }
 
     private static func run() {
-        precondition(NativeProfileMenuSectionKind.account.items.map(\.label) == ["Personal Information", "Payment Methods", "My Vehicles", "Bytspot for business"], "NativeAccountParitySelfTests: account controls drifted.")
+        precondition(NativeProfileMenuSectionKind.account.items.map(\.label) == ["Personal Information", "My Vehicles", "Bytspot for business"], "NativeAccountParitySelfTests: account controls drifted.")
         precondition(NativeProfileMenuSectionKind.preferences.items.map(\.label) == ["Vibe Preferences", "Parking Preferences", "Notifications", "Location & Privacy"], "NativeAccountParitySelfTests: preference controls drifted.")
         precondition(NativeProfileMenuSectionKind.appSettings.items.map(\.label) == ["General", "Appearance"], "NativeAccountParitySelfTests: theme must live under App Settings/Appearance.")
         precondition(NativeProfileMenuSectionKind.safetyLegal.items.map(\.label) == ["Blocked people", "Delete Account", "Privacy Policy", "Terms of Service", "Disclaimer", "Contact Bytspot"], "NativeAccountParitySelfTests: safety/legal section drifted.")
@@ -21974,8 +21555,8 @@ enum NativeAccountParitySelfTests {
         // tile via the Points row rather than a tile of its own.
         let reachablePanels = Set(NativeProfileAccountView.menuSectionOrder.flatMap { $0.items.map(\.panel) } + NativeProfileCommandGrid.tilePanels + [.points, .placesVisited])
         precondition(NativeProfileInteractionContract.accountPanels.allSatisfy(reachablePanels.contains), "NativeAccountParitySelfTests: account panels must be reachable from the Profile landing.")
-        precondition(NativeProfileMenuSectionKind.account.items.map(\.panel) == [.personalInformation, .paymentMethods, .vehicles, .business], "NativeAccountParitySelfTests: account rows must open native panels, not hybrid Profile.")
-        precondition(NativeProfileInteractionContract.accountPanels == [.personalInformation, .paymentMethods, .vehicles], "NativeAccountParitySelfTests: account interaction panels must stay native.")
+        precondition(NativeProfileMenuSectionKind.account.items.map(\.panel) == [.personalInformation, .vehicles, .business], "NativeAccountParitySelfTests: account rows must open native panels, not hybrid Profile.")
+        precondition(NativeProfileInteractionContract.accountPanels == [.personalInformation, .vehicles], "NativeAccountParitySelfTests: account interaction panels must stay native.")
         precondition(NativeProfileInteractionContract.personalInfoKeys == ["bytspot_profile_display_name", "bytspot_profile_email", "bytspot_profile_phone", "bytspot_profile_city", "bytspot_profile_birthday"], "NativeAccountParitySelfTests: personal-info local draft keys drifted.")
         precondition(NativeProfileInteractionContract.vehicleKeys == ["bytspot_vehicle_make", "bytspot_vehicle_model", "bytspot_vehicle_year", "bytspot_vehicle_color", "bytspot_vehicle_plate_hint"], "NativeAccountParitySelfTests: vehicle local draft keys drifted.")
         precondition(NativeProfileInteractionContract.paymentKeys == ["bytspot_payment_apple_pay_preferred", "bytspot_payment_setup_staged"], "NativeAccountParitySelfTests: payment readiness keys drifted.")
@@ -21998,7 +21579,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeArrivalLedgerContract.emptyTitle == "No upcoming arrivals" && NativeArrivalLedgerContract.accessibilityID == "native-arrival-ledger-panel", "NativeAccountParitySelfTests: Arrivals must use the native ledger panel, not generic placeholder rows.")
         precondition(NativeArrivalLedgerContract.summary.contains("parking reservations") && NativeArrivalLedgerContract.emptySubtitle.contains("after checkout or approval"), "NativeAccountParitySelfTests: Arrivals copy must describe real itinerary records and approval states.")
         precondition(NativeProfileMenuSectionKind.account.items.allSatisfy { $0.badge == nil }, "NativeAccountParitySelfTests: account rows should not show noisy NATIVE badges.")
-        precondition(NativeProfileMenuSectionKind.account.items.map(\.subtitle) == ["Name, email, phone, and city", "Authorized checkout methods", "Cars used for parking and valet", "Secure bands, cards and tags"], "NativeAccountParitySelfTests: professional account subtitles drifted.")
+        precondition(NativeProfileMenuSectionKind.account.items.map(\.subtitle) == ["Name, email, phone, and city", "Cars used for parking and valet", "Secure bands, cards and tags"], "NativeAccountParitySelfTests: professional account subtitles drifted.")
         precondition(NativeBoutiqueStayBookingContract.storageKey == "bytspot_native_boutique_stays", "NativeAccountParitySelfTests: Boutique Stay wallet storage key drifted.")
         precondition(NativeBoutiqueStayBookingContract.paymentMethods == ["Apple Pay", "Credit / Debit Card"], "NativeAccountParitySelfTests: Boutique Stay payment methods must stay explicit.")
         precondition(NativeBoutiqueStayBookingContract.awaitingHostApproval == "Awaiting Host Approval", "NativeAccountParitySelfTests: Boutique Stay wallet pending status must stay professional and specific.")

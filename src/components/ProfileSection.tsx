@@ -1,11 +1,10 @@
 import { motion } from 'motion/react';
-import { User, Settings, Bell, CreditCard, MapPin, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, AlertTriangle, Ticket, Trash2, UserPlus } from 'lucide-react';
+import { User, Settings, Bell, MapPin, LogOut, ChevronRight, Sparkles, Car, Heart, Crown, Share2, Clock, CheckCircle2, Users, Shield, FileText, AlertTriangle, Ticket, Trash2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { trpc } from '../utils/trpc';
 import { PersonalInfoEdit } from './PersonalInfoEdit';
 import { VehicleManagement } from './VehicleManagement';
-import { PaymentMethods } from './PaymentMethods';
 import { NotificationSettings } from './NotificationSettings';
 import { ParkingPreferences } from './ParkingPreferences';
 import { LocationSettings } from './LocationSettings';
@@ -55,7 +54,7 @@ type ProfileMenuSection = {
   items: ProfileMenuItem[];
 };
 
-type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'payment' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'general-settings' | 'delete-account' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'requests' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
+type ProfileScreen = 'main' | 'personal-info' | 'vehicles' | 'notifications' | 'parking-preferences' | 'vibe-preferences' | 'location-settings' | 'general-settings' | 'delete-account' | 'saved-spots' | 'points' | 'tickets' | 'reservations' | 'checkin-history' | 'requests' | 'friends' | 'privacy-policy' | 'terms-of-service' | 'disclaimer';
 type SubscriptionStatus = { isPremium?: boolean; message?: string } | null;
 type AccessPassList = Parameters<typeof replaceAccessPassesFromServer>[0];
 type NativeProfilePanel = 'reservations' | 'access' | 'points';
@@ -190,7 +189,6 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   const membershipRefreshGeneration = useRef(0);
   const [virtualPatchContext, setVirtualPatchContext] = useState<VirtualPatchContext | null>(() => readVirtualPatchContext());
   const [vehicleCount, setVehicleCount] = useState<number | null>(null);
-  const [paymentMethodCount, setPaymentMethodCount] = useState<number | null>(null);
   // Contact-graph friend suggestions (WS-Social Phase 1)
   const [suggestions, setSuggestions] = useState<FriendSuggestion[]>([]);
   const [contactSyncPhase, setContactSyncPhase] = useState<'idle' | 'syncing' | 'done' | 'unsupported'>('idle');
@@ -251,7 +249,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
 
     const profileFocus = localStorage.getItem('bytspot_profile_focus');
     if (profileFocus) localStorage.removeItem('bytspot_profile_focus');
-    if (profileFocus === 'reservations' || profileFocus === 'tickets' || profileFocus === 'payment' || profileFocus === 'requests') {
+    if (profileFocus === 'reservations' || profileFocus === 'tickets' || profileFocus === 'requests') {
       setCurrentScreen(profileFocus);
     }
 
@@ -265,13 +263,9 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
   useEffect(() => {
     if (currentScreen !== 'main') return;
     let mounted = true;
-    Promise.all([
-      trpc.user.vehicles.list.query().catch(() => []),
-      trpc.payments.listMethods.query().catch(() => []),
-    ]).then(([vehicles, paymentMethods]) => {
+    trpc.user.vehicles.list.query().catch(() => []).then((vehicles) => {
       if (!mounted) return;
       setVehicleCount((vehicles ?? []).length);
-      setPaymentMethodCount((paymentMethods ?? []).length);
     });
     return () => { mounted = false; };
   }, [currentScreen]);
@@ -477,7 +471,6 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
       items: [
         { icon: <User className="w-5 h-5" />, label: 'Personal Information', badge: null, screen: 'personal-info' as ProfileScreen },
         { icon: <Car className="w-5 h-5" />, label: 'My Vehicles', badge: vehicleCount && vehicleCount > 0 ? String(vehicleCount) : null, screen: 'vehicles' as ProfileScreen },
-        { icon: <CreditCard className="w-5 h-5" />, label: 'Payment Methods', badge: paymentMethodCount && paymentMethodCount > 0 ? String(paymentMethodCount) : null, screen: 'payment' as ProfileScreen },
         { icon: <Heart className="w-5 h-5" />, label: 'Saved Spots', badge: savedSpotsStats.total > 0 ? savedSpotsStats.total.toString() : null, screen: 'saved-spots' as ProfileScreen },
         { icon: <Ticket className="w-5 h-5" />, label: 'My Requests', badge: null, screen: 'requests' as ProfileScreen },
         { icon: <Clock className="w-5 h-5" />, label: 'Places I\'ve Been', badge: checkinHistory.length > 0 ? checkinHistory.length.toString() : null, screen: 'checkin-history' as ProfileScreen },
@@ -519,9 +512,6 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
     return <VehicleManagement isDarkMode={isDarkMode} onBack={() => setCurrentScreen('main')} />;
   }
 
-  if (currentScreen === 'payment') {
-    return <PaymentMethods isDarkMode={isDarkMode} onBack={() => setCurrentScreen('main')} onPaymentMethodsChanged={setPaymentMethodCount} />;
-  }
 
   if (currentScreen === 'notifications') {
     return <NotificationSettings isDarkMode={isDarkMode} onBack={() => setCurrentScreen('main')} />;

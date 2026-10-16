@@ -51,7 +51,6 @@ Shared Features:
 Settings & Preferences:
 ├── PersonalInfoEdit.tsx          # Edit user info
 ├── VehicleManagement.tsx         # Manage vehicles
-├── PaymentMethods.tsx            # Payment cards
 ├── NotificationSettings.tsx      # Notification preferences
 ├── LocationAccuracy.tsx          # Location settings
 ├── SensorSettings.tsx            # IoT sensor config

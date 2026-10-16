@@ -1314,15 +1314,8 @@ export default function App() {
       return;
     }
     if (path.includes('/profile/payment')) {
-      const setupStatus = query.get('setup');
-      localStorage.setItem('bytspot_profile_focus', 'payment');
       setActiveTab('profile');
       setCurrentScreen('main');
-      if (setupStatus === 'success') {
-        toast.success('Card setup complete', { description: 'Refreshing saved payment methods now.', duration: 3500 });
-      } else if (setupStatus === 'cancelled') {
-        toast('Card setup cancelled — no card was saved.', { duration: 3000 });
-      }
       window.history.replaceState({}, '', '/');
     } else if (path.includes('/premium/success')) {
       if (APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP) {

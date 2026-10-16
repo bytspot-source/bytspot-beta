@@ -326,8 +326,8 @@ final class NativePushService: NSObject, ObservableObject {
 
 // MARK: - BytspotTier (App-target mirror)
 // File-scoped duplicate of the Clip-target BytspotTier so the native patch
-// experience can route + theme + price-floor independently of the Clip bundle.
-// Keep cases/detect/min-cents/eyebrow/defaultSubtitle in sync with
+// experience can route + theme independently of the Clip bundle.
+// Keep cases/detect/eyebrow/defaultSubtitle in sync with
 // ios/App/Clip/ClipPatchVerifier.swift.
 enum BytspotTier: String, Equatable, CaseIterable, Codable {
     case black
@@ -350,14 +350,6 @@ enum BytspotTier: String, Equatable, CaseIterable, Codable {
         }
     }
 
-    var minimumCents: Int {
-        switch self {
-        case .black: return 45_000
-        case .platinum: return 5_000
-        case .green: return 500
-        }
-    }
-
     var defaultSubtitle: String {
         switch self {
         case .black: return "Curated ultra-luxury experiences. Verified by tap."
@@ -366,7 +358,8 @@ enum BytspotTier: String, Equatable, CaseIterable, Codable {
         }
     }
 
-    static func detect(url: URL?, patchId: String?) -> BytspotTier {
+    /// The tier the link itself codes, or nil when it carries none.
+    static func detectIfCoded(url: URL?, patchId: String?) -> BytspotTier? {
         if let url, let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
             let items = components.queryItems ?? []
             if let raw = items.first(where: { ["tier", "scanner"].contains($0.name.lowercased()) })?.value,
@@ -392,7 +385,11 @@ enum BytspotTier: String, Equatable, CaseIterable, Codable {
             }
         }
         if let patchId, let tier = Self.codedTier(patchId) { return tier }
-        return .black
+        return nil
+    }
+
+    static func detect(url: URL?, patchId: String?) -> BytspotTier {
+        detectIfCoded(url: url, patchId: patchId) ?? .black
     }
 
     /// Tokens that code this tier inside a patch identifier.

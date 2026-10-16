@@ -14,13 +14,6 @@ let categoriesCache: {
   locationKey: string;
 } | null = null;
 
-let locationsCache: {
-  result: NearbyLocation[];
-  timestamp: number;
-  prefsKey: string;
-  behaviorKey: string;
-} | null = null;
-
 const CACHE_TTL = 60000; // 1 minute cache
 
 // ─── Cultural Context ─────────────────────────────────────────────────────────
@@ -81,16 +74,6 @@ export interface CategorySuggestion {
   category: string;
   priority: number;
   reason: 'preference' | 'time' | 'behavior' | 'trending' | 'cultural';
-}
-
-export interface NearbyLocation {
-  name: string;
-  distance: string;
-  spots: number;
-  available: boolean;
-  type?: 'parking' | 'venue';
-  rating?: number;
-  priority: number;
 }
 
 export interface PersonalizableDiscoverCard {
@@ -795,150 +778,6 @@ export function getPersonalizedCategories(
     prefsKey,
     behaviorKey,
     locationKey,
-  };
-  
-  return result;
-}
-
-/**
- * Get personalized nearby locations based on user context
- * PERFORMANCE: Memoized with cache to prevent redundant calculations
- */
-export function getPersonalizedNearbyLocations(
-  userLocation: { lat: number; lng: number },
-  preferences?: UserPreferences,
-  behavior?: UserBehavior
-): NearbyLocation[] {
-  // Create cache keys
-  const prefsKey = JSON.stringify(preferences || {});
-  const behaviorKey = JSON.stringify(behavior || {});
-  const now = Date.now();
-  
-  // Check if we have a valid cached result
-  if (
-    locationsCache &&
-    locationsCache.timestamp + CACHE_TTL > now &&
-    locationsCache.prefsKey === prefsKey &&
-    locationsCache.behaviorKey === behaviorKey
-  ) {
-    return locationsCache.result;
-  }
-  
-  // Sample locations with priorities
-  const locations: NearbyLocation[] = [
-    {
-      name: 'Colony Square Garage',
-      distance: '0.2',
-      spots: 14,
-      available: true,
-      type: 'parking',
-      rating: 4.8,
-      priority: 10,
-    },
-    {
-      name: '1380 W Peachtree Garage',
-      distance: '0.4',
-      spots: 22,
-      available: true,
-      type: 'parking',
-      rating: 4.3,
-      priority: 8,
-    },
-    {
-      name: 'Promenade Midtown Parking',
-      distance: '0.6',
-      spots: 38,
-      available: true,
-      type: 'parking',
-      rating: 4.6,
-      priority: 6,
-    },
-    {
-      name: 'Midtown Place Parking',
-      distance: '0.5',
-      spots: 0,
-      available: false,
-      type: 'parking',
-      rating: 4.9,
-      priority: 5,
-    },
-    {
-      name: 'Arts Center MARTA Garage',
-      distance: '0.7',
-      spots: 28,
-      available: true,
-      type: 'parking',
-      rating: 4.7,
-      priority: 7,
-    },
-  ];
-
-  // Boost based on parking preferences
-  if (preferences?.parkingPreferences) {
-    const prefs = preferences.parkingPreferences;
-    
-    // For now, boost premium locations if user prefers premium security
-    if (prefs.security === 'premium') {
-      const premiumSpots = ['Colony Square Garage', 'Midtown Place Parking'];
-      locations.forEach(loc => {
-        if (premiumSpots.includes(loc.name)) {
-          loc.priority += 20;
-        }
-      });
-    }
-
-    // Boost EV charging locations if preferred
-    if (prefs.evCharging) {
-      const evLocations = ['Downtown Plaza Garage', 'Bay Area Mall Garage'];
-      locations.forEach(loc => {
-        if (evLocations.includes(loc.name)) {
-          loc.priority += 15;
-        }
-      });
-    }
-
-    // Boost covered locations if preferred
-    if (prefs.covered) {
-      const coveredLocations = ['Downtown Plaza Garage', 'Bay Area Mall Garage', 'Union Square Garage'];
-      locations.forEach(loc => {
-        if (coveredLocations.includes(loc.name)) {
-          loc.priority += 12;
-        }
-      });
-    }
-  }
-
-  // Boost based on past visits
-  if (behavior?.locationVisits) {
-    Object.entries(behavior.locationVisits).forEach(([locationName, visits]) => {
-      const loc = locations.find(l => l.name === locationName);
-      if (loc) {
-        loc.priority += visits * 5; // 5 points per visit
-      }
-    });
-  }
-
-  // Boost closer locations slightly
-  locations.forEach(loc => {
-    const distance = parseFloat(loc.distance);
-    if (distance < 0.4) {
-      loc.priority += 15;
-    } else if (distance < 0.6) {
-      loc.priority += 10;
-    } else if (distance < 1.0) {
-      loc.priority += 5;
-    }
-  });
-
-  // Sort by priority and return top 3
-  const result = locations.sort((a, b) => b.priority - a.priority).slice(0, 3);
-  
-  // Cache the result
-  locationsCache = {
-    result,
-    timestamp: now,
-    prefsKey,
-    behaviorKey,
   };
   
   return result;

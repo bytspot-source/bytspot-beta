@@ -1127,6 +1127,47 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertNil(bodyObject["venueId"], "v2 checkins use the standard tRPC json envelope, unlike transformer-less groupEvents routes.")
     }
 
+    func testRecommendationsDecodeServerPicksWithoutInventingDetail() throws {
+        XCTAssertEqual(NativeLiveContentV2Contract.placesRecommendRoute, "/trpc/places.recommend")
+        let payload: [String: Any] = [
+            "placesSource": "google",
+            "forYou": [
+                ["id": "gp:abc_123", "kind": "place", "placeId": "abc_123", "name": "Refuge Coffee", "address": "1 Peachtree St", "lat": 33.7866, "lng": -84.3833,
+                 "category": "coffee_shop", "rating": 4.6, "isOpen": true, "photoUrl": "https://api.example/places/photo?name=x",
+                 "reasons": ["Fits coffee", "4.6★ · 176 reviews", "Open now", "5 min walk"]],
+                ["id": "v1", "kind": "venue", "slug": "closers", "placeId": NSNull(), "name": "Closers", "address": "2 Peachtree St", "lat": 33.787, "lng": -84.384,
+                 "category": "coffee", "rating": NSNull(), "isOpen": NSNull(), "photoUrl": "http://insecure.example/a.jpg",
+                 "crowd": ["level": 1, "label": "Chill", "source": "typical"] as [String: Any], "reasons": ["Fits coffee", "Usually chill now", "3 min walk"]],
+                ["id": "gp:nowhere", "kind": "place", "name": "No Coordinates", "lat": 0, "lng": 0, "reasons": [String]()],
+            ] as [[String: Any]],
+            "explore": [
+                ["id": "gp:park", "kind": "place", "placeId": "park", "name": "Piedmont Park", "address": "", "lat": 33.785, "lng": -84.373,
+                 "category": "park", "rating": 4.8, "isOpen": NSNull(), "reasons": ["4.8★ · 30,000 reviews", "12 min walk"]],
+            ] as [[String: Any]],
+        ]
+        let recommendations = NativeRecommendations.decode(from: payload)
+        XCTAssertEqual(recommendations.placesSource, "google")
+        XCTAssertEqual(recommendations.forYou.map(\.name), ["Refuge Coffee", "Closers"], "A pick without real coordinates is dropped.")
+        XCTAssertEqual(recommendations.explore.map(\.name), ["Piedmont Park"])
+
+        let coffee = recommendations.forYou[0]
+        XCTAssertFalse(coffee.isBytspotVenue)
+        XCTAssertEqual(coffee.detail, "4.6★ · 176 reviews · Open now · 5 min walk")
+        XCTAssertEqual(coffee.badge, "Open now")
+        let summary = coffee.venueSummary(distance: "0.3 mi")
+        XCTAssertEqual(summary.googlePlaceID, "abc_123")
+        XCTAssertFalse(summary.parking.isKnown, "A recommended place carries no parking data.")
+        XCTAssertEqual(summary.discoverType, "coffee")
+
+        let venue = recommendations.forYou[1]
+        XCTAssertTrue(venue.isBytspotVenue)
+        XCTAssertNil(venue.photoURL, "Only https photos are shown.")
+        XCTAssertEqual(venue.badge, "Chill")
+        XCTAssertEqual(venue.venueSummary(distance: "0.2 mi").id, "v1")
+
+        XCTAssertEqual(NativeRecommendations.decode(from: ["unexpected"]), .empty)
+    }
+
     func testNativeLiveContentV2ContractLocksExternalAdapterRoutes() throws {
         XCTAssertEqual(NativeLiveContentV2Contract.eventsListRoute, "/trpc/events.list")
         XCTAssertEqual(NativeLiveContentV2Contract.ticketmasterProvider, "ticketmaster")

@@ -1662,6 +1662,7 @@ enum NativeLiveContentV2Contract {
     static let ticketmasterProvider = "ticketmaster"
     static let placesTextSearchRoute = "/trpc/places.textSearch"
     static let placesNearbySearchRoute = "/trpc/places.nearbySearch"
+    static let placesRecommendRoute = "/trpc/places.recommend"
     static let placesFindRoute = "/trpc/places.find"
     static let placesEnrichRoute = "/trpc/places.enrich"
     static let vendorsMatchRoute = "/trpc/vendors.match"
@@ -3332,6 +3333,96 @@ struct NativePlaceSearchResult: Identifiable, Equatable {
     let provider: String
 }
 
+/// A place `places.recommend` picked for the guest from their answers and
+/// position. Every reason comes from the place's own data on the server.
+struct NativeRecommendedPlace: Identifiable, Equatable {
+    let id: String
+    let isBytspotVenue: Bool
+    let googlePlaceID: String?
+    let name: String
+    let address: String
+    let latitude: Double
+    let longitude: Double
+    let category: String
+    let rating: Double?
+    let isOpen: Bool?
+    let photoURL: URL?
+    let crowd: NativeCrowdSummary?
+    let reasons: [String]
+
+    /// The reasons worth showing under a name; the section already says it fits the vibe.
+    var detail: String {
+        reasons.filter { !$0.hasPrefix("Fits ") && !$0.hasPrefix("Good for ") }.joined(separator: " · ")
+    }
+
+    var badge: String {
+        if let crowd { return crowd.label }
+        if isOpen == true { return "Open now" }
+        if let rating { return String(format: "%.1f★", rating) }
+        return "Nearby"
+    }
+
+    func venueSummary(distance: String) -> NativeVenueSummary {
+        var venue = NativeVenueSummary(
+            id: isBytspotVenue ? id : "suggestion-\(id)", name: name, category: category, address: address,
+            distance: distance, rating: rating, latitude: latitude, longitude: longitude, crowd: crowd,
+            parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "", isKnown: false), verifiedPatchId: nil, imageUrl: photoURL
+        )
+        venue.googlePlaceID = googlePlaceID
+        return venue
+    }
+}
+
+struct NativeRecommendations: Equatable {
+    let forYou: [NativeRecommendedPlace]
+    let explore: [NativeRecommendedPlace]
+    let placesSource: String?
+
+    static let empty = NativeRecommendations(forYou: [], explore: [], placesSource: nil)
+
+    static func decode(from payload: Any) -> NativeRecommendations {
+        guard let dict = payload as? [String: Any] else { return .empty }
+        func rows(_ key: String) -> [NativeRecommendedPlace] {
+            ((dict[key] as? [Any]) ?? []).compactMap(place)
+        }
+        return NativeRecommendations(forYou: rows("forYou"), explore: rows("explore"), placesSource: dict["placesSource"] as? String)
+    }
+
+    static func place(_ value: Any) -> NativeRecommendedPlace? {
+        guard let item = value as? [String: Any],
+              let id = (item["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty,
+              let name = (item["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty,
+              let latitude = number(item["lat"]), let longitude = number(item["lng"]),
+              NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude) else { return nil }
+        let crowd = (item["crowd"] as? [String: Any]).flatMap { value -> NativeCrowdSummary? in
+            guard let label = (value["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty else { return nil }
+            return NativeCrowdSummary(level: Int(number(value["level"]) ?? 1), label: label, waitMins: nil, source: value["source"] as? String)
+        }
+        return NativeRecommendedPlace(
+            id: id,
+            isBytspotVenue: (item["kind"] as? String) == "venue",
+            googlePlaceID: NativeVenueDetailsDTO.exactGooglePlaceID(item["placeId"]),
+            name: name,
+            address: (item["address"] as? String) ?? "",
+            latitude: latitude,
+            longitude: longitude,
+            category: (item["category"] as? String) ?? "venue",
+            rating: number(item["rating"]),
+            isOpen: item["isOpen"] as? Bool,
+            photoURL: (item["photoUrl"] as? String).flatMap(URL.init(string:)).flatMap { $0.scheme == "https" ? $0 : nil },
+            crowd: crowd,
+            reasons: ((item["reasons"] as? [Any]) ?? []).compactMap { $0 as? String }.filter { !$0.isEmpty }
+        )
+    }
+
+    private static func number(_ value: Any?) -> Double? {
+        if let value = value as? Double { return value }
+        if let value = value as? Int { return Double(value) }
+        if let value = value as? NSNumber { return value.doubleValue }
+        return nil
+    }
+}
+
 /// A Find (Home search) result. Mirrors the server contract: every result
 /// declares its provenance, and a resolved-only place is DETAILS — it carries no
 /// Book/Request action because it has no supply behind it.
@@ -3497,6 +3588,19 @@ struct NativeLiveDiscoveryAPI {
         let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.placesNearbySearchRoute, input: input)
         let places = Self.placeRows(from: payload).enumerated().compactMap(Self.placeResult)
         return Self.validatedLocalPlaces(places, origin: NativeLocationCoordinate(latitude: lat, longitude: lng, isFallback: false))
+    }
+
+    /// Only a real fix is sent: recommendations for an assumed city would be
+    /// someone else's neighbourhood.
+    func placesRecommend(location: NativeLocationCoordinate, vibe: String, walk: String, crew: String, hour: Int) async throws -> NativeRecommendations {
+        guard !location.isFallback else { return .empty }
+        var input: [String: Any] = ["lat": location.latitude, "lng": location.longitude, "hour": max(0, min(23, hour))]
+        for (key, value) in [("vibe", vibe), ("walk", walk), ("group", crew)] {
+            let token = String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
+            if !token.isEmpty { input[key] = token }
+        }
+        let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.placesRecommendRoute, input: input)
+        return NativeRecommendations.decode(from: payload)
     }
 
     func localNightlifeSearch(location: NativeLocationCoordinate, maxResults: Int = 12) async throws -> [NativePlaceSearchResult] {

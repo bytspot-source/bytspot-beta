@@ -6900,6 +6900,15 @@ private struct NativeHomeDashboardView: View {
             self.color = NativeHomeDashboardView.launchBadgeColor(for: venue)
         }
 
+        init(recommended place: NativeRecommendedPlace, venue: NativeVenueSummary) {
+            self.id = place.id
+            self.venue = venue
+            self.title = place.name
+            self.subtitle = place.detail.isEmpty ? place.address : place.detail
+            self.badge = place.badge
+            self.color = NativeHomeDashboardView.launchBadgeColor(for: venue)
+        }
+
         private static func categoryLabel(for type: String) -> String {
             switch type {
             case "parking": return "Parking"
@@ -6931,6 +6940,7 @@ private struct NativeHomeDashboardView: View {
     @AppStorage(NativeLaunchPersonalizationStorage.crewKey) private var launchCrewPreference = ""
     @AppStorage(NativeLaunchPersonalizationStorage.completedKey) private var launchPicksCompleted = false
     @State private var aiPickDetailVenue: NativeVenueSummary?
+    @State private var serverRecommendations: NativeRecommendations?
     @State private var homePartyInvitation: NativeNearbyParty?
     @State private var showGuestSavePrompt = false
     @State private var guestHomePromptTitle = "Save your picks?"
@@ -6987,7 +6997,42 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var launchRecommendationPicks: [LaunchRecommendationPick] {
-        Self.rankedLaunchPicks(from: regionalSnapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
+        if let picks = serverRecommendations?.forYou, !picks.isEmpty {
+            return picks.prefix(3).map { LaunchRecommendationPick(recommended: $0, venue: recommendedVenue($0)) }
+        }
+        return Self.rankedLaunchPicks(from: regionalSnapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
+    }
+
+    private var usesServerRecommendations: Bool {
+        !(serverRecommendations?.forYou.isEmpty ?? true)
+    }
+
+    private var hasServerRecommendations: Bool {
+        usesServerRecommendations || !(serverRecommendations?.explore.isEmpty ?? true)
+    }
+
+    /// Empty for a fallback coordinate, so nothing is requested for an assumed city.
+    private var recommendationRequestKey: String {
+        let location = locationStore.coordinate
+        guard !location.isFallback else { return "" }
+        return String(format: "%.3f,%.3f|", location.latitude, location.longitude) + [launchIntent, launchWalkPreference, launchCrewPreference].joined(separator: "|")
+    }
+
+    private func refreshRecommendations() async {
+        let key = recommendationRequestKey
+        guard !key.isEmpty else { serverRecommendations = nil; return }
+        let result = try? await NativeLiveDiscoveryAPI(client: BytspotAPIClient()).placesRecommend(
+            location: locationStore.coordinate, vibe: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference,
+            hour: Calendar.current.component(.hour, from: Date())
+        )
+        guard key == recommendationRequestKey else { return }
+        serverRecommendations = result
+    }
+
+    private func recommendedVenue(_ place: NativeRecommendedPlace) -> NativeVenueSummary {
+        if place.isBytspotVenue, let known = NativeLocationAwareUIContent.venues(in: regionalSnapshot).first(where: { $0.id == place.id }) { return known }
+        let distance = locationStore.coordinate.distanceLabel(toLatitude: place.latitude, longitude: place.longitude) ?? "Nearby"
+        return place.venueSummary(distance: distance)
     }
 
     private var hasTrustedLocalRecommendations: Bool {
@@ -7010,7 +7055,7 @@ private struct NativeHomeDashboardView: View {
     /// Measured Atlanta may show a Typical card without claiming Live; an
     /// unresolved location falls through to the empty state instead.
     private var shouldShowHomeEmptyState: Bool {
-        shouldShowLocalEmptyState && typicalHomePlan == nil
+        shouldShowLocalEmptyState && typicalHomePlan == nil && !hasServerRecommendations
     }
 
     var body: some View {
@@ -7019,6 +7064,7 @@ private struct NativeHomeDashboardView: View {
             nativeSearchBar
             if showsVibeCard { homeVibeCard }
             if launchPicksCompleted && !launchRecommendationPicks.isEmpty { launchPicksReadySection }
+            exploreAroundYouSection
             if shouldShowHomeEmptyState { noLocalRecommendationsSection }
             if hasTrustedLocalRecommendations || typicalHomePlan != nil { tonightPickCard }
             quickActionsSection
@@ -7035,6 +7081,7 @@ private struct NativeHomeDashboardView: View {
         .onAppear { scheduleAuthenticatedLaunchPicksCollapseIfNeeded(); openValetPreviewIfRequested(); locationStore.startIfAuthorized(); contactsAuthorization = CNContactStore.authorizationStatus(for: .contacts) }
         .task { await refreshLiveWeather() }
         .task { await refreshPresence() }
+        .task(id: recommendationRequestKey) { await refreshRecommendations() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in Task { await refreshLiveWeather() } }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { headerNow = $0 }
         .onChange(of: sessionStore.token ?? "") { _ in scheduleAuthenticatedLaunchPicksCollapseIfNeeded() }
@@ -7666,7 +7713,12 @@ private struct NativeHomeDashboardView: View {
     }
 
     private func openLaunchPicksOnMap() {
-        Self.storeLaunchMapHandoff(snapshot: regionalSnapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
+        if usesServerRecommendations, let venue = launchRecommendationPicks.first?.venue {
+            NativeOnboardingMapHandoff.clear()
+            NativeMapFocusHandoff.store(venue: venue, modeOverride: Self.launchMapMode(for: venue, intent: launchIntent), locationScopeOrigin: locationStore.coordinate)
+        } else {
+            Self.storeLaunchMapHandoff(snapshot: regionalSnapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
+        }
         openNativeTab(.map)
     }
 
@@ -7679,7 +7731,43 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var launchPicksWhy: String {
-        NativeHomeRegionPresentation.launchWhy(intent: launchIntent, location: locationStore.coordinate)
+        usesServerRecommendations ? Self.serverRecommendationsWhy : NativeHomeRegionPresentation.launchWhy(intent: launchIntent, location: locationStore.coordinate)
+    }
+
+    static let serverRecommendationsWhy = "Ranked by your answers, ratings, what's open now, and how far you said you'd go."
+
+    @ViewBuilder private var exploreAroundYouSection: some View {
+        if let places = serverRecommendations?.explore, !places.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Around you to explore").nativeTitle(20)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(places) { place in
+                            Button {
+                                nativeImpactLight()
+                                aiPickDetailVenue = recommendedVenue(place)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    NativeIcon(symbol: "mappin.and.ellipse", color: NativeTheme.cyan)
+                                    Spacer(minLength: 0)
+                                    Text(place.name).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
+                                    Text(place.detail).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).lineLimit(2).multilineTextAlignment(.leading)
+                                }
+                                .frame(width: 168, height: 140, alignment: .leading)
+                                .padding(12)
+                                .background(NativeTheme.selectedControlSurface.opacity(0.66))
+                                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("native-home-explore-\(place.id)")
+                        }
+                    }
+                }
+            }
+            .padding(14)
+            .nativePanel()
+            .accessibilityIdentifier("native-home-explore-around-you")
+        }
     }
 
     static let defaultLaunchMapDestination = NativeLocationCoordinate.midtown.displayName

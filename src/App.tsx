@@ -63,7 +63,6 @@ const PrintableMarketingAssets = APP_STORE_CONSUMER_ONLY_COMPILE_TIME ? AppStore
 
 import {
   getPersonalizedCategories,
-  getPersonalizedNearbyLocations,
   trackCategoryClick,
   trackLocationVisit,
   getUserPreferences,
@@ -73,8 +72,8 @@ import {
   saveUserPreferences,
   getContextualPrompt,
   type CategorySuggestion,
-  type NearbyLocation
 } from './utils/personalization';
+import { readQuizAnswers, recommendationDetail, useRecommendations, type Recommendation } from './utils/hooks/useRecommendations';
 import { trpc } from './utils/trpc';
 import { askTransport, formatSlotLabel, offerCheckoutReturn, SEEN_OFFERS_KEY, unseenOffers, type AskClient } from './utils/guestAsk';
 import { PENDING_TICKET_KEY, ticketLink } from './utils/guestTickets';
@@ -100,6 +99,17 @@ const HOME_CARD_TITLE_CLASS = 'text-white drop-shadow-sm shadow-black';
 const HOME_CARD_META_CLASS = 'text-white drop-shadow-sm shadow-black';
 const DISCOVER_SERVICE_HIGHLIGHT_KEY = 'bytspot_discover_highlight_service_card';
 const LAUNCH_PREVIEW_STORAGE_KEY = String.fromCharCode(...[98, 121, 116, 115, 112, 111, 116, 95, 111, 110, 98, 111, 97, 114, 100, 105, 110, 103, 95, 112, 114, 101, 118, 105, 101, 119].map((code) => code + (Date.now() > 0 ? 0 : 1)));
+const ONBOARDING_QUESTION_COUNT = 3;
+
+function toPreviewPick(r: Recommendation) {
+  return {
+    id: r.id,
+    name: r.name,
+    address: recommendationDetail(r) || r.address,
+    category: r.category ?? undefined,
+    label: r.crowd?.label ?? (r.isOpen ? 'Open now' : undefined),
+  };
+}
 const SERVICE_RECOMMENDATION_SHORTCUTS = [
   { label: 'Private Chef', description: 'Dinner, tasting boards, private dining' },
   { label: 'Valet', description: 'Arrival, pickup, premium handoff' },
@@ -430,7 +440,6 @@ export default function App() {
   const [guestSavePrompt, setGuestSavePrompt] = useState<{ title: string; subtitle: string; cta?: string } | null>(null);
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const [personalizedCategories, setPersonalizedCategories] = useState<CategorySuggestion[]>([]);
-  const [personalizedLocations, setPersonalizedLocations] = useState<NearbyLocation[]>([]);
 
   const openProviderLanding = useCallback(() => {
     if (APP_STORE_CONSUMER_ONLY_COMPILE_TIME) return;
@@ -1091,27 +1100,38 @@ export default function App() {
       return parsed?.picks?.length ? parsed : null;
     } catch { return null; }
   }, [launchPreviewVersion, activeTab]);
+  const recommendCoords = userCoords ?? cityCoords ?? null;
+  const savedQuizAnswers = useMemo(() => readQuizAnswers(), [showOnboarding, launchPreviewVersion]);
+  const homeRecommendations = useRecommendations(recommendCoords, savedQuizAnswers);
+  const onboardingRecommendations = useRecommendations(recommendCoords, quizSelections, showOnboarding && quizStep === ONBOARDING_QUESTION_COUNT);
+  const homePicks = useMemo(
+    () => (homeRecommendations.forYou.length > 0 ? homeRecommendations.forYou.slice(0, 3).map(toPreviewPick) : onboardingPreview?.picks ?? []),
+    [homeRecommendations.forYou, onboardingPreview],
+  );
   const onboardingPreviewCopy = useMemo(() => {
-    const intent = onboardingPreview?.answers?.vibe ?? '';
-    if (['sleep', 'stay'].includes(intent)) return { title: 'A softer landing nearby', why: 'Late-night comfort · Midtown timing · safer arrival' };
-    if (['parking', 'covered_parking'].includes(intent)) return { title: 'Easy arrivals near Midtown', why: 'Easy arrival · short walk · Midtown timing' };
-    if (intent === 'ride') return { title: 'A smoother way home', why: 'Better pickup points · cleaner route · less waiting' };
-    if (intent === 'indoor') return { title: 'Comfort-first plans nearby', why: 'Dry, comfortable, and close enough' };
-    if (intent === 'drinks') return { title: 'A night worth stepping into', why: 'Evening energy · good rooms · easy arrival' };
-    if (intent === 'events') return { title: 'Plans that fit the crowd', why: 'Show timing · crowd flow · easier exits' };
-    if (intent === 'coffee') return { title: 'A good stop before you go', why: 'Daytime rhythm · close stops · low-friction arrival' };
-    return { title: 'Shaped around your night', why: 'Your mood · the hour · what feels close enough' };
-  }, [onboardingPreview]);
+    const intent = savedQuizAnswers.vibe ?? onboardingPreview?.answers?.vibe ?? '';
+    if (['sleep', 'stay'].includes(intent)) return { title: 'A softer landing nearby' };
+    if (['parking', 'covered_parking'].includes(intent)) return { title: 'Good stops near your arrival' };
+    if (intent === 'ride') return { title: 'Worth the ride' };
+    if (intent === 'indoor') return { title: 'Comfort-first plans nearby' };
+    if (intent === 'drinks') return { title: 'A night worth stepping into' };
+    if (intent === 'events') return { title: 'Something happening nearby' };
+    if (intent === 'coffee') return { title: 'A good stop before you go' };
+    if (intent === 'work') return { title: 'Quiet places to settle in' };
+    if (intent === 'date') return { title: 'Date-night picks nearby' };
+    if (intent === 'food') return { title: 'Good food close by' };
+    return { title: 'Shaped around your day' };
+  }, [savedQuizAnswers, onboardingPreview]);
   const viewOnboardingPicksOnMap = useCallback(() => {
     if (!hasAuthenticatedConsumerSession()) {
       setGuestSavePrompt({ title: 'Sign in to view your map', subtitle: 'Sign in to keep routes, parking context, and arrival notes synced before opening Map.', cta: 'Sign in to map' });
       return;
     }
-    const topPick = onboardingPreview?.picks?.[0];
+    const topPick = homePicks[0];
     if (topPick?.name) setSelectedDestination(topPick.name);
     setSelectedMapFunction('route');
     setActiveTab('map');
-  }, [onboardingPreview]);
+  }, [homePicks]);
 
   const exploreOnboardingPreviewFromHome = useCallback(() => {
     if (!hasAuthenticatedConsumerSession()) {
@@ -1120,17 +1140,7 @@ export default function App() {
     }
     setActiveTab('discover');
   }, []);
-  const memoizedLocations = useMemo(() => {
-    if (activeTab === 'home' || currentScreen === 'main') {
-      return getPersonalizedNearbyLocations(
-        activeCoords,
-        userPreferences,
-        userBehavior
-      );
-    }
-    return [];
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, currentScreen, userPreferences, userBehavior, activeCoords.lat, activeCoords.lng]);
+
 
   useEffect(() => {
     if (discoverFilter === undefined && preferredDiscoverFilter) {
@@ -1142,9 +1152,8 @@ export default function App() {
   useEffect(() => {
     if (activeTab === 'home' || currentScreen === 'main') {
       setPersonalizedCategories(memoizedCategories);
-      setPersonalizedLocations(memoizedLocations);
     }
-  }, [activeTab, currentScreen, memoizedCategories, memoizedLocations]);
+  }, [activeTab, currentScreen, memoizedCategories]);
 
   // Handle touch to show navigation in Discover tab
   const handleDiscoverTouch = () => {
@@ -1661,7 +1670,7 @@ export default function App() {
                   onScroll={handleScroll}
                   className="absolute inset-0 overflow-y-auto"
                 >
-                {onboardingPreview && (
+                {homePicks.length > 0 && (
                   <motion.div
                     className="px-4 mb-4 pt-2"
                     initial={{ opacity: 0, y: 10 }}
@@ -1676,16 +1685,16 @@ export default function App() {
                         <div>
                           <p className="text-[11px] uppercase tracking-[0.08em] text-cyan-200" style={{ fontWeight: 850 }}>Your picks are ready</p>
                           <h2 className="mt-1 text-[20px] leading-6 text-white" style={{ fontWeight: 800 }}>{onboardingPreviewCopy.title}</h2>
-                          <p className="mt-1 text-[12px] leading-[17px] text-white/55" style={{ fontWeight: 600 }}>{onboardingPreview.context ?? `Based on your vibe near ${onboardingPreview.userCity ?? userCity}`}</p>
+                          <p className="mt-1 text-[12px] leading-[17px] text-white/55" style={{ fontWeight: 600 }}>{`Based on your vibe near ${userCity}`}</p>
                         </div>
-                        <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-cyan-100" style={{ fontWeight: 800 }}>{onboardingPreview.picks?.length ?? 0} picks</span>
+                        <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-cyan-100" style={{ fontWeight: 800 }}>{homePicks.length} picks</span>
                       </div>
                       <div className="relative mb-3 rounded-[15px] border border-white/10 bg-white/[0.045] px-3 py-2">
                         <p className="text-[11px] uppercase tracking-[0.07em] text-white/38" style={{ fontWeight: 850 }}>Why these?</p>
-                        <p className="mt-0.5 text-[12px] leading-[17px] text-white/62" style={{ fontWeight: 650 }}>{onboardingPreviewCopy.why}</p>
+                        <p className="mt-0.5 text-[12px] leading-[17px] text-white/62" style={{ fontWeight: 650 }}>Ranked by your answers, ratings, what's open now, and how far you said you'd go.</p>
                       </div>
                       <div className="relative flex flex-col gap-2.5">
-                        {onboardingPreview.picks?.slice(0, 3).map((pick, index) => {
+                        {homePicks.map((pick, index) => {
                           const crowd = pick.crowd?.label ?? pick.label ?? 'Recommended';
                           return (
 	                            <button key={`launch-pick-${pick.id}-${index}`} type="button" onClick={exploreOnboardingPreviewFromHome} className="flex items-center gap-3 rounded-[16px] border border-white/10 bg-white/[0.055] p-3 text-left transition active:scale-[0.98]">
@@ -2198,43 +2207,20 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Nearby Section - Personalized */}
-				                    <div>
+                    {/* Around you to explore */}
+				                    <div data-testid="home-explore-nearby">
                       <div className="mb-4 flex items-center justify-between">
 				                        <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 700 }}>
-                          Nearby
+                          Around you to explore
                         </h2>
-                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/20 border border-green-400/30">
-                          <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                          <span className="text-[11px] text-green-300" style={{ fontWeight: 600 }}>
-                            Live
-                          </span>
-                        </div>
                       </div>
-                      
+                      {homeRecommendations.explore.length > 0 ? (
 				                      <div className={HOME_CAROUSEL_CLASS}>
-                        {(personalizedLocations.length > 0 ? personalizedLocations :
-                          apiVenues.length > 0
-                            ? apiVenues.slice(0, 3).map((v, i) => ({
-                                name: v.name,
-                                distance: ((i + 1) * 0.2).toFixed(1),
-                                spots: v.parking?.totalAvailable ?? 0,
-                                available: (v.parking?.totalAvailable ?? 0) > 0,
-                                type: 'venue' as const,
-                                rating: 4.5,
-                                priority: 0,
-                                crowd: v.crowd,
-                              }))
-                            : [
-                                { name: 'Colony Square Garage', distance: '0.2', spots: 14, available: true, priority: 0, crowd: { level: 2, label: 'Active', updatedAt: new Date().toISOString(), waitMins: 5 } },
-                                { name: '1380 W Peachtree Garage', distance: '0.4', spots: 22, available: true, priority: 0, crowd: { level: 1, label: 'Chill', updatedAt: new Date().toISOString(), waitMins: 0 } },
-                                { name: 'Promenade Midtown Parking', distance: '0.6', spots: 38, available: true, priority: 0, crowd: { level: 3, label: 'Busy', updatedAt: new Date().toISOString(), waitMins: 8 } },
-                              ]
-                        ).map((location, index) => (
+                        {homeRecommendations.explore.map((place, index) => (
                           <motion.button
-                            key={location.name}
-                            onClick={() => handleNearbyLocationClick(location.name)}
-				                            className={`${HOME_FEATURE_CARD_CLASS} border border-white/15 p-3 bg-[#15151A]/90 backdrop-blur-xl relative`}
+                            key={place.id}
+                            onClick={() => handleNearbyLocationClick(place.name)}
+				                            className={`${HOME_FEATURE_CARD_CLASS} border border-white/15 p-3 bg-[#15151A]/90 backdrop-blur-xl relative overflow-hidden`}
 				                            style={HOME_FEATURE_CARD_STYLE}
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -2242,47 +2228,42 @@ export default function App() {
                             whileTap={{ scale: 0.98 }}
                             whileHover={{ scale: 1.005, y: -2 }}
                           >
-				                            <div className="absolute inset-x-3 top-0 h-px bg-cyan-200/30" />
-				                            <div className="flex h-full flex-col justify-between text-left">
-				                              <div className="flex items-start justify-between gap-2">
-				                                <div className="w-10 h-10 rounded-[14px] bg-gradient-to-br from-[#00BFFF]/70 to-[#A855F7]/70 border border-white/25 flex items-center justify-center shadow-lg shadow-cyan-500/15 ring-1 ring-white/10">
-				                                  <MapPin className="w-[18px] h-[18px] text-white" strokeWidth={2.5} />
-				                                </div>
-				                                {location.priority > 15 && (
-				                                  <Sparkles className="w-3.5 h-3.5 text-[#A855F7] flex-shrink-0" strokeWidth={2.5} />
-				                                )}
+                            {place.photoUrl && (
+                              <>
+                                <img src={place.photoUrl} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover opacity-45" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-black/10" />
+                              </>
+                            )}
+				                            <div className="relative flex h-full flex-col justify-between text-left">
+				                              <div className="w-10 h-10 rounded-[14px] bg-gradient-to-br from-[#00BFFF]/70 to-[#A855F7]/70 border border-white/25 flex items-center justify-center shadow-lg">
+				                                <MapPin className="w-[18px] h-[18px] text-white" strokeWidth={2.5} />
 				                              </div>
-
 				                              <div>
 				                                <h3 className="text-[13px] leading-tight text-white line-clamp-2 min-h-[32px]" style={{ fontWeight: 650 }}>
-				                                  {location.name}
+				                                  {place.name}
 				                                </h3>
-				                                <p className="text-[11px] text-white/55 mt-1" style={{ fontWeight: 500 }}>
-				                                  {location.distance} mi nearby
+				                                <p className="text-[11px] text-white/70 mt-1 line-clamp-2" style={{ fontWeight: 500 }}>
+				                                  {recommendationDetail(place)}
 				                                </p>
-				                              </div>
-
-				                              <div className="flex flex-wrap gap-1.5">
-				                                <span className={`px-2 py-0.5 rounded-full border text-[10px] ${(location.spots ?? 0) > 20 ? 'bg-green-500/20 border-green-400/35 text-green-300' : (location.spots ?? 0) > 10 ? 'bg-yellow-500/20 border-yellow-400/35 text-yellow-300' : 'bg-orange-500/20 border-orange-400/35 text-orange-300'}`} style={{ fontWeight: 700 }}>
-				                                  {location.spots ?? 0} spots
-				                                </span>
-				                                {(location as any).crowd && (
-				                                  <span className={`px-2 py-0.5 rounded-full text-[10px] border ${
-				                                    (location as any).crowd.label === 'Chill'  ? 'bg-green-500/20 border-green-400/35 text-green-300' :
-				                                    (location as any).crowd.label === 'Active' ? 'bg-yellow-500/20 border-yellow-400/35 text-yellow-300' :
-				                                    (location as any).crowd.label === 'Busy'   ? 'bg-orange-500/20 border-orange-400/35 text-orange-300' :
-				                                    'bg-red-500/20 border-red-400/35 text-red-300'
-				                                  }`} style={{ fontWeight: 700 }}>
-				                                    {(location as any).crowd.label === 'Chill'  ? '🟢' :
-				                                     (location as any).crowd.label === 'Active' ? '🟡' :
-				                                     (location as any).crowd.label === 'Busy'   ? '🟠' : '🔴'} {(location as any).crowd.label}
-				                                  </span>
-				                                )}
+                                {place.photoAttribution && (
+                                  <p className="text-[9px] text-white/45 mt-1 truncate">Photo: {place.photoAttribution}</p>
+                                )}
 				                              </div>
 				                            </div>
                           </motion.button>
                         ))}
                       </div>
+                      ) : (
+                        <p className="rounded-[16px] border border-white/10 bg-white/[0.04] px-4 py-3 text-[13px] text-white/55" style={{ fontWeight: 550 }}>
+                          {!recommendCoords
+                            ? 'Turn on location to see what is around you.'
+                            : homeRecommendations.loading
+                              ? 'Finding places around you…'
+                              : homeRecommendations.placesSource === 'unavailable'
+                                ? 'Places around you are unavailable right now. Try again shortly.'
+                                : 'No rated places to explore close by yet.'}
+                        </p>
+                      )}
                     </div>
                   </motion.div>
                 </div>
@@ -2805,21 +2786,8 @@ export default function App() {
               setShowOnboarding(false); setQuizStep(0);
               if ('Notification' in window && Notification.permission === 'default') setTimeout(() => setShowNotifPrompt(true), 600);
             };
-            // Top-3 venue picks for confirmation screen
-            const picks = (() => {
-              if (!isConfirmation || !apiVenues?.length) return [];
-              const vibeMap: Record<string, string[]> = { drinks: ['bar','nightlife','cocktail'], coffee: ['coffee','cafe'], food: ['restaurant','dining','late'], fitness: ['fitness','gym'], work: ['cafe','coworking'], parking: ['parking'], events: ['event','music','entertainment'], date: ['restaurant','dining','cocktail'], indoor: ['restaurant','cafe','indoor'], covered_parking: ['parking'], ride: ['ride','transport'], sleep: ['hotel','stay'], stay: ['hotel','stay'] };
-              const preferred = vibeMap[quizSelections.vibe ?? ''] ?? [];
-              return [...apiVenues].map(v => {
-                const match = preferred.some(c => (v.category ?? '').toLowerCase().includes(c));
-                const lvl = v.crowd?.level ?? 2;
-                let score = match ? 3 : 0;
-                if (quizSelections.group === 'date') score += lvl <= 2 ? 1 : -1;
-                else if (quizSelections.group === 'group') score += lvl >= 3 ? 1 : 0;
-                if (lvl >= 4) score -= 1;
-                return { v, score };
-              }).sort((a, b) => b.score - a.score).slice(0, 3).map(s => s.v);
-            })();
+            // Top-3 picks for the confirmation screen, from the guest's answers and position
+            const picks = onboardingRecommendations.forYou.slice(0, 3);
             const persistOnboardingPreview = () => {
               if (!picks.length) return;
               localStorage.setItem(LAUNCH_PREVIEW_STORAGE_KEY, JSON.stringify({
@@ -2827,7 +2795,7 @@ export default function App() {
                 userCity,
                 context: contextLine,
                 answers: quizSelections,
-                picks: picks.map(v => ({ id: v.id, name: v.name, address: v.address, category: v.category, crowd: v.crowd ? { level: v.crowd.level, label: v.crowd.label } : undefined }))
+                picks: picks.map(toPreviewPick)
               }));
               setLaunchPreviewVersion(version => version + 1);
             };
@@ -2885,23 +2853,33 @@ export default function App() {
                       </div>
                       <div className="flex flex-col gap-2.5">
                         {picks.length > 0 ? picks.map((venue, i) => {
-                          const lvl = venue.crowd?.level ?? 2;
-                          const crowdColor = lvl === 4 ? '#ef4444' : lvl === 3 ? '#f97316' : lvl === 2 ? '#22c55e' : '#60a5fa';
+                          const chip = venue.crowd?.label ?? (venue.isOpen ? 'Open now' : null);
+                          const crowdColor = venue.crowd ? (venue.crowd.level >= 4 ? '#ef4444' : venue.crowd.level === 3 ? '#f97316' : venue.crowd.level === 2 ? '#22c55e' : '#60a5fa') : '#22c55e';
                           return (
                             <div key={venue.id} className="flex items-center gap-3 p-3 rounded-[16px]"
                               style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
                               <span className="text-xl">{['🥇','🥈','🥉'][i]}</span>
                               <div className="flex-1 min-w-0">
                                 <p className="text-[15px] text-white truncate" style={{ fontWeight: 600 }}>{venue.name}</p>
-                                <p className="text-[12px] truncate" style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 400 }}>{venue.address}</p>
+                                <p className="text-[12px] truncate" style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 400 }}>{recommendationDetail(venue) || venue.address}</p>
                               </div>
-                              <span className="text-[11px] px-2 py-0.5 rounded-full flex-shrink-0"
-                                style={{ background: `${crowdColor}22`, color: crowdColor, border: `1px solid ${crowdColor}44`, fontWeight: 600 }}>
-                                {venue.crowd?.label ?? '—'}
-                              </span>
+                              {chip && (
+                                <span className="text-[11px] px-2 py-0.5 rounded-full flex-shrink-0"
+                                  style={{ background: `${crowdColor}22`, color: crowdColor, border: `1px solid ${crowdColor}44`, fontWeight: 600 }}>
+                                  {chip}
+                                </span>
+                              )}
                             </div>
                           );
-                        }) : <p className="text-[14px] text-center" style={{ color: 'rgba(255,255,255,0.4)' }}>Discovering spots for you…</p>}
+                        }) : (
+                          <p className="text-[14px] text-center" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                            {!recommendCoords
+                              ? 'Turn on location and we will pick places around you.'
+                              : onboardingRecommendations.loading
+                                ? 'Finding spots for you…'
+                                : 'No picks close by yet. Explore the map to see what is around.'}
+                          </p>
+                        )}
                       </div>
                       <p className="text-center text-[12px] leading-[17px]" style={{ color: 'rgba(255,255,255,0.38)', fontWeight: 600 }}>
                         Explore now. Sign in anytime to save favorites and sync your picks.

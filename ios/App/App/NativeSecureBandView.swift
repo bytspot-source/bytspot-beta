@@ -26,6 +26,10 @@ final class NativeVendorSignInStore: ObservableObject {
     var trimmedEmail: String { email.trimmingCharacters(in: .whitespacesAndNewlines) }
     var canSendCode: Bool { !busy && trimmedEmail.contains("@") }
     var canVerify: Bool { !busy && code.count == 6 }
+    var isSignedIn: Bool {
+        if case .signedIn = phase { return true }
+        return false
+    }
 
     func sendCode() async {
         guard canSendCode else { return }

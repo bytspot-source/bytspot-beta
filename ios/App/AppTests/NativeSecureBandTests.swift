@@ -131,4 +131,49 @@ final class NativeSecureBandTests: XCTestCase {
         XCTAssertEqual(VendorSignInParser.tooMany("30").message, "Too many tries. Try again in 1 minute.")
         XCTAssertEqual(VendorSignInParser.tooMany(nil).message, "Too many tries. Wait a few minutes and try again.")
     }
+
+    private func bandRoute(_ raw: String) throws -> BytspotPatchRoute {
+        try XCTUnwrap(BytspotPatchRoute(url: try XCTUnwrap(URL(string: raw))))
+    }
+
+    func testBandTapRoutingTitleWithoutTier() throws {
+        let destination = NativeContextualDestination.patch(try bandRoute("https://bytspot.app/BYT424-0017"))
+        XCTAssertEqual(destination.title, "Bytspot band BYT424-0017")
+        XCTAssertEqual(destination.subtitle, NativeBandTapScreen.bodyText)
+        XCTAssertEqual(destination.eyebrow, "BYTSPOT BAND")
+        XCTAssertNil(NativeBandTapScreen(route: try bandRoute("https://bytspot.app/BYT424-0017")).tier)
+    }
+
+    func testBandTapRoutingTitleDropsTierSuffix() throws {
+        for (raw, tier) in [("https://bytspot.app/BYT424-0017-B", "Black tier"), ("https://bytspot.app/BYT424-0017-P", "Platinum tier"), ("https://bytspot.app/BYT424-0017-g", "Green tier"), ("https://bytspot.app/BYT424-0017?tier=black", "Black tier")] {
+            let destination = NativeContextualDestination.patch(try bandRoute(raw))
+            XCTAssertEqual(destination.title, "Bytspot band BYT424-0017", raw)
+            XCTAssertEqual(destination.subtitle, tier, raw)
+        }
+        XCTAssertEqual(NativeBandTapScreen.serial(from: "BYT424-0301"), "BYT424-0301")
+        XCTAssertEqual(NativeBandTapScreen.serial(from: "BYT424-0301-X"), "BYT424-0301-X")
+    }
+
+    func testBandTapScreenShowsNoPriceOrCheckout() throws {
+        let copy = [NativeBandTapScreen.eyebrow, NativeBandTapScreen.bodyText, NativeBandTapScreen.businessNote, NativeBandTapScreen.secureActionTitle, NativeBandTapScreen.accessActionTitle]
+        for raw in ["https://bytspot.app/BYT424-0017", "https://bytspot.app/BYT424-0017-B?party=2", "https://bytspot.app/BYT424-0017-P"] {
+            let screen = NativeBandTapScreen(route: try bandRoute(raw))
+            for text in copy + [screen.title, screen.subtitle, screen.tierLine ?? ""] {
+                XCTAssertFalse(text.contains("$"), text)
+                for banned in ["hold", "checkout", "authorize", "starting at", "save for later", "apple pay"] {
+                    XCTAssertFalse(text.lowercased().contains(banned), "\(banned) in \(text)")
+                }
+            }
+        }
+    }
+
+    func testSecureThisBandVisibility() {
+        XCTAssertFalse(NativeBandTapScreen.vendorSessionPersists)
+        XCTAssertTrue(NativeBandTapScreen.showsSecureAction(vendorSignedIn: false))
+        XCTAssertTrue(NativeBandTapScreen.showsBusinessNote(vendorSignedIn: false))
+        XCTAssertTrue(NativeBandTapScreen.showsSecureAction(vendorSignedIn: true))
+        XCTAssertFalse(NativeBandTapScreen.showsBusinessNote(vendorSignedIn: true))
+        XCTAssertFalse(NativeBandTapScreen.showsSecureAction(vendorSignedIn: false, vendorSessionPersists: true))
+        XCTAssertTrue(NativeBandTapScreen.showsSecureAction(vendorSignedIn: true, vendorSessionPersists: true))
+    }
 }

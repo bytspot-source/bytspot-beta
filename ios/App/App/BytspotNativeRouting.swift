@@ -30,7 +30,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         case .accessWallet: return "Access Wallet"
         case .party: return "Party Pass"
         case .plan: return "Plan"
-        case .patch(let route): return "Patch \(route.patchId)"
+        case .patch(let route): return NativeBandTapScreen(route: route).title
         case .booking(let status, _, _): return status == "success" ? "Booking Confirmed" : "Booking Update"
         case .legal(let title, _): return title
         case .sale: return "Private Sale"
@@ -43,7 +43,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         case .accessWallet: return "Tickets, reservations, patch access, and App Clip handoffs live here."
         case .party: return "Secure Party Pass continuation"
         case .plan: return "Join this plan and say if you’re in."
-        case .patch(let route): return "\(route.tier.displayName) access · \(route.url.host ?? "bytspot.app")"
+        case .patch(let route): return NativeBandTapScreen(route: route).subtitle
         case .booking(let status, _, _): return status == "success" ? "Your booking flow returned successfully." : "Review or retry this booking."
         case .legal(_, let url): return url.absoluteString
         case .sale: return "Ask the seller for the meet point."
@@ -64,11 +64,55 @@ enum NativeContextualDestination: Identifiable, Equatable {
         case .accessWallet: return "WALLET"
         case .party: return "PARTY PASS"
         case .plan: return "PLAN"
-        case .patch(let route): return route.tier.eyebrow
+        case .patch: return NativeBandTapScreen.eyebrow
         case .booking(let status, _, _): return status == "success" ? "CONFIRMED" : "BOOKING"
         case .legal: return "LEGAL"
         case .sale: return "PRIVATE SALE"
         }
+    }
+}
+
+/// What a tapped band, card or tag shows. Built only from the tapped link:
+/// there is no guest-facing band lookup, so no venue, price, hold or checkout.
+struct NativeBandTapScreen: Equatable {
+    static let eyebrow = "BYTSPOT BAND"
+    static let bodyText = "This band is checked at the door. Show it to staff when you arrive."
+    static let businessNote = "For businesses: secure this band"
+    static let secureActionTitle = "Secure this band"
+    static let accessActionTitle = "Open My Access"
+    /// `NativeVendorSignInStore` keeps the business session in memory only, so
+    /// a signed-out business can't be told apart from a guest after relaunch.
+    static let vendorSessionPersists = false
+
+    let serial: String
+    let tier: BytspotTier?
+
+    init(route: BytspotPatchRoute) {
+        serial = Self.serial(from: route.patchId)
+        tier = BytspotTier.detectIfCoded(url: route.url, patchId: route.patchId)
+    }
+
+    var title: String { "Bytspot band \(serial)" }
+
+    var tierLine: String? { tier.map { "\($0.displayName) tier" } }
+
+    var subtitle: String { tierLine ?? Self.bodyText }
+
+    static func showsSecureAction(vendorSignedIn: Bool, vendorSessionPersists: Bool = NativeBandTapScreen.vendorSessionPersists) -> Bool {
+        vendorSignedIn || !vendorSessionPersists
+    }
+
+    static func showsBusinessNote(vendorSignedIn: Bool, vendorSessionPersists: Bool = NativeBandTapScreen.vendorSessionPersists) -> Bool {
+        showsSecureAction(vendorSignedIn: vendorSignedIn, vendorSessionPersists: vendorSessionPersists) && !vendorSignedIn
+    }
+
+    /// Drops a trailing `-B` / `-P` / `-G` tier suffix: `BYT424-0017-B` → `BYT424-0017`.
+    static func serial(from patchId: String) -> String {
+        let trimmed = patchId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let dash = trimmed.lastIndex(of: "-"), dash != trimmed.startIndex else { return trimmed }
+        let suffix = trimmed[trimmed.index(after: dash)...].uppercased()
+        guard ["B", "P", "G"].contains(suffix) else { return trimmed }
+        return String(trimmed[..<dash])
     }
 }
 

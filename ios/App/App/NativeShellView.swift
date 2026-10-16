@@ -1217,15 +1217,21 @@ private struct NativeContextualDestinationView: View {
                         .environmentObject(sessionStore)
                 } else if case .booking(_, _, let ride) = destination, let ride {
                     NativeMobilityHandoffConfirmationCard(ride: ride, openAccess: openAccess)
+                } else if case .patch(let route) = destination {
+                    NativeScreenScroll {
+                        NativeHeroCard(title: destination.title, eyebrow: destination.eyebrow, subtitle: destination.subtitle)
+                        NativeBandTapPanel(screen: NativeBandTapScreen(route: route), secureBand: { openNativeProfilePanel(.business) }, openAccess: openAccess)
+                        NativeRow(title: "Back to app tabs", subtitle: "Home · Discover · Map · Concierge · Profile", icon: "rectangle.grid.2x2.fill") {
+                            dismiss()
+                        }
+                    }
+                    .navigationBarHidden(true)
                 } else {
                     NativeScreenScroll {
                         NativeHeroCard(title: destination.title, eyebrow: destination.eyebrow, subtitle: destination.subtitle)
                         if destination == .accessWallet {
                             NativeAccessWalletPreview(openAccessPanel: { openNativeProfilePanel(.access) })
                                 .environmentObject(sessionStore)
-                        }
-                        if case .patch(let route) = destination {
-                            NativePatchAccessPreview(route: route, openAccess: openAccess)
                         }
                         NativeRow(title: "Open Account Center", subtitle: "Manage access, reservations, points, and settings in Bytspot.", icon: "person.crop.circle.fill") {
                             openNativeProfilePanel(destination == .accessWallet ? .access : nil)
@@ -6264,208 +6270,36 @@ private struct NativeAccessWalletPreview: View {
     }
 }
 
-private struct NativePatchAccessPreview: View {
-    let route: BytspotPatchRoute
+private struct NativeBandTapPanel: View {
+    let screen: NativeBandTapScreen
+    let secureBand: () -> Void
     let openAccess: () -> Void
+    @ObservedObject private var vendorStore = NativeVendorSignInStore.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                NativeIcon(symbol: "key.radiowaves.forward.fill", color: tierColor)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(route.tier.eyebrow).font(.system(size: 11, weight: .black)).foregroundColor(tierColor).tracking(1.3)
-                    Text(route.displayLocationName).nativeTitle(19)
-                    Text(route.normalizedSummary).nativeBody(size: 12.5)
+            if screen.tierLine != nil {
+                Text(NativeBandTapScreen.bodyText).nativeBody(size: 14.5, color: NativeTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if NativeBandTapScreen.showsSecureAction(vendorSignedIn: vendorStore.isSignedIn) {
+                if NativeBandTapScreen.showsBusinessNote(vendorSignedIn: vendorStore.isSignedIn) {
+                    Text(NativeBandTapScreen.businessNote).nativeBody(size: 12.5)
                 }
-                Spacer()
+                Button(action: secureBand) {
+                    NativeCTA(title: NativeBandTapScreen.secureActionTitle, color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-band-tap-secure")
             }
-            NativeWalletLine(title: "Access details", subtitle: "Starting at \(currency(route.tier.minimumCents)) · \(route.tier.defaultSubtitle)", icon: "seal.fill")
-            if let specialFlow {
-                NativeSpecialFlowPreview(flow: specialFlow, accent: tierColor)
-            }
-            NativePatchCheckoutPreview(route: route, specialFlow: specialFlow, policy: holdPolicy, accent: tierColor, openAccess: openAccess)
             Button(action: openAccess) {
-                NativeCTA(title: "Continue in Access", color: tierColor, foreground: .black)
+                NativeCTA(title: NativeBandTapScreen.accessActionTitle, color: NativeTheme.textPrimary.opacity(0.10), foreground: NativeTheme.textPrimary)
             }
+            .buttonStyle(.plain)
         }
         .padding(16)
         .nativePanel()
-    }
-
-    private var holdPolicy: NativeVirtualPatchCheckoutPolicyResult {
-        NativeVirtualPatchCheckoutPolicy.resolve(route: route, intent: holdIntent)
-    }
-
-    private var specialFlow: NativePatchSpecialFlow? {
-        NativePatchSpecialFlow.resolve(route: route)
-    }
-
-    private var holdIntent: NativeVirtualPatchCheckoutIntent {
-        if let specialFlow { return specialFlow.checkoutIntent(route: route) }
-        return NativeVirtualPatchCheckoutIntent(
-            serviceId: route.serviceId ?? "\(route.tier.rawValue)-access",
-            serviceName: route.tier.displayName + " Access",
-            vendorId: route.venueName?.lowercased().replacingOccurrences(of: " ", with: "-") ?? "native-preview",
-            amountCents: route.tier.minimumCents,
-            guestCount: route.groupSize ?? 1
-        )
-    }
-
-    private var tierColor: Color {
-        switch route.tier {
-        case .black: return .yellow
-        case .platinum: return NativeTheme.cyan
-        case .green: return NativeTheme.emerald
-        }
-    }
-
-    private func currency(_ cents: Int) -> String {
-        let dollars = Double(cents) / 100
-        return dollars.formatted(.currency(code: "USD").precision(.fractionLength(0)))
-    }
-}
-
-private struct NativeSpecialFlowPreview: View {
-    let flow: NativePatchSpecialFlow
-    let accent: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HStack(spacing: 10) {
-                Image(systemName: flow.kind == .ghAkwaabaFifa ? "ticket.fill" : "fork.knife")
-                    .font(.system(size: 13, weight: .black))
-                    .foregroundColor(accent)
-                    .frame(width: 20)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(flow.kind.eyebrow).font(.system(size: 10, weight: .black)).foregroundColor(accent).tracking(1.2)
-                    Text(flow.summary).nativeBody(size: 11.5, color: .white.opacity(0.72))
-                }
-                Spacer()
-            }
-            Text(flow.kind.sectionTitle).font(.system(size: 11, weight: .black)).foregroundColor(.white.opacity(0.58)).tracking(1.1)
-            ForEach(flow.lineItems) { item in
-                HStack(spacing: 8) {
-                    Text(item.label).font(.system(size: 12.5, weight: .bold)).foregroundColor(.white)
-                    Spacer()
-                    Text("×\(item.quantity)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.55))
-                    Text(currency(item.amountCents)).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.72))
-                }
-            }
-            NativeWalletLine(title: flow.kind.actionLabel, subtitle: "Estimated total \(currency(flow.totalCents)) · \(flow.highlights.prefix(2).joined(separator: " · "))", icon: "checkmark.seal.fill")
-        }
-        .padding(13)
-        .background(accent.opacity(0.10))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(accent.opacity(0.22), lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private func currency(_ cents: Int) -> String {
-        let dollars = Double(cents) / 100
-        return dollars.formatted(.currency(code: "USD").precision(.fractionLength(0)))
-    }
-}
-
-private struct NativePatchCheckoutPreview: View {
-    let route: BytspotPatchRoute
-    let specialFlow: NativePatchSpecialFlow?
-    let policy: NativeVirtualPatchCheckoutPolicyResult
-    let accent: Color
-    let openAccess: () -> Void
-    @State private var quantities: [String: Int] = [:]
-    @State private var savedPreview = false
-
-    static let checkoutBoundaryLabels = ["Apple Pay ready", "Hold safe", "Secure total", "Access review"]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: specialFlow == nil ? "creditcard.and.123" : specialFlow?.kind == .ghAkwaabaFifa ? "ticket.fill" : "fork.knife")
-                    .font(.system(size: 16, weight: .black))
-                    .foregroundColor(accent)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Access checkout").nativeTitle(16)
-                    Text(checkoutSubtitle).nativeBody(size: 11.5)
-                }
-                Spacer()
-                Text(amount(totalCents)).font(.system(size: 16, weight: .black)).foregroundColor(accent)
-            }
-            ForEach(lineItems) { item in
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.label).font(.system(size: 12.5, weight: .bold)).foregroundColor(.white)
-                        Text(amount(item.amountCents)).font(.system(size: 11, weight: .semibold)).foregroundColor(.white.opacity(0.58))
-                    }
-                    Spacer()
-                    HStack(spacing: 7) {
-                        Button(action: { adjust(item, delta: -1) }) { stepIcon("minus") }
-                        Text("\(quantity(for: item))").font(.system(size: 12, weight: .black, design: .monospaced)).foregroundColor(.white).frame(width: 22)
-                        Button(action: { adjust(item, delta: 1) }) { stepIcon("plus") }
-                    }
-                }
-                .padding(10)
-                .background(Color.black.opacity(0.23))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            HStack(spacing: 7) {
-                ForEach(Self.checkoutBoundaryLabels, id: \.self) { label in
-                    Text(label).font(.system(size: 9.3, weight: .black)).foregroundColor(.white.opacity(0.84)).padding(.horizontal, 7).padding(.vertical, 5).background(Color.white.opacity(0.09)).clipShape(Capsule())
-                }
-            }
-            NativeWalletLine(title: "Secure checkout", subtitle: "\(policy.decision.displayName) · \(policy.membershipMode.displayName) · final payment is confirmed before checkout.", icon: "lock.shield.fill")
-            HStack(spacing: 9) {
-                Button(action: openAccess) { NativeCTA(title: primaryActionTitle, color: accent, foreground: .black) }
-                Button(action: { savedPreview.toggle(); nativeImpactLight() }) { NativeCTA(title: savedPreview ? "Saved" : "Save for Later", color: Color.white.opacity(0.10), foreground: .white) }
-            }
-        }
-        .padding(13)
-        .background(LinearGradient(colors: [accent.opacity(0.11), Color.black.opacity(0.24)], startPoint: .topLeading, endPoint: .bottomTrailing))
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .accessibilityIdentifier("native-patch-checkout-preview")
-    }
-
-    static func checkoutLineItems(for route: BytspotPatchRoute, specialFlow: NativePatchSpecialFlow?) -> [NativePatchLineItem] {
-        if let specialFlow { return specialFlow.lineItems }
-        return [NativePatchLineItem(id: "access-hold", label: route.tier.displayName + " Access Hold", amountCents: route.tier.minimumCents, quantity: max(route.groupSize ?? 1, 1))]
-    }
-
-    private var lineItems: [NativePatchLineItem] {
-        Self.checkoutLineItems(for: route, specialFlow: specialFlow)
-    }
-
-    private var totalCents: Int {
-        lineItems.reduce(0) { $0 + (quantity(for: $1) * max($1.amountCents, 0)) }
-    }
-
-    private var checkoutSubtitle: String {
-        if let specialFlow { return specialFlow.tagline }
-        return "Estimated access hold; final details are confirmed before checkout."
-    }
-
-    private var primaryActionTitle: String {
-        specialFlow?.kind.actionLabel ?? "Authorize in Access"
-    }
-
-    private func quantity(for item: NativePatchLineItem) -> Int {
-        quantities[item.id] ?? max(item.quantity, item.quantity == 0 ? 0 : 1)
-    }
-
-    private func adjust(_ item: NativePatchLineItem, delta: Int) {
-        nativeImpactLight()
-        let upper = specialFlow == nil ? 12 : 20
-        quantities[item.id] = min(max(quantity(for: item) + delta, 0), upper)
-    }
-
-    private func stepIcon(_ symbol: String) -> some View {
-        Image(systemName: symbol)
-            .font(.system(size: 10, weight: .black))
-            .foregroundColor(.black)
-            .frame(width: 24, height: 24)
-            .background(accent)
-            .clipShape(Circle())
-    }
-
-    private func amount(_ cents: Int) -> String {
-        (Double(cents) / 100).formatted(.currency(code: "USD").precision(.fractionLength(0)))
+        .accessibilityIdentifier("native-band-tap")
     }
 }
 
@@ -21506,22 +21340,18 @@ enum NativeBookingParitySelfTests {
     }
 
     private static func run() {
-        precondition(NativePatchCheckoutPreview.checkoutBoundaryLabels == ["Apple Pay ready", "Hold safe", "Secure total", "Access review"], "NativeBookingParitySelfTests: checkout boundary labels drifted.")
-
         let broni = BytspotPatchRoute(url: URL(string: "https://bytspot.app/access/BYT-BRONI-P?tier=platinum&service=platinum-dining&venue=Broni%20Home%20Taste&use=event&intent=guest&party=2")!)!
-        let broniFlow = NativePatchSpecialFlow.resolve(route: broni)
-        let broniItems = NativePatchCheckoutPreview.checkoutLineItems(for: broni, specialFlow: broniFlow)
+        let broniItems = NativePatchSpecialFlow.resolve(route: broni)?.lineItems ?? []
         precondition(broniItems.first?.label == "Jollof Rice with Chicken", "NativeBookingParitySelfTests: Broni first checkout item drifted.")
         precondition(broniItems.contains { $0.label == "Banku and Fried Fish/Tilapia" }, "NativeBookingParitySelfTests: Broni fish/tilapia checkout item missing.")
 
         let gh = BytspotPatchRoute(url: URL(string: "https://bytspot.app/p/gh-akwaaba-fifa-ghana?tier=platinum&service=gh-akwaaba-fifa&venue=GH%20Akwaaba%20Pass")!)!
-        let ghFlow = NativePatchSpecialFlow.resolve(route: gh)
-        let ghItems = NativePatchCheckoutPreview.checkoutLineItems(for: gh, specialFlow: ghFlow)
+        let ghItems = NativePatchSpecialFlow.resolve(route: gh)?.lineItems ?? []
         precondition(ghItems.map(\.label) == ["Ticket Sales", "Souvenirs", "Ghana Home Jersey"], "NativeBookingParitySelfTests: GH Akwaaba checkout items drifted.")
 
         let black = BytspotPatchRoute(url: URL(string: "https://bytspot.app/BYT424-0301-B?party=2")!)!
-        let fallback = NativePatchCheckoutPreview.checkoutLineItems(for: black, specialFlow: nil)
-        precondition(fallback.count == 1 && fallback[0].amountCents == BytspotTier.black.minimumCents && fallback[0].quantity == 2, "NativeBookingParitySelfTests: fallback access hold preview drifted.")
+        let band = NativeBandTapScreen(route: black)
+        precondition(band.title == "Bytspot band BYT424-0301" && band.subtitle == "Black tier" && !band.subtitle.contains("$"), "NativeBookingParitySelfTests: a band tap must show the serial and coded tier only, never a hold.")
 
         let nestedSession = NativeCheckoutSession(payload: ["result": ["data": ["session": ["id": "cs_test_vendor_service"], "booking": ["id": "booking-1"]]]])
         precondition(nestedSession.checkoutURLString == "https://checkout.stripe.com/c/pay/cs_test_vendor_service", "NativeBookingParitySelfTests: nested Stripe session IDs must normalize to hosted checkout URLs.")

@@ -3662,7 +3662,6 @@ struct NativeTabContentSnapshot: Equatable {
     /// Identities of the retired offline fixtures. Seeded copies can still
     /// arrive from the API and must not pass as live inventory.
     private static let retiredFixtureVenues: [(id: String, name: String, latitude: Double, longitude: Double)] = [
-        ("colony-square", "Colony Square", 33.7878, -84.3832),
         ("midtown-smart-parking", "Midtown Smart Parking", 33.7900, -84.3890),
         ("arts-center-access", "Arts Center Access", 33.7790, -84.3760),
     ]

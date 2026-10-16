@@ -32,7 +32,6 @@ import { getSavedSpots } from './utils/savedSpots';
 import { getTrendingVenueIds } from './utils/venueHours';
 import { ensurePushSubscribed, subscribeToPush } from './utils/pushSubscription';
 import { getCachedEvents, getEventsAsync, type AppEvent } from './utils/events';
-import { finalizePendingParkingCheckout } from './utils/parkingReservations';
 import { APP_STORE_CONSUMER_ONLY_BUILD, APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP, APPLE_REVIEW_HIDE_INTERNAL_ROUTES, APPLE_REVIEW_HIDE_PROVIDER_AND_VALET, isAppStoreConsumerOnlyBlockedPath } from './utils/reviewBuild';
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
 
@@ -1280,9 +1279,8 @@ export default function App() {
       setCurrentScreen('main');
     }
 
-    // Handle Stripe return URLs (/premium/success, /parking/success, /profile/payment, /premium/cancelled)
+    // Handle Stripe return URLs (/premium/success, /profile/payment, /premium/cancelled)
     const path = window.location.pathname;
-    const query = new URLSearchParams(window.location.search);
     const ticketReturn = ticketLink(window.location.search);
     if (ticketReturn) {
       window.history.replaceState({}, '', '/');
@@ -1335,17 +1333,6 @@ export default function App() {
       }
       toast('Platinum checkout cancelled — no charges made.', { duration: 3000 });
       openProfileMain();
-      window.history.replaceState({}, '', '/');
-    } else if (path.includes('/parking/success')) {
-      const sessionId = new URLSearchParams(window.location.search).get('session_id');
-      finalizePendingParkingCheckout(sessionId);
-      localStorage.setItem('bytspot_profile_focus', 'reservations');
-      toast.success('✅ Parking Reserved!', { description: 'Your parking pass is now available in Profile → My Reservations.', duration: 5000 });
-      setActiveTab('profile');
-      window.history.replaceState({}, '', '/');
-    } else if (path.includes('/parking/cancelled')) {
-      toast('Parking checkout cancelled — no charges made.', { duration: 3000 });
-      setActiveTab('map');
       window.history.replaceState({}, '', '/');
     } else if (path.includes('/cancelled')) {
       toast('Payment cancelled — no charges made.', { duration: 3000 });

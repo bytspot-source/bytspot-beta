@@ -111,6 +111,8 @@ enum ClipTheme {
         case .green: return cyan
         }
     }
+    /// Tierless stops for a band link that codes no tier.
+    static let neutralCornerGradientStops: (top: Color, bottom: Color) = (cyan.opacity(0.14), violet.opacity(0.12))
     /// Tier-specific corner gradient stops applied behind the catalog flow.
     static func cornerGradientStops(for tier: BytspotTier) -> (top: Color, bottom: Color) {
         switch tier {
@@ -128,7 +130,7 @@ struct ClipContentView: View {
     @StateObject private var paymentSecure = ClipPaymentSecureController()
 
     var body: some View {
-        let stops = ClipTheme.cornerGradientStops(for: invocation.tier)
+        let stops = bandIsUncoded ? ClipTheme.neutralCornerGradientStops : ClipTheme.cornerGradientStops(for: invocation.tier)
         ZStack {
             ClipTheme.background.ignoresSafeArea()
             RadialGradient(colors: [stops.top, .clear], center: .topLeading, startRadius: 20, endRadius: 460)
@@ -155,6 +157,9 @@ struct ClipContentView: View {
                     PartyPassClipView(invite: invite, showOverlay: $showOverlay)
                         .id(invite.id)
                         .transition(.opacity)
+                case .band(let screen):
+                    ClipBandTapView(screen: screen, showOverlay: $showOverlay)
+                        .transition(.opacity)
                 case .vendors(let service):
                     ClipVendorListView(service: service)
                         .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
@@ -177,6 +182,69 @@ struct ClipContentView: View {
         .onReceive(paymentSecure.$completedResult.compactMap { $0 }) { result in
             guard case .checkout(let service, let vendor) = invocation.flow else { return }
             invocation.completeCheckout(service: service, vendor: vendor, bookingRef: result.bookingId ?? "BYT-\(Int.random(in: 100000...999999))", amountCents: result.amountCents)
+        }
+    }
+
+    private var bandIsUncoded: Bool {
+        if case .band(let screen) = invocation.flow { return screen.tier == nil }
+        return false
+    }
+}
+
+private struct ClipBandTapView: View {
+    @EnvironmentObject var invocation: ClipInvocationModel
+    let screen: ClipBandTapScreen
+    @Binding var showOverlay: Bool
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(ClipBandTapScreen.eyebrow)
+                        .font(.system(size: 11, weight: .black))
+                        .foregroundColor(screen.tier.map(ClipTheme.accent(for:)) ?? ClipTheme.cyan)
+                        .tracking(1.4)
+                    Text(screen.title)
+                        .font(.system(size: 30, weight: .heavy))
+                        .foregroundColor(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.78)
+                    Text(screen.subtitle)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.74))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityIdentifier("clip-band-tap-header")
+                VStack(alignment: .leading, spacing: 14) {
+                    if screen.tierLine != nil {
+                        Text(ClipBandTapScreen.bodyText)
+                            .font(.system(size: 14.5, weight: .semibold))
+                            .foregroundColor(.white)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Button(action: { impactLight(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.down.app.fill")
+                            Text(ClipBandTapScreen.getAppTitle)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                        }
+                        .font(.system(size: 14, weight: .black))
+                        .foregroundColor(.white.opacity(0.9))
+                        .padding(.vertical, 13).padding(.horizontal, 14)
+                        .background(Color.white.opacity(0.08))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("clip-band-tap-get-app")
+                }
+                .padding(16)
+                .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(ClipTheme.panelElevated))
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 22)
+            .padding(.bottom, 28)
         }
     }
 }

@@ -41,7 +41,8 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertFalse(external.venueSummary.parking.isKnown)
         XCTAssertEqual(external.venueSummary.control, .listed)
         XCTAssertEqual(external.venueSummary.sourceCategory, "eat_drink")
-        let gallery = try XCTUnwrap(decode(response(cards: [card(["category": "art_gallery", "rail": "experience"])] )).cards.first)
+        let gallery = try XCTUnwrap(decode(response(cards: [card(["category": "art_gallery", "rail": "experience"])])).cards.first)
+        XCTAssertEqual(gallery.category, "art_gallery")
         XCTAssertEqual(NativeDiscoverBookablePresentation.referenceRail(type: gallery.venueSummary.discoverType,
             sourceCategory: gallery.venueSummary.sourceCategory), "experience")
         XCTAssertEqual(external.capability, .details)
@@ -56,6 +57,26 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertNil(venue.venueSummary.imageUrl)
         XCTAssertNil(venue.venueSummary.checkInVenueID)
         XCTAssertEqual(venue.venueSummary.control, .listed)
+    }
+
+    func testDetailPreservesEveryValidatedRailAcrossLegacyProviderCategories() throws {
+        let cases: [(String, String)] = [
+            ("explore", "place"), ("eat_drink", "restaurant"), ("shop_style", "clothing_store"),
+            ("experience", "art_gallery"), ("social", "community_center"), ("events", "event_venue"),
+            ("wellness", "spa"), ("create_learn", "cooking_class"), ("nightlife", "night_club"),
+            ("stay", "hotel"), ("move", "car_rental"), ("celebrate", "wedding_venue"),
+            ("services", "beauty_salon")
+        ]
+        XCTAssertEqual(Set(cases.map { $0.0 }), Set(NativeDiscoverBookablePresentation.railTokens))
+        for (rail, category) in cases {
+            let decoded = try XCTUnwrap(decode(response(cards: [card(["category": category, "rail": rail])])).cards.first)
+            let venue = decoded.venueSummary
+            XCTAssertEqual(decoded.category, category)
+            XCTAssertEqual(NativeDiscoverBookablePresentation.referenceRail(type: venue.discoverType,
+                sourceCategory: venue.sourceCategory), rail, "Detail changed the server rail for \(category)")
+            XCTAssertEqual(decoded.capability, .details)
+            XCTAssertNil(venue.checkInVenueID)
+        }
     }
 
     func testStrictCardRejectsHostileNumericIdentityAndCapabilityFields() {

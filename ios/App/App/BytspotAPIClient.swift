@@ -272,10 +272,13 @@ struct NativeConciergeCard: Decodable, Identifiable, Equatable {
     }
 
     /// Reuse Home's identity conversion, but do not reuse its permissive dictionary decoder.
+    /// Project the validated server rail into details: legacy provider keyword matching
+    /// would otherwise turn categories such as art_gallery into nightlife.
+    /// The original provider category remains on this card; it grants no authority.
     /// Media, crowd, verified patches, check-in authority and bookable supply stay absent.
     var recommendedPlace: NativeRecommendedPlace {
         NativeRecommendedPlace(id: id, isBytspotVenue: kind == .venue, googlePlaceID: placeId,
-            name: name, address: address, latitude: lat, longitude: lng, category: category,
+            name: name, address: address, latitude: lat, longitude: lng, category: rail,
             rating: rating, isOpen: isOpen, photoURL: nil, crowd: nil, reasons: reasons)
     }
 

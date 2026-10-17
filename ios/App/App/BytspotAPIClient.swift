@@ -4206,6 +4206,13 @@ final class NativeTabContentStore: ObservableObject {
         let isFull = spacesRemaining == 0
         let timeLabel = partyTimeLabel(startsAt)
         let seatsLabel = spacesRemaining.map { $0 == 0 ? "Full" : "\($0) left" }
+        // The host's own cover, the same one the detail shows. Only https is
+        // drawn; anything else keeps the placeholder.
+        let coverURL = ["coverURL", "heroImageURL", "thumbnailURL"].lazy
+            .compactMap { (item[$0] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+            .flatMap(URL.init(string:))
+            .flatMap { $0.scheme?.lowercased() == "https" ? $0 : nil }
         var card = NativeDiscoverSummary(
             id: "party-\(id)",
             // These are time-bound, seated, host-supplied events. Filing them
@@ -4226,7 +4233,7 @@ final class NativeTabContentStore: ObservableObject {
             // The capability word is the server's assertion, spoken in the
             // shared vocabulary so it cannot drift from the rest of Discover.
             cta: isFull ? "Full" : partyCapabilityLabel(capability),
-            imageUrl: nil,
+            imageUrl: coverURL,
             categoryLabel: "Open door",
             badgeText: isFull ? "FULL" : "OPEN DOOR",
             metadataLine: [timeLabel, seatsLabel].compactMap { $0 }.joined(separator: " \u{2022} "),

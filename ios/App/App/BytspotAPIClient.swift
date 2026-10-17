@@ -279,7 +279,11 @@ struct NativeConciergeCard: Decodable, Identifiable, Equatable {
             rating: rating, isOpen: isOpen, photoURL: nil, crowd: nil, reasons: reasons)
     }
 
-    var venueSummary: NativeVenueSummary { recommendedPlace.venueSummary(distance: "—") }
+    var venueSummary: NativeVenueSummary {
+        var venue = recommendedPlace.venueSummary(distance: "—")
+        venue.sourceCategory = rail
+        return venue
+    }
     var sourceLabel: String {
         switch source {
         case .bytspot: return "Bytspot listing"

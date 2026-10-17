@@ -19649,7 +19649,7 @@ private struct NativeConciergePlaceCard: View {
             Text(card.category.replacingOccurrences(of: "_", with: " ")).font(.subheadline)
                 .foregroundColor(NativeTheme.textSecondary)
             if let rating = card.rating {
-                Text(String(format: "Rating %.1f out of 5", rating)).font(.footnote)
+                Text(String(format: "Google rating %.1f out of 5", rating)).font(.footnote)
             }
             if card.source != .googleStale, let isOpen = card.isOpen {
                 Text(isOpen ? "Reported open" : "Reported closed").font(.footnote)

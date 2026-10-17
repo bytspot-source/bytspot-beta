@@ -40,6 +40,10 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertNil(external.venueSummary.imageUrl)
         XCTAssertFalse(external.venueSummary.parking.isKnown)
         XCTAssertEqual(external.venueSummary.control, .listed)
+        XCTAssertEqual(external.venueSummary.sourceCategory, "eat_drink")
+        let gallery = try XCTUnwrap(decode(response(cards: [card(["category": "art_gallery", "rail": "experience"])] )).cards.first)
+        XCTAssertEqual(NativeDiscoverBookablePresentation.referenceRail(type: gallery.venueSummary.discoverType,
+            sourceCategory: gallery.venueSummary.sourceCategory), "experience")
         XCTAssertEqual(external.capability, .details)
         XCTAssertNil(external.isOpen)
 

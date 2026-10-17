@@ -2571,10 +2571,10 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeConciergeRegionPresentation.cityName(for: seattle), "Near you")
     }
 
-    func testAtlantaConciergeCopyRetainsMidtownContext() {
+    func testAtlantaConciergeUsesTheSameDiscoveryCopyAsOtherCities() {
         let atlanta = NativeLocationCoordinate(latitude: 33.7866, longitude: -84.3833, isFallback: false)
-        XCTAssertEqual(NativeConciergeRegionPresentation.cityName(for: atlanta), "Midtown")
-        XCTAssertTrue(NativeConciergeRegionPresentation.welcomeMessage(for: atlanta).contains("Midtown"))
+        XCTAssertEqual(NativeConciergeRegionPresentation.cityName(for: atlanta), "Near you")
+        XCTAssertEqual(NativeConciergeRegionPresentation.welcomeMessage(for: atlanta), NativeConciergeRegionPresentation.genericWelcomeMessage)
         for topic in [NativeConciergeRegionPresentation.Topic.parking, .stay, .open, .general] {
             let reply = NativeConciergeRegionPresentation.fallbackResponse(for: topic, location: atlanta)
             for invented in ["Midtown Smart Parking", "22 spots", "Broni", "Akwaaba", "Midtown Boutique Suite", "available now"] {
@@ -2585,29 +2585,26 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     func testFallbackMidtownCoordinateIsNotVerifiedAtlantaConciergeContext() {
-        XCTAssertEqual(NativeConciergeRegionPresentation.cityName(for: .midtown), "Near you")
+        XCTAssertEqual(NativeConciergeRegionPresentation.cityName(for: .midtown), "Location needed")
         XCTAssertEqual(NativeConciergeRegionPresentation.welcomeMessage(for: .midtown), NativeConciergeRegionPresentation.genericWelcomeMessage)
         XCTAssertFalse(NativeConciergeRegionPresentation.fallbackResponse(for: .parking, location: .midtown).contains("Midtown"))
         XCTAssertFalse(NativeConciergeRegionPresentation.isVerifiedAtlanta(.midtown))
     }
 
-    func testNonAtlantaConciergeRejectsRemoteAtlantaDefaultsUnlessExplicitlyRequested() {
+    func testConciergeLocationGuardIsGeographyIndependentAndCannotBeBypassedByProse() {
+        // Release A resolves places from supplied coordinates, not the old Atlanta chat context.
+        // These legacy helpers now guard only location; typed DTOs validate discovery content.
         let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
-
-        XCTAssertFalse(NativeConciergeRegionPresentation.permitsRemoteContent(["Two verified parking options are nearby."], query: "Find parking nearby", location: seattle))
-        XCTAssertFalse(NativeConciergeRegionPresentation.permitsRemoteContent(["Try Colony Square in Midtown."], query: "Find parking nearby", location: seattle))
-        XCTAssertFalse(NativeConciergeRegionPresentation.permitsRemoteContent(["Open details", "Ponce City Market"], query: "What's open?", location: seattle))
-        XCTAssertTrue(NativeConciergeRegionPresentation.permitsRemoteContent(["Try Colony Square in Midtown."], query: "Plan a trip to Atlanta", location: seattle))
-        XCTAssertFalse(NativeConciergeRegionPresentation.permitsRemoteContent(["Try Colony Square in Midtown."], query: "Find parking nearby", location: .midtown))
-        XCTAssertFalse(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Find parking nearby", location: seattle))
-        XCTAssertTrue(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Plan a trip to Atlanta", location: seattle))
-        XCTAssertFalse(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Find parking nearby", location: .midtown))
-        XCTAssertFalse(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Show Seattle options, no Atlanta", location: seattle))
-        XCTAssertFalse(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Anything outside Midtown", location: seattle))
-        XCTAssertFalse(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Restaurants near Midtown", location: seattle))
-        XCTAssertTrue(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Restaurants near Midtown Atlanta", location: seattle))
-        XCTAssertTrue(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "ATL parking for my trip", location: seattle))
-        XCTAssertFalse(NativeConciergeRegionPresentation.permitsRemoteContent(["1197 Peachtree St NE", "Mercedes-Benz Stadium", "ATL Airport transfer", "Downtown"], query: "Find parking nearby", location: seattle))
+        for query in ["Find coffee nearby", "Show Seattle options, no Atlanta", "Restaurants near Midtown", "Plan a trip to Atlanta"] {
+            XCTAssertTrue(NativeConciergeRegionPresentation.permitsLiveConcierge(query: query, location: seattle))
+            XCTAssertTrue(NativeConciergeRegionPresentation.permitsRemoteContent(["Nearby places"], query: query, location: seattle))
+            XCTAssertFalse(NativeConciergeRegionPresentation.permitsLiveConcierge(query: query, location: .midtown))
+            XCTAssertFalse(NativeConciergeRegionPresentation.permitsRemoteContent(["Atlanta"], query: query, location: .midtown))
+        }
+        for latitude in [Double.nan, .infinity, 91] {
+            let invalid = NativeLocationCoordinate(latitude: latitude, longitude: -122, isFallback: false)
+            XCTAssertFalse(NativeConciergeRegionPresentation.permitsLiveConcierge(query: "Atlanta", location: invalid))
+        }
     }
 
     func testSmartParkingHandoffKeepsNamedVenueAndRejectsUnknownNames() {

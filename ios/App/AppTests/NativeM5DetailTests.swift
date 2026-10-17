@@ -1,6 +1,275 @@
 import XCTest
 import Combine
+import CoreLocation
 @testable import App
+
+/// Release A tests live in an existing compiled XCTest file; no project membership changes.
+@MainActor
+final class NativeConciergeDiscoveryTests: XCTestCase {
+    private let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
+
+    private func card(_ changes: [String: Any] = [:]) -> [String: Any] {
+        var value: [String: Any] = [
+            "id": "gp:place-one", "kind": "place", "placeId": "ChIJ-place-one",
+            "name": "Neighborhood Coffee", "address": "1 Main Street", "lat": 47.61, "lng": -122.33,
+            "category": "coffee", "rating": 4.5, "isOpen": NSNull(), "photoUrl": NSNull(),
+            "crowd": NSNull(), "reasons": ["Matches coffee"], "capability": "details", "source": "google", "rail": "eat_drink"
+        ]
+        value.merge(changes) { _, new in new }
+        return value
+    }
+
+    private func response(cards: [[String: Any]]? = nil, changes: [String: Any] = [:]) -> [String: Any] {
+        var value: [String: Any] = ["version": 1, "reply": "Here is a nearby option.", "status": "ready",
+                                    "cards": cards ?? [card()], "refinements": ["Find dinner instead"]]
+        value.merge(changes) { _, new in new }
+        return value
+    }
+
+    private func decode(_ value: [String: Any], decoder: JSONDecoder = JSONDecoder()) throws -> NativeConciergeResponse {
+        try decoder.decode(NativeConciergeResponse.self, from: JSONSerialization.data(withJSONObject: value))
+    }
+
+    func testStrictCardsPreserveIdentityWithoutInventingAuthorityOrMedia() throws {
+        let external = try XCTUnwrap(decode(response()).cards.first)
+        XCTAssertEqual(external.venueSummary.id, "suggestion-gp:place-one")
+        XCTAssertEqual(external.venueSummary.googlePlaceID, "ChIJ-place-one")
+        XCTAssertNil(external.venueSummary.checkInVenueID)
+        XCTAssertNil(external.venueSummary.verifiedPatchId)
+        XCTAssertNil(external.venueSummary.crowd)
+        XCTAssertNil(external.venueSummary.imageUrl)
+        XCTAssertFalse(external.venueSummary.parking.isKnown)
+        XCTAssertEqual(external.venueSummary.control, .listed)
+        XCTAssertEqual(external.venueSummary.sourceCategory, "eat_drink")
+        let gallery = try XCTUnwrap(decode(response(cards: [card(["category": "art_gallery", "rail": "experience"])])).cards.first)
+        XCTAssertEqual(gallery.category, "art_gallery")
+        XCTAssertEqual(NativeDiscoverBookablePresentation.referenceRail(type: gallery.venueSummary.discoverType,
+            sourceCategory: gallery.venueSummary.sourceCategory), "experience")
+        XCTAssertEqual(external.capability, .details)
+        XCTAssertNil(external.isOpen)
+
+        let venue = try XCTUnwrap(decode(response(cards: [card([
+            "id": "canonical-venue", "kind": "venue", "placeId": NSNull(), "source": "bytspot",
+            "rating": NSNull(), "photoUrl": "https://example.com/not-loaded.jpg"
+        ])])).cards.first)
+        XCTAssertEqual(venue.venueSummary.id, "canonical-venue")
+        XCTAssertNil(venue.venueSummary.rating)
+        XCTAssertNil(venue.venueSummary.imageUrl)
+        XCTAssertNil(venue.venueSummary.checkInVenueID)
+        XCTAssertEqual(venue.venueSummary.control, .listed)
+    }
+
+    func testDetailPreservesEveryValidatedRailAcrossLegacyProviderCategories() throws {
+        let cases: [(String, String)] = [
+            ("explore", "place"), ("eat_drink", "restaurant"), ("shop_style", "clothing_store"),
+            ("experience", "art_gallery"), ("social", "community_center"), ("events", "event_venue"),
+            ("wellness", "spa"), ("create_learn", "cooking_class"), ("nightlife", "night_club"),
+            ("stay", "hotel"), ("move", "car_rental"), ("celebrate", "wedding_venue"),
+            ("services", "beauty_salon")
+        ]
+        XCTAssertEqual(Set(cases.map { $0.0 }), Set(NativeDiscoverBookablePresentation.railTokens))
+        for (rail, category) in cases {
+            let decoded = try XCTUnwrap(decode(response(cards: [card(["category": category, "rail": rail])])).cards.first)
+            let venue = decoded.venueSummary
+            XCTAssertEqual(decoded.category, category)
+            XCTAssertEqual(NativeDiscoverBookablePresentation.referenceRail(type: venue.discoverType,
+                sourceCategory: venue.sourceCategory), rail, "Detail changed the server rail for \(category)")
+            XCTAssertEqual(decoded.capability, .details)
+            XCTAssertNil(venue.checkInVenueID)
+        }
+    }
+
+    func testStrictCardRejectsHostileNumericIdentityAndCapabilityFields() {
+        let invalid: [[String: Any]] = [
+            ["id": ""], ["id": "with space"], ["id": "suggestion-forged"], ["name": "  "],
+            ["kind": "booking"], ["placeId": NSNull()], ["placeId": "  ChIJ-trimmed"], ["placeId": "../../other"],
+            ["source": "model"], ["source": "bytspot"], ["capability": "book"],
+            ["lat": 91], ["lng": -181], ["lat": 0, "lng": 0], ["lat": true], ["lat": "47.61"],
+            ["lat": Double.greatestFiniteMagnitude], ["rating": Double.greatestFiniteMagnitude],
+            ["rating": -1], ["rating": 6], ["rating": true], ["isOpen": 1],
+            ["crowd": ["level": Double.greatestFiniteMagnitude]], ["rail": ""], ["rail": "invented"], ["reasons": [1]]
+        ]
+        for change in invalid {
+            XCTAssertThrowsError(try decode(response(cards: [card(change)])), "Invalid field: \(change.keys.sorted())")
+        }
+        for key in ["id", "placeId", "rating", "isOpen", "photoUrl", "crowd", "capability"] {
+            var missing = card()
+            missing.removeValue(forKey: key)
+            XCTAssertThrowsError(try decode(response(cards: [missing])), key)
+        }
+        let decoder = JSONDecoder()
+        decoder.nonConformingFloatDecodingStrategy = .convertFromString(positiveInfinity: "Infinity", negativeInfinity: "-Infinity", nan: "NaN")
+        for field in ["lat", "lng", "rating"] {
+            for value in ["Infinity", "-Infinity", "NaN"] {
+                XCTAssertThrowsError(try decode(response(cards: [card([field: value])]), decoder: decoder))
+            }
+        }
+    }
+
+    func testResponseRejectsVersionStatusDuplicatesAndMoreThanThreeCards() {
+        let invalid: [[String: Any]] = [["version": 2], ["version": true], ["version": 1e100], ["status": "booked"], ["reply": " "], ["status": "empty"]]
+        for change in invalid {
+            XCTAssertThrowsError(try decode(response(changes: change)))
+        }
+        XCTAssertThrowsError(try decode(response(cards: [])))
+        XCTAssertThrowsError(try decode(response(cards: [card(), card()])))
+        XCTAssertThrowsError(try decode(response(cards: [card(), card(["id": "different-display-id"])])))
+        let four = (0..<4).map { card(["id": "place-\($0)", "placeId": "ChIJ-\($0)"]) }
+        XCTAssertThrowsError(try decode(response(cards: four)))
+    }
+
+    func testNonReadyResponsesHaveNoCardsAndOnlyActionableRefinements() throws {
+        for status in ["needs_location", "unavailable", "empty"] {
+            let decoded = try decode(response(cards: [], changes: ["status": status]))
+            XCTAssertTrue(decoded.cards.isEmpty)
+            XCTAssertEqual(decoded.actionableRefinements, status != "unavailable" ? ["Find dinner instead"] : [])
+        }
+        let cached = try XCTUnwrap(decode(response(cards: [card(["source": "google-stale"])])).cards.first)
+        XCTAssertTrue(cached.sourceLabel.contains("cached"))
+        let refined = try decode(response(changes: ["refinements": ["Coffee", "Coffee", "Dinner", "Outing"]]))
+        XCTAssertEqual(refined.actionableRefinements, ["Coffee", "Dinner", "Outing"])
+    }
+
+    func testRequestBoundsHistoryAndUsesOnlyRealCoordinatesAndSavedQuizKeys() throws {
+        let suite = "NativeConciergeDiscoveryTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("dinner", forKey: NativeLaunchPersonalizationStorage.vibeKey)
+        defaults.set("close", forKey: NativeLaunchPersonalizationStorage.walkKey)
+        defaults.set("couple", forKey: NativeLaunchPersonalizationStorage.crewKey)
+        let messages = (0..<13).map { index in
+            NativeConciergeMessage(role: index == 12 ? .user : .assistant, content: "\(index) " + String(repeating: "🌎", count: 2_001))
+        }
+        let request = try NativeConciergeRequest(messages: messages, location: seattle, quizAnswers: .saved(in: defaults))
+        XCTAssertEqual(request.messages.count, 10)
+        XCTAssertTrue(request.messages[0].content.hasPrefix("3 "))
+        XCTAssertTrue(request.messages.allSatisfy { $0.content.utf16.count <= 2_000 })
+        XCTAssertEqual(request.location.lat, seattle.latitude)
+        XCTAssertEqual(request.location.lng, seattle.longitude)
+        XCTAssertEqual(request.quizAnswers.vibe, "dinner")
+        XCTAssertEqual(request.quizAnswers.walk, "close")
+        XCTAssertEqual(request.quizAnswers.group, "couple")
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any])
+        XCTAssertEqual(Set(object.keys), ["messages", "location", "quizAnswers"])
+        let quiz = try XCTUnwrap(object["quizAnswers"] as? [String: String])
+        XCTAssertEqual(quiz, ["vibe": "dinner", "walk": "close", "group": "couple"])
+        let empty = NativeConciergeRequest.QuizAnswers(vibe: " ", walk: nil, crew: nil)
+        XCTAssertNil(empty.vibe)
+        let long = NativeConciergeRequest.QuizAnswers(vibe: String(repeating: "🌎", count: 100), walk: nil, crew: nil)
+        XCTAssertEqual(long.vibe?.utf16.count, 40)
+        let invalidCoordinates: [NativeLocationCoordinate?] = [nil, .midtown,
+            .init(latitude: .nan, longitude: 1, isFallback: false),
+            .init(latitude: 1, longitude: .infinity, isFallback: false),
+            .init(latitude: 91, longitude: 1, isFallback: false)]
+        for coordinate in invalidCoordinates {
+            XCTAssertThrowsError(try NativeConciergeRequest(messages: messages, location: coordinate, quizAnswers: empty))
+        }
+        XCTAssertThrowsError(try NativeConciergeRequest(messages: [], location: seattle, quizAnswers: empty))
+        XCTAssertThrowsError(try NativeConciergeRequest(messages: [.init(role: .user, content: " ")], location: seattle, quizAnswers: empty))
+    }
+
+    func testDiscoveryLocationToleratesRoutineUpdatesButRejectsStaleOrDistantFixes() {
+        let now = Date()
+        func fix(_ age: TimeInterval, accuracy: Double = 100) -> CLLocation {
+            CLLocation(coordinate: CLLocationCoordinate2D(latitude: seattle.latitude, longitude: seattle.longitude),
+                       altitude: 0, horizontalAccuracy: accuracy, verticalAccuracy: -1,
+                       timestamp: now.addingTimeInterval(-age))
+        }
+        XCTAssertEqual(NativeConciergeContract.searchCoordinate(location: fix(600), authorized: true, now: now), seattle)
+        XCTAssertNil(NativeConciergeContract.searchCoordinate(location: fix(901), authorized: true, now: now))
+        XCTAssertNil(NativeConciergeContract.searchCoordinate(location: fix(0), authorized: false, now: now))
+        XCTAssertNil(NativeConciergeContract.searchCoordinate(location: fix(0, accuracy: 1001), authorized: true, now: now))
+        let jitter = NativeLocationCoordinate(latitude: seattle.latitude + 0.0001, longitude: seattle.longitude, isFallback: false)
+        XCTAssertEqual(NativeConciergeContract.stableOrigin(jitter, previous: seattle), seattle)
+        XCTAssertEqual(NativeConciergeContract.stableOrigin(.verifiedMidtown, previous: seattle), .verifiedMidtown)
+        XCTAssertNil(NativeConciergeContract.stableOrigin(nil, previous: seattle))
+    }
+
+    func testGenerationScopeCancellationAndAccountRoundTripRejectOldReplies() throws {
+        var gate = NativeConciergeRequestGuard()
+        let firstA = try XCTUnwrap(gate.begin(accountID: "account-a", location: seattle))
+        XCTAssertTrue(gate.accepts(firstA, accountID: "account-a", location: seattle, isCancelled: false))
+        XCTAssertFalse(gate.accepts(firstA, accountID: "account-a", location: seattle, isCancelled: true))
+        XCTAssertFalse(gate.accepts(firstA, accountID: "account-b", location: seattle, isCancelled: false))
+        XCTAssertFalse(gate.accepts(firstA, accountID: "account-a", location: .verifiedMidtown, isCancelled: false))
+        XCTAssertFalse(gate.accepts(firstA, accountID: "account-a", location: nil, isCancelled: false))
+        gate.invalidate() // Stop, token refresh, logout, location change or disappearance.
+        XCTAssertFalse(gate.accepts(firstA, accountID: "account-a", location: seattle, isCancelled: false))
+        let b = try XCTUnwrap(gate.begin(accountID: "account-b", location: seattle))
+        let secondA = try XCTUnwrap(gate.begin(accountID: "account-a", location: seattle))
+        XCTAssertFalse(gate.accepts(firstA, accountID: "account-a", location: seattle, isCancelled: false))
+        XCTAssertFalse(gate.accepts(b, accountID: "account-b", location: seattle, isCancelled: false))
+        XCTAssertTrue(gate.accepts(secondA, accountID: "account-a", location: seattle, isCancelled: false))
+        XCTAssertNil(gate.begin(accountID: nil, location: seattle))
+        XCTAssertFalse(gate.isCurrent(secondA))
+        XCTAssertNil(gate.begin(accountID: "account-a", location: .midtown))
+    }
+
+    func testClientRejectsAnonymousRequestsBeforeNetworking() async throws {
+        let request = try NativeConciergeRequest(messages: [.init(role: .user, content: "Coffee")],
+            location: seattle, quizAnswers: .init(vibe: nil, walk: nil, crew: nil))
+        for client in [BytspotAPIClient(), BytspotAPIClient(tokenProvider: { "guest_session" })] {
+            do {
+                _ = try await NativeConciergeAPI(client: client).discover(request)
+                XCTFail("An anonymous discovery request must not reach the network")
+            } catch NativeConciergeAPI.AccessError.signInRequired {
+                // Expected local guard, not an HTTP failure.
+            } catch {
+                XCTFail("Expected the local authentication guard")
+            }
+        }
+    }
+
+    func testUnsignedModelDoesNotAppendPrivateHistoryOrStartSearch() {
+        let model = NativeConciergeModel()
+        model.draft = "Coffee near me"
+        model.send(model.draft)
+        XCTAssertTrue(model.turns.isEmpty)
+        XCTAssertFalse(model.isSearching)
+        XCTAssertEqual(model.notice, "Sign in to search for nearby places.")
+        model.clear()
+        XCTAssertTrue(model.draft.isEmpty)
+        XCTAssertNil(model.result)
+        XCTAssertNil(model.detailVenue)
+        XCTAssertNil(model.notice)
+        XCTAssertFalse(model.canRetry)
+    }
+
+    func testDiscoverRouteBodyAndNativeDetailWiring() throws {
+        let request = try NativeConciergeRequest(messages: [.init(role: .user, content: "Coffee")],
+            location: seattle, quizAnswers: .init(vibe: nil, walk: nil, crew: nil))
+        let body = try JSONEncoder().encode(request)
+        // A local, nonfunctional fixture only; this test never sends a request.
+        let api = NativeConciergeAPI(client: BytspotAPIClient(tokenProvider: { "concierge-test-only" }))
+        let urlRequest = try api.makeRequest(request)
+        XCTAssertEqual(urlRequest.url?.path, "/trpc/concierge.discover")
+        XCTAssertEqual(urlRequest.httpMethod, "POST")
+        // JSON key ordering is unspecified, so compare parsed bodies rather than byte order.
+        let encoded = try JSONSerialization.jsonObject(with: body) as? NSDictionary
+        let sent = try JSONSerialization.jsonObject(with: XCTUnwrap(urlRequest.httpBody)) as? NSDictionary
+        XCTAssertEqual(sent, encoded)
+        XCTAssertNotNil(urlRequest.value(forHTTPHeaderField: "Authorization"))
+        let envelope: [String: Any] = ["result": ["data": response()]]
+        let payload = try XCTUnwrap(BytspotAPIClient.unwrapTRPCData(envelope) as? [String: Any])
+        XCTAssertEqual(try decode(payload).version, 1)
+
+        let shellURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("App/NativeShellView.swift")
+        let shell = try String(contentsOf: shellURL, encoding: .utf8)
+        let start = try XCTUnwrap(shell.range(of: "final class NativeConciergeModel:"))
+        let end = try XCTUnwrap(shell.range(of: "private struct NativeHorizontalSection", range: start.upperBound..<shell.endIndex))
+        let concierge = String(shell[start.lowerBound..<end.lowerBound])
+        for binding in ["session.$token.dropFirst()", "session.$authenticatedUserID.dropFirst()", "location.$lastLocation.dropFirst()", "location.$authorizationState.dropFirst()"] {
+            XCTAssertTrue(concierge.contains(binding), binding)
+        }
+        XCTAssertTrue(concierge.contains("NativeVenueDetailView(venue: venue"))
+        XCTAssertTrue(concierge.contains("model.detailVenue = card.venueSummary"))
+        XCTAssertTrue(concierge.contains(".onDisappear { model.disappear() }"))
+        XCTAssertTrue(concierge.contains("Button(\"Sign in\", action: openNativeAuth)"))
+        for retired in ["concierge.chat", "concierge.actions", "Concierge review required", "mic.fill", "Check stay dates", "openNativeTab(.discover)", "asyncAfter"] {
+            XCTAssertFalse(concierge.contains(retired), retired)
+        }
+    }
+}
 
 /// A listed partner with a supplied category and no granted authority.
 private func partnerKitchenCard() -> NativeDiscoverSummary {

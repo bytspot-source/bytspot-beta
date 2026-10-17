@@ -25,6 +25,7 @@ struct BytspotClipApp: App {
                     #if DEBUG
                     if ProcessInfo.processInfo.arguments.contains("--test-party-invocation") {
                         await BytspotAviationFallbackTests.runPartyInvocationRegressions()
+                        BytspotAviationFallbackTests.runBandInvocationRegressions()
                         return
                     }
                     // Simulator recovery path: on iOS 26 the _XCAppClipURL
@@ -713,9 +714,78 @@ enum ClipFlowStep: Equatable {
     case partyLoading(partyID: String)
     case partyFailed(partyID: String, message: String)
     case party(PartyPassInvite)
+    case band(ClipBandTapScreen)
     case vendors(service: ClipLocalService)
     case checkout(service: ClipLocalService, vendor: ClipVendor)
     case success(service: ClipLocalService, vendor: ClipVendor, bookingRef: String, amountCents: Int)
+}
+
+/// What a tapped Bytspot band or card shows. Built only from the tapped link:
+/// there is no guest-facing band lookup, so no venue, price, vendor, hold or
+/// checkout. Mirrors the App's `NativeBandTapScreen`.
+struct ClipBandTapScreen: Equatable {
+    static let eyebrow = "BYTSPOT BAND"
+    static let bodyText = "This band is checked at the door. Show it to staff when you arrive."
+    static let getAppTitle = "Get Bytspot"
+
+    let patchId: String
+    let serial: String
+    let tier: BytspotTier?
+
+    init(url: URL?, patchId: String) {
+        self.patchId = patchId
+        serial = Self.serial(from: patchId)
+        tier = BytspotTier.detectIfCoded(url: url, patchId: patchId)
+    }
+
+    var title: String { "Bytspot band \(serial)" }
+
+    var tierLine: String? { tier.map { "\($0.rawValue.capitalized) tier" } }
+
+    var subtitle: String { tierLine ?? Self.bodyText }
+
+    /// The band screen replaces the curated catalog for a band serial link.
+    /// A token-carrying link keeps the patch verification flow.
+    static func resolve(url: URL?, patchId: String?, token: String?) -> ClipBandTapScreen? {
+        guard let patchId, isBandSerial(patchId), (token ?? "").isEmpty else { return nil }
+        return ClipBandTapScreen(url: url, patchId: patchId)
+    }
+
+    /// A patch lookup replaces the band screen only when it names a real venue.
+    /// The parsers' "Bytspot Access" placeholder and opaque IDs are not venues,
+    /// and a tier's marketing subtitle is swapped for the door-check line.
+    static func realVenueContext(_ context: ClipPatchContext?, patchId: String) -> ClipPatchContext? {
+        guard let context else { return nil }
+        let title = context.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let opaque = [patchId, serial(from: patchId), context.patchId].map { $0.lowercased() }
+        guard !title.isEmpty, title != "Bytspot Access", !opaque.contains(title.lowercased()) else { return nil }
+        let isTierCopy = BytspotTier.allCases.contains { $0.defaultSubtitle == context.subtitle }
+        return ClipPatchContext(
+            patchId: context.patchId,
+            title: title,
+            subtitle: isTierCopy || context.subtitle.isEmpty ? bodyText : context.subtitle,
+            status: context.status,
+            venueId: context.venueId,
+            serviceId: context.serviceId,
+            tier: context.tier,
+            latitude: context.latitude,
+            longitude: context.longitude
+        )
+    }
+
+    /// `BYT424-0017`, optionally suffixed `-B` / `-P` / `-G`.
+    nonisolated static func isBandSerial(_ value: String) -> Bool {
+        value.range(of: "^BYT424-[0-9]{4,}(-[BPG])?$", options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    /// Drops a trailing `-B` / `-P` / `-G` tier suffix: `BYT424-0017-B` → `BYT424-0017`.
+    nonisolated static func serial(from patchId: String) -> String {
+        let trimmed = patchId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let dash = trimmed.lastIndex(of: "-"), dash != trimmed.startIndex else { return trimmed }
+        let suffix = trimmed[trimmed.index(after: dash)...].uppercased()
+        guard ["B", "P", "G"].contains(suffix) else { return trimmed }
+        return String(trimmed[..<dash])
+    }
 }
 
 #if DEBUG
@@ -870,6 +940,19 @@ final class ClipInvocationModel: ObservableObject {
                 return
             }
         }
+        // A band serial shows the band screen instead of the curated catalog.
+        // The existing patch lookup still runs; only a real venue replaces it.
+        // Named special flows keep theirs.
+        if ClipLocalService.explicitService(for: url, tier: detectedTier) == nil,
+           let band = ClipBandTapScreen.resolve(url: url, patchId: patchId, token: token) {
+            services = []
+            flow = .band(band)
+            let patchId = band.patchId
+            loadTask = Task { [weak self] in
+                await self?.loadBandVenueContext(patchId: patchId, generation: generation)
+            }
+            return
+        }
         // Reset catalog/vendor caches when the tier changes so stale luxury
         // entries never leak into a Green/Platinum invocation.
         services = ClipLocalService.fallbacks(for: detectedTier)
@@ -939,10 +1022,17 @@ final class ClipInvocationModel: ObservableObject {
             components.path = "/"
         }
         var queryItems = [
-            URLQueryItem(name: "tier", value: tier.rawValue),
             URLQueryItem(name: "source", value: "app_clip"),
             URLQueryItem(name: "handoff", value: "1")
         ]
+        // An uncoded band must not reach the app as a Black link.
+        if case .band(let screen) = flow {
+            if let codedTier = screen.tier {
+                queryItems.insert(URLQueryItem(name: "tier", value: codedTier.rawValue), at: 0)
+            }
+        } else {
+            queryItems.insert(URLQueryItem(name: "tier", value: tier.rawValue), at: 0)
+        }
         if let token, !token.isEmpty {
             queryItems.append(URLQueryItem(name: "t", value: token))
         }
@@ -1194,6 +1284,38 @@ final class ClipInvocationModel: ObservableObject {
             guard !Task.isCancelled, generation == invocationGeneration else { return }
             flow = .partyFailed(partyID: partyID, message: "This Party Pass could not be loaded.")
         }
+    }
+
+    /// Same lookup as `loadContextAndVerify`, without curated fallbacks: the
+    /// band screen stays unless the server names a real venue, and then only
+    /// live services are listed.
+    private func loadBandVenueContext(patchId: String, generation: UUID) async {
+        guard !Task.isCancelled, generation == invocationGeneration else { return }
+        let lookupTier = tier
+        let patchPayload = try? await api.getByPatch(patchId: patchId, tier: lookupTier)
+        var venueContext = ClipBandTapScreen.realVenueContext(patchPayload?.context, patchId: patchId)
+        if venueContext == nil {
+            guard !Task.isCancelled, generation == invocationGeneration else { return }
+            venueContext = ClipBandTapScreen.realVenueContext(try? await api.resolvePatch(patchId: patchId, tier: lookupTier), patchId: patchId)
+        }
+        guard !Task.isCancelled, generation == invocationGeneration, let venueContext else { return }
+        var liveServices = (try? await api.searchServices(patchId: patchId, tier: venueContext.tier)) ?? []
+        if let service = patchPayload?.service {
+            liveServices.removeAll { $0.id == service.id }
+            liveServices.insert(service, at: 0)
+        }
+        liveServices = liveServices.filter(\.hasVerifiedPricing)
+        guard !Task.isCancelled, generation == invocationGeneration, case .band = flow else { return }
+        patchContext = venueContext
+        tier = venueContext.tier
+        if venueSlug == nil {
+            venueSlug = venueContext.title
+        }
+        services = liveServices
+        if let service = patchPayload?.service, let vendor = patchPayload?.vendor, liveServices.contains(where: { $0.id == service.id }) {
+            vendorsByService[service.id] = [vendor]
+        }
+        flow = .catalog
     }
 
     private func loadContextAndVerify(patchId: String, token: String?) async {

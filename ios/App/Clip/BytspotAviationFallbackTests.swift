@@ -116,6 +116,97 @@ enum BytspotAviationFallbackTests {
         assertPartnerCardParity()
         assertCuratedFixturesNeverClaimVerifiedPricing()
         assertDefaultAppClipLinkRoutesToParty()
+        assertBandTapScreenContract()
+    }
+
+    /// A band/card serial link shows only what the link carries: the serial,
+    /// a tier when the link codes one, and the door-check line.
+    private static func assertBandTapScreenContract() {
+        let plainURL = URL(string: "https://bytspot.app/BYT424-0017")
+        guard let plain = ClipBandTapScreen.resolve(url: plainURL, patchId: "BYT424-0017", token: nil) else {
+            preconditionFailure("Band tap: an uncoded band serial must resolve to the band screen.")
+        }
+        precondition(plain.title == "Bytspot band BYT424-0017" && plain.tier == nil && plain.tierLine == nil, "Band tap: an uncoded band must show no tier.")
+        precondition(plain.subtitle == ClipBandTapScreen.bodyText, "Band tap: an uncoded band must lead with the door-check line.")
+        precondition(BytspotTier.detectIfCoded(url: plainURL, patchId: "BYT424-0017") == nil, "Band tap: an uncoded serial must not be reported as tier-coded.")
+        precondition(BytspotTier.detect(url: plainURL, patchId: "BYT424-0017") == .black, "Band tap: `detect` keeps its Black default for callers that need one.")
+
+        let black = ClipBandTapScreen.resolve(url: URL(string: "https://bytspot.app/BYT424-0017-B"), patchId: "BYT424-0017-B", token: nil)
+        precondition(black?.title == "Bytspot band BYT424-0017" && black?.tierLine == "Black tier" && black?.subtitle == "Black tier", "Band tap: -B must show the serial without suffix and \"Black tier\".")
+        let platinum = ClipBandTapScreen.resolve(url: URL(string: "https://bytspot.app/BYT424-0017?tier=platinum"), patchId: "BYT424-0017", token: nil)
+        precondition(platinum?.tierLine == "Platinum tier", "Band tap: a tier query must code the tier line.")
+        precondition(ClipBandTapScreen.resolve(url: URL(string: "https://bytspot.app/BYT424-0017-G"), patchId: "BYT424-0017-G", token: nil)?.tierLine == "Green tier", "Band tap: -G must show \"Green tier\".")
+
+        precondition(ClipBandTapScreen.resolve(url: plainURL, patchId: "BYT424-0017", token: "ict-abc") == nil, "Band tap: a token-carrying link keeps the patch verification flow.")
+        for patch in ["black-aviation-001", "platinum-parking-001", "BYT-BRONI-P", "BYT424-0017-X", "VENUE-1234"] {
+            precondition(ClipBandTapScreen.resolve(url: URL(string: "https://bytspot.app/p/\(patch)"), patchId: patch, token: nil) == nil, "Band tap: '\(patch)' is not a band serial and must keep its flow.")
+        }
+
+        for screen in [plain, black!, platinum!] {
+            let copy = [ClipBandTapScreen.eyebrow, ClipBandTapScreen.bodyText, ClipBandTapScreen.getAppTitle, screen.title, screen.subtitle, screen.tierLine ?? ""].joined(separator: " ")
+            for banned in ["$", "Pricing", "curated", "Curated", "Checkout", "Apple Pay", "Hold"] {
+                precondition(!copy.contains(banned), "Band tap: band screen copy must not contain '\(banned)'.")
+            }
+        }
+        precondition(ClipBandTapScreen.eyebrow == "BYTSPOT BAND" && ClipBandTapScreen.bodyText == "This band is checked at the door. Show it to staff when you arrive.", "Band tap: wording drifted from the app's NativeBandTapScreen.")
+
+        func context(_ title: String, _ subtitle: String) -> ClipPatchContext {
+            ClipPatchContext(patchId: "BYT424-0017-B", title: title, subtitle: subtitle, status: "active", venueId: nil, serviceId: nil, tier: .black)
+        }
+        for placeholder in ["Bytspot Access", "  ", "BYT424-0017-B", "byt424-0017"] {
+            precondition(ClipBandTapScreen.realVenueContext(context(placeholder, "Rooftop"), patchId: "BYT424-0017-B") == nil, "Band tap: '\(placeholder)' is not a venue and must keep the band screen.")
+        }
+        precondition(ClipBandTapScreen.realVenueContext(nil, patchId: "BYT424-0017") == nil, "Band tap: a failed lookup keeps the band screen.")
+        let venue = ClipBandTapScreen.realVenueContext(context("The Velvet Room", BytspotTier.black.defaultSubtitle), patchId: "BYT424-0017-B")
+        precondition(venue?.title == "The Velvet Room" && venue?.subtitle == ClipBandTapScreen.bodyText, "Band tap: a real venue replaces the band screen, without tier marketing copy.")
+        precondition(ClipBandTapScreen.realVenueContext(context("The Velvet Room", "Bottle service"), patchId: "BYT424-0017-B")?.subtitle == "Bottle service", "Band tap: a server-provided subtitle is kept.")
+    }
+
+    /// Explicit DEBUG launch test (`--test-party-invocation`). Drives the
+    /// invocation model with band links; every lookup is cancelled before it
+    /// runs, so no request leaves the device.
+    @MainActor static func runBandInvocationRegressions() {
+        let model = ClipInvocationModel(partyInviteLoader: { _ in preconditionFailure("Band tap: a band link must never load a party.") })
+        model.handle(url: URL(string: "https://bytspot.app/BYT424-0017")!)
+        guard case .band(let plain) = model.flow else { preconditionFailure("Band tap: an uncoded band link must show the band screen, not the catalog.") }
+        precondition(plain.tier == nil && model.services.isEmpty && model.vendorsByService.isEmpty, "Band tap: no curated services or vendors may back the band screen.")
+        precondition(!model.isLoadingContext && model.contextError == nil && model.patchContext == nil, "Band tap: the band screen must not show a loading or curated-fallback message.")
+        precondition(model.invocationTaskForTesting != nil, "Band tap: the existing patch lookup must still run so a real venue can replace the band screen.")
+        model.invocationTaskForTesting?.cancel()
+        let plainHandoff = model.mainAppHandoffURL.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        precondition(plainHandoff?.path == "/access/BYT424-0017" && plainHandoff?.queryItems?.contains(where: { $0.name == "tier" }) == false, "Band tap: an uncoded band must not hand off as a Black link.")
+
+        model.handle(url: URL(string: "https://bytspot.app/BYT424-0017-B")!)
+        model.invocationTaskForTesting?.cancel()
+        guard case .band(let black) = model.flow, black.tierLine == "Black tier" else { preconditionFailure("Band tap: a -B band must show the band screen with \"Black tier\".") }
+        precondition(model.mainAppHandoffURL?.absoluteString.contains("tier=black") == true, "Band tap: a coded band keeps its tier in the handoff.")
+
+        model.handle(url: URL(string: "https://bytspot.app/BYT424?patchId=BYT424-0301")!)
+        model.invocationTaskForTesting?.cancel()
+        guard case .band(let campaign) = model.flow, campaign.title == "Bytspot band BYT424-0301" else { preconditionFailure("Band tap: a campaign-root serial query must show the band screen.") }
+
+        model.handle(url: URL(string: "https://bytspot.app/BYT424-0017?t=ict-abc")!)
+        model.invocationTaskForTesting?.cancel()
+        precondition(model.flow == .catalog, "Band tap: a token-carrying band link keeps the patch verification flow.")
+
+        model.handle(url: URL(string: "https://bytspot.app/BYT424-0017?tier=platinum&venue=GH%20Akwaaba%20Pass")!)
+        model.invocationTaskForTesting?.cancel()
+        guard case .checkout = model.flow else { preconditionFailure("Band tap: a named special flow must keep its checkout.") }
+
+        model.handle(url: URL(string: "https://bytspot.app/party/party-17")!)
+        model.invocationTaskForTesting?.cancel()
+        precondition(model.flow == .partyLoading(partyID: "party-17"), "Band tap: a Party Pass link must keep the party flow.")
+
+        model.handle(url: URL(string: "https://bytspot.app/access/BYT-BRONI-P?tier=platinum")!)
+        model.invocationTaskForTesting?.cancel()
+        precondition(model.flow == .catalog && model.tier == .platinum && !model.services.isEmpty, "Band tap: a partner patch must keep its catalog.")
+
+        model.handle(url: URL(string: "https://bytspot.app/p/black-aviation-001?tier=black")!)
+        precondition(model.flow == .catalog && !model.services.isEmpty, "Band tap: a non-band patch must keep the catalog.")
+        model.invocationTaskForTesting?.cancel()
+
+        model.handle(url: URL(string: "https://bytspot.app/")!)
+        print("BAND_INVOCATION_REGRESSIONS_PASSED")
     }
 
     /// Explicit DEBUG launch test (`--test-party-invocation`). Uses suspended

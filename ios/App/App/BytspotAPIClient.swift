@@ -118,6 +118,268 @@ struct BytspotAPIClient {
     }
 }
 
+/// Release A is discovery only. Neither model prose nor a card grants commerce authority.
+enum NativeConciergeContract {
+    static let path = "/trpc/concierge.discover"
+    static let maximumMessages = 10
+    static let maximumMessageLength = 2_000
+    static let locationRequired = "Enable location to find places near you. No default city is used."
+
+    static func realCoordinate(_ location: NativeLocationCoordinate?) -> NativeLocationCoordinate? {
+        guard let location, !location.isFallback,
+              NativeVenueSummary.hasValidMapCoordinate(latitude: location.latitude, longitude: location.longitude) else { return nil }
+        return location
+    }
+
+    /// Bound UTF-16 too, matching the API's JavaScript string limit without splitting a character.
+    static func boundedMessage(_ text: String, limit: Int = maximumMessageLength) -> String {
+        var result = ""
+        var count = 0
+        for character in text.trimmingCharacters(in: .whitespacesAndNewlines) {
+            let size = String(character).utf16.count
+            guard count + size <= limit else { break }
+            result.append(character)
+            count += size
+        }
+        return result
+    }
+
+    /// Discovery is not a check-in: a reasonably recent area fix is sufficient.
+    static func searchCoordinate(location: CLLocation?, authorized: Bool, now: Date = Date()) -> NativeLocationCoordinate? {
+        guard authorized, let location, (0...900).contains(now.timeIntervalSince(location.timestamp)),
+              (0...1_000).contains(location.horizontalAccuracy) else { return nil }
+        return realCoordinate(NativeLocationCoordinate(latitude: location.coordinate.latitude,
+            longitude: location.coordinate.longitude, isFallback: false))
+    }
+
+    /// Keep the search origin through normal GPS jitter; a move over 250 m starts a new scope.
+    static func stableOrigin(_ coordinate: NativeLocationCoordinate?, previous: NativeLocationCoordinate?) -> NativeLocationCoordinate? {
+        guard let coordinate = realCoordinate(coordinate) else { return nil }
+        guard let previous = realCoordinate(previous) else { return coordinate }
+        let origin = CLLocation(latitude: previous.latitude, longitude: previous.longitude)
+        let current = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        return origin.distance(from: current) <= 250 ? previous : coordinate
+    }
+
+    static func exactIdentity(_ value: String) -> Bool {
+        !value.isEmpty && value.utf16.count <= 512 &&
+            value.rangeOfCharacter(from: .whitespacesAndNewlines.union(.controlCharacters)) == nil
+    }
+}
+
+struct NativeConciergeMessage: Codable, Equatable {
+    enum Role: String, Codable { case user, assistant }
+    let role: Role
+    let content: String
+}
+
+struct NativeConciergeRequest: Encodable, Equatable {
+    enum InputError: Error { case needsLocation, invalidMessages }
+    struct Location: Encodable, Equatable { let lat: Double; let lng: Double }
+    struct QuizAnswers: Encodable, Equatable {
+        let vibe: String?
+        let walk: String?
+        let group: String?
+
+        init(vibe: String?, walk: String?, crew: String?) {
+            func clean(_ value: String?) -> String? {
+                let text = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return text.isEmpty ? nil : NativeConciergeContract.boundedMessage(text, limit: 40)
+            }
+            self.vibe = clean(vibe)
+            self.walk = clean(walk)
+            self.group = clean(crew)
+        }
+
+        static func saved(in defaults: UserDefaults = .standard) -> Self {
+            Self(vibe: defaults.string(forKey: NativeLaunchPersonalizationStorage.vibeKey),
+                 walk: defaults.string(forKey: NativeLaunchPersonalizationStorage.walkKey),
+                 crew: defaults.string(forKey: NativeLaunchPersonalizationStorage.crewKey))
+        }
+    }
+
+    let messages: [NativeConciergeMessage]
+    let location: Location
+    let quizAnswers: QuizAnswers
+
+    init(messages: [NativeConciergeMessage], location: NativeLocationCoordinate?, quizAnswers: QuizAnswers) throws {
+        guard let coordinate = NativeConciergeContract.realCoordinate(location) else { throw InputError.needsLocation }
+        let bounded = messages.suffix(NativeConciergeContract.maximumMessages).map {
+            NativeConciergeMessage(role: $0.role, content: NativeConciergeContract.boundedMessage($0.content))
+        }
+        guard bounded.last?.role == .user, bounded.allSatisfy({ !$0.content.isEmpty }) else { throw InputError.invalidMessages }
+        self.messages = bounded
+        self.location = Location(lat: coordinate.latitude, lng: coordinate.longitude)
+        self.quizAnswers = quizAnswers
+    }
+}
+
+struct NativeConciergeCard: Decodable, Identifiable, Equatable {
+    enum Kind: String, Decodable { case venue, place }
+    enum Source: String, Decodable { case bytspot, google, googleStale = "google-stale" }
+    enum Capability: String, Decodable { case details }
+    let id: String
+    let kind: Kind
+    let placeId: String?
+    let name: String
+    let address: String
+    let lat: Double
+    let lng: Double
+    let category: String
+    let rating: Double?
+    let isOpen: Bool?
+    let photoUrl: String?
+    let reasons: [String]
+    let capability: Capability
+    let source: Source
+    let rail: String
+
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, placeId, name, address, lat, lng, category, rating, isOpen, photoUrl, crowd, reasons, capability, source, rail
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        kind = try values.decode(Kind.self, forKey: .kind)
+        placeId = try values.decode(String?.self, forKey: .placeId)
+        name = try values.decode(String.self, forKey: .name)
+        address = try values.decode(String.self, forKey: .address)
+        lat = try values.decode(Double.self, forKey: .lat)
+        lng = try values.decode(Double.self, forKey: .lng)
+        category = try values.decode(String.self, forKey: .category)
+        rating = try values.decode(Double?.self, forKey: .rating)
+        isOpen = try values.decode(Bool?.self, forKey: .isOpen)
+        photoUrl = try values.decode(String?.self, forKey: .photoUrl)
+        reasons = try values.decode([String].self, forKey: .reasons)
+        capability = try values.decode(Capability.self, forKey: .capability)
+        source = try values.decode(Source.self, forKey: .source)
+        rail = try values.decode(String.self, forKey: .rail)
+        guard try values.decodeNil(forKey: .crowd),
+              NativeConciergeContract.exactIdentity(id),
+              placeId.map({ $0.utf16.count <= 255 && NativeVenueDetailsDTO.exactGooglePlaceID($0) == $0 }) ?? (kind == .venue),
+              (kind == .venue ? source == .bytspot : source != .bytspot),
+              !id.hasPrefix("suggestion-"),
+              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, name.utf16.count <= 300,
+              address.utf16.count <= 1_000, !category.isEmpty, category.utf16.count <= 100,
+              NativeDiscoverBookablePresentation.railTokens.contains(rail),
+              NativeVenueSummary.hasValidMapCoordinate(latitude: lat, longitude: lng),
+              rating.map({ $0.isFinite && (0...5).contains($0) }) ?? true,
+              photoUrl.map({ $0.utf16.count <= 4_096 }) ?? true,
+              reasons.count <= 3, reasons.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.utf16.count <= 400 }) else {
+            throw BytspotAPIClient.APIError.invalidResponse
+        }
+    }
+
+    /// Reuse Home's identity conversion, but do not reuse its permissive dictionary decoder.
+    /// Media, crowd, verified patches, check-in authority and bookable supply stay absent.
+    var recommendedPlace: NativeRecommendedPlace {
+        NativeRecommendedPlace(id: id, isBytspotVenue: kind == .venue, googlePlaceID: placeId,
+            name: name, address: address, latitude: lat, longitude: lng, category: category,
+            rating: rating, isOpen: isOpen, photoURL: nil, crowd: nil, reasons: reasons)
+    }
+
+    var venueSummary: NativeVenueSummary { recommendedPlace.venueSummary(distance: "—") }
+    var sourceLabel: String {
+        switch source {
+        case .bytspot: return "Bytspot listing"
+        case .google: return "Google Places"
+        case .googleStale: return "Google Places · cached; details may have changed"
+        }
+    }
+}
+
+struct NativeConciergeResponse: Decodable, Equatable {
+    enum Status: String, Decodable { case ready, needsLocation = "needs_location", unavailable, empty }
+    let version: Int
+    let reply: String
+    let status: Status
+    let cards: [NativeConciergeCard]
+    let refinements: [String]
+    private enum CodingKeys: String, CodingKey { case version, reply, status, cards, refinements }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decode(Int.self, forKey: .version)
+        reply = try values.decode(String.self, forKey: .reply)
+        status = try values.decode(Status.self, forKey: .status)
+        cards = try values.decode([NativeConciergeCard].self, forKey: .cards)
+        refinements = try values.decode([String].self, forKey: .refinements)
+        guard version == 1, !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              reply.utf16.count <= 8_000, cards.count <= 3,
+              Set(cards.map(\.id)).count == cards.count,
+              Set(cards.compactMap(\.placeId)).count == cards.compactMap(\.placeId).count,
+              (status == .ready ? !cards.isEmpty : cards.isEmpty),
+              refinements.count <= 4,
+              refinements.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.utf16.count <= NativeConciergeContract.maximumMessageLength }) else {
+            throw BytspotAPIClient.APIError.invalidResponse
+        }
+    }
+
+    var actionableRefinements: [String] {
+        guard status == .ready || status == .empty || status == .needsLocation else { return [] }
+        var seen = Set<String>()
+        return Array(refinements.filter { seen.insert($0).inserted }.prefix(3))
+    }
+}
+
+struct NativeConciergeAPI {
+    enum AccessError: Error { case signInRequired }
+    let client: BytspotAPIClient
+
+    func makeRequest(_ request: NativeConciergeRequest) throws -> URLRequest {
+        guard let authorization = client.tokenProvider(),
+              !authorization.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              authorization != "guest_session" else { throw AccessError.signInRequired }
+        var scopedClient = client
+        scopedClient.tokenProvider = { authorization }
+        return try scopedClient.makeRequest(path: NativeConciergeContract.path, method: "POST", body: JSONEncoder().encode(request))
+    }
+
+    func discover(_ request: NativeConciergeRequest) async throws -> NativeConciergeResponse {
+        try Task.checkCancellation()
+        let urlRequest = try makeRequest(request)
+        // This private conversation must never be replayed by the global 401 renewer
+        // with another account's credentials. A failed request offers an explicit retry.
+        let (data, response) = try await client.urlSession.data(for: urlRequest)
+        try Task.checkCancellation()
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else { throw BytspotAPIClient.APIError.invalidResponse }
+        let payload = BytspotAPIClient.unwrapTRPCData(try JSONSerialization.jsonObject(with: data))
+        return try JSONDecoder().decode(NativeConciergeResponse.self, from: JSONSerialization.data(withJSONObject: payload))
+    }
+}
+
+/// A fresh generation on EVERY invalidation prevents A → B → A from reviving A's old response.
+/// No credential is stored here or used as a view/accessibility identifier.
+struct NativeConciergeRequestGuard {
+    struct Ticket: Equatable {
+        fileprivate let generation: UUID
+        let accountID: String
+        let location: NativeLocationCoordinate
+    }
+    private var generation = UUID()
+    private var active: Ticket?
+
+    mutating func invalidate() { generation = UUID(); active = nil }
+
+    mutating func begin(accountID: String?, location: NativeLocationCoordinate?) -> Ticket? {
+        invalidate()
+        guard let accountID, NativeConciergeContract.exactIdentity(accountID),
+              let location = NativeConciergeContract.realCoordinate(location) else { return nil }
+        let ticket = Ticket(generation: generation, accountID: accountID, location: location)
+        active = ticket
+        return ticket
+    }
+
+    func isCurrent(_ ticket: Ticket) -> Bool { active == ticket && generation == ticket.generation }
+
+    func accepts(_ ticket: Ticket, accountID: String?, location: NativeLocationCoordinate?, isCancelled: Bool) -> Bool {
+        !isCancelled && isCurrent(ticket) &&
+            accountID == ticket.accountID && NativeConciergeContract.realCoordinate(location) == ticket.location
+    }
+}
+
 struct NativePushDeviceRegistration: Codable, Equatable {
     let token: String
     let environment: String

@@ -8,6 +8,7 @@ import CoreImage.CIFilterBuiltins
 import CryptoKit
 import AVKit
 import Contacts
+import Combine
 
 enum BytspotNativeTab: String, CaseIterable, Identifiable {
     case home, plan, host, discover, map, concierge, profile
@@ -19248,602 +19249,423 @@ private struct NativeLayerToggle: View {
 enum NativeConciergeRegionPresentation {
     enum Topic { case parking, stay, open, general }
 
-    static let genericWelcomeMessage = "Welcome to Bytspot Concierge. I can help with parking, bookings, access, and what is open around your area."
+    static let genericWelcomeMessage = "Find a place for coffee, food or an outing nearby. Ask a question, then open a place's details to explore it."
 
     static func isVerifiedAtlanta(_ location: NativeLocationCoordinate) -> Bool {
         !location.isFallback && NativeHomeRegionPresentation.isAtlanta(location)
     }
 
     static func cityName(for location: NativeLocationCoordinate) -> String {
-        isVerifiedAtlanta(location) ? "Midtown" : "Near you"
+        NativeConciergeContract.realCoordinate(location) == nil ? "Location needed" : "Near you"
     }
 
-    static func welcomeMessage(for location: NativeLocationCoordinate) -> String {
-        isVerifiedAtlanta(location)
-            ? "Welcome to Bytspot Concierge. I can help with parking, bookings, access, and what is open around Midtown."
-            : genericWelcomeMessage
-    }
+    static func welcomeMessage(for location: NativeLocationCoordinate) -> String { genericWelcomeMessage }
 
     static func fallbackResponse(for topic: Topic, location: NativeLocationCoordinate) -> String {
-        _ = location
-        switch topic {
-        case .parking: return "Parking nearby:\n\nOpen the Map and tap Parking to see lots around you. You pay at the lot."
-        case .stay: return "Stay booking:\n\nI don't have a verified local stay match yet.\n\nTap Open Discover to check current local results."
-        case .open: return "Open around your area:\n\nI don't have a verified local venue match yet.\n\nTap Open Discover to check current local results."
-        case .general: return "Good nearby options are still updating.\n\nUse Open Discover to check current local results."
-        }
+        guard NativeConciergeContract.realCoordinate(location) != nil else { return NativeConciergeContract.locationRequired }
+        return "Nearby search is unavailable right now. Please try again."
     }
 
+    /// Legacy callers share the real-coordinate guard now. This is not a content or
+    /// authority validator; Release A uses strict typed cards from the discovery endpoint.
     static func permitsRemoteContent(_ content: [String], query: String, location: NativeLocationCoordinate) -> Bool {
-        _ = content
-        return isVerifiedAtlanta(location) || explicitlyRequestsAtlanta(query)
+        permitsLiveConcierge(query: query, location: location)
     }
 
     static func permitsLiveConcierge(query: String, location: NativeLocationCoordinate) -> Bool {
-        isVerifiedAtlanta(location) || explicitlyRequestsAtlanta(query)
-    }
-
-    private static func explicitlyRequestsAtlanta(_ query: String) -> Bool {
-        let words = query.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
-        let normalized = words.joined(separator: " ")
-        let destinations = ["atlanta", "atl"]
-        guard destinations.contains(where: words.contains) else { return false }
-        guard Set(words).isDisjoint(with: ["not", "no", "avoid", "exclude", "without", "outside", "except"]) else { return false }
-        return destinations.contains { destination in
-            normalized == destination || normalized.hasPrefix("\(destination) ") ||
-                ["in", "to", "near", "around", "visit"].contains { normalized.contains("\($0) \(destination)") } ||
-                (destination == "atlanta" && normalized.contains("midtown atlanta"))
-        }
+        NativeConciergeContract.realCoordinate(location) != nil
     }
 }
 
-private struct NativeConciergeView: View {
-    enum HandoffAction: String, CaseIterable, Equatable { case discover, booking }
-    struct ActionCard: Identifiable, Equatable {
-        let id: String
-        let type: String
-        let title: String
-        let subtitle: String
-        let status: String
-        let source: String
-        let handoff: String
-        let productType: String?
-
-        init?(dictionary: [String: Any]) {
-            guard let id = dictionary["id"] as? String, let title = dictionary["title"] as? String else { return nil }
-            self.id = id
-            self.type = dictionary["type"] as? String ?? "concierge_action"
-            self.title = title
-            self.subtitle = dictionary["subtitle"] as? String ?? "Continue in Bytspot."
-            self.status = dictionary["status"] as? String ?? "review"
-            self.source = dictionary["source"] as? String ?? "server_rules"
-            self.handoff = dictionary["handoff"] as? String ?? "discover"
-            self.productType = dictionary["productType"] as? String
-        }
-
-        var statusLabel: String { status.replacingOccurrences(of: "_", with: " ").uppercased() }
-        var sourceLabel: String { source == "live_context" ? "LIVE" : source == "fallback" ? "CURATED" : "ACTION" }
+/// View-owned, memory-only conversation. Publisher subscriptions invalidate synchronously,
+/// rather than relying on SwiftUI onChange (which can coalesce A → B → A).
+@MainActor
+final class NativeConciergeModel: ObservableObject {
+    struct Turn: Identifiable {
+        let id = UUID()
+        let message: NativeConciergeMessage
     }
-    struct ConciergeMessage: Identifiable, Equatable { let id: Int; let text: String; let isUser: Bool; var handoffs: [HandoffAction] = []; var actionCards: [ActionCard] = []; var escalated = false; var sourceQuery: String? = nil }
-    private struct ServerResponse { let reply: String; let actions: [ActionCard]; let escalationRequired: Bool }
+    @Published var draft = ""
+    @Published private(set) var turns: [Turn] = []
+    @Published private(set) var result: NativeConciergeResponse?
+    @Published private(set) var isSearching = false
+    @Published private(set) var notice: String?
+    @Published private(set) var canRetry = false
+    @Published var detailVenue: NativeVenueSummary?
+    private var requestGuard = NativeConciergeRequestGuard()
+    private var searchTask: Task<Void, Never>?
+    private var observations = Set<AnyCancellable>()
+    private weak var session: BytspotSessionStore?
+    private weak var location: NativeLocationStore?
+    @Published private var searchOrigin: NativeLocationCoordinate?
+
+    var realLocation: NativeLocationCoordinate? {
+        guard let location else { return nil }
+        let coordinate = NativeConciergeContract.searchCoordinate(location: location.lastLocation,
+            authorized: location.authorizationState == .allowed)
+        return NativeConciergeContract.stableOrigin(coordinate, previous: searchOrigin)
+    }
+
+    private func updateLocation(_ fix: CLLocation?, authorized: Bool) {
+        let coordinate = NativeConciergeContract.searchCoordinate(location: fix, authorized: authorized)
+        let next = NativeConciergeContract.stableOrigin(coordinate, previous: searchOrigin)
+        if next != searchOrigin { clear() }
+        searchOrigin = next
+    }
+    var isSignedIn: Bool {
+        session?.canAttachBearerToken == true &&
+            session?.authenticatedUserID.map(NativeConciergeContract.exactIdentity) == true
+    }
+    var canSearch: Bool { isSignedIn && realLocation != nil }
+
+    func observe(session: BytspotSessionStore, location: NativeLocationStore) {
+        observations.removeAll()
+        self.session = session
+        self.location = location
+        clear() // Publish the newly attached scope even when both stores are already settled.
+        updateLocation(location.lastLocation, authorized: location.authorizationState == .allowed)
+        // These stores are main-actor isolated. Do not defer these sinks to a Task:
+        // every transition must advance the generation before a response can apply.
+        session.$token.dropFirst().sink { [weak self] _ in self?.clear() }.store(in: &observations)
+        session.$authenticatedUserID.dropFirst().sink { [weak self] _ in self?.clear() }.store(in: &observations)
+        location.$lastLocation.dropFirst().sink { [weak self] fix in
+            guard let self else { return }
+            self.updateLocation(fix, authorized: self.location?.authorizationState == .allowed)
+        }.store(in: &observations)
+        location.$authorizationState.dropFirst().sink { [weak self] state in
+            guard let self else { return }
+            self.updateLocation(self.location?.lastLocation, authorized: state == .allowed)
+        }.store(in: &observations)
+    }
+
+    func clear() {
+        stop()
+        draft = ""
+        turns = []
+        result = nil
+        notice = nil
+        canRetry = false
+        detailVenue = nil
+    }
+
+    func disappear() {
+        clear()
+        observations.removeAll()
+    }
+
+    func stop() {
+        requestGuard.invalidate()
+        searchTask?.cancel()
+        searchTask = nil
+        if isSearching { notice = "Search stopped."; canRetry = true }
+        isSearching = false
+    }
+
+    func send(_ raw: String) {
+        let text = NativeConciergeContract.boundedMessage(raw)
+        guard !text.isEmpty, !isSearching else { return }
+        guard canSearch else {
+            notice = isSignedIn ? NativeConciergeContract.locationRequired : "Sign in to search for nearby places."
+            return
+        }
+        turns.append(Turn(message: NativeConciergeMessage(role: .user, content: text)))
+        turns = Array(turns.suffix(NativeConciergeContract.maximumMessages))
+        draft = ""
+        search()
+    }
+
+    func retry() {
+        guard canRetry, !isSearching else { return }
+        search() // Reuse the last user turn, never append a duplicate prompt.
+    }
+
+    private func search() {
+        guard let session, session.canAttachBearerToken,
+              let accountID = session.authenticatedUserID,
+              let coordinate = realLocation else {
+            notice = NativeConciergeContract.locationRequired
+            return
+        }
+        guard let request = try? NativeConciergeRequest(messages: turns.map(\.message), location: coordinate,
+                                                       quizAnswers: .saved()),
+              let ticket = requestGuard.begin(accountID: accountID, location: coordinate) else { return }
+        let authorization = session.token
+        let api = NativeConciergeAPI(client: BytspotAPIClient(tokenProvider: { authorization }))
+        result = nil
+        notice = nil
+        canRetry = false
+        isSearching = true
+        searchTask = Task { @MainActor [weak self] in
+            do {
+                let response = try await api.discover(request)
+                guard let self, self.accepts(ticket, authorization: authorization) else { return }
+                self.result = response
+                if response.status == .unavailable {
+                    self.notice = response.reply
+                    self.canRetry = true
+                } else {
+                    self.turns.append(Turn(message: NativeConciergeMessage(role: .assistant,
+                        content: NativeConciergeContract.boundedMessage(response.reply))))
+                    self.turns = Array(self.turns.suffix(NativeConciergeContract.maximumMessages))
+                }
+                self.isSearching = false
+                self.searchTask = nil
+            } catch {
+                guard let self, self.accepts(ticket, authorization: authorization) else { return }
+                // Includes an undeployed route or malformed contract. Never call the old chat/actions path.
+                self.notice = "Nearby search couldn't be completed. Please try again."
+                self.canRetry = true
+                self.isSearching = false
+                self.searchTask = nil
+            }
+        }
+    }
+
+    private func accepts(_ ticket: NativeConciergeRequestGuard.Ticket, authorization: String?) -> Bool {
+        let accepted = session?.canAttachBearerToken == true && session?.token == authorization &&
+            requestGuard.accepts(ticket, accountID: session?.authenticatedUserID,
+                                 location: realLocation, isCancelled: Task.isCancelled)
+        // A fix can age out while awaiting the network without publishing a new location.
+        // Finish that request too; never leave a spinner running after rejecting its reply.
+        if !accepted && requestGuard.isCurrent(ticket) {
+            clear()
+            notice = session?.canAttachBearerToken == true ? NativeConciergeContract.locationRequired : "Sign in to search for nearby places."
+        }
+        return accepted
+    }
+}
+
+@MainActor
+private struct NativeConciergeView: View {
     let openNativeTab: (BytspotNativeTab) -> Void
     let openNativeAccess: () -> Void
     var openNativeAuth: (() -> Void)? = nil
-    @State private var draft = ""
-    @State private var isListening = false
-    @State private var isTyping = false
+    @StateObject private var model = NativeConciergeModel()
     @State private var didRunPreviewPrompt = false
-    @State private var consumedNativeHandoffPrompt = ""
-    @State private var nextMessageID = 2
-    @State private var messages: [ConciergeMessage] = [ConciergeMessage(id: 1, text: NativeConciergeRegionPresentation.genericWelcomeMessage, isUser: false)]
-    @State private var connectionState = "ready"
     @AppStorage(NativeConciergeHandoffStore.promptKey) private var handoffPrompt = ""
-    @EnvironmentObject private var tabContentStore: NativeTabContentStore
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var locationStore: NativeLocationStore
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.openURL) private var openURL
 
-    static let transcriptBaseHex = 0x050507
-    static let messageBubbleMaxWidthRatio: CGFloat = 0.84
-    static let messageBubbleCornerRadius: CGFloat = 22
-    static let messageBubbleFontSize: CGFloat = 14
-    static let statusLabels = ["Live", "Thinking", "Offline mode", "Local help"]
-    static let headerTitle = "Bytspot Concierge"
-    static let statusLabel = "Assist"
-    static let suggestionPrompts = ["Find parking nearby", "Check stay dates", "Access my booking", "What’s open now?"]
-    static let handoffActionTitles = ["Open Discover", "See stays"]
-    static let composerPlaceholder = "Message Concierge…"
-    static let nativeHandoffPromptKey = NativeConciergeHandoffStore.promptKey
+    nonisolated static let headerTitle = "Bytspot Concierge"
+    nonisolated static let statusLabel = "Discover places"
+    nonisolated static let statusLabels = ["Ready", "Searching nearby…", "Search unavailable", "Sign in to search"]
+    nonisolated static let suggestionPrompts = ["Find coffee nearby", "Find dinner nearby", "Help plan tonight"]
+    nonisolated static let handoffActionTitles = ["View details"]
+    nonisolated static let composerPlaceholder = "Message Concierge…"
+    nonisolated static let nativeHandoffPromptKey = NativeConciergeHandoffStore.promptKey
 
     var body: some View {
         VStack(spacing: 0) {
             conciergeHeader
             chatTranscript
-            suggestionRail
+            if model.canSearch && !model.isSearching { suggestionRail }
             composer
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(conciergeRadialBackground.ignoresSafeArea())
-        .onAppear { syncWelcomeMessage(); runPreviewPromptIfNeeded(); consumeNativeHandoffIfNeeded() }
+        .foregroundColor(NativeTheme.textPrimary)
+        .background(NativeDeepSpaceGround())
+        .onAppear {
+            model.observe(session: sessionStore, location: locationStore)
+            consumeNativeHandoffIfNeeded()
+            runPreviewPromptIfNeeded()
+        }
+        .onDisappear { model.disappear() }
         .onChange(of: handoffPrompt) { _ in consumeNativeHandoffIfNeeded() }
-        .onChange(of: locationStore.lastLocation?.timestamp) { _ in syncWelcomeMessage() }
+        .sheet(item: $model.detailVenue) { venue in
+            NativeVenueDetailView(venue: venue, openHybrid: { _ in }, openNativeTab: openNativeTab,
+                                  openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess)
+        }
         .accessibilityIdentifier("native-concierge-preview")
     }
 
     private var conciergeHeader: some View {
-        ZStack(alignment: .top) {
-            NativePolish.glassSurface
-            LinearGradient(colors: [NativeTheme.surfaceHighlight, .clear], startPoint: .top, endPoint: .bottom).frame(height: 1)
-            Circle().fill(NativeTheme.purple.opacity(0.25)).blur(radius: 28).frame(width: 144, height: 144).offset(x: 170, y: -70)
-            HStack(spacing: 12) {
-                ZStack(alignment: .bottomTrailing) {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(LinearGradient(colors: [NativeTheme.purple, NativeTheme.magenta, NativeTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .frame(width: 44, height: 44)
-                        .shadow(color: NativeTheme.purple.opacity(0.25), radius: 14, x: 0, y: 8)
-                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.25), lineWidth: 1))
-                    Image(systemName: "sparkles").font(.system(size: 16, weight: .black)).foregroundColor(.white)
-                    Circle().fill(NativeTheme.emerald).frame(width: 20, height: 20).overlay(Image(systemName: "headphones").font(.system(size: 9, weight: .black)).foregroundColor(.black)).overlay(Circle().stroke(Color(hex: 0x0B0B0F), lineWidth: 2)).offset(x: 5, y: 5)
-                }
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(Self.headerTitle)
-                        .font(.system(size: 17, weight: .heavy))
-                        .foregroundColor(NativeTheme.textPrimary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.82)
-                    HStack(spacing: 8) {
-                        Text(Self.statusLabel)
-                            .font(.system(size: 10, weight: .heavy))
-                            .foregroundColor(NativeTheme.cyan)
-                            .tracking(1.2)
-                            .padding(.horizontal, 8)
-                            .frame(height: 20)
-                            .background(colorScheme == .dark ? NativeTheme.cyan.opacity(0.10) : Color(hex: 0xE8F8FF))
-                            .overlay(Capsule().stroke(NativeTheme.cyan.opacity(colorScheme == .dark ? 0.25 : 0.32), lineWidth: 1))
-                            .clipShape(Capsule())
-                        Text("● \(statusText) · \(cityName)")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(statusColor)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.86)
-                    }
-                }
-                Spacer()
-                // The shell reserves navigation above this header, not over it.
+        VStack(alignment: .leading, spacing: 6) {
+            Text(Self.headerTitle).font(.title2.bold()).accessibilityAddTraits(.isHeader)
+            Text(Self.statusLabel).font(.subheadline).foregroundColor(NativeTheme.cyan)
+            if !model.turns.isEmpty {
+                Button("Clear chat") { model.clear() }.font(.subheadline).frame(minHeight: 44)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 24)
-            .padding(.bottom, 12)
         }
-        .frame(height: 92)
-        .overlay(Rectangle().fill(NativePolish.softBorder).frame(height: 1), alignment: .bottom)
+        .frame(maxWidth: .infinity, alignment: .leading).padding(16)
+        .background(NativePolish.glassSurface)
     }
 
     private var suggestionRail: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(suggestionChips, id: \.self) { chip in
-                    Button(action: { send(chip) }) {
-                        Text(chip)
-                            .font(.system(size: 12, weight: .black))
-                            .foregroundColor(NativeTheme.purple)
-                            .padding(.horizontal, 14)
-                            .frame(minHeight: NativePolish.chipHeight)
-                            .background(NativePolish.elevatedSurface)
-                            .overlay(Capsule().stroke(NativeTheme.purple.opacity(colorScheme == .dark ? 0.34 : 0.24), lineWidth: 1))
-                            .clipShape(Capsule())
-                            .shadow(color: NativeTheme.purple.opacity(0.10), radius: 4, x: 0, y: 2)
+                    Button { model.send(chip) } label: {
+                        Text(chip).font(.subheadline.weight(.semibold))
+                            .lineLimit(3).frame(maxWidth: 260)
+                            .padding(.horizontal, 14).padding(.vertical, 10).frame(minHeight: 44)
+                            .background(NativePolish.elevatedSurface).clipShape(Capsule())
                     }.buttonStyle(.plain)
                 }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            }.padding(.horizontal, 16).padding(.vertical, 8)
         }
-        .background(NativePolish.glassSurface)
     }
 
     private var suggestionChips: [String] {
-        tabContentStore.bestValueOptions(for: locationStore.coordinate).isEmpty ? Self.suggestionPrompts : ["Best value nearby"] + Self.suggestionPrompts
+        if model.turns.isEmpty { return Self.suggestionPrompts }
+        return model.result?.actionableRefinements ?? []
     }
 
     private var chatTranscript: some View {
         ScrollViewReader { proxy in
-            ScrollView(showsIndicators: false) {
+            ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
-                    ForEach(messages) { message in
-                        NativeConciergeMessageBubble(message: message, handleHandoff: handleHandoff, handleServerAction: handleServerAction)
-                            .id(message.id)
-                            .transition(.opacity.combined(with: .move(edge: .bottom)).combined(with: .scale(scale: 0.98)))
+                    Text("Search sends your recent messages, location and saved preferences to Bytspot. AI and place-search providers may process your request. Clear chat removes this conversation from this screen.")
+                        .font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                    if model.turns.isEmpty {
+                        Text(NativeConciergeRegionPresentation.genericWelcomeMessage).font(.body)
                     }
-                    if isTyping { NativeConciergeTypingBubble().transition(.opacity.combined(with: .move(edge: .bottom))) }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 16)
+                    if !model.isSignedIn {
+                        Text("Sign in to search for nearby places.").font(.body)
+                        if let openNativeAuth {
+                            Button("Sign in", action: openNativeAuth).frame(minHeight: 44)
+                                .accessibilityIdentifier("native-concierge-sign-in")
+                        }
+                    } else if model.realLocation == nil {
+                        Text(NativeConciergeContract.locationRequired).font(.body)
+                        locationButton
+                    }
+                    ForEach(model.turns) { turn in
+                        NativeConciergeMessageBubble(message: turn.message).id(turn.id)
+                    }
+                    if let result = model.result {
+                        ForEach(result.cards) { card in
+                            NativeConciergePlaceCard(card: card) {
+                                // Opening details does not need a new GPS fix. Account/location
+                                // transitions already clear these cards and dismiss the sheet.
+                                model.detailVenue = card.venueSummary
+                            }
+                        }
+                    }
+                    if model.isSearching {
+                        HStack {
+                            ProgressView()
+                            Text("Searching nearby…").font(.body)
+                            Spacer(minLength: 8)
+                            Button("Stop") { model.stop() }.frame(minWidth: 44, minHeight: 44)
+                        }.accessibilityIdentifier("native-concierge-progress")
+                    }
+                    if let notice = model.notice {
+                        Text(notice).font(.body).accessibilityIdentifier("native-concierge-notice")
+                        if model.canRetry && model.canSearch {
+                            Button("Retry") { model.retry() }.frame(minHeight: 44)
+                                .accessibilityIdentifier("native-concierge-retry")
+                        }
+                    }
+                    Color.clear.frame(height: 1).id("concierge-end")
+                }.padding(16)
             }
-            .onChange(of: messages.count) { _ in withAnimation(NativePolish.conciergeMessageSpring) { proxy.scrollTo(messages.last?.id, anchor: .bottom) } }
+            .onChange(of: model.turns.last?.id) { _ in proxy.scrollTo("concierge-end", anchor: .bottom) }
+            .onChange(of: model.isSearching) { _ in proxy.scrollTo("concierge-end", anchor: .bottom) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            conciergeRadialBackground
-        )
         .accessibilityIdentifier("native-concierge-transcript")
     }
 
+    @ViewBuilder private var locationButton: some View {
+        if locationStore.authorizationState == .denied || locationStore.authorizationState == .restricted || locationStore.authorizationState == .unavailable {
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+            }.frame(minHeight: 44)
+        } else {
+            Button("Use current location") { locationStore.requestWhenInUseIfNeeded() }.frame(minHeight: 44)
+        }
+    }
+
+    @ViewBuilder private var messageInput: some View {
+        if #available(iOS 16.0, *) {
+            TextField(Self.composerPlaceholder, text: $model.draft, axis: .vertical).lineLimit(1...5)
+        } else {
+            TextField(Self.composerPlaceholder, text: $model.draft)
+        }
+    }
+
     private var composer: some View {
-        HStack(spacing: 8) {
-            Button(action: toggleVoice) {
-                Image(systemName: isListening ? "mic.slash.fill" : "mic.fill")
-                    .font(.system(size: 18, weight: .black))
-                    .foregroundColor(.white)
-                    .frame(width: 56, height: 56)
-                    .background(voiceButtonBackground)
-                    .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
-                    .clipShape(Circle())
-                    .shadow(color: NativeTheme.cyan.opacity(0.20), radius: 14, x: 0, y: 8)
-            }
-            .buttonStyle(.plain)
-            TextField(Self.composerPlaceholder, text: $draft)
-                .font(.system(size: 15, weight: .regular))
-                .foregroundColor(NativeTheme.textPrimary)
-                .padding(.horizontal, 16)
-                .frame(height: 52)
-                .background(NativePolish.elevatedSurface)
-                .overlay(Capsule().stroke(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? NativePolish.softBorder : NativeTheme.purple.opacity(0.85), lineWidth: 1))
-                .clipShape(Capsule())
-            Button(action: { send(draft) }) {
-                Image(systemName: "paperplane.fill")
-                    .font(.system(size: 15, weight: .black))
-                    .foregroundColor(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .white.opacity(0.30) : .white)
-                    .frame(width: 44, height: 44)
-                    .background(sendButtonBackground)
-                    .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 1))
-                    .clipShape(Circle())
-                    .shadow(color: draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .clear : NativeTheme.purple.opacity(0.25), radius: 10, x: 0, y: 6)
-            }
-            .buttonStyle(.plain)
-            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(NativePolish.glassSurface)
-        .overlay(Rectangle().fill(NativePolish.softBorder).frame(height: 1), alignment: .top)
-    }
-
-    private func send(_ raw: String) {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isTyping else { return }
-        let complex = isComplex(text)
-        let handoffs = inferHandoffs(text)
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-            messages.append(ConciergeMessage(id: createMessageID(), text: text, isUser: true))
-        }
-        draft = ""
-        isTyping = true
-        connectionState = "thinking"
-        let history = messages.suffix(10).map { ["role": $0.isUser ? "user" : "assistant", "content": $0.text] }
-        let canUseLiveConcierge = sessionStore.canAttachBearerToken && NativeConciergeRegionPresentation.permitsLiveConcierge(query: text, location: locationStore.coordinate)
-        let token = sessionStore.token
-        Task {
-            var liveResponse: ServerResponse?
-            var plannedActions: [ActionCard] = []
-            if canUseLiveConcierge {
-                liveResponse = await Self.fetchLiveResponse(history: history, token: token)
-                if liveResponse == nil { plannedActions = await Self.fetchActionPlan(query: text, token: token) }
-            }
-            await MainActor.run {
-                let safeLiveResponse = liveResponse.flatMap { response in
-                    let content = [response.reply] + response.actions.flatMap { [$0.title, $0.subtitle] }
-                    return NativeConciergeRegionPresentation.permitsRemoteContent(content, query: text, location: locationStore.coordinate) ? response : nil
+        HStack(alignment: .center, spacing: 8) {
+            messageInput
+                .font(.body).padding(12).frame(minHeight: 44)
+                .background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 16))
+                .onChange(of: model.draft) { value in
+                    let bounded = NativeConciergeContract.boundedMessage(value)
+                    if value.utf16.count > NativeConciergeContract.maximumMessageLength { model.draft = bounded }
                 }
-                let safePlannedActions = plannedActions.filter { action in
-                    NativeConciergeRegionPresentation.permitsRemoteContent([action.title, action.subtitle], query: text, location: locationStore.coordinate)
-                }
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                    if let safeLiveResponse {
-                        messages.append(ConciergeMessage(id: createMessageID(), text: safeLiveResponse.reply, isUser: false, handoffs: safeLiveResponse.actions.isEmpty ? handoffs : [], actionCards: safeLiveResponse.actions, escalated: safeLiveResponse.escalationRequired || complex, sourceQuery: text))
-                        connectionState = "ready"
-                    } else {
-                        messages.append(ConciergeMessage(id: createMessageID(), text: localFallbackResponse(for: text), isUser: false, handoffs: safePlannedActions.isEmpty ? handoffs : [], actionCards: safePlannedActions, escalated: complex, sourceQuery: text))
-                        connectionState = "fallback"
-                    }
-                    isTyping = false
-                }
+                .onSubmit { model.send(model.draft) }
+                .accessibilityLabel("Message Concierge")
+            Button { model.send(model.draft) } label: {
+                Image(systemName: "paperplane.fill").font(.headline).frame(width: 44, height: 44)
             }
-        }
-        nativeImpactLight()
+            .accessibilityLabel("Send message")
+            .disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isSearching || !model.canSearch)
+        }.padding(12).background(NativePolish.glassSurface)
     }
-
-    /// Calls the production `concierge.chat` tRPC mutation with the raw body
-    /// expected by the transformer-less backend.
-    /// Returns nil on any failure so the caller can fall back to local help.
-    private static func fetchLiveResponse(history: [[String: String]], token: String?) async -> ServerResponse? {
-        let client = BytspotAPIClient(tokenProvider: { token })
-        guard let body = try? JSONSerialization.data(withJSONObject: ["messages": history]) else { return nil }
-        guard let payload = try? await client.json(path: "/trpc/concierge.chat", method: "POST", body: body) else { return nil }
-        guard let result = BytspotAPIClient.unwrapTRPCData(payload) as? [String: Any],
-              let reply = (result["reply"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !reply.isEmpty else { return nil }
-        let actions = (result["actions"] as? [[String: Any]] ?? []).compactMap(ActionCard.init(dictionary:))
-        let escalation = result["escalationRequired"] as? Bool ?? false
-        return ServerResponse(reply: reply, actions: actions, escalationRequired: escalation)
-    }
-
-    private static func fetchActionPlan(query: String, token: String?) async -> [ActionCard] {
-        let client = BytspotAPIClient(tokenProvider: { token })
-        guard let body = try? JSONSerialization.data(withJSONObject: ["query": query]) else { return [] }
-        guard let payload = try? await client.json(path: "/trpc/concierge.actions", method: "POST", body: body),
-              let result = BytspotAPIClient.unwrapTRPCData(payload) as? [String: Any] else { return [] }
-        return (result["actions"] as? [[String: Any]] ?? []).compactMap(ActionCard.init(dictionary:))
-    }
-
-    private func createMessageID() -> Int { defer { nextMessageID += 1 }; return nextMessageID }
 
     private func runPreviewPromptIfNeeded() {
-        guard NativeMigrationConfig.isNativeRootEnabled,
-              !didRunPreviewPrompt,
-              let prompt = ProcessInfo.processInfo.environment["BYT_NATIVE_CONCIERGE_PROMPT"],
-              !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        #if DEBUG
+        guard NativeMigrationConfig.isNativeRootEnabled, !didRunPreviewPrompt,
+              let prompt = ProcessInfo.processInfo.environment["BYT_NATIVE_CONCIERGE_PROMPT"] else { return }
         didRunPreviewPrompt = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { send(prompt) }
+        model.draft = NativeConciergeContract.boundedMessage(prompt)
+        #endif
     }
 
     private func consumeNativeHandoffIfNeeded() {
-        let prompt = handoffPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty, prompt != consumedNativeHandoffPrompt else { return }
-        consumedNativeHandoffPrompt = prompt
+        let prompt = NativeConciergeContract.boundedMessage(handoffPrompt)
+        guard !prompt.isEmpty else { return }
         NativeConciergeHandoffStore.clear()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { send(prompt) }
-    }
-
-
-    private func syncWelcomeMessage() {
-        guard messages.count == 1, messages[0].id == 1, !messages[0].isUser else { return }
-        messages = [ConciergeMessage(id: 1, text: NativeConciergeRegionPresentation.welcomeMessage(for: locationStore.coordinate), isUser: false)]
-    }
-
-    private func toggleVoice() {
-        nativeImpactLight()
-        isListening.toggle()
-        if isListening {
-            isListening = false
-            connectionState = "fallback"
-            messages.append(ConciergeMessage(id: createMessageID(), text: "Voice input is not available on this device yet. Please type your question below — I can still help with parking, venues, and plans nearby.", isUser: false))
-        }
-    }
-
-    private func isComplex(_ query: String) -> Bool {
-        ["private chef", "book", "booking", "reservation", "availability", "stay", "host", "access my booking", "refund", "vip", "event", "catering", "specialist", "human"].contains { query.localizedCaseInsensitiveContains($0) }
-    }
-
-    private func inferHandoffs(_ query: String) -> [HandoffAction] {
-        let q = query.lowercased()
-        var actions: [HandoffAction] = []
-        if isStayQuery(q) { return [.booking] }
-        if q.contains("parking") || q.contains("nearby") { actions.append(.discover) }
-        if q.contains("open") || q.contains("discover") || q.contains("chef") || q.contains("food") || q.contains("service") || q.contains("stay") || q.contains("ride") { actions.append(.discover) }
-        if q.contains("book") || q.contains("reservation") || q.contains("availability") || q.contains("stay") || q.contains("chef") || q.contains("access") { actions.append(.booking) }
-        return actions.isEmpty ? [.discover] : Array(Set(actions)).sorted { $0.rawValue < $1.rawValue }
-    }
-
-    private func localFallbackResponse(for query: String) -> String {
-        let q = query.lowercased()
-        if q.contains("best value"), let option = tabContentStore.bestValueOptions(for: locationStore.coordinate).first { return "Best value nearby:\n\n• \(option.title) — \(option.nativeValueSummary)\n• Price parity \(option.priceParityScore)/100 from \(option.source.replacingOccurrences(of: "_", with: " "))\n\nTap Open Discover to continue with the ranked option." }
-        if q.contains("parking") { return NativeConciergeRegionPresentation.fallbackResponse(for: .parking, location: locationStore.coordinate) }
-        if isStayQuery(q) { return NativeConciergeRegionPresentation.fallbackResponse(for: .stay, location: locationStore.coordinate) }
-        if q.contains("open") { return NativeConciergeRegionPresentation.fallbackResponse(for: .open, location: locationStore.coordinate) }
-        if q.contains("access") || q.contains("booking") { return "My Access groups your passes, saved service requests, and booking details. Tap Open My Access to review them." }
-        return NativeConciergeRegionPresentation.fallbackResponse(for: .general, location: locationStore.coordinate)
-    }
-
-    private func handleHandoff(_ action: HandoffAction, _ query: String?) {
-        nativeImpactLight()
-        switch action {
-        case .discover: openNativeTab(.discover)
-        case .booking:
-            if isStayQuery(query ?? "") { openNativeTab(.discover) }
-            else { openNativeAccess() }
-        }
-    }
-
-    private func handleServerAction(_ action: ActionCard, _ query: String?) {
-        nativeImpactLight()
-        switch action.handoff.lowercased() {
-        // The server can still emit a map handoff. Concierge no longer sends
-        // anyone to the map, so it lands on Discover rather than dead-ending.
-        case "map": openNativeTab(.discover)
-        case "access": openNativeAccess()
-        default: openNativeTab(.discover)
-        }
-    }
-
-    private func isStayQuery(_ query: String) -> Bool {
-        let q = query.lowercased()
-        return q.contains("stay") || q.contains("suite") || q.contains("host") || q.contains("check dates") || q.contains("availability") || q.contains("boutique")
-    }
-
-    private var statusText: String {
-        if connectionState == "thinking" { return "Thinking" }
-        if connectionState == "offline" { return "Offline mode" }
-        if connectionState == "fallback" { return "Local help" }
-        return sessionStore.canAttachBearerToken ? "Live" : "Local help"
-    }
-
-    private var statusColor: Color {
-        if connectionState == "fallback" { return NativeTheme.cyan }
-        if connectionState == "offline" { return NativeTheme.orange }
-        if connectionState == "thinking" { return NativeTheme.cyan }
-        return sessionStore.canAttachBearerToken ? NativeTheme.emerald : NativeTheme.cyan
-    }
-    private var cityName: String { NativeConciergeRegionPresentation.cityName(for: locationStore.coordinate) }
-
-    private var conciergeRadialBackground: some View {
-        ZStack {
-            NativeDeepSpaceGround()
-            RadialGradient(colors: [NativeTheme.purple.opacity(colorScheme == .dark ? 0.12 : 0.075), .clear], center: .topTrailing, startRadius: 8, endRadius: 280)
-            RadialGradient(colors: [NativeTheme.cyan.opacity(colorScheme == .dark ? 0.09 : 0.055), .clear], center: .bottomLeading, startRadius: 8, endRadius: 260)
-        }
-    }
-
-    private var sendButtonBackground: some View {
-        Group {
-            if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { NativeTheme.selectedControlSurface }
-            else { LinearGradient(colors: [NativeTheme.purple, NativeTheme.magenta], startPoint: .topLeading, endPoint: .bottomTrailing) }
-        }
-    }
-
-    private var voiceButtonBackground: some View {
-        Group {
-            if isListening { NativeTheme.pink }
-            else { LinearGradient(colors: [NativeTheme.cyan, Color.blue, NativeTheme.purple], startPoint: .topLeading, endPoint: .bottomTrailing) }
-        }
+        // A navigation handoff is a draft, not consent to transmit a conversation/location.
+        model.draft = prompt
     }
 
 }
 
 private struct NativeConciergeMessageBubble: View {
-    let message: NativeConciergeView.ConciergeMessage
-    let handleHandoff: (NativeConciergeView.HandoffAction, String?) -> Void
-    let handleServerAction: (NativeConciergeView.ActionCard, String?) -> Void
-    private let chipColumns = [GridItem(.adaptive(minimum: 112), spacing: 8)]
-    @Environment(\.colorScheme) private var colorScheme
+    let message: NativeConciergeMessage
 
     var body: some View {
-        HStack {
-            if message.isUser { Spacer(minLength: 56) }
-            VStack(alignment: .leading, spacing: 0) {
-                ZStack(alignment: .top) {
-                    bubbleBackground
-                    if !message.isUser { NativeTheme.surfaceHighlight.frame(height: 1).padding(.horizontal, 12) }
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(message.text)
-                            .font(.system(size: NativeConciergeView.messageBubbleFontSize, weight: message.isUser ? .medium : .regular))
-                            .foregroundColor(message.isUser ? .white : NativeTheme.textPrimary)
-                            .lineSpacing(3)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if message.escalated { escalationBadge }
-                        if !message.actionCards.isEmpty { serverActionCards }
-                        if !message.handoffs.isEmpty { handoffChips }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: NativeConciergeView.messageBubbleCornerRadius, style: .continuous))
-                .shadow(color: NativeTheme.softShadow, radius: 14, x: 0, y: 10)
-            }
-            .frame(maxWidth: UIScreen.main.bounds.width * NativeConciergeView.messageBubbleMaxWidthRatio, alignment: message.isUser ? .trailing : .leading)
-            if !message.isUser { Spacer(minLength: 56) }
+        VStack(alignment: .leading, spacing: 5) {
+            Text(message.role == .user ? "You" : "Concierge").font(.caption.weight(.semibold))
+                .foregroundColor(NativeTheme.textSecondary)
+            Text(message.content).font(.body).fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var bubbleBackground: some View {
-        Group {
-            if message.isUser {
-                LinearGradient(colors: [NativeTheme.cyan, Color.blue, NativeTheme.purple], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    .overlay(RoundedRectangle(cornerRadius: NativeConciergeView.messageBubbleCornerRadius, style: .continuous).stroke(Color(red: 0.80, green: 0.97, blue: 1.0).opacity(0.25), lineWidth: 1))
-            } else {
-                NativePolish.elevatedSurface
-                    .overlay(RoundedRectangle(cornerRadius: NativeConciergeView.messageBubbleCornerRadius, style: .continuous).stroke(colorScheme == .dark ? NativePolish.softBorder : Color(hex: 0xDDE3EA), lineWidth: 1))
-            }
-        }
-    }
-
-    private var escalationBadge: some View {
-        Text("Concierge review required")
-            .font(.system(size: 12, weight: .black))
-            .foregroundColor(Color.adaptive(lightHex: 0xCFFAFE, darkHex: 0xCFFAFE))
-            .lineLimit(1)
-            .minimumScaleFactor(0.82)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(Color.adaptive(lightHex: 0x0B3040, darkHex: 0x072633, lightAlpha: 0.92, darkAlpha: 0.86))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativeTheme.cyan.opacity(colorScheme == .dark ? 0.24 : 0.34), lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    private var handoffChips: some View {
-        LazyVGrid(columns: chipColumns, alignment: .leading, spacing: 8) {
-            ForEach(message.handoffs, id: \.self) { action in
-                Button(action: { handleHandoff(action, message.sourceQuery ?? message.text) }) {
-                    HStack(spacing: 6) {
-                        Text(label(for: action, query: message.sourceQuery ?? message.text))
-                        Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .black))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .font(.system(size: 11, weight: .heavy))
-                    .foregroundColor(NativeTheme.textPrimary.opacity(colorScheme == .dark ? 0.85 : 0.94))
-                    .padding(.horizontal, 12)
-                    .frame(minHeight: 32)
-                    .background(colorScheme == .dark ? NativeTheme.selectedControlSurface : Color(hex: 0xEEF0F3))
-                    .overlay(Capsule().stroke(colorScheme == .dark ? NativePolish.softBorder : Color(hex: 0xD2D6DC), lineWidth: 1))
-                    .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private var serverActionCards: some View {
-        VStack(spacing: 8) {
-            ForEach(message.actionCards) { action in
-                Button(action: { handleServerAction(action, message.sourceQuery ?? message.text) }) {
-                    VStack(alignment: .leading, spacing: 7) {
-                        HStack(spacing: 8) {
-                            Text(action.sourceLabel)
-                                .font(.system(size: 9, weight: .black))
-                                .foregroundColor(NativeTheme.cyan)
-                                .padding(.horizontal, 7)
-                                .frame(height: 18)
-                                .background(NativeTheme.cyan.opacity(colorScheme == .dark ? 0.12 : 0.08))
-                                .clipShape(Capsule())
-                            Text(action.statusLabel)
-                                .font(.system(size: 9, weight: .black))
-                                .foregroundColor(action.status.lowercased().contains("review") || action.status.lowercased().contains("pending") ? NativeTheme.orange : NativeTheme.emerald)
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                            Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.textSecondary)
-                        }
-                        Text(action.title).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary).multilineTextAlignment(.leading)
-                        Text(action.subtitle).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).multilineTextAlignment(.leading).lineLimit(3)
-                    }
-                    .padding(11)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(colorScheme == .dark ? NativeTheme.selectedControlSurface.opacity(0.92) : Color(hex: 0xF3F6F8))
-                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(colorScheme == .dark ? NativePolish.softBorder : Color(hex: 0xD2D6DC), lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .accessibilityIdentifier("native-concierge-server-actions")
-    }
-
-    private func label(for action: NativeConciergeView.HandoffAction, query: String? = nil) -> String {
-        switch action {
-        case .discover: return "Open Discover"
-        case .booking:
-            let q = (query ?? "").lowercased()
-            return (q.contains("stay") || q.contains("suite") || q.contains("availability") || q.contains("check dates") || q.contains("boutique")) ? "See stays" : "Open My Access"
-        }
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(message.role == .user ? NativeTheme.purple.opacity(0.18) : NativePolish.elevatedSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .accessibilityElement(children: .combine)
     }
 }
 
-private struct NativeConciergeTypingBubble: View {
+private struct NativeConciergePlaceCard: View {
+    let card: NativeConciergeCard
+    let openDetails: () -> Void
+
     var body: some View {
-        HStack {
-            HStack(spacing: 6) {
-                Circle().fill(NativeTheme.textTertiary).frame(width: 8, height: 8)
-                Circle().fill(NativeTheme.textTertiary).frame(width: 8, height: 8)
-                Circle().fill(NativeTheme.textTertiary).frame(width: 8, height: 8)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(card.name).font(.headline).accessibilityAddTraits(.isHeader)
+            Text(card.address.isEmpty ? "Address unavailable" : card.address).font(.subheadline)
+            Text(card.category.replacingOccurrences(of: "_", with: " ")).font(.subheadline)
+                .foregroundColor(NativeTheme.textSecondary)
+            if let rating = card.rating {
+                Text(String(format: "Rating %.1f out of 5", rating)).font(.footnote)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(NativePolish.elevatedSurface)
-            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .shadow(color: NativeTheme.softShadow, radius: 16, x: 0, y: 12)
-            Spacer(minLength: 56)
+            if card.source != .googleStale, let isOpen = card.isOpen {
+                Text(isOpen ? "Reported open" : "Reported closed").font(.footnote)
+            }
+            ForEach(Array(card.reasons.prefix(2).enumerated()), id: \.offset) { _, reason in
+                Text(reason).font(.subheadline).fixedSize(horizontal: false, vertical: true)
+            }
+            Text(card.sourceLabel).font(.caption).foregroundColor(NativeTheme.textSecondary)
+            Button("View details", action: openDetails)
+                .font(.headline).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .accessibilityLabel("View details for \(card.name)")
         }
+        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        .background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 22))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("native-concierge-place-card")
     }
 }
 
@@ -21610,8 +21432,7 @@ enum NativeDiscoverParitySelfTests {
 #endif
 
 #if DEBUG
-/// DEBUG-only guard for native Concierge parity anchors against the current
-/// Assisted concierge preview shell.
+/// DEBUG-only guard for the native Release A discovery contract.
 /// Runs only when the opt-in SwiftUI root is enabled via BYT_NATIVE_ROOT=1.
 enum NativeConciergeParitySelfTests {
     static func runIfRequested() {
@@ -21621,12 +21442,11 @@ enum NativeConciergeParitySelfTests {
 
     private static func run() {
         precondition(NativeConciergeView.headerTitle == "Bytspot Concierge", "NativeConciergeParitySelfTests: Concierge header title drifted.")
-        precondition(NativeConciergeView.statusLabel == "Assist", "NativeConciergeParitySelfTests: Concierge status label drifted.")
-        precondition(NativeConciergeView.statusLabels == ["Live", "Thinking", "Offline mode", "Local help"], "NativeConciergeParitySelfTests: Concierge status transitions drifted.")
-        precondition(NativeConciergeView.transcriptBaseHex == 0x050507, "NativeConciergeParitySelfTests: Concierge transcript base color drifted.")
-        precondition(NativeConciergeView.messageBubbleMaxWidthRatio == 0.84 && NativeConciergeView.messageBubbleCornerRadius == 22 && NativeConciergeView.messageBubbleFontSize == 14, "NativeConciergeParitySelfTests: Concierge bubble metrics drifted.")
-        precondition(NativeConciergeView.suggestionPrompts == ["Find parking nearby", "Check stay dates", "Access my booking", "What’s open now?"], "NativeConciergeParitySelfTests: Concierge suggestion prompts drifted.")
-        precondition(NativeConciergeView.handoffActionTitles == ["Open Discover", "See stays"], "NativeConciergeParitySelfTests: Concierge stay handoff opens Discover; stays are not booked or paid in the app yet.")
+        precondition(NativeConciergeView.statusLabel == "Discover places", "NativeConciergeParitySelfTests: Concierge is discovery only.")
+        precondition(NativeConciergeView.statusLabels == ["Ready", "Searching nearby…", "Search unavailable", "Sign in to search"], "NativeConciergeParitySelfTests: authentication alone must not claim Live.")
+        precondition(NativeConciergeContract.maximumMessages == 10 && NativeConciergeContract.maximumMessageLength == 2_000, "NativeConciergeParitySelfTests: bounded history contract drifted.")
+        precondition(NativeConciergeView.suggestionPrompts == ["Find coffee nearby", "Find dinner nearby", "Help plan tonight"], "NativeConciergeParitySelfTests: prompts must describe supported discovery.")
+        precondition(NativeConciergeView.handoffActionTitles == ["View details"], "NativeConciergeParitySelfTests: cards open real place details, not booking promises.")
         precondition(NativeConciergeView.composerPlaceholder == "Message Concierge…", "NativeConciergeParitySelfTests: Concierge composer placeholder drifted.")
     }
 }
@@ -21645,7 +21465,7 @@ enum NativePhase4TabContentSelfTests {
         let fallback = NativeTabContentSnapshot.fallback
         precondition(fallback.venues.isEmpty && fallback.discoverCards.isEmpty && fallback.events.isEmpty, "NativePhase4TabContentSelfTests: the offline deck holds no invented venues, cards or events.")
         precondition(NativeTabContentStore.icon(for: "parking") == "parkingsign.circle.fill", "NativePhase4TabContentSelfTests: Discover icon mapping drifted.")
-        precondition(NativeConciergeView.suggestionPrompts == ["Find parking nearby", "Check stay dates", "Access my booking", "What’s open now?"], "NativePhase4TabContentSelfTests: Concierge suggestions drifted.")
+        precondition(NativeConciergeView.suggestionPrompts == ["Find coffee nearby", "Find dinner nearby", "Help plan tonight"], "NativePhase4TabContentSelfTests: Concierge suggestions must stay within Release A discovery.")
     }
 }
 #endif

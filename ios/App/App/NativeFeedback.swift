@@ -239,7 +239,7 @@ struct NativeFeedbackSheet: View {
         }
         VStack(alignment: .leading, spacing: 6) {
             Text("Anything else? (optional)").font(.subheadline).foregroundColor(NativeTheme.textSecondary)
-            TextEditor(text: Binding(get: { draft.note }, set: { draft.note = String($0.prefix(NativeFeedbackDraft.noteLimit)) }))
+            noteEditor
                 .frame(minHeight: 100).padding(8)
                 .background(Color.white.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -263,6 +263,16 @@ struct NativeFeedbackSheet: View {
         .buttonStyle(.plain)
         .disabled(busy)
         .accessibilityIdentifier("native-feedback-not-now")
+    }
+
+    @ViewBuilder private var noteEditor: some View {
+        let editor = TextEditor(text: Binding(get: { draft.note }, set: { draft.note = String($0.prefix(NativeFeedbackDraft.noteLimit)) }))
+            .environment(\.colorScheme, .dark)
+        if #available(iOS 16.0, *) {
+            editor.scrollContentBackground(.hidden)
+        } else {
+            editor
+        }
     }
 
     private var thankYou: some View {

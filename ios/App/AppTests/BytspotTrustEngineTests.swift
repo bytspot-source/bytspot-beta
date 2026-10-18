@@ -1728,6 +1728,29 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testAPartyCardShowsTheHostsHttpsCoverAndNothingElse() {
+        func card(_ extra: [String: Any]) -> NativeDiscoverSummary? {
+            let base: [String: Any] = [
+                "id": "party-9", "title": "Cover Night", "venueName": "Old Fourth Ward",
+                "startsAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(7200)),
+                "accessMode": "free-rsvp", "capability": "book", "requiredMembershipTier": "",
+            ]
+            return NativeTabContentStore.partyDiscoverCard(from: base.merging(extra) { _, new in new })
+        }
+        let cover = "https://cdn.bytspot.com/parties/party-9/cover.jpg"
+        XCTAssertEqual(card(["coverURL": cover])?.imageUrl?.absoluteString, cover)
+        XCTAssertEqual(card(["heroImageURL": cover])?.imageUrl?.absoluteString, cover)
+        XCTAssertEqual(card(["thumbnailURL": cover])?.imageUrl?.absoluteString, cover)
+        XCTAssertEqual(card(["coverURL": "", "heroImageURL": cover])?.imageUrl?.absoluteString, cover)
+        XCTAssertNil(card([:])?.imageUrl)
+        XCTAssertNil(card(["coverURL": NSNull()])?.imageUrl)
+        XCTAssertNil(card(["coverURL": "  "])?.imageUrl)
+        XCTAssertNil(card(["coverURL": "http://cdn.bytspot.com/parties/party-9/cover.jpg"])?.imageUrl)
+        XCTAssertNil(card(["coverURL": "file:///tmp/cover.jpg"])?.imageUrl)
+        XCTAssertNotNil(card(["coverURL": "http://cdn.bytspot.com/cover.jpg"]), "A bad cover never hides the party.")
+    }
+
+    @MainActor
     func testAPartyWithoutIdentityOrStartTimeIsNotInvented() {
         XCTAssertNil(NativeTabContentStore.partyDiscoverCard(from: ["title": "No id", "startsAt": "2026-09-21T02:00:00Z"]))
         XCTAssertNil(NativeTabContentStore.partyDiscoverCard(from: ["id": "p", "startsAt": "2026-09-21T02:00:00Z"]))

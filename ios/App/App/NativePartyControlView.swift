@@ -10,6 +10,10 @@ struct NativePartyControlSummary: Codable {
     let shareUrl: String?; let passCode: String?
     let shareLinkExpiresAt: String?; let shareLinkExpired: Bool?; let shareLinkExpiryIsDefault: Bool?
     let closedAt: String?
+    let door: String?
+    /// Only meaningful for an approval door; open doors always list.
+    let showOnDiscover: Bool?
+    let feedback: NativePartyFeedbackAggregate?
 
     /// Canonical Party Pass URL. Prefer the server value; fall back to the
     /// deterministic https://bytspot.app/party/<id> host already owns.
@@ -18,6 +22,17 @@ struct NativePartyControlSummary: Codable {
         guard let passCode else { return nil }
         let trimmed = passCode.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+struct NativePartyFeedbackAggregate: Codable, Equatable {
+    let count: Int
+    let average: Double?
+
+    /// "4.6 ★ from 12 guests", or nil when no guest has rated the room.
+    var label: String? {
+        guard count > 0, let average, average.isFinite, (1...5).contains(average) else { return nil }
+        return "\(String(format: "%.1f", average)) ★ from \(count) \(count == 1 ? "guest" : "guests")"
     }
 }
 
@@ -183,6 +198,7 @@ struct NativePartyControlAPI {
     func summary(_ partyID: String) async throws -> NativePartyControlSummary { try await query(NativePartyControlSummary.self, path: "/trpc/events.control.summary", input: ["partyId": partyID]) }
     func guests(_ partyID: String) async throws -> [NativePartyControlGuest] { try await query(NativePartyControlGuestList.self, path: "/trpc/events.control.guests", input: ["partyId": partyID, "status": "all"]).guests }
     func pause(_ partyID: String, paused: Bool) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.setAdmissionPaused", method: "POST", input: ["partyId": partyID, "paused": paused]) }
+    func setShowOnDiscover(_ partyID: String, show: Bool) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.setShowOnDiscover", method: "POST", input: ["partyId": partyID, "show": show]) }
     func setShareLinkExpiry(_ partyID: String, expiresAt: String?) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.setShareLinkExpiry", method: "POST", input: ["partyId": partyID, "expiresAt": expiresAt ?? NSNull()]) }
     func decide(_ partyID: String, guestID: String, approved: Bool) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.decide", method: "POST", input: ["partyId": partyID, "guestId": guestID, "decision": approved ? "approved" : "declined"]) }
     func checkIn(_ partyID: String, attendeeCredential: String) async throws -> NativePartyCheckInResult {
@@ -209,6 +225,7 @@ struct NativePartyControlView: View {
     @State private var recapBusy = false
     @State private var showingSessions = false
     @State private var showingLineup = false
+    @State private var showOnDiscover: Bool?
 
     var body: some View {
         ZStack { BytspotNativeBackground(tier: .green).ignoresSafeArea(); ScrollView { VStack(alignment: .leading, spacing: 10) {
@@ -257,6 +274,14 @@ struct NativePartyControlView: View {
             Text(value.title).font(.system(size: 27, weight: .black, design: .rounded))
             HStack { metric("Going", "\(value.confirmed) / \(value.capacity)"); metric("Pending", "\(value.pending)"); metric("Checked in", "\(value.checkedIn)") }
             Text("\(value.spacesRemaining) spaces left").font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.cyan)
+            if let rating = value.feedback?.label {
+                Text(rating).font(.system(size: 13, weight: .bold)).foregroundColor(.white.opacity(0.82))
+                    .accessibilityIdentifier("native-party-control-feedback")
+            }
+            if let current = showOnDiscover {
+                NativeShowOnDiscoverToggle(isOn: Binding(get: { current }, set: { next in Task { await setShowOnDiscover(next) } }))
+                    .accessibilityIdentifier("native-party-control-show-on-discover")
+            }
             roomShareCard(url: value.retrievedShareURL, passCode: value.retrievedPassCode, expired: value.shareLinkExpired == true)
             shareLinkStatus(value)
         }.padding(18).background(Color.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 22))
@@ -388,7 +413,7 @@ struct NativePartyControlView: View {
     }
 
     private var guestList: some View { VStack(alignment: .leading, spacing: 9) { Text("GUEST LIST · \(guests.count)").partyControlLabel(); ForEach(guests.filter { $0.status != "pending" }) { guest in HStack { VStack(alignment: .leading) { Text(guest.person.name).font(.system(size: 13, weight: .bold)); Text("\(guest.status.replacingOccurrences(of: "-", with: " ").uppercased()) · \(guest.source.uppercased())").font(.system(size: 9, weight: .black)).foregroundColor(.white.opacity(0.48)) }; Spacer(); if guest.status == "checked-in" { Image(systemName: "checkmark.seal.fill").foregroundColor(NativeTheme.emerald) } } } }.padding(14).partyControlSurface() }
-    @MainActor private func reload() async { guard let token = sessionStore.token else { return }; do { let api = NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })); async let freshSummary = api.summary(partyID); async let freshGuests = api.guests(partyID); summary = try await freshSummary; guests = try await freshGuests; message = "" } catch { message = "Party Control could not refresh." }; await loadRecap() }
+    @MainActor private func reload() async { guard let token = sessionStore.token else { return }; do { let api = NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })); async let freshSummary = api.summary(partyID); async let freshGuests = api.guests(partyID); summary = try await freshSummary; showOnDiscover = summary?.door == "approval" ? summary?.showOnDiscover : nil; guests = try await freshGuests; message = "" } catch { message = "Party Control could not refresh." }; await loadRecap() }
 
     /// Failure leaves the card hidden rather than showing an empty album: a
     /// server that predates the recap procedures answers the same way as a room
@@ -500,6 +525,16 @@ struct NativePartyControlView: View {
         await loadRecap()
     }
     @MainActor private func setPaused() async { guard let token = sessionStore.token else { return }; do { try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).pause(partyID, paused: !(summary?.admissionPaused ?? false)); await reload() } catch { message = "Admission status could not change." } }
+    @MainActor private func setShowOnDiscover(_ show: Bool) async {
+        guard let token = sessionStore.token, let previous = showOnDiscover, previous != show else { return }
+        showOnDiscover = show
+        do {
+            try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).setShowOnDiscover(partyID, show: show)
+        } catch {
+            showOnDiscover = previous
+            message = "Discover listing could not change."
+        }
+    }
     @MainActor private func setClosed(_ closed: Bool) async {
         guard let token = sessionStore.token else { return }
         do {
@@ -534,6 +569,23 @@ struct NativePartyControlView: View {
         }
     }
 }
+
+#if DEBUG
+extension NativePartyControlView {
+    init(debugSummary: NativePartyControlSummary) {
+        self.partyID = debugSummary.partyId
+        _summary = State(initialValue: debugSummary)
+        _showOnDiscover = State(initialValue: debugSummary.door == "approval" ? debugSummary.showOnDiscover : nil)
+    }
+
+    static let debugApprovalSummary = NativePartyControlSummary(
+        partyId: "fixture-approval-6", title: "House Party", admissionPaused: false,
+        capacity: 40, confirmed: 18, spacesRemaining: 22, pending: 3, checkedIn: 0,
+        shareUrl: nil, passCode: nil, shareLinkExpiresAt: nil, shareLinkExpired: nil, shareLinkExpiryIsDefault: nil,
+        closedAt: nil, door: "approval", showOnDiscover: true, feedback: .init(count: 12, average: 4.6))
+}
+#endif
+
 
 private struct NativePartyQRScanner: UIViewControllerRepresentable {
     let onCode: (String) -> Void

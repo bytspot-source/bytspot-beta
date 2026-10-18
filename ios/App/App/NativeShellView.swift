@@ -339,6 +339,8 @@ struct BytspotNativeShellView: View {
     @State private var postAuthHomeHoldGeneration = 0
     @State private var showValetPreviewSheet = false
     @State private var showGuestRequests = false
+    @State private var feedbackTarget: NativeFeedbackTarget?
+    @ObservedObject private var pushService = NativePushService.shared
     @State private var didOpenRootValetPreview = false
     @State private var showBoutiqueStayPreviewSheet = false
     @State private var didOpenBoutiqueStayPreview = false
@@ -427,6 +429,10 @@ struct BytspotNativeShellView: View {
     var body: some View {
 #if DEBUG
         if Self.previewStorefrontRequested { return AnyView(NativeStorefrontGrantPreview()) }
+        if let preview = NativeDiscoverRemindersFeedbackPreview.replacementView() { return preview }
+        if NativeDiscoverRemindersFeedbackPreview.surface != nil {
+            return AnyView(shellBody.onAppear { NativeDiscoverRemindersFeedbackPreview.applyOnAppear(pushService: pushService) })
+        }
 #endif
         return AnyView(shellBody)
     }
@@ -446,7 +452,7 @@ struct BytspotNativeShellView: View {
                 Group {
                     switch selectedTab {
                     case .home:
-                        NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth)
+                        NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth, openFeedback: { navigation.requestedFeedback = $0 })
                     case .host:
                         NativeHostStudioView(circles: hostStudioCircles, membershipTier: membershipStore.tier, presentation: .tab)
                             .task { await loadHostStudioCircles() }
@@ -482,6 +488,15 @@ struct BytspotNativeShellView: View {
             // The embedded wizard must not disappear under an in-flight write.
             // Unlike a modal sheet, its dismissal controls live in this shell.
             .disabled(isPlanSaving)
+            if pushService.reminderPromptVisible {
+                VStack {
+                    Spacer()
+                    NativeReminderPermissionCard(pushService: pushService)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, Self.tabBarIsVisible(for: selectedTab) ? 96 : 16)
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             if let welcomeBannerText {
                 VStack {
                     Text(welcomeBannerText)
@@ -586,6 +601,21 @@ struct BytspotNativeShellView: View {
         .onReceive(navigation.$requestsRequested.filter { $0 }) { _ in
             navigation.requestsRequested = false
             showGuestRequests = true
+        }
+        // Feedback belongs to an account, so a signed-out tap is dropped.
+        .onReceive(navigation.$requestedFeedback.compactMap { $0 }) { target in
+            navigation.requestedFeedback = nil
+            guard sessionStore.canAttachBearerToken, sessionStore.token != nil else { return }
+            feedbackTarget = target
+        }
+        .sheet(item: $feedbackTarget) { target in
+            NativeFeedbackSheet(target: target, item: NativeFeedbackStore.shared.item(for: target),
+                                sessionToken: sessionStore.canAttachBearerToken ? sessionStore.token : nil,
+                                onFinished: { feedbackTarget = nil })
+            .preferredColorScheme(.dark)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidChange)) { _ in
+            Task { await pushService.offerReminderPrompt(signedIn: sessionStore.isAuthenticated) }
         }
         .sheet(isPresented: $showGuestRequests) {
             NativeGuestRequestsView(demand: NativePlanDemandAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in
@@ -3769,11 +3799,20 @@ private struct NativeNotificationSettingsPanel: View {
             NativeProfilePanelStat(value: enabledCount, label: "Enabled", color: NativeTheme.cyan)
             NativeWalletLine(title: "Push Notifications", subtitle: "Push alerts can include reservations, reminders, deals, profile updates, and nearby spots.", icon: "bell.fill")
             NativeWalletLine(title: pushService.systemAlertStatus.title, subtitle: pushService.systemAlertStatus.subtitle, icon: "bell.badge.fill")
-            Button(action: requestSystemAlerts) {
-                NativeCTA(title: pushService.systemAlertStatus.actionTitle, color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant)
+            if pushService.systemAlertStatus == .denied {
+                Button(action: requestSystemAlerts) {
+                    Text("Turn on reminders in Settings").font(.footnote.weight(.semibold)).foregroundColor(NativeTheme.cyan).underline()
+                        .frame(minHeight: 44, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-notifications-settings-link")
+            } else {
+                Button(action: requestSystemAlerts) {
+                    NativeCTA(title: pushService.systemAlertStatus.actionTitle, color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant)
+                }
+                .buttonStyle(.plain)
+                .disabled(pushService.isRequestingAuthorization)
             }
-            .buttonStyle(.plain)
-            .disabled(pushService.isRequestingAuthorization)
             NativePreferenceToggleRow(title: "Reservation Updates", subtitle: "Confirmations, changes, and cancellations.", icon: "calendar.badge.checkmark", color: NativeTheme.purple, isOn: $pushReservations)
             NativePreferenceToggleRow(title: "Promotions & Deals", subtitle: "Special offers and discounts.", icon: "tag.fill", color: NativeTheme.pink, isOn: $pushPromotions)
             NativePreferenceToggleRow(title: "Reminders", subtitle: "Parking session expiration alerts.", icon: "clock.badge.exclamationmark.fill", color: NativeTheme.orange, isOn: $pushReminders)
@@ -6954,6 +6993,8 @@ private struct NativeHomeDashboardView: View {
     let openDiscoverFilter: (String) -> Void
     let openNativeAccess: () -> Void
     let openNativeAuth: (NativeAuthMode, NativePostAuthIntent?) -> Void
+    var openFeedback: (NativeFeedbackTarget) -> Void = { _ in }
+    @ObservedObject private var feedbackStore = NativeFeedbackStore.shared
     @State private var searchText = ""
     @State private var homeFindResults: [NativeFindResult] = []
     @EnvironmentObject private var sessionStore: BytspotSessionStore
@@ -7088,6 +7129,9 @@ private struct NativeHomeDashboardView: View {
         NativeScreenScroll {
             nativeHomeHeader
             nativeSearchBar
+            if sessionStore.isAuthenticated, let item = feedbackStore.newest {
+                NativeFeedbackHomeCard(item: item) { openFeedback(item.target) }
+            }
             if showsVibeCard { homeVibeCard }
             if launchPicksCompleted && !launchRecommendationPicks.isEmpty { launchPicksReadySection }
             exploreAroundYouSection
@@ -8086,7 +8130,8 @@ private struct NativeHomeDashboardView: View {
     /// Home's AI Pick is a Discover card on another surface, so it answers to
     /// the same plug: a local card may not wear a promise it cannot keep.
     static func honestPrimaryCTATitle(for card: NativeDiscoverSummary) -> String {
-        NativeDiscoverListing.primaryCTATitle(
+        if card.nearbyParty?.requiresApproval == true { return NativeTabContentStore.approvalCTA }
+        return NativeDiscoverListing.primaryCTATitle(
             proposed: primaryCTATitle(for: card),
             control: card.control,
             rail: card.type
@@ -11300,6 +11345,14 @@ enum NativeDiscoverBrowsePolicy {
         NativeDiscoverBookablePresentation.matchesCategory(offering.category, filter: filter)
     }
 
+    /// A hosted party stays under All and Events and also joins its host
+    /// category's rail.
+    static func matchesInvitation(_ card: NativeDiscoverSummary, filter: String?) -> Bool {
+        if NativeDiscoverBookablePresentation.matchesCategory(card.type, filter: filter, sourceCategory: card.categoryLabel) { return true }
+        guard let filter, let rail = NativeDiscoverBookablePresentation.rail(category: filter) else { return false }
+        return card.nearbyParty?.discoverRail == rail
+    }
+
     static func sourceLine(offering: NativePlanBookableOffering?) -> String {
         guard let offering else { return "Listed · add it to a Plan to explore later" }
         return offering.sourceKind == .coffeeSpot ? "Coffee catalog selection" : "Public party catalog selection"
@@ -11315,7 +11368,9 @@ enum NativeDiscoverBrowsePolicy {
         if let nearbyParty {
             var parts = [NativeTabContentStore.partyTimeLabel(nearbyParty.startsAt)]
             if let left = nearbyParty.spacesRemaining { parts.append(left == 0 ? "Full" : "\(left) left") }
-            parts.append("Party admission is separate · open party details for access information")
+            parts.append(nearbyParty.requiresApproval
+                ? "\(NativeTabContentStore.approvalCategoryLabel) · \(NativeTabContentStore.approvalSubtitle.lowercased())"
+                : "Party admission is separate · open party details for access information")
             return parts.joined(separator: " · ")
         }
         guard let offering, offering.sourceKind == .party else {
@@ -11518,7 +11573,10 @@ private struct NativeDiscoverView: View {
         var nearbyParty: NativeNearbyParty? = nil
         var isParty: Bool { nearbyParty != nil || offering?.sourceKind == .party }
         var presentation: NativeDiscoverBookablePresentation { NativeDiscoverBrowsePolicy.presentation(offering: offering) }
-        var executableActionTitle: String? { isParty ? "View party" : NativeM5DetailPolicy.primaryTitle(for: presentation) }
+        var executableActionTitle: String? {
+            if nearbyParty?.requiresApproval == true { return NativeTabContentStore.approvalCTA }
+            return isParty ? "View party" : NativeM5DetailPolicy.primaryTitle(for: presentation)
+        }
         var browseID: String { nearbyParty.map { "invitation:\($0.partyID)" } ?? offering.map { "offering:\($0.selection.id)" } ?? "reference:\(id)" }
     }
 
@@ -12007,7 +12065,7 @@ private struct NativeDiscoverView: View {
             NativeDiscoverBrowsePolicy.matchesCategory($0, filter: selectedFilter)
         }.map(Self.spec(offering:))
         let invitations = NativeDiscoverBrowsePolicy.nearbyInvitations(in: regionalSnapshot, catalog: catalogRows)
-            .filter { NativeDiscoverBookablePresentation.matchesCategory($0.type, filter: selectedFilter, sourceCategory: $0.categoryLabel) }
+            .filter { NativeDiscoverBrowsePolicy.matchesInvitation($0, filter: selectedFilter) }
             .map(Self.spec(from:))
         return (invitations + references + offerings).sorted { first, second in
             NativeDiscoverBrowsePolicy.precedes(
@@ -12498,7 +12556,7 @@ private struct NativeDiscoverFeatureCard: View {
                     photo
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(alignment: .firstTextBaseline, spacing: 12) {
-                            Text(NativeDiscoverBrowsePolicy.categoryLabel(NativeDiscoverBookablePresentation.referenceRail(type: card.type, sourceCategory: card.categoryLabel) ?? card.type))
+                            Text(card.nearbyParty?.requiresApproval == true ? card.categoryLabel : NativeDiscoverBrowsePolicy.categoryLabel(NativeDiscoverBookablePresentation.referenceRail(type: card.type, sourceCategory: card.categoryLabel) ?? card.type))
                                 .font(.caption.weight(.semibold)).foregroundColor(.white.opacity(0.72))
                             Spacer(minLength: 0)
                             status
@@ -12595,7 +12653,7 @@ private struct NativeDiscoverFeatureCard: View {
                     dash: card.presentation.ringStyle.dashPattern.map { CGFloat($0) }))
                     .frame(width: 10, height: 10)
             }
-            Text(card.isParty ? "Party" : card.presentation.statusLabel)
+            Text(card.nearbyParty?.requiresApproval == true ? card.badgeText : card.isParty ? "Party" : card.presentation.statusLabel)
                 .font(.caption.weight(.semibold)).foregroundColor(.white.opacity(0.72))
         }
         .padding(.horizontal, 10).padding(.vertical, 6)

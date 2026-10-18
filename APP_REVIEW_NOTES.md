@@ -33,6 +33,9 @@ Thank you for reviewing Bytspot.
   - **Party Control** — the host's view of their guest list, admissions, and
     share-link expiry
   - **Network** — find contacts already on Bytspot (requires Contacts access)
+  - **Feedback** — after a Party or Plan ends, guests can rate it (1–5 stars,
+    optional tags and note) from a Home card or the notification; hosts see only
+    the average and count
   - **Account deletion and restoration** — Profile → Safety & Legal
   - Home, Discover, Map, and Concierge browsing
 - Profile is opened from the Home screen (avatar/profile entry), not from the
@@ -51,11 +54,14 @@ Thank you for reviewing Bytspot.
 
 ## Permissions
 
-- **Notifications** — the full app requests notification authorization only when
-  the member turns alerts on in notification settings. It is never requested at
-  launch. Alerts cover party activity (a guest RSVP reaching a host, a host's
-  decision reaching that guest, and arrival at the door), reservations and
-  reminders. The App Clip may request ephemeral authorization for invite
+- **Notifications** — the full app never requests notification authorization at
+  launch. It asks only when the member turns alerts on in notification settings,
+  or after they add something to a Plan, RSVP, or get a ticket, when an in-app
+  card offers "Get a reminder before it starts?". The system prompt appears only
+  if they tap Allow; "Not now" is not shown again for 7 days. Alerts cover party
+  activity (a guest RSVP reaching a host, a host's decision reaching that guest,
+  and arrival at the door), reminders before a Party or Plan starts, additions
+  to a shared Plan, and a request to rate a Party or Plan after it ends. The App Clip may request ephemeral authorization for invite
   follow-up during the Clip session, as declared in the App Clip plist.
 - **Location** — optional. The app can be reviewed without granting it; without
   a location fix the Map opens on the last known area, or Midtown Atlanta,

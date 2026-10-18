@@ -141,6 +141,8 @@ struct NativePartyPassRoute: Equatable {
         return NativeLocationCoordinate(latitude: latitude, longitude: longitude, isFallback: true)
     }
     let url: URL
+    /// `arrival` rides on the 30-minute party reminder push.
+    static let intents = ["save_to_wallet", "arrival"]
 
     init?(url: URL) {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
@@ -181,7 +183,7 @@ struct NativePartyPassRoute: Equatable {
             queryItems.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
         }
         self.isHandoff = value("handoff") == "1"
-        self.intent = ["save_to_wallet"].first { $0 == value("intent") }
+        self.intent = Self.intents.first { $0 == value("intent") }
         self.latitude = value("lat").flatMap(Double.init)
         self.longitude = value("lng").flatMap(Double.init)
     }
@@ -268,6 +270,8 @@ final class NativeNavigationCoordinator: ObservableObject {
     @Published var requestedMapCenter: NativeLocationCoordinate?
     /// Set by an offer push or a `/requests` link; the shell opens My Requests.
     @Published var requestsRequested = false
+    /// Set by a feedback push or a `/feedback` link; the shell opens the feedback sheet.
+    @Published var requestedFeedback: NativeFeedbackTarget?
     @Published private(set) var lastURL: URL?
     @Published private(set) var lastScanSource: NativePatchScanSource?
 
@@ -298,6 +302,11 @@ final class NativeNavigationCoordinator: ObservableObject {
         // Back from paying for an offer, when the return link opens the app.
         if components.queryItems?.contains(where: { $0.name == "checkout" && ($0.value ?? "").hasPrefix("offer-") }) == true {
             requestedTab = .home; requestsRequested = true; return true
+        }
+        if let feedbackRoute = NativeFeedbackRoute(url: url) {
+            requestedTab = .home
+            requestedFeedback = feedbackRoute.target
+            return true
         }
         if let partyRoute = NativePartyPassRoute(url: url) {
             // A Clip handoff that carried a public point opens the map on it, so the

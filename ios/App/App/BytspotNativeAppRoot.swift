@@ -251,7 +251,13 @@ struct BytspotNativeAppRoot: View {
                     await membershipStore.refresh(sessionStore: sessionStore)
                     await contactSyncStore.refresh(sessionStore: sessionStore)
                     await NativePushService.shared.reconcile(sessionToken: sessionStore.canAttachBearerToken ? sessionStore.token : nil)
+                    await NativeFeedbackStore.shared.refresh(sessionToken: sessionStore.canAttachBearerToken ? sessionStore.token : nil)
                 }
+            }
+            // APNs hands the token over after registration returns, so the
+            // upload that follows a fresh grant happens here.
+            .onReceive(NotificationCenter.default.publisher(for: NativePushService.tokenDidChangeNotification)) { _ in
+                Task { await NativePushService.shared.reconcile(sessionToken: sessionStore.canAttachBearerToken ? sessionStore.token : nil) }
             }
             .onChange(of: scenePhase) { phase in
                 updateReportRelay(phase: phase)
@@ -263,6 +269,7 @@ struct BytspotNativeAppRoot: View {
                     await membershipStore.refresh(sessionStore: sessionStore)
                     await NativePushService.shared.refreshAuthorizationStatus()
                     await NativePushService.shared.reconcile(sessionToken: sessionStore.canAttachBearerToken ? sessionStore.token : nil)
+                    await NativeFeedbackStore.shared.refresh(sessionToken: sessionStore.canAttachBearerToken ? sessionStore.token : nil)
                 }
             }
             .onChange(of: locationStore.lastLocation?.timestamp) { _ in

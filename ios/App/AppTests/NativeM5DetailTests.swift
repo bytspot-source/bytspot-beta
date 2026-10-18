@@ -49,7 +49,6 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         fields.merge(changes) { _, new in new }
         fields["menuEvidence"] = evidence
         let api = NativeConciergeAPI(client: BytspotAPIClient(baseURL: base ?? menuAPIBase))
-        // XCTUnwrap records a failure when its expression throws; rejection cases must only throw.
         let decoded = try api.decodeResponse(JSONSerialization.data(withJSONObject: response(cards: [card(fields)])))
         guard let first = decoded.cards.first else { throw BytspotAPIClient.APIError.invalidResponse }
         return first

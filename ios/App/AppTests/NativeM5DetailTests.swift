@@ -63,10 +63,11 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
                                                   "url": "https://www.opentable.com/r/neighborhood-coffee"]
 
     func testCardActionsDecodeOnlySupportedServerFacts() throws {
-        let actions: [[String: Any]] = [["type": "directions"], ["type": "website"], opentableAction, ["type": "save"]]
+        let actions: [[String: Any]] = [["type": "directions"], ["type": "website"], opentableAction, ["type": "add_to_plan"], ["type": "save"]]
         let full = try decode(response(cards: [card(["websiteUrl": "https://coffee.example.com", "actions": actions])]))
         XCTAssertEqual(full.cards[0].actions, [.directions, .website,
-            .bookTable(url: URL(string: "https://www.opentable.com/r/neighborhood-coffee")!, label: "OpenTable"), .save])
+            .bookTable(url: URL(string: "https://www.opentable.com/r/neighborhood-coffee")!, label: "OpenTable"), .addToPlan, .save])
+        XCTAssertEqual(try decode(response(cards: [card(["actions": [["type": "add_to_plan", "planId": "plan-1"], ["type": "save"]]])])).cards[0].actions, [.save])
         let dropped: [[[String: Any]]] = [
             [["type": "pay"], ["type": "website"], ["type": "directions", "url": "https://evil.example.com"], ["type": "save"]],
             [opentableAction.merging(["url": "https://evil.example.com/r"]) { _, new in new }, ["type": "save"]],
@@ -78,7 +79,7 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         }
         XCTAssertEqual(try decode(response(cards: [card(["placeId": NSNull(), "kind": "venue", "id": "venue-one", "source": "bytspot",
                                                         "actions": [opentableAction]])])).cards[0].actions, [])
-        XCTAssertThrowsError(try decode(response(cards: [card(["actions": Array(repeating: ["type": "save"], count: 5)])])))
+        XCTAssertThrowsError(try decode(response(cards: [card(["actions": Array(repeating: ["type": "save"], count: 6)])])))
         XCTAssertEqual(try decode(response(cards: [card(["websiteUrl": "https://coffee.example.com"])])).cards[0].actions,
                        [.directions, .website, .save])
     }
@@ -107,7 +108,9 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertTrue(NativeConciergeActionPresentation.approvalMessage(.website, card: coffee, isSaved: false).contains("coffee.example.com"))
         XCTAssertEqual(NativeConciergeActionPresentation.buttonTitle(.save, card: coffee, isSaved: true), "Saved")
         XCTAssertEqual(NativeConciergeActionPresentation.approveTitle(.save, isSaved: true), "Remove")
-        for action in [NativeConciergeAction.directions, .website, booking, .save] {
+        XCTAssertEqual(NativeConciergeActionPresentation.approveTitle(.addToPlan, isSaved: false), "Choose a Plan")
+        XCTAssertTrue(NativeConciergeActionPresentation.approvalMessage(.addToPlan, card: coffee, isSaved: false).contains("added as a reference, not a booking"))
+        for action in [NativeConciergeAction.directions, .website, booking, .addToPlan, .save] {
             for saved in [false, true] {
                 let text = NativeConciergeActionPresentation.approvalTitle(action, card: coffee, isSaved: saved) + " "
                     + NativeConciergeActionPresentation.approvalMessage(action, card: coffee, isSaved: saved)
@@ -117,9 +120,132 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         }
     }
 
+    private func plan(items: [[String: Any]]) throws -> NativePlan {
+        let value: [String: Any] = [
+            "id": "plan-1", "title": "Friday night", "intent": "Out", "creatorUserId": "member-1", "startsAt": NSNull(),
+            "endsAt": NSNull(), "areaLabel": NSNull(), "partySize": NSNull(), "needs": ["dining"], "lifecycle": "proposed",
+            "state": "proposed", "readiness": ["going": 1, "maybe": 0, "pending": 0, "declined": 0, "total": 1],
+            "openNeeds": [], "participants": [], "items": items, "joinToken": NSNull()
+        ]
+        return try JSONDecoder().decode(NativePlan.self, from: JSONSerialization.data(withJSONObject: value))
+    }
+
+    private func planItem(_ id: String, title: String, placeId: Any = NSNull(), status: String = "available",
+                          destination: Any = NSNull()) -> [String: Any] {
+        ["id": id, "needKind": "dining", "title": title, "partyId": NSNull(), "coffeeReservationId": NSNull(),
+         "capability": "details", "status": status, "reservation": NSNull(), "placeId": placeId, "destination": destination]
+    }
+
+    func testArrivalUsesThePlanStopAndLeavesFromTheStopBeforeIt() throws {
+        let coffee = try decode(response()).cards[0]
+        let fallback = NativeConciergeArrival.make(planID: "plan-1", plan: nil, card: coffee, accountID: "member-1")
+        XCTAssertEqual(fallback.stop, NativePlan.Destination(name: "Neighborhood Coffee", address: "1 Main Street", lat: 47.61, lng: -122.33))
+        XCTAssertNil(fallback.origin)
+        XCTAssertEqual(fallback.addedMessage, "Added Neighborhood Coffee to your Plan as a reference. Nothing is booked.")
+
+        let dinner: [String: Any] = ["name": "Dinner Spot", "address": NSNull(), "lat": 47.6, "lng": -122.3]
+        let server: [String: Any] = ["name": "Neighborhood Coffee (Google)", "address": "1 Main St", "lat": 47.611, "lng": -122.331]
+        let full = try plan(items: [
+            planItem("a", title: "Dinner", destination: dinner),
+            planItem("b", title: "Old copy", placeId: "ChIJ-place-one", status: "cancelled"),
+            planItem("c", title: "Neighborhood Coffee", placeId: "ChIJ-place-one", destination: server),
+        ])
+        let arrival = NativeConciergeArrival.make(planID: "plan-1", plan: full, card: coffee, accountID: "member-1")
+        XCTAssertEqual(arrival.stop.name, "Neighborhood Coffee (Google)")
+        XCTAssertEqual(arrival.origin?.name, "Dinner Spot")
+        XCTAssertEqual(arrival.addedMessage, "Added Neighborhood Coffee (Google) to “Friday night” as a reference. Nothing is booked.")
+        let other = try plan(items: [planItem("x", title: "Neighborhood Coffee", placeId: "ChIJ-other", destination: server)])
+        XCTAssertEqual(NativeConciergeArrival.make(planID: "plan-1", plan: other, card: coffee, accountID: "member-1").stop, fallback.stop)
+
+        let steps = NativeConciergeArrivalStep.steps(for: arrival)
+        XCTAssertEqual(steps.map(\.buttonTitle), ["Directions", "Uber", "Lyft"])
+        for step in steps {
+            XCTAssertTrue(step.title.contains("Neighborhood Coffee (Google)"), step.title)
+            XCTAssertNil(step.message.range(of: #"\b(booked|confirmed|ordered|paid|reserved)\b"#, options: [.regularExpression, .caseInsensitive]), step.message)
+        }
+        let uber = try XCTUnwrap(steps.first { $0.kind == .ride(.uber) })
+        XCTAssertTrue(uber.message.contains("leaving from Dinner Spot"))
+        XCTAssertTrue(uber.message.contains("Bytspot does not book the ride."))
+        XCTAssertEqual(uber.rideURL?.host, "m.uber.com")
+        XCTAssertTrue(NativeConciergeArrivalStep(kind: .ride(.lyft), arrival: fallback).message.contains("leaving from your location"))
+        XCTAssertNil(steps[0].rideURL)
+    }
+
+    func testCardEyebrowNamesTheRailCategoryAndDistance() throws {
+        let coffee = try decode(response()).cards[0]
+        XCTAssertEqual(NativeConciergeCardPresentation.eyebrow(coffee, distance: "0.4 mi"), "Eat & Drink · Coffee · 0.4 mi")
+        XCTAssertEqual(NativeConciergeCardPresentation.eyebrow(coffee, distance: nil), "Eat & Drink · Coffee")
+        let gallery = try decode(response(cards: [card(["category": "art_gallery", "rail": "explore"])])).cards[0]
+        XCTAssertEqual(NativeConciergeCardPresentation.eyebrow(gallery, distance: "Here"), "Explore · Art gallery · Here")
+        let shop = try decode(response(cards: [card(["category": "Services", "rail": "services"])])).cards[0]
+        XCTAssertEqual(NativeConciergeCardPresentation.eyebrow(shop, distance: nil), "Services")
+        XCTAssertEqual(NativeConciergeCardPresentation.anchor(coffee), "concierge-card-gp:place-one")
+        XCTAssertEqual(seattle.distanceLabel(toLatitude: coffee.lat, longitude: coffee.lng), "0.3 mi")
+    }
+
+    func testStatusAndAnnouncementsDescribeEachSearchState() {
+        let model = NativeConciergeModel()
+        XCTAssertEqual(model.searchState, .idle)
+        XCTAssertEqual(model.statusText, "Sign in to search")
+        XCTAssertTrue(NativeConciergeRegionPresentation.statusLabels.contains(model.statusText))
+        XCTAssertEqual(NativeConciergeModel.announcement(for: .results, cardCount: 1, notice: nil), "1 place found.")
+        XCTAssertEqual(NativeConciergeModel.announcement(for: .results, cardCount: 3, notice: nil), "3 places found.")
+        XCTAssertEqual(NativeConciergeModel.announcement(for: .empty, cardCount: 0, notice: nil), "No places found.")
+        XCTAssertEqual(NativeConciergeModel.announcement(for: .stopped, cardCount: 0, notice: "Search stopped."), "Search stopped.")
+        XCTAssertNil(NativeConciergeModel.announcement(for: .searching, cardCount: 0, notice: nil))
+        model.stop()
+        XCTAssertEqual(model.searchState, .idle, "Stopping with no search running changes nothing.")
+        XCTAssertNil(model.notice)
+    }
+
+    func testOpeningCopyStaysWithinSupportedDiscovery() {
+        XCTAssertEqual(NativeConciergeRegionPresentation.starterPrompts, ["Coffee nearby", "Dinner tonight", "Something to do nearby"])
+        XCTAssertTrue(NativeConciergeRegionPresentation.privacyNotice.contains("30 minutes"))
+        XCTAssertTrue(NativeConciergeRegionPresentation.privacyNotice.contains("until you clear it"))
+        for text in NativeConciergeRegionPresentation.starterPrompts + [NativeConciergeRegionPresentation.openingTitle, NativeConciergeRegionPresentation.genericWelcomeMessage] {
+            XCTAssertNil(text.range(of: #"\b(book|order|pay|reserve|plan)\b"#, options: [.regularExpression, .caseInsensitive]), text)
+        }
+    }
+
+    func testConversationSurvivesRevisitsAndExpiresAfterBackgroundRetention() throws {
+        let session = BytspotSessionStore(account: "concierge_retention_\(UUID().uuidString)", service: "com.bytspot.concierge-retention-tests")
+        let location = NativeLocationStore()
+        let model = NativeConciergeModel()
+        model.observe(session: session, location: location)
+        model.draft = "Coffee"
+        model.detailVenue = try decode(response()).cards[0].venueSummary
+        model.leaveScreen()
+        XCTAssertNil(model.detailVenue)
+        XCTAssertNil(model.planSelection)
+        XCTAssertNil(model.pendingAction)
+        model.observe(session: session, location: location)
+        XCTAssertEqual(model.draft, "Coffee", "Returning to the tab keeps the conversation.")
+
+        let start = Date()
+        model.backgrounded(at: start)
+        model.foregrounded(at: start.addingTimeInterval(NativeConciergeModel.backgroundRetention - 1))
+        XCTAssertEqual(model.draft, "Coffee")
+        model.foregrounded(at: start.addingTimeInterval(NativeConciergeModel.backgroundRetention * 2))
+        XCTAssertEqual(model.draft, "Coffee", "A foreground without a recorded background deletes nothing.")
+        model.backgrounded(at: start)
+        model.foregrounded(at: start.addingTimeInterval(NativeConciergeModel.backgroundRetention))
+        XCTAssertTrue(model.draft.isEmpty)
+        XCTAssertEqual(model.searchState, .idle)
+        XCTAssertNil(model.scrollAnchor)
+    }
+
     func testSignedOutModelCannotQueueOrApproveAnAction() throws {
         let model = NativeConciergeModel()
-        let coffee = try decode(response()).cards[0]
+        let coffee = try decode(response(cards: [card(["actions": [["type": "add_to_plan"]]])])).cards[0]
+        model.requestAction(.addToPlan, on: coffee)
+        XCTAssertNil(model.planSelection)
+        model.planAdded(planID: "plan-1", selectionID: UUID())
+        XCTAssertNil(model.arrival)
+        let arrival = NativeConciergeArrival.make(planID: "plan-1", plan: nil, card: coffee, accountID: "someone")
+        let step = NativeConciergeArrivalStep(kind: .directions, arrival: arrival)
+        model.requestArrival(step)
+        XCTAssertNil(model.pendingArrival)
+        XCTAssertNil(model.approveArrival(step))
         model.requestAction(.directions, on: coffee)
         XCTAssertNil(model.pendingAction)
         XCTAssertNil(model.proposal)
@@ -708,11 +834,22 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertTrue(concierge.contains("if let url = approved.card.websiteURL { openURL(url) }"))
         XCTAssertTrue(concierge.contains("guard let approved = model.approve(pending) else { return }"))
         XCTAssertFalse(concierge.contains("Link(card.websiteLabel"))
+        XCTAssertTrue(concierge.contains(".sheet(item: $model.planSelection"))
+        XCTAssertTrue(concierge.contains("onAdded: { planID in model.planAdded(planID: planID, selectionID: selection.id) }"))
+        XCTAssertTrue(concierge.contains("guard let approved = model.approveArrival(step) else { return }"))
+        XCTAssertTrue(concierge.contains("Button(step.buttonTitle) { model.requestArrival(step) }"))
         XCTAssertTrue(concierge.contains("not a verified menu"))
         XCTAssertFalse(concierge.contains("Link(\"Menu\", destination: websiteURL)"))
         XCTAssertFalse(concierge.contains("vendor onboarding"))
         XCTAssertFalse(concierge.contains("Google rating %.1f"))
-        XCTAssertTrue(concierge.contains(".onDisappear { model.disappear() }"))
+        XCTAssertTrue(concierge.contains(".onDisappear { model.leaveScreen() }"))
+        XCTAssertFalse(concierge.contains("func disappear()"))
+        XCTAssertTrue(concierge.contains("@ObservedObject var model: NativeConciergeModel"))
+        XCTAssertTrue(shell.contains("@StateObject private var conciergeModel = NativeConciergeModel()"))
+        XCTAssertTrue(shell.contains("NativeConciergeView(model: conciergeModel,"))
+        XCTAssertTrue(concierge.contains(".focused($composerFocused)"))
+        XCTAssertTrue(concierge.contains("if reduceMotion {"))
+        XCTAssertTrue(concierge.contains("UIAccessibility.post(notification: .announcement"))
         XCTAssertTrue(concierge.contains("Button(\"Sign in\", action: openNativeAuth)"))
         for retired in ["concierge.chat", "concierge.actions", "Concierge review required", "mic.fill", "Check stay dates", "openNativeTab(.discover)", "asyncAfter"] {
             XCTAssertFalse(concierge.contains(retired), retired)

@@ -300,6 +300,8 @@ enum NativeConciergeAction: Equatable, Hashable {
     case directions
     case website
     case bookTable(url: URL, label: String)
+    /// Phase 7: adds the place to a Plan the guest chooses, as a details-only reference.
+    case addToPlan
     case save
 
     var type: String {
@@ -307,6 +309,7 @@ enum NativeConciergeAction: Equatable, Hashable {
         case .directions: return "directions"
         case .website: return "website"
         case .bookTable: return "book_table"
+        case .addToPlan: return "add_to_plan"
         case .save: return "save"
         }
     }
@@ -317,6 +320,7 @@ enum NativeConciergeAction: Equatable, Hashable {
         case "directions" where fields.count == 1: return .directions
         case "website" where fields.count == 1: return .website
         case "save" where fields.count == 1: return .save
+        case "add_to_plan" where fields.count == 1: return .addToPlan
         case "book_table" where Set(fields.keys) == ["type", "provider", "label", "url"]:
             guard let booking = NativeVenueDetailsDTO.tableBooking(["provider": fields["provider"] ?? "", "url": fields["url"] ?? ""]),
                   booking.label == fields["label"] else { return nil }
@@ -459,7 +463,7 @@ struct NativeConciergeCard: Decodable, Identifiable, Equatable {
         let hasPlaceID = placeId != nil
         if values.contains(.actions) {
             let raw = try values.decode([[String: String]].self, forKey: .actions)
-            guard raw.count <= 4 else { throw BytspotAPIClient.APIError.invalidResponse }
+            guard raw.count <= 5 else { throw BytspotAPIClient.APIError.invalidResponse }
             var seen = Set<String>()
             actions = raw.compactMap(NativeConciergeAction.decode).filter { action in
                 guard seen.insert(action.type).inserted else { return false }

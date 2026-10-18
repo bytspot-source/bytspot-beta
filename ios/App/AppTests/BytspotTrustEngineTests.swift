@@ -2346,6 +2346,32 @@ final class BytspotTrustEngineTests: XCTestCase {
         }
     }
 
+    func testMapWithoutAFixOpensOnStoredOrFallbackCoordinateOnce() {
+        // Denied or still resolving: open on the stored/fallback coordinate,
+        // not MapKit's world view.
+        XCTAssertTrue(NativeMapCameraFocusPolicy.permitsStoredLocationFocus(
+            hasEstablishedCamera: false, hasAppliedStoredFocus: false, userMovedCamera: false,
+            isTracking: false, hasDestination: false, hasResolvedLocation: false))
+        let protectedStates: [(String, Bool, Bool, Bool, Bool, Bool, Bool)] = [
+            ("already centered", true, false, false, false, false, false),
+            ("stored focus already applied", false, true, false, false, false, false),
+            ("user pan or zoom", false, false, true, false, false, false),
+            ("following", false, false, false, true, false, false),
+            ("selected or pending destination", false, false, false, false, true, false),
+            ("real fix takes the device path", false, false, false, false, false, true)
+        ]
+        for (label, established, applied, moved, tracking, destination, location) in protectedStates {
+            XCTAssertFalse(NativeMapCameraFocusPolicy.permitsStoredLocationFocus(
+                hasEstablishedCamera: established, hasAppliedStoredFocus: applied, userMovedCamera: moved,
+                isTracking: tracking, hasDestination: destination, hasResolvedLocation: location), label)
+        }
+        // The stored focus does not establish the camera, so a later first
+        // real fix still centers once.
+        XCTAssertTrue(NativeMapCameraFocusPolicy.permitsInitialLocationFocus(
+            hasEstablishedCamera: false, userMovedCamera: false, isTracking: false,
+            hasDestination: false, hasResolvedLocation: true))
+    }
+
     func testMapLaunchWiringRetriesPreviewOnlyAfterAValidCandidateArrives() throws {
         let sourceURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("App/NativeShellView.swift")
@@ -2372,6 +2398,12 @@ final class BytspotTrustEngineTests: XCTestCase {
         let initial = try section("    private func centerOnCurrentLocationIfAppropriate()", "    private func handleHeadingLocationChange()")
         XCTAssertTrue(initial.contains("NativeMapCameraFocusPolicy.permitsInitialLocationFocus("))
         XCTAssertTrue(initial.contains("hasResolvedLocation: hasResolvedDeviceLocation"))
+        XCTAssertTrue(initial.contains("NativeMapCameraFocusPolicy.permitsStoredLocationFocus("))
+        XCTAssertTrue(initial.contains("locationStore.coordinate.latitude"))
+        XCTAssertFalse(initial.contains("didResolveInitialCamera = true"))
+        // A focus issued on map appear precedes layout; it must wait for a size.
+        XCTAssertTrue(source.contains("let map = NativeLayoutDeferringMapView()"))
+        XCTAssertTrue(source.contains("if map.bounds.isEmpty, let deferring = map as? NativeLayoutDeferringMapView {"))
         XCTAssertTrue(initial.contains("directMapRouteStore.pendingRoute != nil"))
         XCTAssertTrue(initial.contains("NativeMapFocusHandoff.hasPendingFocus"))
         XCTAssertTrue(initial.contains("handoffMapCenter != nil"))
@@ -6061,6 +6093,27 @@ final class NativeProfileDataAPITests: XCTestCase {
         // to expose it on the landing is gone.
         XCTAssertTrue(NativeProfilePanel.p2SocialActivityPanels.contains(.placesVisited))
         XCTAssertTrue(NativeProfilePanel.p2SocialActivityPanels.contains(.savedSpots))
+    }
+
+    func testProfileOffersGuestsSignInInsteadOfADestructiveAction() throws {
+        let guest = NativeProfileSessionAction.resolve(isAuthenticated: false)
+        XCTAssertEqual(guest, .signIn)
+        XCTAssertEqual(guest.title, "Sign In")
+        XCTAssertFalse(guest.isDestructive)
+        let account = NativeProfileSessionAction.resolve(isAuthenticated: true)
+        XCTAssertEqual(account, .logOut)
+        XCTAssertEqual(account.title, "Log Out")
+        XCTAssertTrue(account.isDestructive)
+
+        let sourceURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("App/NativeShellView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "private struct NativeProfileLogoutButton: View {"))
+        let end = try XCTUnwrap(source.range(of: "private struct NativeProfileVersionLabel", range: start.upperBound..<source.endIndex))
+        let button = String(source[start.lowerBound..<end.lowerBound])
+        XCTAssertTrue(button.contains("case .signIn: showSignIn = true"))
+        XCTAssertTrue(button.contains("NativeAuthenticationScreen(mode: .login"))
+        XCTAssertFalse(button.contains(".continueAsGuest"))
     }
 
     func testRecapKnowsWhenTheAlbumIsFull() throws {

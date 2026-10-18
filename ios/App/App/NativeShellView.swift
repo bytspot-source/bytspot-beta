@@ -5903,30 +5903,52 @@ private struct NativeProfileMenuGroup: View {
     }
 }
 
-private struct NativeProfileLogoutButton: View {
-    let sessionStore: BytspotSessionStore
-    @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
+/// Only an account can log out. A guest has nothing to end, so the same slot
+/// offers Sign In, without destructive styling.
+enum NativeProfileSessionAction: Equatable {
+    case logOut, signIn
 
-    private var isSignedIn: Bool { sessionStore.isAuthenticated || sessionStore.isGuest }
+    static func resolve(isAuthenticated: Bool) -> Self { isAuthenticated ? .logOut : .signIn }
+
+    var title: String { self == .logOut ? "Log Out" : "Sign In" }
+    var systemImage: String { self == .logOut ? "rectangle.portrait.and.arrow.right" : "person.crop.circle.badge.checkmark" }
+    var isDestructive: Bool { self == .logOut }
+}
+
+private struct NativeProfileLogoutButton: View {
+    @ObservedObject var sessionStore: BytspotSessionStore
+    @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
+    @State private var showSignIn = false
+
+    private var action: NativeProfileSessionAction { .resolve(isAuthenticated: sessionStore.isAuthenticated) }
 
     var body: some View {
         Button(action: {
             nativeImpactLight()
-            authCoordinator.handle(isSignedIn ? .signOut : .continueAsGuest, sessionStore: sessionStore)
+            switch action {
+            case .logOut: authCoordinator.handle(.signOut, sessionStore: sessionStore)
+            case .signIn: showSignIn = true
+            }
         }) {
             HStack(spacing: 8) {
-                Image(systemName: isSignedIn ? "rectangle.portrait.and.arrow.right" : "person.crop.circle.badge.plus").font(.system(size: 16, weight: .bold)).foregroundColor(.white)
-                Text(isSignedIn ? "Log Out" : "Continue as Guest").font(.system(size: 15, weight: .semibold)).foregroundColor(.white)
+                Image(systemName: action.systemImage).font(.system(size: 16, weight: .bold))
+                Text(action.title).font(.system(size: 15, weight: .semibold))
             }
+            .foregroundColor(action.isDestructive ? .white : NativeProfileStyle.title)
             .frame(maxWidth: .infinity)
             .padding(16)
-            .background(NativeProfileStyle.danger)
+            .background {
+                if action.isDestructive { NativeProfileStyle.danger } else { NativeProfileStyle.cardSurface(accent: NativeTheme.purple) }
+            }
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(NativeProfileStyle.dangerBorder, lineWidth: 1.25))
-            .shadow(color: Color(hex: 0xDC2626).opacity(0.35), radius: 20, x: 0, y: 16)
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(action.isDestructive ? NativeProfileStyle.dangerBorder : NativeProfileStyle.strongBorder, lineWidth: 1.25))
+            .shadow(color: action.isDestructive ? Color(hex: 0xDC2626).opacity(0.35) : NativeTheme.softShadow, radius: 20, x: 0, y: 16)
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("native-profile-logout")
+        .accessibilityIdentifier(action.isDestructive ? "native-profile-logout" : "native-profile-sign-in")
+        .fullScreenCover(isPresented: $showSignIn) {
+            NativeAuthenticationScreen(mode: .login, sessionStore: sessionStore, authCoordinator: authCoordinator, onComplete: { showSignIn = false }, onBack: { showSignIn = false })
+        }
     }
 }
 
@@ -15262,6 +15284,14 @@ enum NativeMapCameraFocusPolicy {
         !hasEstablishedCamera && !userMovedCamera && !isTracking && !hasDestination && hasResolvedLocation
     }
 
+    /// Without a usable fix the map opens on the stored or fallback coordinate
+    /// rather than MapKit's world view. It does not establish the camera, so a
+    /// later first real fix may still center once.
+    static func permitsStoredLocationFocus(hasEstablishedCamera: Bool, hasAppliedStoredFocus: Bool, userMovedCamera: Bool,
+                                           isTracking: Bool, hasDestination: Bool, hasResolvedLocation: Bool) -> Bool {
+        !hasEstablishedCamera && !hasAppliedStoredFocus && !userMovedCamera && !isTracking && !hasDestination && !hasResolvedLocation
+    }
+
     static func initialRegion(on coordinate: CLLocationCoordinate2D, hasEstablishedCamera: Bool) -> MKCoordinateRegion? {
         guard !hasEstablishedCamera else { return nil }
         return MKCoordinateRegion(center: coordinate, span: NativeMapRegionPresentation.span(forZoomScale: 1))
@@ -15287,6 +15317,18 @@ private struct NativeMapCameraRequest {
     enum Action { case focus(CLLocationCoordinate2D), zoom(Double) }
     let id = UUID()
     let action: Action
+}
+
+/// Holds a camera command issued before the first layout until the map has a size.
+private final class NativeLayoutDeferringMapView: MKMapView {
+    var whenLaidOut: (() -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard !bounds.isEmpty, let pending = whenLaidOut else { return }
+        whenLaidOut = nil
+        pending()
+    }
 }
 
 private final class NativeGeographicAnnotation: MKPointAnnotation {
@@ -15595,7 +15637,7 @@ private struct NativeGeographicMap: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> MKMapView {
-        let map = MKMapView()
+        let map = NativeLayoutDeferringMapView()
         map.delegate = context.coordinator
         map.pointOfInterestFilter = .excludingAll
         map.showsCompass = true
@@ -15631,8 +15673,18 @@ private struct NativeGeographicMap: UIViewRepresentable {
         // Commands, not a two-way region binding: delegate observations and
         // ordinary sheet/filter/media updates can never replay a camera move.
         if let request = cameraRequest, coordinator.cameraGate.consume(request.id) {
+            (map as? NativeLayoutDeferringMapView)?.whenLaidOut = nil
             switch request.action {
             case .focus(let coordinate):
+                // A region set on an unsized map lands at 0,0; wait for layout.
+                if map.bounds.isEmpty, let deferring = map as? NativeLayoutDeferringMapView {
+                    deferring.whenLaidOut = { [weak coordinator, weak deferring] in
+                        guard let coordinator, let deferring else { return }
+                        coordinator.focus(on: coordinate, map: deferring)
+                        coordinator.hasEstablishedCamera = true
+                    }
+                    return
+                }
                 coordinator.focus(on: coordinate, map: map)
             case .zoom(let factor):
                 let camera = map.camera.copy() as! MKMapCamera
@@ -15933,6 +15985,7 @@ private struct NativeMapExploreView: View {
     @State private var cameraRequest: NativeMapCameraRequest?
     @State private var cameraActionGeneration = 0
     @State private var didResolveInitialCamera = false
+    @State private var didApplyStoredLocationFocus = false
     @State private var userMovedCamera = false
     @Environment(\.accessibilityReduceMotion) private var reduceMapMotion
     @Environment(\.colorScheme) private var mapColorScheme
@@ -16749,11 +16802,21 @@ private struct NativeMapExploreView: View {
             || consumedHandoffMapCenter != nil || handoffMapCenter != nil
             || directMapRouteStore.pendingRoute != nil || NativeMapFocusHandoff.hasPendingFocus
             || !onboardingMapDestination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        guard NativeMapCameraFocusPolicy.permitsInitialLocationFocus(
+        if NativeMapCameraFocusPolicy.permitsInitialLocationFocus(
             hasEstablishedCamera: didResolveInitialCamera, userMovedCamera: userMovedCamera,
             isTracking: recenterMode != .off, hasDestination: hasDestination,
+            hasResolvedLocation: hasResolvedDeviceLocation) {
+            focusGeographicCamera(on: currentMapCoordinate)
+            return
+        }
+        guard NativeMapCameraFocusPolicy.permitsStoredLocationFocus(
+            hasEstablishedCamera: didResolveInitialCamera, hasAppliedStoredFocus: didApplyStoredLocationFocus,
+            userMovedCamera: userMovedCamera, isTracking: recenterMode != .off, hasDestination: hasDestination,
             hasResolvedLocation: hasResolvedDeviceLocation) else { return }
-        focusGeographicCamera(on: currentMapCoordinate)
+        let stored = CLLocationCoordinate2D(latitude: locationStore.coordinate.latitude, longitude: locationStore.coordinate.longitude)
+        guard NativeVenueSummary.hasValidMapCoordinate(latitude: stored.latitude, longitude: stored.longitude) else { return }
+        didApplyStoredLocationFocus = true
+        cameraRequest = NativeMapCameraRequest(action: .focus(stored))
     }
 
     private func handleHeadingLocationChange() {

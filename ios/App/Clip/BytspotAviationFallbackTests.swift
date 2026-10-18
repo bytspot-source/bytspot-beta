@@ -641,6 +641,11 @@ enum BytspotAviationFallbackTests {
         precondition(PartyPassClipView.canCommitPassResolution(resolverGeneration: resolverGeneration, currentResolverGeneration: resolverGeneration, scenePhase: .active), "Party Loop: only the current active resolver may update the Party Pass.")
         precondition(!PartyPassClipView.canCommitPassResolution(resolverGeneration: resolverGeneration, currentResolverGeneration: UUID(), scenePhase: .active), "Party Loop: an older resolver response must not restore Party access.")
         precondition(!PartyPassClipView.canCommitPassResolution(resolverGeneration: resolverGeneration, currentResolverGeneration: resolverGeneration, scenePhase: .background), "Party Loop: a backgrounded resolver response must not restore Party access.")
+        precondition(
+            PartyPassClipView.passResolutionKey(inviteID: "party-1", scenePhase: .inactive) != PartyPassClipView.passResolutionKey(inviteID: "party-1", scenePhase: .active) &&
+            PartyPassClipView.passResolutionKey(inviteID: "party-1", scenePhase: .inactive) == PartyPassClipView.passResolutionKey(inviteID: "party-1", scenePhase: .background),
+            "Party Loop: activation must restart the resolver so a pass opened while inactive does not stay on Preparing."
+        )
         precondition(ClipPersonalAttendeeQR.image(doorPassFixture).cgImage != nil, "Party Loop: personal attendee pass must render a scannable QR image.")
         precondition(ClipPartyPassAction(rawValue: "request-approval") == .requestApproval && ClipPartyPassAction(rawValue: "unknown") == nil, "Party Loop: only server-recognized Party actions may render a primary CTA.")
         precondition(ClipPatchVerifier.normalizedPartyHandoffURL("https://m.uber.com/ul/?action=setPickup")?.host == "m.uber.com", "Party Loop: only HTTPS Uber handoff URLs may open from the Party Pass.")
@@ -767,6 +772,13 @@ enum BytspotAviationFallbackTests {
         )
         let previewPayload: [String: Any] = ["id": "party-preview-1", "source": "host-studio-party", "title": "First Listen", "tier": "green", "accessMode": "free-rsvp", "scheduledDate": "2026-08-10T20:00:00Z", "hostName": "Demo Host", "locationLabel": "Sample Venue", "locationDisclosure": "public"]
         precondition(PartyPassInvite.fromPayload(previewPayload)?.displayPosterURL == nil, "Party Loop: the deterministic App Clip preview must not depend on stock remote media.")
+        precondition(
+            ClipPartyPassPreview.coverURL(for: URL(string: "https://bytspot.app/?step=party_loop")) == nil &&
+            ClipPartyPassPreview.coverURL(for: URL(string: "https://bytspot.app/?step=party_loop&previewCover=tall")) != nil &&
+            ClipPartyPassPreview.coverURL(for: URL(string: "https://bytspot.app/?step=party_loop&previewCover=wide")) != nil &&
+            ClipPartyPassPreview.coverURL(for: URL(string: "https://bytspot.app/party/party-1?previewCover=tall")) == nil,
+            "Party Loop: a preview cover is opt-in and never applies to a real Party URL."
+        )
         assertPartyPosterBoxContract()
     }
 

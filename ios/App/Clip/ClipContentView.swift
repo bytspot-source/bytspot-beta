@@ -540,16 +540,15 @@ struct PartyPassClipView: View {
         }
         .sheet(isPresented: $showShareSheet) { ClipShareSheet(items: [invite.canonicalURL].compactMap { $0 }) }
         .accessibilityIdentifier("party-pass-clip")
-        .task(id: invite.id) { await resolvePass() }
+        // Keyed on activation so the resolver runs against the view value that
+        // carries the new phase; an `onChange` closure still holds the old one
+        // and would always see the scene as inactive.
+        .task(id: Self.passResolutionKey(inviteID: invite.id, scenePhase: scenePhase)) { await resolvePass() }
         .task(id: invite.displayPosterURL) {
             if let poster = invite.displayPosterURL { await posterLoader.load(poster) }
         }
         .onChange(of: scenePhase) { phase in
-            guard phase == .active else {
-                invalidatePassResolution()
-                return
-            }
-            Task { await resolvePass() }
+            if phase != .active { invalidatePassResolution() }
         }
     }
 
@@ -1063,6 +1062,10 @@ struct PartyPassClipView: View {
     }
     static func canRequestAttendeeCredential(scenePhase: ScenePhase, passState: ClipPartyPassState?) -> Bool {
         scenePhase == .active && passState?.action == .viewPass && passState?.accessGranted == true
+    }
+
+    static func passResolutionKey(inviteID: String, scenePhase: ScenePhase) -> [String] {
+        [inviteID, String(scenePhase == .active)]
     }
 
     static func canCommitPassResolution(

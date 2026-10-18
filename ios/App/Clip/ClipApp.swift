@@ -809,6 +809,19 @@ enum ClipPartyPassPreview {
         guard state(for: invocationURL, partyID: partyID)?.action == .rsvp else { return nil }
         return ClipPartyPassState(partyID: partyID, action: .viewPass, guestStatus: "joined", accessGranted: true)
     }
+
+    /// `previewCover=tall|wide` exercises the cover hero with a 1:2 flyer or
+    /// an 8:3 panorama, both past the box clamps.
+    static func coverURL(for invocationURL: URL?) -> String? {
+        guard let invocationURL,
+              let components = URLComponents(url: invocationURL, resolvingAgainstBaseURL: false),
+              components.path.isEmpty || components.path == "/" else { return nil }
+        switch components.queryItems?.first(where: { $0.name == "previewCover" })?.value?.lowercased() {
+        case "tall": return "https://picsum.photos/id/1011/800/1600"
+        case "wide": return "https://picsum.photos/id/1015/2400/900"
+        default: return nil
+        }
+    }
 }
 #endif
 
@@ -1055,7 +1068,7 @@ final class ClipInvocationModel: ObservableObject {
             flow = .catalog
             return true
         case "party_loop", "host_party", "host_studio_party":
-            let payload: [String: Any] = [
+            var payload: [String: Any] = [
                 "id": "party-preview-1", "source": "host-studio-party", "title": "First Listen",
                 "inviteNote": "One moment. Your people.", "tier": tier.rawValue, "timing": "thisWeek",
                 "participantCount": 3, "capacity": 80, "accessMode": "free-rsvp",
@@ -1069,6 +1082,7 @@ final class ClipInvocationModel: ObservableObject {
                 "requiresApproval": false,
                 "ticketTiers": [["name": "First Drop", "priceCents": 2500, "quantity": 40, "requiredMembershipTier": "green"], ["name": "Listening Room", "priceCents": 4500, "quantity": 12, "requiredMembershipTier": "green"]]
             ]
+            payload["heroImageURL"] = ClipPartyPassPreview.coverURL(for: invocationURL)
             guard let invite = PartyPassInvite.fromPayload(payload) else { return false }
             tier = invite.tier
             flow = .party(invite)

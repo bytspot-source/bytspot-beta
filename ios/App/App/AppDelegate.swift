@@ -163,7 +163,7 @@ extension AppDelegate {
 enum NativePushURLPolicy {
     private static let allowedCustomHosts: Set<String> = [
         "map", "discover", "venue", "v", "concierge", "profile", "access",
-        "party", "booking", "privacy", "terms", "disclaimer", "patch", "p", "clip", "requests"
+        "party", "booking", "privacy", "terms", "disclaimer", "patch", "p", "clip", "requests", "plan", "feedback"
     ]
 
     static func routeURL(from payload: [AnyHashable: Any]) -> URL? {
@@ -243,6 +243,7 @@ final class NativePushService: NSObject, ObservableObject {
 
     @Published private(set) var systemAlertStatus: NativePushSystemAlertStatus = .notDetermined
     @Published private(set) var isRequestingAuthorization = false
+    @Published private(set) var reminderPromptVisible = false
     private var lastSyncedRegistrationKey: String?
 
     func configure(delegate: UNUserNotificationCenterDelegate) {
@@ -284,8 +285,30 @@ final class NativePushService: NSObject, ObservableObject {
         NotificationCenter.default.post(name: Self.tokenDidChangeNotification, object: nil)
     }
 
-    /// Registers only with an authenticated session. Generic sign-out never
-    /// unregisters a device, avoiding disruption for a shared device.
+    /// The contextual reminder card. Called after a signed-in Plan add, RSVP or
+    /// ticket checkout; the policy keeps it to undecided devices and a 7-day cooldown.
+    func offerReminderPrompt(signedIn: Bool) async {
+        guard signedIn, !reminderPromptVisible else { return }
+        systemAlertStatus = Self.status(from: await UNUserNotificationCenter.current().notificationSettings().authorizationStatus)
+        reminderPromptVisible = NativeReminderPermissionPolicy.shouldOffer(
+            status: systemAlertStatus, signedIn: signedIn, declinedAt: NativeReminderPermissionPolicy.declinedAt())
+    }
+
+    func acceptReminderPrompt() async {
+        reminderPromptVisible = false
+        await requestAuthorizationFromUser()
+    }
+
+    func declineReminderPrompt() {
+        reminderPromptVisible = false
+        NativeReminderPermissionPolicy.recordDecline()
+    }
+
+    #if DEBUG
+    func debugShowReminderPrompt() { reminderPromptVisible = true }
+    #endif
+
+    /// Registers only with an authenticated session.
     func reconcile(sessionToken: String?) async {
         guard let sessionToken, !sessionToken.isEmpty, sessionToken != "guest_session",
               let token = persistedToken,
@@ -299,6 +322,14 @@ final class NativePushService: NSObject, ObservableObject {
         } catch {
             // Keep the token so a later authenticated lifecycle can retry.
         }
+    }
+
+    /// Sign-out: this device stops receiving the ending account's pushes. The
+    /// token stays stored so the next sign-in registers it again.
+    func unregister(sessionToken: String) async {
+        lastSyncedRegistrationKey = nil
+        guard let token = persistedToken else { return }
+        try? await NativePushDeviceAPI(client: BytspotAPIClient(tokenProvider: { sessionToken })).unregister(token: token)
     }
 
     private var persistedToken: String? {

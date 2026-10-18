@@ -52,6 +52,7 @@
 			A13F0E012D0000000000E001 /* NativePartyArrival.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0E002D0000000000E000 /* NativePartyArrival.swift */; };
 			A13F10012D0000000000F101 /* NativePartyControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10002D0000000000F100 /* NativePartyControlView.swift */; };
 			A13F10102D0000000000F110 /* NativePartyRecap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10112D0000000000F111 /* NativePartyRecap.swift */; };
+		A13F15012D00000000001501 /* NativeFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F15002D00000000001500 /* NativeFeedback.swift */; };
 			A13F10202D0000000000F120 /* NativePlansPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10212D0000000000F121 /* NativePlansPanel.swift */; };
 			A13F10502D0000000000F150 /* NativePlanTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10512D0000000000F151 /* NativePlanTabView.swift */; };
 			A13F10302D0000000000F130 /* NativeCoffeeAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F10312D0000000000F131 /* NativeCoffeeAPI.swift */; };
@@ -79,6 +80,7 @@
 		A13F13072D00000000001307 /* bookable-templates.json in Resources */ = {isa = PBXBuildFile; fileRef = A13F13062D00000000001306 /* bookable-templates.json */; };
 		A13F13092D00000000001309 /* BookableTemplatesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F13082D00000000001308 /* BookableTemplatesTests.swift */; };
 			A13F0F012D0000000000F001 /* NativePartyArrivalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0F002D0000000000F000 /* NativePartyArrivalTests.swift */; };
+		A13F15032D00000000001503 /* NativeDiscoverRemindersFeedbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F15022D00000000001502 /* NativeDiscoverRemindersFeedbackTests.swift */; };
 		A13F0B012D0000000000B001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A13F0B002D0000000000B000 /* PrivacyInfo.xcprivacy */; };
 		A13F0B032D0000000000B003 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A13F0B022D0000000000B002 /* PrivacyInfo.xcprivacy */; };
 		B3D8A6E7D100EEDA96C20BD3 /* BytspotTrustEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1129492FA586137FE60C71 /* BytspotTrustEngineTests.swift */; };
@@ -163,6 +165,7 @@
 			A13F0E002D0000000000E000 /* NativePartyArrival.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyArrival.swift; sourceTree = "<group>"; };
 			A13F10002D0000000000F100 /* NativePartyControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyControlView.swift; sourceTree = "<group>"; };
 			A13F10112D0000000000F111 /* NativePartyRecap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyRecap.swift; sourceTree = "<group>"; };
+		A13F15002D00000000001500 /* NativeFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFeedback.swift; sourceTree = "<group>"; };
 			A13F10212D0000000000F121 /* NativePlansPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePlansPanel.swift; sourceTree = "<group>"; };
 			A13F10512D0000000000F151 /* NativePlanTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePlanTabView.swift; sourceTree = "<group>"; };
 			A13F10312D0000000000F131 /* NativeCoffeeAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCoffeeAPI.swift; sourceTree = "<group>"; };
@@ -190,6 +193,7 @@
 		A13F13062D00000000001306 /* bookable-templates.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bookable-templates.json"; sourceTree = "<group>"; };
 		A13F13082D00000000001308 /* BookableTemplatesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookableTemplatesTests.swift; sourceTree = "<group>"; };
 			A13F0F002D0000000000F000 /* NativePartyArrivalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartyArrivalTests.swift; sourceTree = "<group>"; };
+		A13F15022D00000000001502 /* NativeDiscoverRemindersFeedbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiscoverRemindersFeedbackTests.swift; sourceTree = "<group>"; };
 		A13F0B002D0000000000B000 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A13F0B022D0000000000B002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -238,6 +242,7 @@
 				D52000122026091000000003 /* NativeM5DetailTests.swift */,
 				D6B000022026091000000002 /* NativeDiscoverAddToPlanTests.swift */,
 				A13F0F002D0000000000F000 /* NativePartyArrivalTests.swift */,
+				A13F15022D00000000001502 /* NativeDiscoverRemindersFeedbackTests.swift */,
 				A13F13082D00000000001308 /* BookableTemplatesTests.swift */,
 			);
 			name = AppTests;
@@ -279,6 +284,7 @@
 				A13F0E002D0000000000E000 /* NativePartyArrival.swift */,
 				A13F10002D0000000000F100 /* NativePartyControlView.swift */,
 				A13F10112D0000000000F111 /* NativePartyRecap.swift */,
+				A13F15002D00000000001500 /* NativeFeedback.swift */,
 				A13F10212D0000000000F121 /* NativePlansPanel.swift */,
 				A13F10512D0000000000F151 /* NativePlanTabView.swift */,
 				A13F10312D0000000000F131 /* NativeCoffeeAPI.swift */,
@@ -523,6 +529,7 @@
 				A13F0E012D0000000000E001 /* NativePartyArrival.swift in Sources */,
 				A13F10012D0000000000F101 /* NativePartyControlView.swift in Sources */,
 				A13F10102D0000000000F110 /* NativePartyRecap.swift in Sources */,
+				A13F15012D00000000001501 /* NativeFeedback.swift in Sources */,
 				A13F10202D0000000000F120 /* NativePlansPanel.swift in Sources */,
 				A13F10502D0000000000F150 /* NativePlanTabView.swift in Sources */,
 				A13F10302D0000000000F130 /* NativeCoffeeAPI.swift in Sources */,
@@ -562,6 +569,7 @@
 				D52000112026091000000003 /* NativeM5DetailTests.swift in Sources */,
 				D6B000012026091000000002 /* NativeDiscoverAddToPlanTests.swift in Sources */,
 				A13F0F012D0000000000F001 /* NativePartyArrivalTests.swift in Sources */,
+				A13F15032D00000000001503 /* NativeDiscoverRemindersFeedbackTests.swift in Sources */,
 				A13F13092D00000000001309 /* BookableTemplatesTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

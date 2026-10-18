@@ -170,7 +170,7 @@ struct NativeHostStudioView: View {
     let membershipTier: BytspotTier
     var presentation: Presentation = .cover
 
-    @State private var step: Step = .spark
+    @State private var step: Step = Self.previewInitialStep
     @State private var expandedSections: Set<String> = []
     @State private var taxonomy = NativeHostTaxonomySelection.default
     @State private var templateID: NativePartyTemplateID = NativeHostTaxonomySelection.default.type.printer
@@ -191,6 +191,7 @@ struct NativeHostStudioView: View {
     @State private var venuePlaceSuggestions: [NativePlaceSearchResult] = []
     @State private var capacity = "\(NativeHostTaxonomySelection.recommendedCapacity)"
     @State private var accessMode: NativePartyAccessMode = .privateApproval
+    @State private var showOnDiscoverChoice: Bool?
     @State private var requiredTier: BytspotTier = .green
     @State private var ticketPrice = "25"
     @State private var selectedCircleIDs: Set<String> = []
@@ -233,6 +234,14 @@ struct NativeHostStudioView: View {
     @State private var isBindingArrivalDestination = false
     @State private var showingPartyControl = false
     @State private var showingEmailConfirm = false
+
+    private static var previewInitialStep: Step {
+        #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["BYT_NATIVE_PREVIEW_HOST_STEP"]?.lowercased(),
+           let step = Step.allCases.first(where: { "\($0)" == raw }) { return step }
+        #endif
+        return .spark
+    }
 
     private static var defaultStart: Date {
         Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: Date().addingTimeInterval(86_400)) ?? Date().addingTimeInterval(86_400)
@@ -760,6 +769,11 @@ struct NativeHostStudioView: View {
                     .padding(16).studioSurface()
                     .accessibilityIdentifier("native-host-studio-door-auto-set")
             }
+            if accessMode == .privateApproval {
+                NativeShowOnDiscoverToggle(isOn: Binding(get: { showOnDiscover }, set: { showOnDiscoverChoice = $0 }))
+                    .padding(16).studioSurface()
+                    .accessibilityIdentifier("native-host-studio-show-on-discover")
+            }
             if accessMode == .paidTicket { field("First Drop price", text: $ticketPrice, icon: "dollarsign.circle.fill", prompt: "25", keyboard: .decimalPad) }
             field("Capacity", text: $capacity, icon: "person.3.fill", prompt: "\(NativeHostTaxonomySelection.recommendedCapacity)", keyboard: .numberPad)
             VStack(alignment: .leading, spacing: 8) {
@@ -1106,7 +1120,11 @@ struct NativeHostStudioView: View {
         let cents = max(0, Int(((Double(ticketPrice) ?? 0) * 100).rounded()))
         let teammate = teammateEmail.trimmingCharacters(in: .whitespacesAndNewlines)
         let venueCoordinate = NativeHostStudioPresentation.retainedVenueCoordinate(typed: venueName, pickedName: pickedVenueName, picked: pickedVenueCoordinate)
-        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, endsAt: hostSetsEnd ? endsAt : nil, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), latitude: venueCoordinate?.latitude, longitude: venueCoordinate?.longitude, locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: currentBeatOffsets[$0.offset]) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration, taxonomy: taxonomy)
+        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, endsAt: hostSetsEnd ? endsAt : nil, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), latitude: venueCoordinate?.latitude, longitude: venueCoordinate?.longitude, locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: currentBeatOffsets[$0.offset]) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration, taxonomy: taxonomy, showOnDiscover: accessMode == .privateApproval ? showOnDiscover : nil)
+    }
+
+    private var showOnDiscover: Bool {
+        showOnDiscoverChoice ?? NativeShowOnDiscoverToggle.defaultValue(category: taxonomy.category)
     }
 
     private var templateConfiguration: NativePartyTemplateConfiguration {
@@ -1515,5 +1533,25 @@ private struct NativeHostOptionalSection<Content: View>: View {
                 .foregroundColor(NativeTheme.textPrimary).frame(minHeight: 44)
         }
         .padding(16).studioSurface()
+    }
+}
+
+/// Approval doors only. Shared by Host Studio (create) and Party Control.
+struct NativeShowOnDiscoverToggle: View {
+    @Binding var isOn: Bool
+    static let title = "Show on Discover"
+    static let helper = "Guests see your cover and title. The address stays hidden until you approve them."
+
+    static func defaultValue(category: NativeHostCategory) -> Bool { category == .party }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: $isOn) {
+                Text(Self.title).font(.headline).foregroundColor(.white)
+            }
+            .tint(NativeTheme.cyan).frame(minHeight: 44)
+            Text(Self.helper).font(.footnote).foregroundColor(.white.opacity(0.68))
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }

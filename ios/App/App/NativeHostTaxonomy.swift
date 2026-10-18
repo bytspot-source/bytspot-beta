@@ -74,6 +74,19 @@ enum NativeHostCategory: String, CaseIterable, Codable, Identifiable {
         case .community: return "A market you can kit."
         }
     }
+
+    /// The Discover rail a hosted party joins in addition to All and Events.
+    var discoverRail: String {
+        switch self {
+        case .nightlife: return "nightlife"
+        case .music: return "events"
+        case .sports, .culture, .outdoor: return "experience"
+        case .food: return "eat_drink"
+        case .social, .community: return "social"
+        case .cars: return "move"
+        case .party: return "celebrate"
+        }
+    }
 }
 
 enum NativeHostFormat: String, CaseIterable, Codable, Identifiable {

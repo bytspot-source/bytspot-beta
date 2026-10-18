@@ -557,11 +557,17 @@ final class BytspotSessionStore: ObservableObject {
 
     func signOut() {
         let endingRefreshToken = refreshToken
+        let endingSessionToken = canAttachBearerToken ? token : nil
         NativeSignedInIdentity.clear()
         NativePendingInviteCode.clear()
         updateToken(nil)
-        guard let endingRefreshToken else { return }
-        Task { try? await NativeAuthDataAPI(client: BytspotAPIClient()).signOut(refreshToken: endingRefreshToken) }
+        guard endingRefreshToken != nil || endingSessionToken != nil else { return }
+        Task {
+            // The device stops receiving this account's pushes before the
+            // session that registered it is revoked.
+            if let endingSessionToken { await NativePushService.shared.unregister(sessionToken: endingSessionToken) }
+            if let endingRefreshToken { try? await NativeAuthDataAPI(client: BytspotAPIClient()).signOut(refreshToken: endingRefreshToken) }
+        }
     }
 
     /// Stores a renewed pair for the account already signed in.

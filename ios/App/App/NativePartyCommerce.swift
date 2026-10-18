@@ -365,12 +365,15 @@ struct NativePartyCommerceControls: View {
     @State private var busy = false
     @State private var message = ""
     @State private var operation: Task<Void, Never>?
+    @ObservedObject private var pushService = NativePushService.shared
     private var scope: NativePartyCommerceScope { NativePartyCommerceScope(sessionStore) }
     private var current: Bool { loadedScope == scope }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Admission & purchases").font(.title2.bold()).accessibilityAddTraits(.isHeader)
+            // This sheet covers the shell's copy of the card.
+            if pushService.reminderPromptVisible { NativeReminderPermissionCard(pushService: pushService) }
             if !scope.signedIn {
                 Text("Sign in to RSVP or buy admission and tables. Your personal pass will be in Profile → Bookings / Wallet.").font(.subheadline)
                 if let openAuth { Button("Sign in", action: openAuth).frame(minHeight: 44) }
@@ -505,6 +508,7 @@ struct NativePartyCommerceControls: View {
                 try await NativePartyCommerceAPI(client: captured.client).rsvp(partyID, key: key)
                 guard !Task.isCancelled, generation.accepts(request, captured: captured, current: scope) else { return }
                 await load()
+                await NativePushService.shared.offerReminderPrompt(signedIn: captured.signedIn)
             } catch {
                 guard !Task.isCancelled, generation.accepts(request, captured: captured, current: scope) else { return }
                 busy = false; message = "Your RSVP could not be verified. Refresh or retry; a request is not admission."
@@ -543,6 +547,7 @@ struct NativePartyCommerceControls: View {
                 guard generation.accepts(request, captured: captured, current: scope) else { return }
                 busy = false
                 if !opened { message = "Checkout could not open. Retry safely with the same purchase selection." }
+                else { await NativePushService.shared.offerReminderPrompt(signedIn: captured.signedIn) }
             } catch {
                 guard !Task.isCancelled, generation.accepts(request, captured: captured, current: scope) else { return }
                 busy = false

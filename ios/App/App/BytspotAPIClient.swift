@@ -1312,8 +1312,10 @@ struct NativePartyDraftInput: Equatable {
     let templateConfiguration: NativePartyTemplateConfiguration
     /// Host Spark tags only. Never a new printer or a Live occupancy source.
     let taxonomy: NativeHostTaxonomySelection?
+    /// Approval doors only: list cover and title on Discover, address hidden.
+    let showOnDiscover: Bool?
 
-    init(templateID: NativePartyTemplateID, title: String, tagline: String, startsAt: Date, endsAt: Date? = nil, venueName: String, latitude: Double? = nil, longitude: Double? = nil, locationDisclosure: NativePartyLocationDisclosure = .public, capacity: Int, accessMode: NativePartyAccessMode, requiredMembershipTier: BytspotTier, hostDestinations: NativePartyHostDestinations = .empty, audienceCircleIDs: [String], itinerary: [NativePartyItineraryItem], ticketTiers: [NativePartyTicketTier], cohosts: [NativePartyHostAssignment], templateConfiguration: NativePartyTemplateConfiguration, taxonomy: NativeHostTaxonomySelection? = nil) {
+    init(templateID: NativePartyTemplateID, title: String, tagline: String, startsAt: Date, endsAt: Date? = nil, venueName: String, latitude: Double? = nil, longitude: Double? = nil, locationDisclosure: NativePartyLocationDisclosure = .public, capacity: Int, accessMode: NativePartyAccessMode, requiredMembershipTier: BytspotTier, hostDestinations: NativePartyHostDestinations = .empty, audienceCircleIDs: [String], itinerary: [NativePartyItineraryItem], ticketTiers: [NativePartyTicketTier], cohosts: [NativePartyHostAssignment], templateConfiguration: NativePartyTemplateConfiguration, taxonomy: NativeHostTaxonomySelection? = nil, showOnDiscover: Bool? = nil) {
         self.templateID = templateID
         self.title = title
         self.tagline = tagline
@@ -1333,6 +1335,7 @@ struct NativePartyDraftInput: Equatable {
         self.cohosts = cohosts
         self.templateConfiguration = templateConfiguration
         self.taxonomy = taxonomy
+        self.showOnDiscover = showOnDiscover
     }
 
     var validationMessage: String? {
@@ -1385,6 +1388,7 @@ struct NativePartyDraftInput: Equatable {
         // Legacy per-party destinations only ride when present; new drafts
         // rely on the publish-time Official Host identity snapshot.
         if !hostDestinations.isEmpty { input["hostDestinations"] = hostDestinations.rpcInput }
+        if accessMode == .privateApproval, let showOnDiscover { input["showOnDiscover"] = showOnDiscover }
         return input
     }
 
@@ -1659,7 +1663,7 @@ struct NativePartyPassAPI {
         return record
     }
 
-    private static func record(from value: Any) -> NativePartyPassRecord? {
+    static func record(from value: Any) -> NativePartyPassRecord? {
         let row = objectRow(value)
         guard clean(row["source"])?.lowercased() == "host-studio-party",
               let id = clean(row["id"]),
@@ -1668,7 +1672,12 @@ struct NativePartyPassAPI {
               let accessMode = clean(row["accessMode"]),
               let requiredTier = clean(row["tier"]) else { return nil }
         let coverURL = clean(row["heroImageURL"] ?? row["thumbnailURL"]).flatMap(URL.init(string:)).flatMap { $0.scheme?.lowercased() == "https" ? $0 : nil }
-        let locationDisclosure = ["public", "after-approval", "withheld"].contains(clean(row["locationDisclosure"])?.lowercased() ?? "") ? clean(row["locationDisclosure"])!.lowercased() : "after-approval"
+        var locationDisclosure = ["public", "after-approval", "withheld"].contains(clean(row["locationDisclosure"])?.lowercased() ?? "") ? clean(row["locationDisclosure"])!.lowercased() : "after-approval"
+        // A Discover-listed approval door withholds its place from anyone the
+        // host has not approved yet, whatever the host's disclosure says.
+        if locationDisclosure == "public", clean(row["locationLabel"]) == nil, accessMode == NativePartyAccessMode.privateApproval.rawValue {
+            locationDisclosure = "after-approval"
+        }
         let safeLocationLabel: String
         if locationDisclosure == "public" {
             guard let locationLabel = clean(row["locationLabel"]) else { return nil }
@@ -3723,11 +3732,22 @@ struct NativeNearbyParty: Equatable, Identifiable {
     let partyID: String
     let startsAt: Date
     let spacesRemaining: Int?
+    let hostCategory: NativeHostCategory?
+    let hostType: String?
+    /// Host approves every guest; the address stays hidden until then.
+    let requiresApproval: Bool
 
-    fileprivate init(partyID: String, startsAt: Date, spacesRemaining: Int?) {
+    var locationHidden: Bool { requiresApproval }
+    var discoverRail: String? { hostCategory?.discoverRail }
+
+    fileprivate init(partyID: String, startsAt: Date, spacesRemaining: Int?,
+                     hostCategory: NativeHostCategory? = nil, hostType: String? = nil, requiresApproval: Bool = false) {
         self.partyID = partyID
         self.startsAt = startsAt
         self.spacesRemaining = spacesRemaining
+        self.hostCategory = hostCategory
+        self.hostType = hostType
+        self.requiresApproval = requiresApproval
     }
 }
 
@@ -4542,10 +4562,50 @@ final class NativeTabContentStore: ObservableObject {
         )
     }
 
+    #if DEBUG
+    static let partyFixtureEnvironmentKey = "BYT_NATIVE_DISCOVER_PARTY_FIXTURE"
+
+    /// One open and one approval party per host-category rail, shaped like events.nearby rows.
+    static func partyFixtureRows(near location: NativeLocationCoordinate) -> [[String: Any]] {
+        let types: [(String, String, String)] = [
+            ("nightlife", "club", "Rooftop DJ Night"), ("music", "live-set", "Backyard Jazz Set"),
+            ("outdoor", "hike", "Sunrise Ridge Hike"), ("food-drink", "dinner", "Supper Club"),
+            ("social", "meetup", "Board Game Night"), ("cars", "garage-meet", "Cars & Coffee"),
+            ("party", "house", "House Party"),
+        ]
+        let startsAt = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3 * 3600))
+        return types.enumerated().flatMap { index, entry -> [[String: Any]] in
+            let (category, type, title) = entry
+            let cover = "https://picsum.photos/seed/bytspot-\(category)/800/600"
+            let open: [String: Any] = [
+                "id": "fixture-open-\(index)", "title": title, "startsAt": startsAt, "status": "published",
+                "door": "open", "locationHidden": false, "accessMode": "free-rsvp", "capability": "rsvp",
+                "hostCategory": category, "hostType": type, "coverURL": cover, "venueName": "Ponce City Market",
+                "latitude": location.latitude + 0.002 * Double(index), "longitude": location.longitude,
+                "distanceMiles": 0.4 + 0.3 * Double(index), "spacesRemaining": 12,
+            ]
+            let approval: [String: Any] = [
+                "id": "fixture-approval-\(index)", "title": "\(title) (Invite)", "startsAt": startsAt, "status": "published",
+                "door": "approval", "locationHidden": true, "accessMode": NativePartyAccessMode.privateApproval.rawValue,
+                "capability": "request", "hostCategory": category, "hostType": type, "coverURL": cover,
+                "venueName": NSNull(), "latitude": NSNull(), "longitude": NSNull(), "distanceMiles": NSNull(),
+            ]
+            return [open, approval]
+        }
+    }
+    #endif
+
     /// Parties a guest can browse to. The endpoint is membership-gated and
     /// measures distance itself, so what comes back is already the set this
     /// caller may see; nothing here re-decides that.
     private func fetchNearbyParties(client: BytspotAPIClient, location: NativeLocationCoordinate) async throws -> [NativeDiscoverSummary] {
+        #if DEBUG
+        if let fixture = ProcessInfo.processInfo.environment[Self.partyFixtureEnvironmentKey], ["1", "open", "approval"].contains(fixture) {
+            return Self.partyFixtureRows(near: location)
+                .filter { fixture == "1" || $0["door"] as? String == fixture }
+                .compactMap(Self.partyDiscoverCard(from:))
+        }
+        #endif
         let payload = try await client.trpcQueryPayload(
             path: NativeLiveContentV2Contract.partiesNearbyRoute,
             input: ["lat": location.latitude, "lng": location.longitude, "radiusMiles": 10, "limit": 20]
@@ -4766,25 +4826,39 @@ final class NativeTabContentStore: ObservableObject {
     /// shows and says it is full: being full is a fact about the gathering,
     /// not a reason to imply it does not exist.
     ///
-    /// The record is a Party, but only the open-door ones can ever reach here:
-    /// every approval-only type is excluded by the server gate. So the card
-    /// says "open door" rather than "party", which would promise a whole
-    /// category — house, rooftop, pool, birthday — this channel can never show.
+    /// An open-door row carries a public place. An approval row is a host who
+    /// opted in to show cover and title only: it never carries a place, a
+    /// distance or coordinates, and the address follows approval.
     static func partyDiscoverCard(from item: [String: Any]) -> NativeDiscoverSummary? {
         let allowedID = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
         guard let id = item["id"] as? String, !id.isEmpty,
               id.unicodeScalars.allSatisfy({ allowedID.contains($0) }),
               let title = item["title"] as? String, !title.isEmpty,
               let startsAtRaw = item["startsAt"] as? String,
-              let startsAt = NativeAccountDeletionFormat.date(fromISO: startsAtRaw),
-              let accessMode = item["accessMode"] as? String,
-              ["free-rsvp", "paid-ticket"].contains(accessMode) else { return nil }
-        // Nearby omits these gate fields today. Never accept a contradictory
-        // private/unpublished row if a future response explicitly supplies them.
-        if let disclosure = item["locationDisclosure"] as? String, disclosure != "public" { return nil }
+              let startsAt = NativeAccountDeletionFormat.date(fromISO: startsAtRaw) else { return nil }
+        let door = item["door"] as? String ?? "open"
+        let locationHidden = item["locationHidden"] as? Bool ?? false
+        guard ["open", "approval"].contains(door), locationHidden == (door == "approval") else { return nil }
+        let requiresApproval = door == "approval"
+        if requiresApproval {
+            let placed = ["venueName", "latitude", "longitude", "distanceMiles"].contains { key in
+                guard let value = item[key], !(value is NSNull) else { return false }
+                return !((value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? false)
+            }
+            if placed { return nil }
+            if let accessMode = item["accessMode"] as? String, accessMode != NativePartyAccessMode.privateApproval.rawValue { return nil }
+        } else {
+            guard let accessMode = item["accessMode"] as? String, ["free-rsvp", "paid-ticket"].contains(accessMode) else { return nil }
+            // Never accept a contradictory private row on the open door.
+            if let disclosure = item["locationDisclosure"] as? String, disclosure != "public" { return nil }
+            if item["templateId"] as? String == "private-party" { return nil }
+        }
         if let status = item["status"] as? String, status != "published" { return nil }
-        if item["templateId"] as? String == "private-party" { return nil }
-        let capability = item["capability"] as? String ?? "details"
+        let accessMode = item["accessMode"] as? String ?? NativePartyAccessMode.privateApproval.rawValue
+        let hostType = (item["hostType"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let hostCategory = (item["hostCategory"] as? String).flatMap(NativeHostCategory.init(rawValue:))
+            ?? hostType.flatMap(NativeHostType.type(id:))?.category
+        let capability = requiresApproval ? "request" : item["capability"] as? String ?? "details"
         let tier = (item["requiredMembershipTier"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let venueName = (item["venueName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let spacesRemaining = item["spacesRemaining"] as? Int
@@ -4798,11 +4872,24 @@ final class NativeTabContentStore: ObservableObject {
             .first { !$0.isEmpty }
             .flatMap(URL.init(string:))
             .flatMap { $0.scheme?.lowercased() == "https" ? $0 : nil }
+        if requiresApproval {
+            var card = NativeDiscoverSummary(
+                id: "party-\(id)", type: "event", title: title,
+                subtitle: approvalSubtitle, distance: "", rating: "", icon: "person.3.fill", verified: true,
+                entryType: "free", cta: approvalCTA, imageUrl: coverURL,
+                categoryLabel: approvalCategoryLabel, badgeText: "REQUEST",
+                metadataLine: timeLabel,
+                features: [approvalCategoryLabel] + (tier.isEmpty ? [] : ["\(tier.capitalized) members"]),
+                vibeScore: 8, availability: timeLabel, membershipRequired: !tier.isEmpty,
+                control: NativeDiscoverCardControl.vendor, latitude: nil, longitude: nil)
+            card.nearbyParty = NativeNearbyParty(partyID: id, startsAt: startsAt, spacesRemaining: nil,
+                hostCategory: hostCategory, hostType: hostType, requiresApproval: true)
+            return card
+        }
         var card = NativeDiscoverSummary(
             id: "party-\(id)",
-            // These are time-bound, seated, host-supplied events. Filing them
-            // under Celebrate would claim the private-party category the
-            // server gate makes unreachable.
+            // Time-bound, host-supplied events keep the Events rail; the host
+            // category adds its own rail on top (see NativeHostCategory.discoverRail).
             type: "event",
             title: title,
             // The host's own words for where it is. Never a guess.
@@ -4830,9 +4917,14 @@ final class NativeTabContentStore: ObservableObject {
             latitude: item["latitude"] as? Double,
             longitude: item["longitude"] as? Double
         )
-        card.nearbyParty = NativeNearbyParty(partyID: id, startsAt: startsAt, spacesRemaining: spacesRemaining)
+        card.nearbyParty = NativeNearbyParty(partyID: id, startsAt: startsAt, spacesRemaining: spacesRemaining,
+            hostCategory: hostCategory, hostType: hostType)
         return card
     }
+
+    static let approvalCategoryLabel = "Host approves guests"
+    static let approvalCTA = "Request to join"
+    static let approvalSubtitle = "Location after approval"
 
     static func partyCapabilityLabel(_ capability: String) -> String {
         switch capability {
@@ -4975,7 +5067,12 @@ final class NativeTabContentStore: ObservableObject {
         return cards.compactMap { card in
             // Nearby is already a geographic query; validate its coordinates
             // without matching it to an unrelated venue by title or ID fragment.
-            if card.nearbyParty != nil {
+            if let party = card.nearbyParty {
+                // An approval row is placed by the server's own radius query
+                // and must never acquire coordinates on the device.
+                if party.locationHidden {
+                    return location.isFallback || card.latitude != nil || card.longitude != nil ? nil : card
+                }
                 guard !location.isFallback, card.hasKnownCoordinates,
                       let miles = location.distanceMiles(toLatitude: card.latitude, longitude: card.longitude),
                       miles.isFinite, miles <= localVenueRadiusMiles else { return nil }

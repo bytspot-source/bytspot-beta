@@ -192,6 +192,62 @@ enum NativeConciergeContract {
     }
 }
 
+/// Phase 5: a photo only suggests dish names. The guest confirms a name, which then uses the text search.
+enum NativeDishPhotoContract {
+    static let path = "/trpc/concierge.identifyDish"
+    static let maximumBytes = 600_000
+    static let maximumNameLength = 60
+    static let disclosure = "Bytspot sends this photo to OpenAI to suggest dish names. Bytspot does not save the photo."
+
+    static func requestBody(jpeg: Data) throws -> Data {
+        guard jpeg.count > 3, jpeg.count <= maximumBytes,
+              jpeg.starts(with: [0xFF, 0xD8, 0xFF]) else { throw BytspotAPIClient.APIError.invalidResponse }
+        return try JSONSerialization.data(withJSONObject: ["image": "data:image/jpeg;base64," + jpeg.base64EncodedString()])
+    }
+
+    static func validName(_ name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && trimmed == name && name.count <= maximumNameLength &&
+            name.rangeOfCharacter(from: .controlCharacters.union(.newlines)) == nil &&
+            name.rangeOfCharacter(from: CharacterSet(charactersIn: "<>@/:\\")) == nil
+    }
+}
+
+struct NativeDishIdentification: Decodable, Equatable {
+    enum Status: String, Decodable { case identified, uncertain, notFood = "not_food", invalidPhoto = "invalid_photo", unavailable }
+    enum Confidence: String, Decodable { case high, medium, low }
+    struct Candidate: Decodable, Equatable, Hashable {
+        let name: String
+        let confidence: Confidence
+    }
+    let version: Int
+    let status: Status
+    let reply: String
+    let candidates: [Candidate]
+
+    private enum CodingKeys: String, CodingKey { case version, status, reply, candidates }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decode(Int.self, forKey: .version)
+        status = try values.decode(Status.self, forKey: .status)
+        reply = try values.decode(String.self, forKey: .reply)
+        candidates = try values.decode([Candidate].self, forKey: .candidates)
+        let names = candidates.map { $0.name.lowercased() }
+        let shapeIsValid: Bool
+        switch status {
+        case .identified: shapeIsValid = candidates.first?.confidence == .high
+        case .uncertain: shapeIsValid = true
+        case .notFood, .invalidPhoto, .unavailable: shapeIsValid = candidates.isEmpty
+        }
+        guard version == 1, shapeIsValid, candidates.count <= 3, Set(names).count == names.count,
+              candidates.allSatisfy({ NativeDishPhotoContract.validName($0.name) }),
+              !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, reply.count <= 300 else {
+            throw DecodingError.dataCorruptedError(forKey: .candidates, in: values, debugDescription: "Invalid dish identification")
+        }
+    }
+}
+
 struct NativeConciergeMessage: Codable, Equatable {
     enum Role: String, Codable { case user, assistant }
     let role: Role
@@ -508,6 +564,31 @@ struct NativeConciergeAPI {
               (200..<300).contains(http.statusCode) else { throw BytspotAPIClient.APIError.invalidResponse }
         let payload = BytspotAPIClient.unwrapTRPCData(try JSONSerialization.jsonObject(with: data))
         return try decodeResponse(JSONSerialization.data(withJSONObject: payload))
+    }
+
+    func makeIdentifyDishRequest(jpeg: Data) throws -> URLRequest {
+        guard let authorization = client.tokenProvider(),
+              !authorization.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              authorization != "guest_session" else { throw AccessError.signInRequired }
+        var scopedClient = client
+        scopedClient.tokenProvider = { authorization }
+        var request = try scopedClient.makeRequest(path: NativeDishPhotoContract.path, method: "POST",
+                                                   body: NativeDishPhotoContract.requestBody(jpeg: jpeg))
+        // Upload plus the server's 12 s provider limit.
+        request.timeoutInterval = 20
+        return request
+    }
+
+    /// Same rule as discover: never replayed by the global 401 renewer; the guest retries explicitly.
+    func identifyDish(jpeg: Data) async throws -> NativeDishIdentification {
+        try Task.checkCancellation()
+        let urlRequest = try makeIdentifyDishRequest(jpeg: jpeg)
+        let (data, response) = try await client.urlSession.data(for: urlRequest)
+        try Task.checkCancellation()
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else { throw BytspotAPIClient.APIError.invalidResponse }
+        let payload = BytspotAPIClient.unwrapTRPCData(try JSONSerialization.jsonObject(with: data))
+        return try JSONDecoder().decode(NativeDishIdentification.self, from: JSONSerialization.data(withJSONObject: payload))
     }
 
     /// Pass the requesting client's origin into nested evidence decoders, including custom API bases.

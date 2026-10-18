@@ -7,6 +7,7 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 import CryptoKit
 import AVKit
+import AVFoundation
 import Contacts
 import Combine
 
@@ -19292,6 +19293,14 @@ final class NativeConciergeModel: ObservableObject {
     @Published private(set) var notice: String?
     @Published private(set) var canRetry = false
     @Published var detailVenue: NativeVenueSummary?
+    @Published private(set) var photoPreview: UIImage?
+    @Published private(set) var isIdentifying = false
+    @Published private(set) var identification: NativeDishIdentification?
+    @Published private(set) var photoNotice: String?
+    @Published private(set) var canRetryPhoto = false
+    private var photoJPEG: Data?
+    private var photoTask: Task<Void, Never>?
+    private var photoGeneration = UUID()
     private var requestGuard = NativeConciergeRequestGuard()
     private var searchTask: Task<Void, Never>?
     private var observations = Set<AnyCancellable>()
@@ -19346,6 +19355,78 @@ final class NativeConciergeModel: ObservableObject {
         notice = nil
         canRetry = false
         detailVenue = nil
+        removePhoto()
+    }
+
+    /// The prepared photo stays in memory only and is discarded with the conversation.
+    func attachPhoto(_ image: UIImage?) {
+        guard let image else { return }
+        removePhoto()
+        guard isSignedIn else { photoNotice = "Sign in to search with a photo."; return }
+        guard let prepared = NativeDishPhotoPreparer.prepare(image) else {
+            photoNotice = "This photo can't be used. Try another photo or type the dish name."
+            return
+        }
+        photoJPEG = prepared.jpeg
+        photoPreview = prepared.preview
+        identifyPhoto()
+    }
+
+    func identifyPhoto() {
+        guard let jpeg = photoJPEG, !isIdentifying, let session, session.canAttachBearerToken,
+              let accountID = session.authenticatedUserID else { return }
+        let authorization = session.token
+        let generation = UUID()
+        photoGeneration = generation
+        identification = nil
+        photoNotice = nil
+        canRetryPhoto = false
+        isIdentifying = true
+        let api = NativeConciergeAPI(client: BytspotAPIClient(tokenProvider: { authorization }))
+        photoTask = Task { @MainActor [weak self] in
+            var outcome: NativeDishIdentification?
+            do { outcome = try await api.identifyDish(jpeg: jpeg) } catch { outcome = nil }
+            guard let self, self.photoGeneration == generation, !Task.isCancelled,
+                  self.session?.canAttachBearerToken == true, self.session?.token == authorization,
+                  self.session?.authenticatedUserID == accountID else { return }
+            self.isIdentifying = false
+            self.photoTask = nil
+            guard let outcome else {
+                self.photoNotice = "Photo identification couldn't be completed. Please try again."
+                self.canRetryPhoto = true
+                return
+            }
+            self.identification = outcome
+            self.canRetryPhoto = outcome.status == .unavailable
+        }
+    }
+
+    func showPhotoNotice(_ text: String) {
+        removePhoto()
+        photoNotice = text
+    }
+
+    func removePhoto() {
+        photoGeneration = UUID()
+        photoTask?.cancel()
+        photoTask = nil
+        photoJPEG = nil
+        photoPreview = nil
+        identification = nil
+        photoNotice = nil
+        canRetryPhoto = false
+        isIdentifying = false
+    }
+
+    /// A confirmed name uses the same text search, so menu-evidence rules are unchanged.
+    func chooseDish(_ name: String) {
+        guard NativeDishPhotoContract.validName(name), !isSearching else { return }
+        guard canSearch else {
+            notice = isSignedIn ? NativeConciergeContract.locationRequired : "Sign in to search for nearby places."
+            return
+        }
+        removePhoto()
+        send(name)
     }
 
     func disappear() {
@@ -19442,6 +19523,9 @@ private struct NativeConciergeView: View {
     var openNativeAuth: (() -> Void)? = nil
     @StateObject private var model = NativeConciergeModel()
     @State private var didRunPreviewPrompt = false
+    @State private var choosingPhotoSource = false
+    @State private var showingCamera = false
+    @State private var showingLibrary = false
     @AppStorage(NativeConciergeHandoffStore.promptKey) private var handoffPrompt = ""
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var locationStore: NativeLocationStore
@@ -19541,6 +19625,9 @@ private struct NativeConciergeView: View {
                             }
                         }
                     }
+                    if model.photoPreview != nil || model.photoNotice != nil {
+                        photoPanel
+                    }
                     if model.isSearching {
                         HStack {
                             ProgressView()
@@ -19566,6 +19653,111 @@ private struct NativeConciergeView: View {
         .accessibilityIdentifier("native-concierge-transcript")
     }
 
+    nonisolated static func confidenceLabel(_ confidence: NativeDishIdentification.Confidence) -> String {
+        switch confidence {
+        case .high: return "Likely"
+        case .medium: return "Possible"
+        case .low: return "Less likely"
+        }
+    }
+
+    private var photoPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let preview = model.photoPreview {
+                Image(uiImage: preview).resizable().scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: 180, alignment: .leading)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .accessibilityLabel("Your food photo")
+            }
+            if model.isIdentifying {
+                HStack {
+                    ProgressView()
+                    Text("Identifying dish…").font(.body)
+                    Spacer(minLength: 8)
+                    Button("Stop") { model.removePhoto() }.frame(minWidth: 44, minHeight: 44)
+                }
+            }
+            if let identification = model.identification {
+                Text(identification.reply).font(.body).fixedSize(horizontal: false, vertical: true)
+                ForEach(identification.candidates, id: \.self) { candidate in
+                    Button { model.chooseDish(candidate.name) } label: {
+                        HStack {
+                            Text(candidate.name).font(.headline)
+                            Spacer(minLength: 8)
+                            Text(Self.confidenceLabel(candidate.confidence)).font(.subheadline)
+                                .foregroundColor(NativeTheme.textSecondary)
+                        }
+                        .padding(.horizontal, 14).frame(maxWidth: .infinity, minHeight: 44)
+                        .background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(model.isSearching)
+                    .accessibilityLabel("Search nearby for \(candidate.name), \(Self.confidenceLabel(candidate.confidence))")
+                }
+                if identification.status == .identified || identification.status == .uncertain {
+                    Text("Not right? Type the dish name below. A name from a photo is a guess, not a menu listing.")
+                        .font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if let notice = model.photoNotice {
+                Text(notice).font(.body).fixedSize(horizontal: false, vertical: true)
+                if AVCaptureDevice.authorizationStatus(for: .video) == .denied {
+                    Button("Open Settings") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                    }.frame(minHeight: 44)
+                }
+            }
+            HStack(spacing: 16) {
+                if model.canRetryPhoto && model.photoPreview != nil {
+                    Button("Retry") { model.identifyPhoto() }.frame(minHeight: 44)
+                }
+                if model.photoPreview != nil && !model.isIdentifying {
+                    Button("Remove photo") { model.removePhoto() }.frame(minHeight: 44)
+                }
+            }
+        }
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(NativePolish.elevatedSurface.opacity(0.6)).clipShape(RoundedRectangle(cornerRadius: 22))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("native-concierge-photo")
+    }
+
+    private func openCamera() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .denied, .restricted:
+            model.showPhotoNotice("Camera access is off. Turn it on in Settings, or choose a photo from your library.")
+        default:
+            showingCamera = true
+        }
+    }
+
+    private var photoButton: some View {
+        Button { choosingPhotoSource = true } label: {
+            Image(systemName: "camera.fill").font(.headline).frame(width: 44, height: 44)
+        }
+        .accessibilityLabel("Search with a food photo")
+        .disabled(!model.isSignedIn || model.isIdentifying || model.isSearching)
+        .confirmationDialog("Search with a food photo", isPresented: $choosingPhotoSource, titleVisibility: .visible) {
+            if NativeCameraPicker.isAvailable {
+                Button("Take photo") { openCamera() }
+            }
+            Button("Choose from library") { showingLibrary = true }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(NativeDishPhotoContract.disclosure)
+        }
+        .fullScreenCover(isPresented: $showingCamera) {
+            NativeCameraPicker { image in
+                showingCamera = false
+                model.attachPhoto(image)
+            }.ignoresSafeArea()
+        }
+        .sheet(isPresented: $showingLibrary) {
+            NativePartyPhotoPicker(selectionLimit: 1) { images in model.attachPhoto(images.first) }
+        }
+    }
+
     @ViewBuilder private var locationButton: some View {
         if locationStore.authorizationState == .denied || locationStore.authorizationState == .restricted || locationStore.authorizationState == .unavailable {
             Button("Open Settings") {
@@ -19586,6 +19778,7 @@ private struct NativeConciergeView: View {
 
     private var composer: some View {
         HStack(alignment: .center, spacing: 8) {
+            photoButton
             messageInput
                 .font(.body).padding(12).frame(minHeight: 44)
                 .background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 16))
@@ -19620,6 +19813,62 @@ private struct NativeConciergeView: View {
         model.draft = prompt
     }
 
+}
+
+/// Resize and re-encode before upload. Redrawing drops EXIF/GPS metadata; the API strips it again.
+enum NativeDishPhotoPreparer {
+    static let maximumDimension: CGFloat = 1024
+    struct Prepared {
+        let jpeg: Data
+        let preview: UIImage
+    }
+
+    static func prepare(_ image: UIImage) -> Prepared? {
+        let size = image.size
+        guard size.width.isFinite, size.height.isFinite, size.width >= 1, size.height >= 1 else { return nil }
+        let scale = min(1, maximumDimension / max(size.width, size.height))
+        let target = CGSize(width: max(1, (size.width * scale).rounded()), height: max(1, (size.height * scale).rounded()))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let rendered = UIGraphicsImageRenderer(size: target, format: format).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: target))
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+        for quality: CGFloat in [0.75, 0.6, 0.45, 0.3] {
+            if let data = rendered.jpegData(compressionQuality: quality), data.count <= NativeDishPhotoContract.maximumBytes {
+                return Prepared(jpeg: data, preview: rendered)
+            }
+        }
+        return nil
+    }
+}
+
+struct NativeCameraPicker: UIViewControllerRepresentable {
+    let completion: (UIImage?) -> Void
+
+    static var isAvailable: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
+
+    func makeCoordinator() -> Coordinator { Coordinator(completion: completion) }
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.allowsEditing = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let completion: (UIImage?) -> Void
+        init(completion: @escaping (UIImage?) -> Void) { self.completion = completion }
+        func imagePickerController(_ picker: UIImagePickerController,
+                                   didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            completion(info[.originalImage] as? UIImage)
+        }
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { completion(nil) }
+    }
 }
 
 private struct NativeConciergeMessageBubble: View {

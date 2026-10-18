@@ -1,6 +1,7 @@
 import XCTest
 import Combine
 import CoreLocation
+import UIKit
 @testable import App
 
 /// Release A tests live in an existing compiled XCTest file; no project membership changes.
@@ -52,6 +53,77 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         let decoded = try api.decodeResponse(JSONSerialization.data(withJSONObject: response(cards: [card(fields)])))
         guard let first = decoded.cards.first else { throw BytspotAPIClient.APIError.invalidResponse }
         return first
+    }
+
+    private func identification(_ value: [String: Any]) throws -> NativeDishIdentification {
+        try JSONDecoder().decode(NativeDishIdentification.self, from: JSONSerialization.data(withJSONObject: value))
+    }
+
+    func testDishIdentificationDecodesOnlyValidatedShapes() throws {
+        let valid: [String: Any] = ["version": 1, "status": "identified", "reply": "This looks like the dish below.",
+            "candidates": [["name": "Jollof rice", "confidence": "high"], ["name": "Fried rice", "confidence": "medium"]]]
+        XCTAssertEqual(try identification(valid).candidates.map(\.name), ["Jollof rice", "Fried rice"])
+        XCTAssertEqual(try identification(["version": 1, "status": "uncertain", "reply": "Not sure.", "candidates": []]).candidates, [])
+        XCTAssertEqual(try identification(["version": 1, "status": "not_food", "reply": "No food.", "candidates": []]).status, .notFood)
+        let invalidChanges: [[String: Any]] = [
+            ["version": 2], ["status": "booked"], ["status": "not_food"], ["status": "unavailable"], ["status": "invalid_photo"],
+            ["candidates": [["name": "Rice", "confidence": "medium"]]],
+            ["candidates": [["name": "Rice", "confidence": "high"], ["name": "rice", "confidence": "low"]]],
+            ["candidates": [["name": "https://evil.test", "confidence": "high"]]],
+            ["candidates": [["name": " Rice", "confidence": "high"]]],
+            ["candidates": [["name": "Rice\nnow", "confidence": "high"]]],
+            ["candidates": [["name": String(repeating: "a", count: 61), "confidence": "high"]]],
+            ["candidates": (1...4).map { ["name": "Dish \($0)", "confidence": "high"] }],
+            ["candidates": [["name": "Rice", "confidence": "certain"]]],
+            ["reply": " "], ["reply": String(repeating: "a", count: 301)]
+        ]
+        for change in invalidChanges {
+            XCTAssertThrowsError(try identification(valid.merging(change) { _, new in new }), "\(change.keys.sorted())")
+        }
+    }
+
+    func testDishPhotoRequestRequiresSignInAndSendsOnlyAJPEGDataURI() throws {
+        let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0xFF, 0xD9])
+        XCTAssertThrowsError(try NativeConciergeAPI(client: BytspotAPIClient(baseURL: menuAPIBase, tokenProvider: { nil }))
+            .makeIdentifyDishRequest(jpeg: jpeg))
+        XCTAssertThrowsError(try NativeConciergeAPI(client: BytspotAPIClient(baseURL: menuAPIBase, tokenProvider: { "guest_session" }))
+            .makeIdentifyDishRequest(jpeg: jpeg))
+        let api = NativeConciergeAPI(client: BytspotAPIClient(baseURL: menuAPIBase, tokenProvider: { "member-test-token" }))
+        let request = try api.makeIdentifyDishRequest(jpeg: jpeg)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/trpc/concierge.identifyDish")
+        XCTAssertEqual(request.timeoutInterval, 20)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: String])
+        XCTAssertEqual(Array(body.keys), ["image"])
+        XCTAssertEqual(body["image"], "data:image/jpeg;base64," + jpeg.base64EncodedString())
+        XCTAssertThrowsError(try api.makeIdentifyDishRequest(jpeg: Data([0x89, 0x50, 0x4E, 0x47])))
+        XCTAssertThrowsError(try api.makeIdentifyDishRequest(jpeg: Data([0xFF, 0xD8, 0xFF]) + Data(count: NativeDishPhotoContract.maximumBytes)))
+    }
+
+    func testDishPhotoPreparerResizesAndBoundsTheUpload() throws {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let large = UIGraphicsImageRenderer(size: CGSize(width: 3000, height: 2000), format: format).image { context in
+            UIColor.orange.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 3000, height: 2000))
+        }
+        let prepared = try XCTUnwrap(NativeDishPhotoPreparer.prepare(large))
+        XCTAssertEqual(prepared.preview.size, CGSize(width: 1024, height: 683))
+        XCTAssertLessThanOrEqual(prepared.jpeg.count, NativeDishPhotoContract.maximumBytes)
+        XCTAssertTrue(prepared.jpeg.starts(with: [0xFF, 0xD8, 0xFF]))
+        XCTAssertNoThrow(try NativeDishPhotoContract.requestBody(jpeg: prepared.jpeg))
+        XCTAssertNil(NativeDishPhotoPreparer.prepare(UIImage()))
+    }
+
+    func testSignedOutPhotoIsNotKeptOrSent() {
+        let model = NativeConciergeModel()
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { _ in }
+        model.attachPhoto(image)
+        XCTAssertNil(model.photoPreview)
+        XCTAssertFalse(model.isIdentifying)
+        XCTAssertEqual(model.photoNotice, "Sign in to search with a photo.")
+        model.removePhoto()
+        XCTAssertNil(model.photoNotice)
     }
 
     func testMenuEvidenceIsAdditiveAndBindsCanonicalRevisionToRequestingAPI() throws {

@@ -59,6 +59,76 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         try JSONDecoder().decode(NativeDishIdentification.self, from: JSONSerialization.data(withJSONObject: value))
     }
 
+    private let opentableAction: [String: Any] = ["type": "book_table", "provider": "opentable", "label": "OpenTable",
+                                                  "url": "https://www.opentable.com/r/neighborhood-coffee"]
+
+    func testCardActionsDecodeOnlySupportedServerFacts() throws {
+        let actions: [[String: Any]] = [["type": "directions"], ["type": "website"], opentableAction, ["type": "save"]]
+        let full = try decode(response(cards: [card(["websiteUrl": "https://coffee.example.com", "actions": actions])]))
+        XCTAssertEqual(full.cards[0].actions, [.directions, .website,
+            .bookTable(url: URL(string: "https://www.opentable.com/r/neighborhood-coffee")!, label: "OpenTable"), .save])
+        let dropped: [[[String: Any]]] = [
+            [["type": "pay"], ["type": "website"], ["type": "directions", "url": "https://evil.example.com"], ["type": "save"]],
+            [opentableAction.merging(["url": "https://evil.example.com/r"]) { _, new in new }, ["type": "save"]],
+            [opentableAction.merging(["label": "Resy"]) { _, new in new }, ["type": "save"]],
+            [opentableAction.merging(["url": "http://www.opentable.com/r"]) { _, new in new }, ["type": "save"], ["type": "save"]]
+        ]
+        for actions in dropped {
+            XCTAssertEqual(try decode(response(cards: [card(["actions": actions])])).cards[0].actions, [.save])
+        }
+        XCTAssertEqual(try decode(response(cards: [card(["placeId": NSNull(), "kind": "venue", "id": "venue-one", "source": "bytspot",
+                                                        "actions": [opentableAction]])])).cards[0].actions, [])
+        XCTAssertThrowsError(try decode(response(cards: [card(["actions": Array(repeating: ["type": "save"], count: 5)])])))
+        XCTAssertEqual(try decode(response(cards: [card(["websiteUrl": "https://coffee.example.com"])])).cards[0].actions,
+                       [.directions, .website, .save])
+    }
+
+    func testProposalMustNameAShownCardAction() throws {
+        let shown = card(["actions": [["type": "directions"], ["type": "save"]]])
+        let valid = try decode(response(cards: [shown], changes: ["proposal": ["type": "directions", "cardId": "gp:place-one"]]))
+        XCTAssertEqual(valid.proposedAction?.card.id, "gp:place-one")
+        XCTAssertEqual(valid.proposedAction?.action, .directions)
+        let rejected: [Any] = [["type": "website", "cardId": "gp:place-one"], ["type": "directions", "cardId": "gp:other"],
+                               ["type": "pay", "cardId": "gp:place-one"], ["type": "directions", "cardId": "gp:place-one", "auto": "true"],
+                               ["type": 1], NSNull()]
+        for proposal in rejected {
+            XCTAssertNil(try decode(response(cards: [shown], changes: ["proposal": proposal])).proposedAction)
+        }
+        XCTAssertNil(try decode(response(cards: [shown])).proposal)
+    }
+
+    func testApprovalTextNamesThePlaceAndNeverClaimsABooking() throws {
+        let coffee = try decode(response(cards: [card(["websiteUrl": "https://coffee.example.com"])])).cards[0]
+        let booking = NativeConciergeAction.bookTable(url: URL(string: "https://resy.com/cities/x")!, label: "Resy")
+        XCTAssertEqual(NativeConciergeActionPresentation.approveTitle(.directions, isSaved: false), "Open Apple Maps")
+        XCTAssertEqual(NativeConciergeActionPresentation.approvalTitle(booking, card: coffee, isSaved: false), "Open Resy for Neighborhood Coffee?")
+        XCTAssertTrue(NativeConciergeActionPresentation.approvalMessage(booking, card: coffee, isSaved: false)
+            .contains("Bytspot does not make or confirm the booking."))
+        XCTAssertTrue(NativeConciergeActionPresentation.approvalMessage(.website, card: coffee, isSaved: false).contains("coffee.example.com"))
+        XCTAssertEqual(NativeConciergeActionPresentation.buttonTitle(.save, card: coffee, isSaved: true), "Saved")
+        XCTAssertEqual(NativeConciergeActionPresentation.approveTitle(.save, isSaved: true), "Remove")
+        for action in [NativeConciergeAction.directions, .website, booking, .save] {
+            for saved in [false, true] {
+                let text = NativeConciergeActionPresentation.approvalTitle(action, card: coffee, isSaved: saved) + " "
+                    + NativeConciergeActionPresentation.approvalMessage(action, card: coffee, isSaved: saved)
+                XCTAssertTrue(text.contains("Neighborhood Coffee"), text)
+                XCTAssertNil(text.range(of: #"\b(booked|confirmed|ordered|paid|reserved)\b"#, options: [.regularExpression, .caseInsensitive]), text)
+            }
+        }
+    }
+
+    func testSignedOutModelCannotQueueOrApproveAnAction() throws {
+        let model = NativeConciergeModel()
+        let coffee = try decode(response()).cards[0]
+        model.requestAction(.directions, on: coffee)
+        XCTAssertNil(model.pendingAction)
+        XCTAssertNil(model.proposal)
+        let forged = NativeConciergePendingAction(card: coffee, action: .save, accountID: "someone", fromProposal: false, isSaved: false)
+        XCTAssertNil(model.approve(forged))
+        XCTAssertEqual(model.actionNotice, "This action is no longer available. Search again.")
+        XCTAssertFalse(NativeVenueSavedState.contains(venueID: coffee.venueSummary.id, userID: "someone"))
+    }
+
     func testDishIdentificationDecodesOnlyValidatedShapes() throws {
         let valid: [String: Any] = ["version": 1, "status": "identified", "reply": "This looks like the dish below.",
             "candidates": [["name": "Jollof rice", "confidence": "high"], ["name": "Fried rice", "confidence": "medium"]]]
@@ -633,8 +703,11 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertTrue(concierge.contains("Link(\"View source menu\", destination: item.sourceUrl)"))
         XCTAssertTrue(concierge.contains("does not guarantee current availability or dietary safety"))
         XCTAssertTrue(concierge.contains("Text(ratingLabel)"))
-        XCTAssertTrue(concierge.contains("if let websiteURL = card.websiteURL"))
-        XCTAssertTrue(concierge.contains("Link(card.websiteLabel, destination: websiteURL)"))
+        XCTAssertTrue(concierge.contains("ForEach(card.actions, id: \\.self)"))
+        XCTAssertTrue(concierge.contains("Button(title) { requestAction(action) }"))
+        XCTAssertTrue(concierge.contains("if let url = approved.card.websiteURL { openURL(url) }"))
+        XCTAssertTrue(concierge.contains("guard let approved = model.approve(pending) else { return }"))
+        XCTAssertFalse(concierge.contains("Link(card.websiteLabel"))
         XCTAssertTrue(concierge.contains("not a verified menu"))
         XCTAssertFalse(concierge.contains("Link(\"Menu\", destination: websiteURL)"))
         XCTAssertFalse(concierge.contains("vendor onboarding"))

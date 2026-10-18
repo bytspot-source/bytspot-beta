@@ -19288,7 +19288,14 @@ final class NativeConciergeModel: ObservableObject {
     }
     @Published var draft = ""
     @Published private(set) var turns: [Turn] = []
-    @Published private(set) var result: NativeConciergeResponse?
+    @Published private(set) var result: NativeConciergeResponse? {
+        didSet { pendingAction = nil; proposalHandled = false; actionNotice = nil }
+    }
+    /// A card action waiting for the guest's approval. Nothing runs before approve(_:).
+    @Published var pendingAction: NativeConciergePendingAction?
+    @Published private(set) var proposalHandled = false
+    @Published private(set) var actionNotice: String?
+    @Published private(set) var savedRevision = 0
     @Published private(set) var isSearching = false
     @Published private(set) var notice: String?
     @Published private(set) var canRetry = false
@@ -19399,6 +19406,52 @@ final class NativeConciergeModel: ObservableObject {
             self.identification = outcome
             self.canRetryPhoto = outcome.status == .unavailable
         }
+    }
+
+    var proposal: NativeConciergePendingAction? {
+        guard !proposalHandled, let accountID = session?.authenticatedUserID,
+              let proposed = result?.proposedAction else { return nil }
+        return NativeConciergePendingAction(card: proposed.card, action: proposed.action, accountID: accountID,
+                                            fromProposal: true, isSaved: isSaved(proposed.card))
+    }
+
+    func isSaved(_ card: NativeConciergeCard) -> Bool {
+        NativeVenueSavedState.contains(venueID: card.venueSummary.id, userID: session?.authenticatedUserID)
+    }
+
+    /// A card button only asks for approval; it never runs the action.
+    func requestAction(_ action: NativeConciergeAction, on card: NativeConciergeCard) {
+        guard isSignedIn, let accountID = session?.authenticatedUserID, isCurrent(action, on: card) else { return }
+        pendingAction = NativeConciergePendingAction(card: card, action: action, accountID: accountID,
+                                                     fromProposal: false, isSaved: isSaved(card))
+    }
+
+    func decline(_ pending: NativeConciergePendingAction) {
+        if pendingAction == pending { pendingAction = nil }
+        if pending.fromProposal { proposalHandled = true }
+    }
+
+    /// Runs at most one approved action. Returns the action for device handoffs, or nil if it is no longer valid.
+    func approve(_ pending: NativeConciergePendingAction) -> NativeConciergePendingAction? {
+        if pendingAction == pending { pendingAction = nil }
+        if pending.fromProposal { proposalHandled = true }
+        guard isSignedIn, session?.authenticatedUserID == pending.accountID,
+              isCurrent(pending.action, on: pending.card) else {
+            actionNotice = "This action is no longer available. Search again."
+            return nil
+        }
+        if pending.action == .save {
+            let saved = NativeVenueSavedState.toggle(venueID: pending.card.venueSummary.id, userID: pending.accountID)
+            savedRevision += 1
+            actionNotice = saved ? "Saved \(pending.card.name) on this device." : "Removed \(pending.card.name) from saved places on this device."
+        } else {
+            actionNotice = nil
+        }
+        return pending
+    }
+
+    private func isCurrent(_ action: NativeConciergeAction, on card: NativeConciergeCard) -> Bool {
+        result?.cards.contains(where: { $0 == card && $0.actions.contains(action) }) == true
     }
 
     func showPhotoNotice(_ text: String) {
@@ -19559,6 +19612,15 @@ private struct NativeConciergeView: View {
             NativeVenueDetailView(venue: venue, openHybrid: { _ in }, openNativeTab: openNativeTab,
                                   openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess)
         }
+        .confirmationDialog(Text(model.pendingAction?.title ?? ""),
+                            isPresented: Binding(get: { model.pendingAction != nil },
+                                                 set: { if !$0 { model.pendingAction = nil } }),
+                            titleVisibility: .visible, presenting: model.pendingAction) { pending in
+            Button(pending.approveTitle) { perform(pending) }
+            Button("Cancel", role: .cancel) { model.decline(pending) }
+        } message: { pending in
+            Text(pending.message)
+        }
         .accessibilityIdentifier("native-concierge-preview")
     }
 
@@ -19618,12 +19680,19 @@ private struct NativeConciergeView: View {
                     }
                     if let result = model.result {
                         ForEach(result.cards) { card in
-                            NativeConciergePlaceCard(card: card) {
+                            NativeConciergePlaceCard(card: card, isSaved: model.isSaved(card),
+                                                     requestAction: { model.requestAction($0, on: card) }) {
                                 // Opening details does not need a new GPS fix. Account/location
                                 // transitions already clear these cards and dismiss the sheet.
                                 model.detailVenue = card.venueSummary
                             }
                         }
+                    }
+                    if let proposal = model.proposal {
+                        proposalPanel(proposal)
+                    }
+                    if let actionNotice = model.actionNotice {
+                        Text(actionNotice).font(.body).accessibilityIdentifier("native-concierge-action-notice")
                     }
                     if model.photoPreview != nil || model.photoNotice != nil {
                         photoPanel
@@ -19651,6 +19720,44 @@ private struct NativeConciergeView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("native-concierge-transcript")
+    }
+
+    private func proposalPanel(_ proposal: NativeConciergePendingAction) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Concierge suggests").font(.subheadline.weight(.semibold)).foregroundColor(NativeTheme.cyan)
+            Text(proposal.title).font(.headline).fixedSize(horizontal: false, vertical: true)
+            Text(proposal.message).font(.body).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 16) {
+                Button(proposal.approveTitle) { perform(proposal) }.font(.headline).frame(minHeight: 44)
+                Button("Not now") { model.decline(proposal) }.frame(minHeight: 44)
+            }
+        }
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 22))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("native-concierge-proposal")
+    }
+
+    /// The only place an approved Concierge action runs. One approval runs one action.
+    private func perform(_ pending: NativeConciergePendingAction) {
+        guard let approved = model.approve(pending) else { return }
+        switch approved.action {
+        case .directions:
+            let coordinate = CLLocationCoordinate2D(latitude: approved.card.lat, longitude: approved.card.lng)
+            let item = MKMapItem(placemark: MKPlacemark(coordinate: coordinate))
+            item.name = approved.card.name
+            item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDefault])
+        case .website:
+            if let url = approved.card.websiteURL { openURL(url) }
+        case .bookTable(let url, _):
+            if let placeID = approved.card.placeId, sessionStore.canAttachBearerToken {
+                let client = BytspotAPIClient(tokenProvider: { [credential = sessionStore.token] in credential })
+                Task { await NativeTableBookingTapAPI(client: client).record(placeID: placeID, surface: .concierge) }
+            }
+            openURL(url)
+        case .save:
+            break
+        }
     }
 
     nonisolated static func confidenceLabel(_ confidence: NativeDishIdentification.Confidence) -> String {
@@ -19815,6 +19922,63 @@ private struct NativeConciergeView: View {
 
 }
 
+struct NativeConciergePendingAction: Identifiable, Equatable {
+    let card: NativeConciergeCard
+    let action: NativeConciergeAction
+    let accountID: String
+    let fromProposal: Bool
+    let isSaved: Bool
+
+    var id: String { "\(fromProposal ? "proposal" : "card"):\(card.id):\(action.type)" }
+    var title: String { NativeConciergeActionPresentation.approvalTitle(action, card: card, isSaved: isSaved) }
+    var message: String { NativeConciergeActionPresentation.approvalMessage(action, card: card, isSaved: isSaved) }
+    var approveTitle: String { NativeConciergeActionPresentation.approveTitle(action, isSaved: isSaved) }
+}
+
+/// Every approval names the place and says exactly what happens. No text claims a booking or an order.
+enum NativeConciergeActionPresentation {
+    static func buttonTitle(_ action: NativeConciergeAction, card: NativeConciergeCard, isSaved: Bool) -> String {
+        switch action {
+        case .directions: return "Directions"
+        case .website: return card.websiteLabel
+        case .bookTable(_, let label): return "Book with \(label)"
+        case .save: return isSaved ? "Saved" : "Save"
+        }
+    }
+
+    static func approvalTitle(_ action: NativeConciergeAction, card: NativeConciergeCard, isSaved: Bool) -> String {
+        switch action {
+        case .directions: return "Open directions to \(card.name)?"
+        case .website: return "Open the website for \(card.name)?"
+        case .bookTable(_, let label): return "Open \(label) for \(card.name)?"
+        case .save: return isSaved ? "Remove \(card.name) from saved places?" : "Save \(card.name)?"
+        }
+    }
+
+    static func approvalMessage(_ action: NativeConciergeAction, card: NativeConciergeCard, isSaved: Bool) -> String {
+        switch action {
+        case .directions:
+            return "Apple Maps opens with directions to \(card.name). Check the route and opening hours before you go."
+        case .website:
+            return "Your browser opens \(card.websiteURL?.host ?? "the website"). A website is not a verified menu."
+        case .bookTable(_, let label):
+            return "\(label) opens. You book the table with \(label). Bytspot does not make or confirm the booking."
+        case .save:
+            return isSaved ? "Bytspot removes this place from saved places on this device."
+                : "Bytspot saves this place on this device for your account. This is not a booking."
+        }
+    }
+
+    static func approveTitle(_ action: NativeConciergeAction, isSaved: Bool) -> String {
+        switch action {
+        case .directions: return "Open Apple Maps"
+        case .website: return "Open website"
+        case .bookTable(_, let label): return "Open \(label)"
+        case .save: return isSaved ? "Remove" : "Save"
+        }
+    }
+}
+
 /// Resize and re-encode before upload. Redrawing drops EXIF/GPS metadata; the API strips it again.
 enum NativeDishPhotoPreparer {
     static let maximumDimension: CGFloat = 1024
@@ -19889,6 +20053,8 @@ private struct NativeConciergeMessageBubble: View {
 
 private struct NativeConciergePlaceCard: View {
     let card: NativeConciergeCard
+    var isSaved = false
+    var requestAction: (NativeConciergeAction) -> Void = { _ in }
     let openDetails: () -> Void
 
     var body: some View {
@@ -19914,11 +20080,13 @@ private struct NativeConciergePlaceCard: View {
             Button("View details", action: openDetails)
                 .font(.headline).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .accessibilityLabel("View details for \(card.name)")
-            if let websiteURL = card.websiteURL {
-                Link(card.websiteLabel, destination: websiteURL)
+            ForEach(card.actions, id: \.self) { action in
+                let title = NativeConciergeActionPresentation.buttonTitle(action, card: card, isSaved: isSaved)
+                Button(title) { requestAction(action) }
                     .font(.subheadline.weight(.semibold))
-                    .frame(minHeight: 44, alignment: .leading)
-                    .accessibilityHint("Opens the business website, not a verified menu.")
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .accessibilityLabel("\(title) for \(card.name)")
+                    .accessibilityHint("Asks for your approval first.")
             }
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)

@@ -295,6 +295,42 @@ struct NativeConciergeRequest: Encodable, Equatable {
     }
 }
 
+/// Phase 6: the only actions Concierge may offer. Each runs on this device after the guest approves it.
+enum NativeConciergeAction: Equatable, Hashable {
+    case directions
+    case website
+    case bookTable(url: URL, label: String)
+    case save
+
+    var type: String {
+        switch self {
+        case .directions: return "directions"
+        case .website: return "website"
+        case .bookTable: return "book_table"
+        case .save: return "save"
+        }
+    }
+
+    /// Unknown or malformed entries are dropped, so a card can never gain an action this build does not support.
+    static func decode(_ fields: [String: String]) -> NativeConciergeAction? {
+        switch fields["type"] ?? "" {
+        case "directions" where fields.count == 1: return .directions
+        case "website" where fields.count == 1: return .website
+        case "save" where fields.count == 1: return .save
+        case "book_table" where Set(fields.keys) == ["type", "provider", "label", "url"]:
+            guard let booking = NativeVenueDetailsDTO.tableBooking(["provider": fields["provider"] ?? "", "url": fields["url"] ?? ""]),
+                  booking.label == fields["label"] else { return nil }
+            return .bookTable(url: booking.url, label: booking.label)
+        default: return nil
+        }
+    }
+}
+
+struct NativeConciergeProposal: Equatable {
+    let type: String
+    let cardId: String
+}
+
 struct NativeConciergeCard: Decodable, Identifiable, Equatable {
     enum Kind: String, Decodable { case venue, place }
     enum Source: String, Decodable { case bytspot, google, googleStale = "google-stale" }
@@ -389,9 +425,10 @@ struct NativeConciergeCard: Decodable, Identifiable, Equatable {
     let rail: String
     let menuEvidence: [MenuEvidence]
     let websiteUrl: String?
+    let actions: [NativeConciergeAction]
 
     private enum CodingKeys: String, CodingKey {
-        case id, kind, placeId, name, address, lat, lng, category, rating, isOpen, photoUrl, crowd, reasons, capability, source, rail, menuEvidence, websiteUrl
+        case id, kind, placeId, name, address, lat, lng, category, rating, isOpen, photoUrl, crowd, reasons, capability, source, rail, menuEvidence, websiteUrl, actions
     }
 
     init(from decoder: Decoder) throws {
@@ -417,6 +454,22 @@ struct NativeConciergeCard: Decodable, Identifiable, Equatable {
             menuEvidence = try values.decode([MenuEvidence].self, forKey: .menuEvidence)
         } else {
             menuEvidence = []
+        }
+        let safeWebsite = websiteUrl.flatMap(Self.safeWebsiteURL) != nil
+        let hasPlaceID = placeId != nil
+        if values.contains(.actions) {
+            let raw = try values.decode([[String: String]].self, forKey: .actions)
+            guard raw.count <= 4 else { throw BytspotAPIClient.APIError.invalidResponse }
+            var seen = Set<String>()
+            actions = raw.compactMap(NativeConciergeAction.decode).filter { action in
+                guard seen.insert(action.type).inserted else { return false }
+                if action == .website { return safeWebsite }
+                if case .bookTable = action { return hasPlaceID }
+                return true
+            }
+        } else {
+            // Servers before Phase 6 omit actions; offer only the device actions that need no server fact.
+            actions = [.directions] + (safeWebsite ? [.website] : []) + [.save]
         }
         guard menuEvidence.count <= 3,
               menuEvidence.isEmpty || (kind == .venue && source == .bytspot && rail == "eat_drink"),
@@ -513,7 +566,9 @@ struct NativeConciergeResponse: Decodable, Equatable {
     let status: Status
     let cards: [NativeConciergeCard]
     let refinements: [String]
-    private enum CodingKeys: String, CodingKey { case version, reply, status, cards, refinements }
+    /// Only a suggestion for one shown card action. The guest must still approve it.
+    let proposal: NativeConciergeProposal?
+    private enum CodingKeys: String, CodingKey { case version, reply, status, cards, refinements, proposal }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -522,6 +577,15 @@ struct NativeConciergeResponse: Decodable, Equatable {
         status = try values.decode(Status.self, forKey: .status)
         cards = try values.decode([NativeConciergeCard].self, forKey: .cards)
         refinements = try values.decode([String].self, forKey: .refinements)
+        let decodedCards = cards
+        let rawProposal = (try? values.decodeIfPresent([String: String].self, forKey: .proposal)) ?? nil
+        if let rawProposal, Set(rawProposal.keys) == ["type", "cardId"], let type = rawProposal["type"],
+           let cardID = rawProposal["cardId"], status == .ready,
+           decodedCards.contains(where: { $0.id == cardID && $0.actions.contains { $0.type == type } }) {
+            proposal = NativeConciergeProposal(type: type, cardId: cardID)
+        } else {
+            proposal = nil
+        }
         guard version == 1, !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               reply.utf16.count <= 8_000, cards.count <= 3,
               Set(cards.map(\.id)).count == cards.count,
@@ -531,6 +595,12 @@ struct NativeConciergeResponse: Decodable, Equatable {
               refinements.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.utf16.count <= NativeConciergeContract.maximumMessageLength }) else {
             throw BytspotAPIClient.APIError.invalidResponse
         }
+    }
+
+    var proposedAction: (card: NativeConciergeCard, action: NativeConciergeAction)? {
+        guard let proposal, let card = cards.first(where: { $0.id == proposal.cardId }),
+              let action = card.actions.first(where: { $0.type == proposal.type }) else { return nil }
+        return (card, action)
     }
 
     var actionableRefinements: [String] {
@@ -3578,7 +3648,7 @@ struct NativeVenueDetailsAPI {
 /// Bytspot shows the restaurant. Fire and forget: a failed count never blocks
 /// the handoff.
 struct NativeTableBookingTapAPI {
-    enum Surface: String { case venue, plan }
+    enum Surface: String { case venue, plan, concierge }
     let client: BytspotAPIClient
 
     static func input(placeID: String, surface: Surface) -> [String: Any]? {

@@ -36,7 +36,8 @@ Thank you for reviewing Bytspot.
   - **Account deletion and restoration** — Profile → Safety & Legal
   - Home, Discover, Map, and Concierge browsing
 - Profile is opened from the Home screen (avatar/profile entry), not from the
-  tab bar.
+  tab bar. A guest sees **Sign In** at the bottom of Profile; a signed-in
+  member sees **Log Out**.
 
 ## Account Deletion — Guideline 5.1.1(v)
 
@@ -56,8 +57,9 @@ Thank you for reviewing Bytspot.
   decision reaching that guest, and arrival at the door), reservations and
   reminders. The App Clip may request ephemeral authorization for invite
   follow-up during the Clip session, as declared in the App Clip plist.
-- **Location** — optional. The app can be reviewed without granting it. The app
-  does **not** use background location.
+- **Location** — optional. The app can be reviewed without granting it; without
+  a location fix the Map opens on the last known area, or Midtown Atlanta,
+  instead of a world view. The app does **not** use background location.
 - **Contacts** — optional, and only requested from the Network screen. Contact
   discovery matches on salted hashes; raw contact details are not stored.
 
@@ -72,8 +74,12 @@ Thank you for reviewing Bytspot.
 - Occupancy and availability shown for venues is labelled by source. Anything
   described as typical is a historical pattern, not a live reading, and the app
   does not present the two as the same thing.
-- Payment for paid tickets is processed in-app through the platform payment
-  flow. Where a detector cannot settle a purchase, checkout is not offered.
+- Paid Party tickets are admission to real-world, in-person events
+  (Guideline 3.1.3(e) / 3.1.5(a)). They are paid through Stripe Checkout on
+  `checkout.stripe.com`: the full app opens it in Safari, and the App Clip in
+  a Safari view. A pass is granted only after the server confirms payment.
+  Paid venue offers on a Plan use the same Stripe Checkout. No digital content
+  or subscriptions are sold, so In-App Purchase is not used.
 
 ## Suggested Quick Path
 
@@ -91,8 +97,9 @@ Thank you for reviewing Bytspot.
 
 - The App Clip is invoked from Bytspot party invitation links hosted at
   `https://bytspot.app/party/…` (registered App Clip experience).
-- It presents the invitation with RSVP in a single screen; joining does not
-  require the full app.
+- It presents the invitation, with the host's cover when one is published, and
+  RSVP in a single screen; joining does not require the full app. Paid tiers
+  open Stripe Checkout as described above.
 - It may request ephemeral notification authorization so invite follow-up can be
   shown during the App Clip session.
 - A "Get the full app" handoff opens the App Store product page; state is shared

@@ -2,7 +2,7 @@ require "shellwords"
 require "spaceship"
 
 APP_IDENTIFIER = "com.bytspot.app"
-DEFAULT_IOS_RELEASE_NOTES = "Adds native Google Sign-In for iOS and improves account access in the native app."
+DEFAULT_IOS_RELEASE_NOTES = "Concierge is now fully native: it suggests places near you, can read a dish from a food photo, adds your pick to a Plan, and offers arrival help you approve. Party invitations and the App Clip now show the host's cover. With location off, the map opens on a city instead of a world view, and guests can sign in from Profile."
 
 def required_env!(name)
   value = ENV[name].to_s.strip

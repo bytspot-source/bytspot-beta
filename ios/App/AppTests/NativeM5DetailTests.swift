@@ -30,6 +30,294 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         try decoder.decode(NativeConciergeResponse.self, from: JSONSerialization.data(withJSONObject: value))
     }
 
+    private let menuAPIBase = URL(string: "https://menu-api.example:8443")!
+
+    private func menuEvidence(_ changes: [String: Any] = [:]) -> [String: Any] {
+        var value: [String: Any] = [
+            "dishId": "dish_Ab-123", "revision": "1790856000000",
+            "dishName": "Jollof rice", "source": "vendor_menu", "mediaId": "menu_Ab-123",
+            "sourceUrl": "https://menu-api.example:8443/media/menu-evidence/dish_Ab-123/1790856000000",
+            "reviewedAt": "2026-10-01T12:00:00.000Z", "retrievedAt": "2026-10-02T12:00:00Z",
+            "expiresAt": "2026-10-31T12:00:00Z"
+        ]
+        value.merge(changes) { _, new in new }
+        return value
+    }
+
+    private func decodeMenuCard(_ evidence: Any, changes: [String: Any] = [:], base: URL? = nil) throws -> NativeConciergeCard {
+        var fields: [String: Any] = ["kind": "venue", "id": "canonical-venue", "source": "bytspot"]
+        fields.merge(changes) { _, new in new }
+        fields["menuEvidence"] = evidence
+        let api = NativeConciergeAPI(client: BytspotAPIClient(baseURL: base ?? menuAPIBase))
+        let decoded = try api.decodeResponse(JSONSerialization.data(withJSONObject: response(cards: [card(fields)])))
+        guard let first = decoded.cards.first else { throw BytspotAPIClient.APIError.invalidResponse }
+        return first
+    }
+
+    func testMenuEvidenceIsAdditiveAndBindsCanonicalRevisionToRequestingAPI() throws {
+        let legacy = try XCTUnwrap(decode(response()).cards.first)
+        XCTAssertTrue(legacy.menuEvidence.isEmpty)
+        XCTAssertEqual(try decode(response()).version, 1)
+        XCTAssertTrue(try decodeMenuCard([]).menuEvidence.isEmpty)
+        let decoded = try decodeMenuCard([menuEvidence()])
+        let evidence = try XCTUnwrap(decoded.menuEvidence.first)
+        XCTAssertEqual(evidence.dishId, "dish_Ab-123")
+        XCTAssertEqual(evidence.revision, "1790856000000")
+        XCTAssertEqual(evidence.dishName, "Jollof rice")
+        XCTAssertEqual(evidence.source, "vendor_menu")
+        XCTAssertEqual(evidence.mediaId, "menu_Ab-123")
+        XCTAssertEqual(evidence.sourceUrl.absoluteString, "https://menu-api.example:8443/media/menu-evidence/dish_Ab-123/1790856000000")
+        XCTAssertEqual(decoded.currentMenuEvidence(at: evidence.retrievedAt), [evidence])
+        let three = (1...3).map { index in
+            menuEvidence(["dishId": "dish-\(index)",
+                "sourceUrl": "https://menu-api.example:8443/media/menu-evidence/dish-\(index)/1790856000000"])
+        }
+        XCTAssertEqual(try decodeMenuCard(three).menuEvidence.count, 3)
+        XCTAssertThrowsError(try decodeMenuCard(three + [menuEvidence()]))
+        // Legacy provider cards cannot acquire canonical menu evidence.
+        XCTAssertThrowsError(try decode(response(cards: [card(["menuEvidence": [menuEvidence()]])])))
+    }
+
+    func testMenuEvidenceRejectsUnsafeOrUnboundSourceURLs() throws {
+        let origin = "https://menu-api.example:8443"
+        let path = "/media/menu-evidence/dish_Ab-123/1790856000000"
+        let invalid = [
+            "https://foreign.example" + path, "https://menu-api.example.evil:8443" + path,
+            "https://menu-api.example" + path, "http://menu-api.example:8443" + path,
+            origin + "/other/menu_Ab-123", origin + "/media/vendor/menu_Ab-123", origin + path + "/",
+            origin + "/media/menu-evidence/dish_Ab-123/1790856000001",
+            origin + "/media/menu-evidence/other/1790856000000",
+            origin + "/media/menu-evidence/dish_Ab-123/01790856000000",
+            "HTTPS://menu-api.example:8443" + path, "https://MENU-API.example:8443" + path,
+            origin + path + "?download=1", origin + path + "?", origin + path + "#menu", origin + path + "#",
+            "https://reader@menu-api.example:8443" + path,
+            "https://@menu-api.example:8443" + path,
+            "https://reader:unused@menu-api.example:8443" + path,
+            origin + "/media/menu-evidence/%64ish_Ab-123/1790856000000",
+            origin + "/media/menu-evidence/extra/../dish_Ab-123/1790856000000",
+            origin + path + "%2F", origin + "/media/menu-evidence/dish_Ab-123/%31790856000000",
+            "//menu-api.example:8443" + path, path, " " + origin + path,
+            origin + "\\media\\vendor\\menu_Ab-123", "javascript:alert(1)"
+        ]
+        for raw in invalid {
+            XCTAssertThrowsError(try decodeMenuCard([menuEvidence(["sourceUrl": raw])]), raw)
+        }
+        for field in ["dishId", "mediaId"] {
+            for id in ["", "../menu_Ab-123", "menu/Ab-123", "menu.Ab-123", "mé nu", "menu\n", String(repeating: "a", count: 65)] {
+                XCTAssertThrowsError(try decodeMenuCard([menuEvidence([field: id])]), field)
+            }
+        }
+        // mediaId identifies the file but is not the revision-bound route's identity.
+        XCTAssertNoThrow(try decodeMenuCard([menuEvidence(["mediaId": "other"])]))
+        for revision in ["", "0", "01", "-1", "+1", "1.0", "1e12", " 1", "1\n", "١"] {
+            let raw = origin + "/media/menu-evidence/dish_Ab-123/" + revision
+            XCTAssertThrowsError(try decodeMenuCard([menuEvidence(["revision": revision, "sourceUrl": raw])]))
+        }
+        let maxID = String(repeating: "a", count: 64)
+        XCTAssertNoThrow(try decodeMenuCard([menuEvidence(["dishId": maxID, "mediaId": maxID,
+            "sourceUrl": origin + "/media/menu-evidence/" + maxID + "/1790856000000"])]))
+        let localhost = URL(string: "http://localhost:3000")!
+        let local = menuEvidence(["sourceUrl": "http://localhost:3000" + path])
+        XCTAssertEqual(try decodeMenuCard([local], base: localhost).menuEvidence.first?.sourceUrl.absoluteString,
+                       "http://localhost:3000" + path)
+        XCTAssertThrowsError(try decodeMenuCard([local]))
+        XCTAssertThrowsError(try decodeMenuCard([menuEvidence(["sourceUrl": "http://foreign.example" + path])],
+            base: URL(string: "http://foreign.example")!))
+        let standard = BytspotAPIClient(baseURL: URL(string: "https://menu-api.example")!)
+        XCTAssertNil(standard.conciergeMenuURL("https://menu-api.example:443" + path, dishID: "dish_Ab-123", revision: "1790856000000"))
+        XCTAssertEqual(standard.conciergeMenuURL("https://menu-api.example" + path,
+            dishID: "dish_Ab-123", revision: "1790856000000")?.absoluteString, "https://menu-api.example" + path)
+        for base in ["https://menu-api.example:8443/prefix", "https://menu-api.example:8443?query=1",
+                     "https://menu-api.example:8443#fragment", "https://reader@menu-api.example:8443"] {
+            XCTAssertThrowsError(try decodeMenuCard([menuEvidence()], base: XCTUnwrap(URL(string: base))))
+        }
+        let slashBase = URL(string: "https://menu-api.example:8443/")!
+        XCTAssertNoThrow(try decodeMenuCard([menuEvidence()], base: slashBase))
+        let explicitPort = BytspotAPIClient(baseURL: URL(string: "https://menu-api.example:443")!)
+        XCTAssertEqual(explicitPort.conciergeMenuURL("https://menu-api.example:443" + path,
+            dishID: "dish_Ab-123", revision: "1790856000000")?.absoluteString, "https://menu-api.example:443" + path)
+        XCTAssertNil(explicitPort.conciergeMenuURL("https://menu-api.example" + path,
+            dishID: "dish_Ab-123", revision: "1790856000000"))
+        XCTAssertNoThrow(try decodeMenuCard([menuEvidence(["dishId": "a", "mediaId": "b", "revision": "1",
+            "sourceUrl": origin + "/media/menu-evidence/a/1"])]))
+    }
+
+    func testMenuEvidenceRejectsInvalidShapeSourceAndTimes() throws {
+        let invalid: [[String: Any]] = [
+            ["source": "google"], ["source": "vendor_menu "], ["source": NSNull()],
+            ["dishId": NSNull()], ["dishId": 1], ["revision": 1_790_856_000_000], ["revision": NSNull()],
+            ["dishName": "  "], ["dishName": 1], ["dishName": "Dish\nname"],
+            ["reviewedAt": "not-a-date"], ["retrievedAt": "Infinity"], ["expiresAt": "NaN"],
+            ["reviewedAt": "2026-02-30T12:00:00Z"], ["reviewedAt": "2026-10-01"],
+            ["reviewedAt": "2026-10-01T24:00:00Z"], ["reviewedAt": "2026-10-01T12:60:00Z"],
+            ["reviewedAt": "2026-10-01T12:00:60Z"], ["reviewedAt": "2026-10-01T12:00:00Z\n"],
+            ["reviewedAt": "2026-10-01T12:00:00+25:00"],
+            ["retrievedAt": "2026-09-30T12:00:00Z"], ["retrievedAt": "2026-10-31T12:00:00Z"],
+            ["retrievedAt": "2026-11-01T12:00:00Z"], ["expiresAt": "2026-10-31T12:00:00.001Z"],
+            ["expiresAt": "2026-09-30T12:00:00Z"], ["reviewedAt": 1_790_000_000],
+            ["availability": "in_stock"]
+        ]
+        for change in invalid {
+            XCTAssertThrowsError(try decodeMenuCard([menuEvidence(change)]), "Invalid evidence: \(change.keys.sorted())")
+        }
+        for field in menuEvidence().keys {
+            var missing = menuEvidence()
+            missing.removeValue(forKey: field)
+            XCTAssertThrowsError(try decodeMenuCard([missing]), field)
+        }
+        let malformedValues: [Any] = [NSNull(), "menu", ["dishName": "Rice"], [1]]
+        for malformed in malformedValues {
+            XCTAssertThrowsError(try decodeMenuCard(malformed))
+        }
+        XCTAssertThrowsError(try decodeMenuCard(Array(repeating: menuEvidence(), count: 4)))
+        XCTAssertNoThrow(try decodeMenuCard([menuEvidence(["retrievedAt": "2026-10-01T12:00:00Z"])]))
+        XCTAssertNoThrow(try decodeMenuCard([menuEvidence(["reviewedAt": "2026-10-01T13:00:00+01:00"])]))
+    }
+
+    func testMenuEvidenceRequiresCanonicalFoodVenueAndUniqueDishSource() throws {
+        let invalidScopes: [[String: Any]] = [
+            ["kind": "place", "source": "google"], ["kind": "place", "source": "google-stale"],
+            ["kind": "place"], ["source": "google"], ["rail": "experience"]
+        ]
+        for scope in invalidScopes {
+            XCTAssertThrowsError(try decodeMenuCard([menuEvidence()], changes: scope))
+        }
+        XCTAssertThrowsError(try decodeMenuCard([menuEvidence(), menuEvidence()]))
+        let newer = menuEvidence(["revision": "1790856000001", "mediaId": "new-file",
+            "sourceUrl": "https://menu-api.example:8443/media/menu-evidence/dish_Ab-123/1790856000001"])
+        XCTAssertThrowsError(try decodeMenuCard([menuEvidence(), newer]))
+        let otherDish = menuEvidence(["dishId": "other-dish",
+            "sourceUrl": "https://menu-api.example:8443/media/menu-evidence/other-dish/1790856000000"])
+        XCTAssertEqual(try decodeMenuCard([menuEvidence(), otherDish]).menuEvidence.count, 2)
+        // The requesting client's origin is authoritative, even for canonical cards.
+        XCTAssertThrowsError(try decodeMenuCard([menuEvidence()], base: URL(string: "https://other-api.example")!))
+    }
+
+    func testMenuEvidenceTimestampsDecodeToExactInstantsWithoutWallClock() throws {
+        let evidence = try XCTUnwrap(decodeMenuCard([menuEvidence()]).menuEvidence.first)
+        XCTAssertEqual(evidence.reviewedAt.timeIntervalSince1970, 1_790_856_000, accuracy: 0.000001)
+        XCTAssertEqual(evidence.retrievedAt.timeIntervalSince1970, 1_790_942_400, accuracy: 0.000001)
+        XCTAssertEqual(evidence.expiresAt.timeIntervalSince1970, 1_793_448_000, accuracy: 0.000001)
+        for timestamp in ["2026-10-01T12:00:00.125Z", "2026-10-01T13:00:00.125+01:00",
+                          "2026-10-01T07:00:00.125-05:00"] {
+            let item = try XCTUnwrap(decodeMenuCard([menuEvidence(["reviewedAt": timestamp])]).menuEvidence.first)
+            XCTAssertEqual(item.reviewedAt.timeIntervalSince1970, 1_790_856_000.125, accuracy: 0.000001)
+        }
+        let fractional = try XCTUnwrap(decodeMenuCard([menuEvidence([
+            "retrievedAt": "2026-10-02T12:00:00.125Z", "expiresAt": "2026-10-31T11:59:59.875Z"
+        ])]).menuEvidence.first)
+        XCTAssertEqual(fractional.retrievedAt.timeIntervalSince1970, 1_790_942_400.125, accuracy: 0.000001)
+        XCTAssertEqual(fractional.expiresAt.timeIntervalSince1970, 1_793_447_999.875, accuracy: 0.000001)
+        XCTAssertFalse(fractional.isCurrent(at: fractional.retrievedAt.addingTimeInterval(-0.001)))
+        XCTAssertTrue(fractional.isCurrent(at: fractional.retrievedAt))
+        XCTAssertFalse(fractional.isCurrent(at: fractional.expiresAt))
+    }
+
+    func testWebsiteIsOptionalNavigationNotMenuEvidenceOrAuthority() throws {
+        let legacy = try XCTUnwrap(decode(response()).cards.first)
+        XCTAssertNil(legacy.websiteUrl)
+        XCTAssertNil(legacy.websiteURL)
+        XCTAssertNil(try decodeMenuCard([], changes: ["websiteUrl": NSNull()]).websiteUrl)
+        let raw = "https://restaurant.example/visit?location=downtown&lang=en&postcode=98101#hours"
+        let scopes: [[String: Any]] = [[:], ["kind": "place", "source": "google"],
+                                    ["kind": "place", "source": "google-stale"]]
+        for scope in scopes {
+            var fields = scope
+            fields["websiteUrl"] = raw
+            let food = try decodeMenuCard([], changes: fields)
+            XCTAssertEqual(food.websiteUrl, raw)
+            XCTAssertEqual(food.websiteURL?.absoluteString, raw)
+            XCTAssertEqual(food.websiteLabel, "Restaurant website")
+            XCTAssertEqual(food.ratingLabel, "Google restaurant rating 4.5 out of 5")
+            XCTAssertEqual(food.menuEvidenceNotice(at: Date(timeIntervalSince1970: 1_790_942_400)), "Dish unconfirmed")
+            XCTAssertTrue(food.menuEvidence.isEmpty)
+            XCTAssertEqual(food.capability, .details)
+            XCTAssertNil(food.venueSummary.checkInVenueID)
+            XCTAssertNil(food.venueSummary.verifiedPatchId)
+            XCTAssertNil(food.venueSummary.imageUrl)
+            XCTAssertEqual(food.venueSummary.control, .listed)
+            fields["rail"] = "experience"
+            let place = try decodeMenuCard([], changes: fields)
+            XCTAssertEqual(place.websiteLabel, "Place website")
+            XCTAssertEqual(place.ratingLabel, "Google place rating 4.5 out of 5")
+        }
+        let withEvidence = try decodeMenuCard([menuEvidence()], changes: ["websiteUrl": raw])
+        XCTAssertEqual(withEvidence.menuEvidence.count, 1)
+        XCTAssertEqual(withEvidence.websiteURL?.absoluteString, raw)
+        XCTAssertNil(try decodeMenuCard([], changes: ["rating": NSNull()]).ratingLabel)
+    }
+
+    func testWebsiteRejectsUnsafeURLsButAllowsOrdinaryBusinessQueries() throws {
+        let invalid = [
+            "", "http://restaurant.example", "javascript:alert(1)", "//restaurant.example", "/visit", "https:///",
+            "https://reader@restaurant.example", "https://reader:unused@restaurant.example", "https://@restaurant.example",
+            " https://restaurant.example", "https://restaurant.example/\nvisit", "https://restaurant.example/%0A",
+            "https://restaurant.example/%5Cvisit", "https://restaurant.example\\@other.example",
+            "https://localhost", "https://localhost.", "https://restaurant.localhost", "https://restaurant.local",
+            "https://127.0.0.1", "https://127.1", "https://2130706433", "https://0x7f000001",
+            "https://10.1.2.3", "https://172.16.0.1", "https://192.168.1.1", "https://169.254.169.254",
+            "https://[::1]", "https://[fc00::1]", "https://[fe80::1]", "https://[::ffff:127.0.0.1]",
+            "https://restaurant.example?access_token=fixture", "https://restaurant.example?api_key=fixture",
+            "https://restaurant.example?%74oken=fixture", "https://restaurant.example?password=fixture"
+        ]
+        for raw in invalid {
+            XCTAssertNil(NativeConciergeCard.safeWebsiteURL(raw))
+            XCTAssertThrowsError(try decodeMenuCard([], changes: ["websiteUrl": raw]))
+        }
+        let malformedValues: [Any] = [1, true, ["url": "https://restaurant.example"]]
+        for malformed in malformedValues {
+            XCTAssertThrowsError(try decodeMenuCard([], changes: ["websiteUrl": malformed]))
+        }
+        for raw in ["https://restaurant.example", "https://restaurant.example/?lang=en&location=main",
+                    "https://restaurant.example/search?q=rice%20bowl&utm_source=google", "https://restaurant.example/#hours"] {
+            XCTAssertEqual(try decodeMenuCard([], changes: ["websiteUrl": raw]).websiteURL?.absoluteString, raw)
+        }
+    }
+
+    func testCachedMenuEvidenceExpiresAndDoesNotAssertFoodClaimsForOtherRails() throws {
+        let food = try decodeMenuCard([menuEvidence()])
+        let item = try XCTUnwrap(food.menuEvidence.first)
+        XCTAssertTrue(item.isCurrent(at: item.retrievedAt))
+        XCTAssertTrue(item.isCurrent(at: item.expiresAt.addingTimeInterval(-0.001)))
+        XCTAssertNil(food.menuEvidenceNotice(at: item.retrievedAt))
+        for now in [item.retrievedAt.addingTimeInterval(-1), item.expiresAt,
+                    item.expiresAt.addingTimeInterval(86_400), Date(timeIntervalSince1970: .infinity), Date(timeIntervalSince1970: .nan)] {
+            XCTAssertFalse(item.isCurrent(at: now))
+            XCTAssertTrue(food.currentMenuEvidence(at: now).isEmpty)
+            XCTAssertEqual(food.menuEvidenceNotice(at: now), "Dish unconfirmed")
+        }
+        let absentFood = try decodeMenuCard([])
+        XCTAssertEqual(absentFood.menuEvidenceNotice(at: item.retrievedAt), "Dish unconfirmed")
+        XCTAssertEqual(food.ratingLabel, "Google restaurant rating 4.5 out of 5")
+        let nonfood = try decodeMenuCard([], changes: ["rail": "experience", "category": "art_gallery"])
+        XCTAssertFalse(nonfood.isFoodCard)
+        XCTAssertNil(nonfood.menuEvidenceNotice(at: item.retrievedAt))
+        XCTAssertEqual(nonfood.ratingLabel, "Google place rating 4.5 out of 5")
+        let cached = try decodeMenuCard([], changes: ["kind": "place", "source": "google-stale"])
+        XCTAssertTrue(cached.currentMenuEvidence(at: item.expiresAt).isEmpty)
+        XCTAssertEqual(cached.menuEvidenceNotice(at: item.expiresAt), "Dish unconfirmed")
+    }
+
+    func testMenuEvidenceGrantsNoCheckInControlOrBookabilityAndKeepsDetailIdentity() throws {
+        let variants: [[String: Any]] = [[:], ["placeId": NSNull()]]
+        for changes in variants {
+            let withEvidence = try decodeMenuCard([menuEvidence()], changes: changes)
+            let withoutEvidence = try decodeMenuCard([], changes: changes)
+            XCTAssertEqual(withEvidence.venueSummary.id, withoutEvidence.venueSummary.id)
+            XCTAssertEqual(withEvidence.venueSummary.googlePlaceID, withoutEvidence.venueSummary.googlePlaceID)
+            XCTAssertEqual(withEvidence.capability, .details)
+            XCTAssertEqual(withEvidence.venueSummary.control, .listed)
+            XCTAssertNil(withEvidence.venueSummary.checkInVenueID)
+            XCTAssertNil(withEvidence.venueSummary.verifiedPatchId)
+            XCTAssertNil(withEvidence.venueSummary.imageUrl)
+            XCTAssertFalse(NativeM5DetailPolicy.canValidateVisit(withEvidence.venueSummary))
+            XCTAssertEqual(NativeM5DetailPolicy.compactActions(for: withEvidence.venueSummary, offering: nil).map(\.id),
+                           NativeM5DetailPolicy.compactActions(for: withoutEvidence.venueSummary, offering: nil).map(\.id))
+        }
+        XCTAssertThrowsError(try decodeMenuCard([menuEvidence()], changes: ["capability": "book"]))
+        XCTAssertThrowsError(try decodeMenuCard([menuEvidence()], changes: ["capability": "order"]))
+    }
+
     func testStrictCardsPreserveIdentityWithoutInventingAuthorityOrMedia() throws {
         let external = try XCTUnwrap(decode(response()).cards.first)
         XCTAssertEqual(external.venueSummary.id, "suggestion-gp:place-one")
@@ -263,6 +551,22 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         }
         XCTAssertTrue(concierge.contains("NativeVenueDetailView(venue: venue"))
         XCTAssertTrue(concierge.contains("model.detailVenue = card.venueSummary"))
+        XCTAssertTrue(concierge.contains(".sheet(item: $model.detailVenue)"))
+        XCTAssertTrue(concierge.contains("TimelineView(.periodic(from: Date(), by: 1))"))
+        XCTAssertTrue(concierge.contains("menuEvidence(at: context.date)"))
+        XCTAssertTrue(concierge.contains("card.currentMenuEvidence(at: now)"))
+        XCTAssertTrue(concierge.contains("card.menuEvidenceNotice(at: now)"))
+        XCTAssertTrue(concierge.contains("Listed on reviewed menu"))
+        XCTAssertTrue(concierge.contains("Reviewed \\(item.reviewedAt, style: .date)"))
+        XCTAssertTrue(concierge.contains("Link(\"View source menu\", destination: item.sourceUrl)"))
+        XCTAssertTrue(concierge.contains("does not guarantee current availability or dietary safety"))
+        XCTAssertTrue(concierge.contains("Text(ratingLabel)"))
+        XCTAssertTrue(concierge.contains("if let websiteURL = card.websiteURL"))
+        XCTAssertTrue(concierge.contains("Link(card.websiteLabel, destination: websiteURL)"))
+        XCTAssertTrue(concierge.contains("not a verified menu"))
+        XCTAssertFalse(concierge.contains("Link(\"Menu\", destination: websiteURL)"))
+        XCTAssertFalse(concierge.contains("vendor onboarding"))
+        XCTAssertFalse(concierge.contains("Google rating %.1f"))
         XCTAssertTrue(concierge.contains(".onDisappear { model.disappear() }"))
         XCTAssertTrue(concierge.contains("Button(\"Sign in\", action: openNativeAuth)"))
         for retired in ["concierge.chat", "concierge.actions", "Concierge review required", "mic.fill", "Check stay dates", "openNativeTab(.discover)", "asyncAfter"] {

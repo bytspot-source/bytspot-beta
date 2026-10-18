@@ -70,6 +70,31 @@ struct BytspotAPIClient {
         return data
     }
 
+    /// Bind the citation to a reviewed revision, never the mutable vendor media route.
+    /// The server rechecks review authority at fetch time and serves it no-store.
+    func conciergeMenuURL(_ raw: String, dishID: String, revision: String) -> URL? {
+        guard NativeConciergeCard.MenuEvidence.validID(dishID),
+              revision.range(of: #"^[1-9][0-9]*\z"#, options: .regularExpression) != nil,
+              raw.utf8.count <= 4_096, !raw.contains("\\"), !raw.contains("%"),
+              raw.rangeOfCharacter(from: .whitespacesAndNewlines.union(.controlCharacters)) == nil,
+              let parts = URLComponents(string: raw),
+              let base = URLComponents(url: baseURL, resolvingAgainstBaseURL: false),
+              let scheme = parts.scheme?.lowercased(), let host = parts.host?.lowercased(), !host.isEmpty,
+              scheme == "https" || (scheme == "http" && host == "localhost"),
+              scheme == base.scheme?.lowercased(), host == base.host?.lowercased(),
+              (parts.port ?? (scheme == "https" ? 443 : 80)) == (base.port ?? (scheme == "https" ? 443 : 80)),
+              parts.user == nil, parts.password == nil, base.user == nil, base.password == nil,
+              parts.query == nil, parts.fragment == nil,
+              base.query == nil, base.fragment == nil,
+              base.path.isEmpty || base.path == "/",
+              parts.percentEncodedPath == "/media/menu-evidence/\(dishID)/\(revision)" else { return nil }
+        var expected = base
+        expected.path = "/media/menu-evidence/\(dishID)/\(revision)"
+        // Compare spelling too: alternate ports, escaping and normalization are not canonical.
+        guard let url = expected.url, raw == url.absoluteString else { return nil }
+        return url
+    }
+
     static func bearerToken(in request: URLRequest) -> String? {
         guard let header = request.value(forHTTPHeaderField: "Authorization"), header.hasPrefix("Bearer ") else { return nil }
         let token = String(header.dropFirst("Bearer ".count))
@@ -218,6 +243,79 @@ struct NativeConciergeCard: Decodable, Identifiable, Equatable {
     enum Kind: String, Decodable { case venue, place }
     enum Source: String, Decodable { case bytspot, google, googleStale = "google-stale" }
     enum Capability: String, Decodable { case details }
+
+    /// Only a reviewed listing, not availability, dietary safety or fulfillment authority.
+    struct MenuEvidence: Decodable, Equatable {
+        static let apiBaseURLKey = CodingUserInfoKey(rawValue: "conciergeAPIBaseURL")!
+        let dishId: String
+        let revision: String
+        let dishName: String
+        let source: String
+        let mediaId: String
+        let sourceUrl: URL
+        let reviewedAt: Date
+        let expiresAt: Date
+        let retrievedAt: Date
+
+        init(from decoder: Decoder) throws {
+            let fields = try decoder.singleValueContainer().decode([String: String].self)
+            guard Set(fields.keys) == Set(["dishId", "revision", "dishName", "source", "mediaId", "sourceUrl", "reviewedAt", "expiresAt", "retrievedAt"]),
+                  let dishID = fields["dishId"], Self.validID(dishID),
+                  let revision = fields["revision"],
+                  let dish = fields["dishName"], !dish.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  dish.utf16.count <= 300, dish.rangeOfCharacter(from: .controlCharacters) == nil,
+                  fields["source"] == "vendor_menu", let mediaID = fields["mediaId"], Self.validID(mediaID),
+                  let rawURL = fields["sourceUrl"],
+                  let reviewed = Self.timestamp(fields["reviewedAt"]),
+                  let expires = Self.timestamp(fields["expiresAt"]),
+                  let retrieved = Self.timestamp(fields["retrievedAt"]),
+                  reviewed <= retrieved, retrieved < expires,
+                  expires.timeIntervalSince(reviewed) <= 30 * 24 * 60 * 60 else {
+                throw BytspotAPIClient.APIError.invalidResponse
+            }
+            var client = BytspotAPIClient()
+            if let baseURL = decoder.userInfo[Self.apiBaseURLKey] as? URL { client.baseURL = baseURL }
+            guard let url = client.conciergeMenuURL(rawURL, dishID: dishID, revision: revision) else {
+                throw BytspotAPIClient.APIError.invalidResponse
+            }
+            self.dishId = dishID
+            self.revision = revision
+            dishName = dish
+            source = "vendor_menu"
+            mediaId = mediaID
+            sourceUrl = url
+            reviewedAt = reviewed
+            expiresAt = expires
+            retrievedAt = retrieved
+        }
+
+        static func validID(_ value: String) -> Bool {
+            value.range(of: #"^[A-Za-z0-9_-]{1,64}\z"#, options: .regularExpression) != nil
+        }
+
+        private static func timestamp(_ raw: String?) -> Date? {
+            guard let raw, raw.utf8.count <= 40,
+                  raw.range(of: #"^[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,9})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])\z"#, options: .regularExpression) != nil else { return nil }
+            // Reject impossible calendar dates rather than accepting formatter rollover.
+            let calendar = DateFormatter()
+            calendar.locale = Locale(identifier: "en_US_POSIX")
+            calendar.calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(secondsFromGMT: 0)
+            calendar.dateFormat = "yyyy-MM-dd"
+            calendar.isLenient = false
+            let day = String(raw.prefix(10))
+            guard let parsedDay = calendar.date(from: day), calendar.string(from: parsedDay) == day else { return nil }
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = raw.contains(".") ? [.withInternetDateTime, .withFractionalSeconds] : [.withInternetDateTime]
+            guard let date = formatter.date(from: raw), date.timeIntervalSince1970.isFinite else { return nil }
+            return date
+        }
+
+        func isCurrent(at now: Date) -> Bool {
+            now.timeIntervalSince1970.isFinite && retrievedAt <= now && now < expiresAt
+        }
+    }
+
     let id: String
     let kind: Kind
     let placeId: String?
@@ -233,9 +331,11 @@ struct NativeConciergeCard: Decodable, Identifiable, Equatable {
     let capability: Capability
     let source: Source
     let rail: String
+    let menuEvidence: [MenuEvidence]
+    let websiteUrl: String?
 
     private enum CodingKeys: String, CodingKey {
-        case id, kind, placeId, name, address, lat, lng, category, rating, isOpen, photoUrl, crowd, reasons, capability, source, rail
+        case id, kind, placeId, name, address, lat, lng, category, rating, isOpen, photoUrl, crowd, reasons, capability, source, rail, menuEvidence, websiteUrl
     }
 
     init(from decoder: Decoder) throws {
@@ -255,7 +355,18 @@ struct NativeConciergeCard: Decodable, Identifiable, Equatable {
         capability = try values.decode(Capability.self, forKey: .capability)
         source = try values.decode(Source.self, forKey: .source)
         rail = try values.decode(String.self, forKey: .rail)
-        guard try values.decodeNil(forKey: .crowd),
+        websiteUrl = try values.decodeIfPresent(String.self, forKey: .websiteUrl)
+        // Version 1 servers predating evidence omit this field. Null is not an array.
+        if values.contains(.menuEvidence) {
+            menuEvidence = try values.decode([MenuEvidence].self, forKey: .menuEvidence)
+        } else {
+            menuEvidence = []
+        }
+        guard menuEvidence.count <= 3,
+              menuEvidence.isEmpty || (kind == .venue && source == .bytspot && rail == "eat_drink"),
+              Set(menuEvidence.map { $0.dishId + ":" + $0.source }).count == menuEvidence.count,
+              websiteUrl.map({ Self.safeWebsiteURL($0) != nil }) ?? true,
+              try values.decodeNil(forKey: .crowd),
               NativeConciergeContract.exactIdentity(id),
               placeId.map({ $0.utf16.count <= 255 && NativeVenueDetailsDTO.exactGooglePlaceID($0) == $0 }) ?? (kind == .venue),
               (kind == .venue ? source == .bytspot : source != .bytspot),
@@ -287,6 +398,49 @@ struct NativeConciergeCard: Decodable, Identifiable, Equatable {
         venue.sourceCategory = rail
         return venue
     }
+    var isFoodCard: Bool { rail == "eat_drink" }
+
+    func currentMenuEvidence(at now: Date) -> [MenuEvidence] {
+        menuEvidence.filter { $0.isCurrent(at: now) }
+    }
+
+    func menuEvidenceNotice(at now: Date) -> String? {
+        isFoodCard && currentMenuEvidence(at: now).isEmpty ? "Dish unconfirmed" : nil
+    }
+
+    var ratingLabel: String? {
+        // Even a merged Bytspot card carries Google's overall place rating, never a dish rating.
+        rating.map { String(format: "%@ %.1f out of 5",
+            isFoodCard ? "Google restaurant rating" : "Google place rating", $0) }
+    }
+
+    var websiteURL: URL? { websiteUrl.flatMap(Self.safeWebsiteURL) }
+    var websiteLabel: String { isFoodCard ? "Restaurant website" : "Place website" }
+
+    /// A supplied business website is navigation only, not reviewed menu evidence.
+    /// Reuse contact URL checks without weakening them for this cold-start field.
+    static func safeWebsiteURL(_ raw: String) -> URL? {
+        guard raw.utf8.count <= 4_096,
+              raw.rangeOfCharacter(from: .whitespacesAndNewlines.union(.controlCharacters)) == nil,
+              let url = NativeVenueDetailsDTO.safeHTTPSURL(raw),
+              let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let host = parts.host?.lowercased() else { return nil }
+        // Official websites must have a public DNS name. This also excludes IP literals
+        // (including encoded/short IPv4 and IPv6), without a DNS lookup or extra fetch.
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        let localSuffixes = ["localhost", "local", "internal", "lan", "home", "arpa"]
+        guard host.utf8.count <= 253, labels.count >= 2,
+              !localSuffixes.contains(String(labels.last ?? "")),
+              labels.allSatisfy({ $0.range(of: #"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\z"#, options: .regularExpression) != nil }),
+              labels.last?.range(of: #"^[a-z][a-z0-9-]*\z"#, options: .regularExpression) != nil else { return nil }
+        let sensitiveKeys = ["token", "secret", "password", "credential", "authorization", "apikey", "accesskey", "signature", "session"]
+        guard !(parts.queryItems ?? []).contains(where: { item in
+            let key = item.name.lowercased().filter { $0.isLetter || $0.isNumber }
+            return ["auth", "code", "key", "sig"].contains(key) || sensitiveKeys.contains(where: { key.contains($0) })
+        }) else { return nil }
+        return url
+    }
+
     var sourceLabel: String {
         switch source {
         case .bytspot: return "Bytspot listing"
@@ -353,7 +507,14 @@ struct NativeConciergeAPI {
         guard let http = response as? HTTPURLResponse,
               (200..<300).contains(http.statusCode) else { throw BytspotAPIClient.APIError.invalidResponse }
         let payload = BytspotAPIClient.unwrapTRPCData(try JSONSerialization.jsonObject(with: data))
-        return try JSONDecoder().decode(NativeConciergeResponse.self, from: JSONSerialization.data(withJSONObject: payload))
+        return try decodeResponse(JSONSerialization.data(withJSONObject: payload))
+    }
+
+    /// Pass the requesting client's origin into nested evidence decoders, including custom API bases.
+    func decodeResponse(_ data: Data) throws -> NativeConciergeResponse {
+        let decoder = JSONDecoder()
+        decoder.userInfo[NativeConciergeCard.MenuEvidence.apiBaseURLKey] = client.baseURL
+        return try decoder.decode(NativeConciergeResponse.self, from: data)
     }
 }
 

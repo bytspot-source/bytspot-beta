@@ -1,7 +1,12 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { API_BASE_URL, trpc } from '../utils/trpc';
 import { tableBookingFrom, type TableBooking } from '../utils/tableBooking';
 import './admin.css';
+import { MenuEvidenceReview } from './MenuEvidenceReview.tsx';
+import { MenuSourcePreview } from '../vendor/MenuDishEditor.tsx';
+import { assertMenuReviewReply, menuSourcePath } from '../vendor/menuDishes.ts';
+
+const menuAdminApi = trpc.admin.vendors;
 
 /**
  * Bytspot Admin: the back office only accounts on the API's admin list can
@@ -587,15 +592,23 @@ function PlacesTab() {
 
 /** A pending file needs the admin's token to load, so it is fetched rather than linked. */
 function QueuedPreview({ item }: { item: QueuedMedia }) {
+  if (item.kind === 'menu') return <MenuSourcePreview authorizedFetch={adminFetch} sourceUrl={item.url} mediaId={item.mediaId} />;
+  return <QueuedOtherPreview key={`${item.mediaId}:${item.url}`} item={item} />;
+}
+function QueuedOtherPreview({ item }: { item: QueuedMedia }) {
   const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
     let url: string | null = null;
-    adminFetch(new URL(item.url).pathname)
+    const active = new AbortController();
+    const path = menuSourcePath(item.url, item.mediaId, API_BASE_URL);
+    if (!path) return;
+    void adminFetch(path, { signal: active.signal, cache: 'no-store', redirect: 'error' })
       .then((r) => (r.ok ? r.blob() : null))
-      .then((blob) => { if (blob) { url = URL.createObjectURL(blob); setSrc(url); } })
-      .catch(() => undefined);
-    return () => { if (url) URL.revokeObjectURL(url); };
-  }, [item.url]);
+      .then((blob) => {
+        if (blob && !active.signal.aborted) { url = URL.createObjectURL(blob); setSrc(url); }
+      }).catch(() => undefined);
+    return () => { active.abort(); if (url) URL.revokeObjectURL(url); };
+  }, [item.url, item.mediaId]);
   if (!src) return <p className="admin-muted">Loading…</p>;
   if (item.mimeType.startsWith('video/')) return <video src={src} controls playsInline style={{ width: 220, borderRadius: 8 }} />;
   if (item.mimeType === 'application/pdf') return <a href={src} target="_blank" rel="noreferrer">Open menu PDF</a>;
@@ -603,30 +616,40 @@ function QueuedPreview({ item }: { item: QueuedMedia }) {
 }
 
 /** Nothing a vendor uploads reaches guests until the team approves it here. */
-function MediaReview() {
+function MediaReview({ onBusy }: { onBusy: (busy: boolean) => void }) {
   const [queue, setQueue] = useState<QueuedMedia[] | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const lifecycle = useRef<AbortController | null>(null);
+  const locked = useRef(false);
+  const load = useCallback(async (active: AbortController) => {
     try {
-      setQueue((await trpc.admin.vendors.mediaQueue.query()).media);
+      const result = await trpc.admin.vendors.mediaQueue.query(undefined, { signal: active.signal });
+      if (!active.signal.aborted) setQueue(result.media);
     } catch (err) {
-      setError(errorText(err));
+      if (!active.signal.aborted) setError(errorText(err));
     }
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const active = new AbortController(); lifecycle.current = active;
+    void load(active);
+    return () => { active.abort(); onBusy(false); };
+  }, [load, onBusy]);
 
   const review = async (item: QueuedMedia, approve: boolean) => {
-    setBusy(item.mediaId); setError(null);
+    const active = lifecycle.current;
+    if (!active || active.signal.aborted || locked.current) return;
+    locked.current = true; setBusy(item.mediaId); setError(null); onBusy(true);
     try {
-      await trpc.admin.vendors.reviewMedia.mutate({ mediaId: item.mediaId, approve, note: notes[item.mediaId]?.trim() || undefined });
-      await load();
+      const result: unknown = await trpc.admin.vendors.reviewMedia.mutate({ mediaId: item.mediaId, approve, note: notes[item.mediaId]?.trim() || undefined });
+      assertMenuReviewReply(result, approve);
+      if (!active.signal.aborted) await load(active);
     } catch (err) {
-      setError(errorText(err));
+      if (!active.signal.aborted) setError(errorText(err));
     } finally {
-      setBusy(null);
+      if (!active.signal.aborted) { locked.current = false; setBusy(null); onBusy(false); }
     }
   };
 
@@ -649,8 +672,8 @@ function MediaReview() {
                 <input className={input} placeholder="Reason, if not approving (the vendor sees this)" value={notes[item.mediaId] ?? ''}
                   onChange={(e) => setNotes({ ...notes, [item.mediaId]: e.target.value })} />
                 <div className="admin-inline">
-                  <Button disabled={busy === item.mediaId} onClick={() => review(item, true)}>Approve</Button>
-                  <Button kind="quiet" disabled={busy === item.mediaId} onClick={() => review(item, false)}>Don't approve</Button>
+                  <Button disabled={busy !== null} onClick={() => review(item, true)}>Approve</Button>
+                  <Button kind="quiet" disabled={busy !== null} onClick={() => review(item, false)}>Don't approve</Button>
                 </div>
               </div>
             </li>
@@ -709,6 +732,7 @@ function VendorBands({ vendor, onChanged }: { vendor: Vendor; onChanged: () => P
 }
 
 function VendorsTab({ onCount }: { onCount: (awaiting: number) => void }) {
+  const [menuMediaBusy, setMenuMediaBusy] = useState(false);
   const [vendors, setVendors] = useState<Vendor[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -750,7 +774,9 @@ function VendorsTab({ onCount }: { onCount: (awaiting: number) => void }) {
 
   return (
     <>
-    <MediaReview />
+    <MediaReview onBusy={setMenuMediaBusy} />
+    {menuMediaBusy ? <p className="admin-muted">Menu evidence review is unavailable while source-media review changes. Reloading current evidence afterwards…</p>
+      : <MenuEvidenceReview api={menuAdminApi} authorizedFetch={adminFetch} />}
     <Card>
       <h2>Vendors</h2>
       <p className="admin-muted">A business goes live only after you approve it. Approving early lets it go live the moment it finishes setting up.</p>

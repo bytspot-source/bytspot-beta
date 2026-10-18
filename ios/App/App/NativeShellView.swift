@@ -19648,8 +19648,8 @@ private struct NativeConciergePlaceCard: View {
             Text(card.address.isEmpty ? "Address unavailable" : card.address).font(.subheadline)
             Text(card.category.replacingOccurrences(of: "_", with: " ")).font(.subheadline)
                 .foregroundColor(NativeTheme.textSecondary)
-            if let rating = card.rating {
-                Text(String(format: "Google rating %.1f out of 5", rating)).font(.footnote)
+            if let ratingLabel = card.ratingLabel {
+                Text(ratingLabel).font(.footnote)
             }
             if card.source != .googleStale, let isOpen = card.isOpen {
                 Text(isOpen ? "Reported open" : "Reported closed").font(.footnote)
@@ -19657,15 +19657,56 @@ private struct NativeConciergePlaceCard: View {
             ForEach(Array(card.reasons.prefix(2).enumerated()), id: \.offset) { _, reason in
                 Text(reason).font(.subheadline).fixedSize(horizontal: false, vertical: true)
             }
+            // Reevaluate while a cached conversation stays open; no animation or network work.
+            TimelineView(.periodic(from: Date(), by: 1)) { context in
+                menuEvidence(at: context.date)
+            }
             Text(card.sourceLabel).font(.caption).foregroundColor(NativeTheme.textSecondary)
             Button("View details", action: openDetails)
                 .font(.headline).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .accessibilityLabel("View details for \(card.name)")
+            if let websiteURL = card.websiteURL {
+                Link(card.websiteLabel, destination: websiteURL)
+                    .font(.subheadline.weight(.semibold))
+                    .frame(minHeight: 44, alignment: .leading)
+                    .accessibilityHint("Opens the business website, not a verified menu.")
+            }
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
         .background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 22))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("native-concierge-place-card")
+    }
+
+    private func menuEvidence(at now: Date) -> some View {
+        let evidence = card.currentMenuEvidence(at: now)
+        return VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(evidence.enumerated()), id: \.offset) { _, item in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.dishName).font(.subheadline.weight(.semibold))
+                    Text("Listed on reviewed menu").font(.subheadline)
+                    Text("Reviewed \(item.reviewedAt, style: .date)").font(.caption)
+                        .foregroundColor(NativeTheme.textSecondary)
+                    Link("View source menu", destination: item.sourceUrl)
+                        .font(.subheadline.weight(.semibold))
+                        .frame(minHeight: 44, alignment: .leading)
+                        .accessibilityLabel("View source menu for \(item.dishName)")
+                        .accessibilityHint("Opens this reviewed menu revision if it is still valid. This is not an order.")
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityElement(children: .contain)
+            }
+            if let notice = card.menuEvidenceNotice(at: now) {
+                Text(notice).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !evidence.isEmpty {
+                Text("A menu listing does not guarantee current availability or dietary safety. Confirm with the restaurant.")
+                    .font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityIdentifier("native-concierge-menu-evidence")
     }
 }
 

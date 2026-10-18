@@ -19296,6 +19296,12 @@ final class NativeConciergeModel: ObservableObject {
     @Published private(set) var proposalHandled = false
     @Published private(set) var actionNotice: String?
     @Published private(set) var savedRevision = 0
+    /// The Add to Plan sheet. Its own confirm button is the approval; opening it writes nothing.
+    @Published var planSelection: NativeDiscoverPlanSelection?
+    private var planRequest: (selectionID: UUID, card: NativeConciergeCard, accountID: String)?
+    @Published private(set) var arrival: NativeConciergeArrival?
+    @Published var pendingArrival: NativeConciergeArrivalStep?
+    private var arrivalTask: Task<Void, Never>?
     @Published private(set) var isSearching = false
     @Published private(set) var notice: String?
     @Published private(set) var canRetry = false
@@ -19359,6 +19365,12 @@ final class NativeConciergeModel: ObservableObject {
         draft = ""
         turns = []
         result = nil
+        planSelection = nil
+        planRequest = nil
+        arrivalTask?.cancel()
+        arrivalTask = nil
+        arrival = nil
+        pendingArrival = nil
         notice = nil
         canRetry = false
         detailVenue = nil
@@ -19422,6 +19434,10 @@ final class NativeConciergeModel: ObservableObject {
     /// A card button only asks for approval; it never runs the action.
     func requestAction(_ action: NativeConciergeAction, on card: NativeConciergeCard) {
         guard isSignedIn, let accountID = session?.authenticatedUserID, isCurrent(action, on: card) else { return }
+        if action == .addToPlan {
+            beginAddToPlan(card, accountID: accountID)
+            return
+        }
         pendingAction = NativeConciergePendingAction(card: card, action: action, accountID: accountID,
                                                      fromProposal: false, isSaved: isSaved(card))
     }
@@ -19444,10 +19460,59 @@ final class NativeConciergeModel: ObservableObject {
             let saved = NativeVenueSavedState.toggle(venueID: pending.card.venueSummary.id, userID: pending.accountID)
             savedRevision += 1
             actionNotice = saved ? "Saved \(pending.card.name) on this device." : "Removed \(pending.card.name) from saved places on this device."
+        } else if pending.action == .addToPlan {
+            actionNotice = nil
+            beginAddToPlan(pending.card, accountID: pending.accountID)
         } else {
             actionNotice = nil
         }
         return pending
+    }
+
+    private func beginAddToPlan(_ card: NativeConciergeCard, accountID: String) {
+        let selection = NativeDiscoverPlanSelection(title: card.name, needKind: card.venueSummary.discoverType, placeID: card.placeId)
+        planRequest = (selection.id, card, accountID)
+        planSelection = selection
+    }
+
+    /// The sheet saved a reference. Reads the Plan back so arrival help follows its stop order.
+    func planAdded(planID: String, selectionID: UUID) {
+        guard let request = planRequest, request.selectionID == selectionID, isSignedIn,
+              let session, session.authenticatedUserID == request.accountID else { return }
+        planRequest = nil
+        arrival = NativeConciergeArrival.make(planID: planID, plan: nil, card: request.card, accountID: request.accountID)
+        pendingArrival = nil
+        let authorization = session.token
+        let api = NativePlanAPI(client: BytspotAPIClient(tokenProvider: { authorization }))
+        arrivalTask?.cancel()
+        arrivalTask = Task { @MainActor [weak self] in
+            let plan = try? await api.get(planID)
+            guard let self, !Task.isCancelled, let plan, self.arrival?.planID == planID,
+                  self.session?.authenticatedUserID == request.accountID, self.session?.token == authorization else { return }
+            self.arrival = NativeConciergeArrival.make(planID: planID, plan: plan, card: request.card, accountID: request.accountID)
+        }
+    }
+
+    func dismissArrival() {
+        arrivalTask?.cancel()
+        arrivalTask = nil
+        arrival = nil
+        pendingArrival = nil
+    }
+
+    func requestArrival(_ step: NativeConciergeArrivalStep) {
+        guard isSignedIn, arrival == step.arrival else { return }
+        pendingArrival = step
+    }
+
+    /// One approval opens one arrival handoff, only for the current account's current stop.
+    func approveArrival(_ step: NativeConciergeArrivalStep) -> NativeConciergeArrivalStep? {
+        if pendingArrival == step { pendingArrival = nil }
+        guard isSignedIn, session?.authenticatedUserID == step.arrival.accountID, arrival == step.arrival else {
+            actionNotice = "This action is no longer available. Search again."
+            return nil
+        }
+        return step
     }
 
     private func isCurrent(_ action: NativeConciergeAction, on card: NativeConciergeCard) -> Bool {
@@ -19579,6 +19644,7 @@ private struct NativeConciergeView: View {
     @State private var choosingPhotoSource = false
     @State private var showingCamera = false
     @State private var showingLibrary = false
+    @State private var signInAfterPlan = false
     @AppStorage(NativeConciergeHandoffStore.promptKey) private var handoffPrompt = ""
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var locationStore: NativeLocationStore
@@ -19620,6 +19686,13 @@ private struct NativeConciergeView: View {
             Button("Cancel", role: .cancel) { model.decline(pending) }
         } message: { pending in
             Text(pending.message)
+        }
+        .sheet(item: $model.planSelection, onDismiss: {
+            if signInAfterPlan { signInAfterPlan = false; openNativeAuth?() }
+        }) { selection in
+            NativeDiscoverAddToPlanSheet(selection: selection, sessionStore: sessionStore,
+                onSignIn: { signInAfterPlan = true },
+                onAdded: { planID in model.planAdded(planID: planID, selectionID: selection.id) })
         }
         .accessibilityIdentifier("native-concierge-preview")
     }
@@ -19691,6 +19764,9 @@ private struct NativeConciergeView: View {
                     if let proposal = model.proposal {
                         proposalPanel(proposal)
                     }
+                    if let arrival = model.arrival {
+                        arrivalPanel(arrival)
+                    }
                     if let actionNotice = model.actionNotice {
                         Text(actionNotice).font(.body).accessibilityIdentifier("native-concierge-action-notice")
                     }
@@ -19738,6 +19814,51 @@ private struct NativeConciergeView: View {
         .accessibilityIdentifier("native-concierge-proposal")
     }
 
+    private func arrivalPanel(_ arrival: NativeConciergeArrival) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(arrival.addedMessage).font(.body).fixedSize(horizontal: false, vertical: true)
+            Text("Get there").font(.subheadline.weight(.semibold)).foregroundColor(NativeTheme.cyan)
+            HStack(spacing: 16) {
+                ForEach(NativeConciergeArrivalStep.steps(for: arrival)) { step in
+                    Button(step.buttonTitle) { model.requestArrival(step) }
+                        .font(.headline).frame(minHeight: 44)
+                        .accessibilityHint("Asks for your approval first.")
+                }
+            }
+            HStack(spacing: 16) {
+                Button("Open Plans") { openNativeTab(.plan) }.frame(minHeight: 44)
+                Button("Done") { model.dismissArrival() }.frame(minHeight: 44)
+            }
+        }
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 22))
+        .confirmationDialog(Text(model.pendingArrival?.title ?? ""),
+                            isPresented: Binding(get: { model.pendingArrival != nil },
+                                                 set: { if !$0 { model.pendingArrival = nil } }),
+                            titleVisibility: .visible, presenting: model.pendingArrival) { step in
+            Button(step.approveTitle) { performArrival(step) }
+            Button("Cancel", role: .cancel) { model.pendingArrival = nil }
+        } message: { step in
+            Text(step.message)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("native-concierge-arrival")
+    }
+
+    /// The only place an approved arrival handoff runs.
+    private func performArrival(_ step: NativeConciergeArrivalStep) {
+        guard let approved = model.approveArrival(step) else { return }
+        switch approved.kind {
+        case .directions:
+            let stop = approved.arrival.stop
+            let item = MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: stop.lat, longitude: stop.lng)))
+            item.name = stop.name
+            item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDefault])
+        case .ride:
+            if let url = approved.rideURL { openURL(url) }
+        }
+    }
+
     /// The only place an approved Concierge action runs. One approval runs one action.
     private func perform(_ pending: NativeConciergePendingAction) {
         guard let approved = model.approve(pending) else { return }
@@ -19755,7 +19876,7 @@ private struct NativeConciergeView: View {
                 Task { await NativeTableBookingTapAPI(client: client).record(placeID: placeID, surface: .concierge) }
             }
             openURL(url)
-        case .save:
+        case .addToPlan, .save:
             break
         }
     }
@@ -19935,6 +20056,82 @@ struct NativeConciergePendingAction: Identifiable, Equatable {
     var approveTitle: String { NativeConciergeActionPresentation.approveTitle(action, isSaved: isSaved) }
 }
 
+/// Phase 7: arrival help for one stop just added to a Plan. The stop is the Plan's
+/// server destination when it has one, otherwise the shown card's own point.
+struct NativeConciergeArrival: Equatable {
+    let planID: String
+    let planTitle: String?
+    let accountID: String
+    let stop: NativePlan.Destination
+    /// The Plan stop before this one that has a place. Nil leaves from the guest's location.
+    let origin: NativePlan.Destination?
+
+    var addedMessage: String {
+        let plan = planTitle.map { "“\($0)”" } ?? "your Plan"
+        return "Added \(stop.name) to \(plan) as a reference. Nothing is booked."
+    }
+
+    static func make(planID: String, plan: NativePlan?, card: NativeConciergeCard, accountID: String) -> NativeConciergeArrival {
+        let item = plan?.items.last { item in
+            item.status != "cancelled" && (card.placeId.map { item.placeId == $0 } ?? (item.placeId == nil && item.title == card.name))
+        }
+        let fallback = NativePlan.Destination(name: card.name, address: card.address.isEmpty ? nil : card.address,
+                                              lat: card.lat, lng: card.lng)
+        var origin: NativePlan.Destination?
+        if let item, let plan { origin = NativePlanRideLink.origin(for: item, in: plan.items) }
+        return NativeConciergeArrival(planID: planID, planTitle: plan?.title, accountID: accountID,
+                                      stop: item?.destination ?? fallback, origin: origin)
+    }
+}
+
+struct NativeConciergeArrivalStep: Identifiable, Equatable {
+    enum Kind: Equatable { case directions, ride(NativePlanRideLink.Provider) }
+    let kind: Kind
+    let arrival: NativeConciergeArrival
+
+    var id: String {
+        switch kind {
+        case .directions: return "arrival:directions"
+        case .ride(let provider): return "arrival:\(provider.rawValue)"
+        }
+    }
+    var buttonTitle: String {
+        switch kind {
+        case .directions: return "Directions"
+        case .ride(let provider): return provider.title
+        }
+    }
+    var title: String {
+        switch kind {
+        case .directions: return "Open directions to \(arrival.stop.name)?"
+        case .ride(let provider): return "Open \(provider.title) for \(arrival.stop.name)?"
+        }
+    }
+    var message: String {
+        switch kind {
+        case .directions:
+            return "Apple Maps opens with directions to \(arrival.stop.name). Check the route and opening hours before you go."
+        case .ride(let provider):
+            let pickup = arrival.origin.map { "leaving from \($0.name), the stop before it on your Plan" } ?? "leaving from your location"
+            return "\(provider.title) opens with \(arrival.stop.name) as the drop-off, \(pickup). You book and pay for the ride in \(provider.title). Bytspot does not book the ride."
+        }
+    }
+    var approveTitle: String {
+        switch kind {
+        case .directions: return "Open Apple Maps"
+        case .ride(let provider): return "Open \(provider.title)"
+        }
+    }
+    var rideURL: URL? {
+        guard case .ride(let provider) = kind else { return nil }
+        return NativePlanRideLink.url(provider, to: arrival.stop, from: arrival.origin)
+    }
+    static func steps(for arrival: NativeConciergeArrival) -> [NativeConciergeArrivalStep] {
+        [NativeConciergeArrivalStep(kind: .directions, arrival: arrival)] + NativePlanRideLink.Provider.allCases
+            .map { NativeConciergeArrivalStep(kind: .ride($0), arrival: arrival) }.filter { $0.rideURL != nil }
+    }
+}
+
 /// Every approval names the place and says exactly what happens. No text claims a booking or an order.
 enum NativeConciergeActionPresentation {
     static func buttonTitle(_ action: NativeConciergeAction, card: NativeConciergeCard, isSaved: Bool) -> String {
@@ -19942,6 +20139,7 @@ enum NativeConciergeActionPresentation {
         case .directions: return "Directions"
         case .website: return card.websiteLabel
         case .bookTable(_, let label): return "Book with \(label)"
+        case .addToPlan: return "Add to Plan"
         case .save: return isSaved ? "Saved" : "Save"
         }
     }
@@ -19951,6 +20149,7 @@ enum NativeConciergeActionPresentation {
         case .directions: return "Open directions to \(card.name)?"
         case .website: return "Open the website for \(card.name)?"
         case .bookTable(_, let label): return "Open \(label) for \(card.name)?"
+        case .addToPlan: return "Add \(card.name) to a Plan?"
         case .save: return isSaved ? "Remove \(card.name) from saved places?" : "Save \(card.name)?"
         }
     }
@@ -19963,6 +20162,8 @@ enum NativeConciergeActionPresentation {
             return "Your browser opens \(card.websiteURL?.host ?? "the website"). A website is not a verified menu."
         case .bookTable(_, let label):
             return "\(label) opens. You book the table with \(label). Bytspot does not make or confirm the booking."
+        case .addToPlan:
+            return "Next you choose one of your Plans, or a new one, and confirm. \(card.name) is added as a reference, not a booking."
         case .save:
             return isSaved ? "Bytspot removes this place from saved places on this device."
                 : "Bytspot saves this place on this device for your account. This is not a booking."
@@ -19974,6 +20175,7 @@ enum NativeConciergeActionPresentation {
         case .directions: return "Open Apple Maps"
         case .website: return "Open website"
         case .bookTable(_, let label): return "Open \(label)"
+        case .addToPlan: return "Choose a Plan"
         case .save: return isSaved ? "Remove" : "Save"
         }
     }

@@ -171,6 +171,69 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertNil(steps[0].rideURL)
     }
 
+    func testCardEyebrowNamesTheRailCategoryAndDistance() throws {
+        let coffee = try decode(response()).cards[0]
+        XCTAssertEqual(NativeConciergeCardPresentation.eyebrow(coffee, distance: "0.4 mi"), "Eat & Drink · Coffee · 0.4 mi")
+        XCTAssertEqual(NativeConciergeCardPresentation.eyebrow(coffee, distance: nil), "Eat & Drink · Coffee")
+        let gallery = try decode(response(cards: [card(["category": "art_gallery", "rail": "explore"])])).cards[0]
+        XCTAssertEqual(NativeConciergeCardPresentation.eyebrow(gallery, distance: "Here"), "Explore · Art gallery · Here")
+        let shop = try decode(response(cards: [card(["category": "Services", "rail": "services"])])).cards[0]
+        XCTAssertEqual(NativeConciergeCardPresentation.eyebrow(shop, distance: nil), "Services")
+        XCTAssertEqual(NativeConciergeCardPresentation.anchor(coffee), "concierge-card-gp:place-one")
+        XCTAssertEqual(seattle.distanceLabel(toLatitude: coffee.lat, longitude: coffee.lng), "0.3 mi")
+    }
+
+    func testStatusAndAnnouncementsDescribeEachSearchState() {
+        let model = NativeConciergeModel()
+        XCTAssertEqual(model.searchState, .idle)
+        XCTAssertEqual(model.statusText, "Sign in to search")
+        XCTAssertTrue(NativeConciergeRegionPresentation.statusLabels.contains(model.statusText))
+        XCTAssertEqual(NativeConciergeModel.announcement(for: .results, cardCount: 1, notice: nil), "1 place found.")
+        XCTAssertEqual(NativeConciergeModel.announcement(for: .results, cardCount: 3, notice: nil), "3 places found.")
+        XCTAssertEqual(NativeConciergeModel.announcement(for: .empty, cardCount: 0, notice: nil), "No places found.")
+        XCTAssertEqual(NativeConciergeModel.announcement(for: .stopped, cardCount: 0, notice: "Search stopped."), "Search stopped.")
+        XCTAssertNil(NativeConciergeModel.announcement(for: .searching, cardCount: 0, notice: nil))
+        model.stop()
+        XCTAssertEqual(model.searchState, .idle, "Stopping with no search running changes nothing.")
+        XCTAssertNil(model.notice)
+    }
+
+    func testOpeningCopyStaysWithinSupportedDiscovery() {
+        XCTAssertEqual(NativeConciergeRegionPresentation.starterPrompts, ["Coffee nearby", "Dinner tonight", "Something to do nearby"])
+        XCTAssertTrue(NativeConciergeRegionPresentation.privacyNotice.contains("30 minutes"))
+        XCTAssertTrue(NativeConciergeRegionPresentation.privacyNotice.contains("until you clear it"))
+        for text in NativeConciergeRegionPresentation.starterPrompts + [NativeConciergeRegionPresentation.openingTitle, NativeConciergeRegionPresentation.genericWelcomeMessage] {
+            XCTAssertNil(text.range(of: #"\b(book|order|pay|reserve|plan)\b"#, options: [.regularExpression, .caseInsensitive]), text)
+        }
+    }
+
+    func testConversationSurvivesRevisitsAndExpiresAfterBackgroundRetention() throws {
+        let session = BytspotSessionStore(account: "concierge_retention_\(UUID().uuidString)", service: "com.bytspot.concierge-retention-tests")
+        let location = NativeLocationStore()
+        let model = NativeConciergeModel()
+        model.observe(session: session, location: location)
+        model.draft = "Coffee"
+        model.detailVenue = try decode(response()).cards[0].venueSummary
+        model.leaveScreen()
+        XCTAssertNil(model.detailVenue)
+        XCTAssertNil(model.planSelection)
+        XCTAssertNil(model.pendingAction)
+        model.observe(session: session, location: location)
+        XCTAssertEqual(model.draft, "Coffee", "Returning to the tab keeps the conversation.")
+
+        let start = Date()
+        model.backgrounded(at: start)
+        model.foregrounded(at: start.addingTimeInterval(NativeConciergeModel.backgroundRetention - 1))
+        XCTAssertEqual(model.draft, "Coffee")
+        model.foregrounded(at: start.addingTimeInterval(NativeConciergeModel.backgroundRetention * 2))
+        XCTAssertEqual(model.draft, "Coffee", "A foreground without a recorded background deletes nothing.")
+        model.backgrounded(at: start)
+        model.foregrounded(at: start.addingTimeInterval(NativeConciergeModel.backgroundRetention))
+        XCTAssertTrue(model.draft.isEmpty)
+        XCTAssertEqual(model.searchState, .idle)
+        XCTAssertNil(model.scrollAnchor)
+    }
+
     func testSignedOutModelCannotQueueOrApproveAnAction() throws {
         let model = NativeConciergeModel()
         let coffee = try decode(response(cards: [card(["actions": [["type": "add_to_plan"]]])])).cards[0]
@@ -779,7 +842,14 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertFalse(concierge.contains("Link(\"Menu\", destination: websiteURL)"))
         XCTAssertFalse(concierge.contains("vendor onboarding"))
         XCTAssertFalse(concierge.contains("Google rating %.1f"))
-        XCTAssertTrue(concierge.contains(".onDisappear { model.disappear() }"))
+        XCTAssertTrue(concierge.contains(".onDisappear { model.leaveScreen() }"))
+        XCTAssertFalse(concierge.contains("func disappear()"))
+        XCTAssertTrue(concierge.contains("@ObservedObject var model: NativeConciergeModel"))
+        XCTAssertTrue(shell.contains("@StateObject private var conciergeModel = NativeConciergeModel()"))
+        XCTAssertTrue(shell.contains("NativeConciergeView(model: conciergeModel,"))
+        XCTAssertTrue(concierge.contains(".focused($composerFocused)"))
+        XCTAssertTrue(concierge.contains("if reduceMotion {"))
+        XCTAssertTrue(concierge.contains("UIAccessibility.post(notification: .announcement"))
         XCTAssertTrue(concierge.contains("Button(\"Sign in\", action: openNativeAuth)"))
         for retired in ["concierge.chat", "concierge.actions", "Concierge review required", "mic.fill", "Check stay dates", "openNativeTab(.discover)", "asyncAfter"] {
             XCTAssertFalse(concierge.contains(retired), retired)

@@ -2,7 +2,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, MapPin, Plus, Sparkles } from 'lucide-react';
 import { DeepSpaceSurface } from './DeepSpaceGround';
-import { PLAN_IDEAS, PLAN_NEEDS, PLAN_STEPS, createPlanInput, emptyPlanDraft, localDateTimeInput, planArea, planDraftError, planEditDraft, planEditError, planEditInput, planErrorMessage, planErrorRetryable, planItemStatus, validPlanCoords, type CreatePlanInput, type Plan, type PlanApi, type PlanCoords, type PlanDraft, type PlanEditDraft } from '../utils/planRpc';
+import { PLAN_IDEAS, PLAN_NEEDS, PLAN_STEPS, createPlanInput, emptyPlanDraft, localDateTimeInput, planArea, planDraftError, planEditDraft, planEditError, planEditInput, planErrorMessage, planErrorRetryable, planItemStatus, validPlanCoords, type CreatePlanInput, type Plan, type PlanApi, type PlanCoords, type PlanDraft, type PlanEditDraft, type PlanPlaceMatch } from '../utils/planRpc';
 
 const spring = { type: 'spring' as const, stiffness: 320, damping: 30, mass: 0.8 };
 interface PlanSectionProps {
@@ -15,14 +15,52 @@ interface PlanSectionProps {
 }
 const dateLabel = (date: string | null) => date ? new Date(date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Time to be decided';
 
-function WhereFields({ areaLabel, coords, disabled, locating, note, onArea, onLocate, onClear }: {
+function WhereFields({ areaLabel, coords, disabled, locating, note, search, onArea, onPick, onLocate, onClear }: {
   areaLabel: string; coords: PlanCoords | null; disabled: boolean; locating: boolean; note: string;
-  onArea: (value: string) => void; onLocate: () => void; onClear: () => void;
+  search: (query: string) => Promise<PlanPlaceMatch[]>;
+  onArea: (value: string) => void; onPick: (match: PlanPlaceMatch) => void; onLocate: () => void; onClear: () => void;
 }) {
+  const [matches, setMatches] = useState<PlanPlaceMatch[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchNote, setSearchNote] = useState('');
+  const latest = useRef(0);
+  const query = areaLabel.trim();
+
+  async function find() {
+    if (query.length < 2 || searching) return;
+    const version = ++latest.current;
+    setSearching(true); setSearchNote(''); setMatches([]);
+    try {
+      const found = await search(query);
+      if (latest.current !== version) return;
+      setMatches(found);
+      if (!found.length) setSearchNote(`No places found for “${query}”. Try a neighborhood and city.`);
+    } catch {
+      if (latest.current === version) setSearchNote("Couldn't search places right now. Try again.");
+    } finally {
+      if (latest.current === version) setSearching(false);
+    }
+  }
+
+  if (coords) {
+    return <div className="plan-stack">
+      <p className="plan-where-chosen"><MapPin aria-hidden="true" size={18} /><span>{planArea(areaLabel, coords)}</span>
+        <button type="button" className="plan-button" disabled={disabled} onClick={() => { latest.current += 1; setMatches([]); setSearchNote(''); onClear(); }}>Change</button></p>
+      {note && <p className="plan-footnote" role="status">{note}</p>}
+    </div>;
+  }
   return <div className="plan-stack">
-    <label>Area or neighborhood<input maxLength={80} value={areaLabel} disabled={disabled} onChange={event => onArea(event.target.value)} placeholder={coords ? 'Near me' : 'To be decided'} autoComplete="off" /></label>
+    <label>Area, venue or address<input maxLength={80} value={areaLabel} disabled={disabled} placeholder="To be decided" autoComplete="off" enterKeyHint="search"
+      onChange={event => { latest.current += 1; setMatches([]); setSearchNote(''); setSearching(false); onArea(event.target.value); }}
+      onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void find(); } }} /></label>
+    <button type="button" className="plan-button" disabled={disabled || searching || query.length < 2} onClick={() => void find()}>{searching ? 'Searching…' : 'Find this place'}</button>
+    {matches.length > 0 && <ul className="plan-where-matches" aria-label="Matching places">
+      {matches.map(match => <li key={match.id}><button type="button" className="plan-button" disabled={disabled} onClick={() => { setMatches([]); setSearchNote(''); onPick(match); }}>
+        <strong>{match.name}</strong>{match.address && <span className="plan-footnote">{match.address}</span>}
+      </button></li>)}
+    </ul>}
+    {searchNote && <p className="plan-footnote" role="status">{searchNote}</p>}
     <button type="button" className="plan-button" disabled={disabled || locating} onClick={onLocate}><MapPin aria-hidden="true" size={18} />{locating ? 'Finding your location…' : 'Use my current location'}</button>
-    {coords && <p className="plan-footnote">Using your current location. <button type="button" className="plan-button" disabled={disabled} onClick={onClear}>Remove location</button></p>}
     {note && <p className="plan-footnote" role="status">{note}</p>}
   </div>;
 }
@@ -215,7 +253,7 @@ export function PlanSection({ api, authenticated, viewerId, groundDrawn = false,
                 <label>Date & time<input type="datetime-local" min={minStart} disabled={!editable} value={draft.startsAt} onChange={event => patchDraft({ startsAt: event.target.value })} /></label>
                 <label>Group size<input type="number" inputMode="numeric" min={1} max={200} step={1} disabled={!editable} value={draft.partySize} onChange={event => patchDraft({ partySize: event.target.value })} placeholder="To be decided" /></label>
               </motion.div>}</AnimatePresence></div>
-              <div className="plan-panel plan-stack"><h2>Where</h2><p>Optional. An area helps find places near your group.</p><WhereFields areaLabel={draft.areaLabel} coords={draft.coords} disabled={!editable} locating={locating} note={locationNote} onArea={areaLabel => patchDraft({ areaLabel })} onLocate={() => locate(coords => patchDraft({ coords }))} onClear={() => patchDraft({ coords: null })} /></div>
+              <div className="plan-panel plan-stack"><h2>Where</h2><p>Optional. Pick a place so venues near your group can be asked.</p><WhereFields areaLabel={draft.areaLabel} coords={draft.coords} disabled={!editable} locating={locating} note={locationNote} search={api.searchPlaces} onArea={areaLabel => patchDraft({ areaLabel })} onPick={match => patchDraft({ areaLabel: match.name, coords: match.coords })} onLocate={() => locate(coords => patchDraft({ areaLabel: '', coords }))} onClear={() => patchDraft({ areaLabel: '', coords: null })} /></div>
             </>}
             {creating && step === 2 && <div className="plan-panel plan-stack"><h2>{draft.title}</h2><p>{draft.intent}</p><dl className="plan-summary"><dt>When</dt><dd>{dateLabel(draft.startsAt || null)}</dd><dt>People</dt><dd>{draft.partySize || 'To be decided'}</dd><dt>Where</dt><dd>{planArea(draft.areaLabel, draft.coords) ?? 'To be decided'}</dd><dt>Still to arrange</dt><dd>{draft.needs.join(', ') || 'No needs selected'}</dd></dl><p className="plan-footnote">This creates a proposed plan. Attendance, bookings, and payments are confirmed separately.</p>{pendingInput && <p role="status">{createdId ? 'Your plan was created. Retry to load it.' : 'An attempt was sent. Retry safely with the same details.'}</p>}</div>}
             {selected && !creating && <>
@@ -223,7 +261,7 @@ export function PlanSection({ api, authenticated, viewerId, groundDrawn = false,
               {owner && activePlan && editing && <div className="plan-panel plan-stack" role="group" aria-labelledby="plan-edit-heading"><h2 id="plan-edit-heading">Edit details</h2>
                 <label>Date & time<input type="datetime-local" min={minStart} disabled={busy} value={editing.startsAt} onChange={event => patchEdit({ startsAt: event.target.value })} /></label>
                 <label>Group size<input type="number" inputMode="numeric" min={1} max={200} step={1} disabled={busy} value={editing.partySize} onChange={event => patchEdit({ partySize: event.target.value })} placeholder="To be decided" /></label>
-                <WhereFields areaLabel={editing.areaLabel} coords={editing.coords} disabled={busy} locating={locating} note={locationNote} onArea={areaLabel => patchEdit({ areaLabel })} onLocate={() => locate(coords => patchEdit({ coords }))} onClear={() => patchEdit({ coords: null })} />
+                <WhereFields areaLabel={editing.areaLabel} coords={editing.coords} disabled={busy} locating={locating} note={locationNote} search={api.searchPlaces} onArea={areaLabel => patchEdit({ areaLabel })} onPick={match => patchEdit({ areaLabel: match.name, coords: match.coords })} onLocate={() => locate(coords => patchEdit({ areaLabel: '', coords }))} onClear={() => patchEdit({ areaLabel: '', coords: null })} />
                 <p className="plan-footnote">Clear a field to leave it undecided.</p>
                 <button className="plan-button plan-primary" disabled={busy || locating} onClick={() => void saveEdit()}>{busy ? 'Saving…' : 'Save changes'}</button>
                 <button className="plan-button" disabled={busy} onClick={() => { setEditing(null); setError(''); setLocationNote(''); }}>Cancel</button>

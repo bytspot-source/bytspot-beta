@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createPlanApi, createPlanInput, emptyPlanDraft, localDateTimeInput, parsePlan, planDraftError, planEditDraft, planEditInput, planErrorMessage, planErrorRetryable, PLAN_IDEAS, PLAN_NEEDS, PLAN_STEPS, type PlansTransport } from '../planRpc.ts';
+import { createPlanApi, createPlanInput, emptyPlanDraft, localDateTimeInput, parsePlaceMatches, parsePlan, planDraftError, planEditDraft, planEditError, planEditInput, planErrorMessage, planErrorRetryable, PLAN_IDEAS, PLAN_NEEDS, PLAN_STEPS, type PlansTransport } from '../planRpc.ts';
 
 const key = '62de4f5f-9440-4921-af86-e086289ac7e5';
 const now = new Date('2026-10-26T12:00:30Z');
@@ -18,9 +18,10 @@ test('Plan normalizes optional date, group size and duplicate needs', () => {
   });
 });
 
-test('Plan sends a typed area and coordinates only from a real fix', () => {
+test('Plan sends an area only with a real map point', () => {
   const coords = { latitude: 40.74, longitude: -73.99 };
-  assert.deepEqual(createPlanInput({ ...validDraft(), areaLabel: ' Chelsea ' }, key, now), { idempotencyKey: key, title: 'Dinner', intent: 'Meet friends', needs: [], areaLabel: 'Chelsea' });
+  assert.equal(planDraftError({ ...validDraft(), areaLabel: ' Chelsea ' }, now), 'Pick a match for “Chelsea”, or clear it.');
+  assert.throws(() => createPlanInput({ ...validDraft(), areaLabel: 'Chelsea' }, key, now), /Pick a match/);
   assert.deepEqual(createPlanInput({ ...validDraft(), coords }, key, now), { idempotencyKey: key, title: 'Dinner', intent: 'Meet friends', needs: [], areaLabel: 'Near me', ...coords });
   assert.deepEqual(createPlanInput({ ...validDraft(), areaLabel: 'Chelsea', coords }, key, now), { idempotencyKey: key, title: 'Dinner', intent: 'Meet friends', needs: [], areaLabel: 'Chelsea', ...coords });
   for (const bad of [{ latitude: 0, longitude: 0 }, { latitude: 91, longitude: 0 }, { latitude: Number.NaN, longitude: 1 }]) {
@@ -44,6 +45,9 @@ test('Plan edits send only changed fields and null for cleared ones', () => {
   assert.deepEqual(planEditInput(current, { ...edit, startsAt: '' }, now), { startsAt: null });
   assert.deepEqual(planEditInput(current, { ...edit, areaLabel: '' }, now), { areaLabel: 'Near me' });
   assert.throws(() => planEditInput(current, { ...edit, startsAt: '2026-10-01T10:00' }, now), /has not passed/);
+  const legacy = parsePlan({ ...plan(), areaLabel: 'Chelsea' });
+  assert.equal(planEditError(legacy, { ...planEditDraft(legacy), partySize: '3' }, now), null, 'An old typed-only area does not block other edits.');
+  assert.match(planEditError(legacy, { ...planEditDraft(legacy), areaLabel: 'Midtown' }, now) ?? '', /Pick a match for “Midtown”/);
   const started = parsePlan({ ...plan(), startsAt: '2026-10-26T11:00:00Z' });
   assert.deepEqual(planEditInput(started, { ...planEditDraft(started), partySize: '3' }, now), { partySize: 3 });
 });
@@ -104,7 +108,7 @@ test('RPC adapter sends only contracted paths/payloads and preserves retry key',
     confirm: { mutate: async input => { calls.push(['confirm', input]); } },
     cancel: { mutate: async input => { calls.push(['cancel', input]); } },
     respond: { mutate: async input => { calls.push(['respond', input]); } },
-  } };
+  }, places: { textSearch: { query: async input => { calls.push(['textSearch', input]); return { places: [{ placeId: 'g1', name: 'Ponce City Market', address: '675 Ponce de Leon Ave', lat: 33.77, lng: -84.37 }] }; } } } };
   const api = createPlanApi(client);
   assert.deepEqual(await api.list(), [plan()]);
   assert.deepEqual(await api.get('p1'), plan());
@@ -113,10 +117,20 @@ test('RPC adapter sends only contracted paths/payloads and preserves retry key',
   assert.equal(await api.create(input), 'p1');
   await api.update('p1', { partySize: null, areaLabel: 'Chelsea', startsAt: undefined });
   await api.confirm('p1'); await api.cancel('p1'); await api.respond('p1', 'maybe');
+  assert.deepEqual(await api.searchPlaces('  ponce  '), [{ id: 'g1', name: 'Ponce City Market', address: '675 Ponce de Leon Ave', coords: { latitude: 33.77, longitude: -84.37 } }]);
   assert.deepEqual(calls, [
     ['get', { planId: 'p1' }], ['create', input], ['create', input], ['update', { planId: 'p1', partySize: null, areaLabel: 'Chelsea' }],
     ['confirm', { planId: 'p1' }], ['cancel', { planId: 'p1' }], ['respond', { planId: 'p1', response: 'maybe' }],
+    ['textSearch', { query: 'ponce', maxResults: 5 }],
   ]);
+});
+
+test('Place matches keep only named results with a real map point', () => {
+  const ok = { placeId: 'g1', name: 'Midtown', address: 'Atlanta, GA', lat: 33.78, lng: -84.38 };
+  assert.deepEqual(parsePlaceMatches({ places: [ok, { ...ok, placeId: 'g2', lat: 0, lng: 0 }, { ...ok, placeId: 'g3', name: ' ' }, { ...ok, placeId: 'g4', lat: '33' }, null] }),
+    [{ id: 'g1', name: 'Midtown', address: 'Atlanta, GA', coords: { latitude: 33.78, longitude: -84.38 } }]);
+  assert.deepEqual(parsePlaceMatches({ wrong: [] }), []);
+  assert.deepEqual(parsePlaceMatches(null), []);
 });
 
 test('Plan errors show app copy, passing through only known server messages', () => {

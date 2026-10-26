@@ -7126,6 +7126,22 @@ final class NativePlanBookablesContractTests: XCTestCase {
                    participants: [], items: [], joinToken: nil)
     }
 
+    func testPlanJoinAsksSignedOutHolderToSignInThenResumesTheJoin() {
+        XCTAssertEqual(NativePlanJoinView.stateBeforeLoad(current: .loading, signedIn: false), .signedOut,
+                       "A signed-out invitee must not be told the Plan is unavailable.")
+        XCTAssertEqual(NativePlanJoinView.stateBeforeLoad(current: .signedOut, signedIn: true), .loading,
+                       "Signing in resumes the join from the same link.")
+        XCTAssertNil(NativePlanJoinView.stateBeforeLoad(current: .joined(plan()), signedIn: true), "A seated join is never resent.")
+        XCTAssertNil(NativePlanJoinView.stateBeforeLoad(current: .unavailable, signedIn: true))
+    }
+
+    func testPlanJoinOpensThePlanItselfNotTheStartPlanForm() {
+        XCTAssertEqual(NativePlanJoinView.stateAfterLoad(plan(), token: "tok-abc"), .joined(plan()))
+        XCTAssertEqual(NativePlanJoinView.stateAfterLoad(plan(), token: nil), .open,
+                       "A token-less link from a reminder opens the Plan detail directly.")
+        XCTAssertEqual(NativePlanJoinView.stateAfterLoad(plan(), token: ""), .open)
+    }
+
     func testDeleteRequiresCreatorAndExplicitServerPermission() throws {
         var value = plan()
         XCTAssertFalse(NativePlanDisplay.canDelete(value, userID: "creator"), "Old APIs fail closed.")

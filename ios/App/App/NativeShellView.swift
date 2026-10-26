@@ -356,6 +356,7 @@ struct BytspotNativeShellView: View {
     /// Owned here so the Concierge conversation survives tab changes.
     @StateObject private var conciergeModel = NativeConciergeModel()
     @State private var pendingSaleAuthID: String?
+    @State private var pendingPlanAuthDestination: NativeContextualDestination?
     @State private var isPlanSaving = false
     /// Canonical Green/Platinum/Black membership resolved by the backend-backed store.
     @EnvironmentObject private var membershipStore: NativeMembershipTierStore
@@ -583,7 +584,7 @@ struct BytspotNativeShellView: View {
                 .preferredColorScheme(.dark)
         }
         .sheet(item: $contextualDestination) { destination in
-            NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }, openNativeProfilePanel: { panel in openNativeProfile(panel: panel) }, requestNetworkAuthentication: { openNativeAuth(mode: .login, pendingIntent: .network) }, openAccess: { openNativeEquivalent(for: .access) }, requestSaleAuthentication: { saleID in pendingSaleAuthID = saleID; openNativeAuth(mode: .login) }, showSaleOnMap: showSaleOnMap)
+            NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }, openNativeProfilePanel: { panel in openNativeProfile(panel: panel) }, requestNetworkAuthentication: { openNativeAuth(mode: .login, pendingIntent: .network) }, openAccess: { openNativeEquivalent(for: .access) }, requestSaleAuthentication: { saleID in pendingSaleAuthID = saleID; openNativeAuth(mode: .login) }, showSaleOnMap: showSaleOnMap, requestPlanAuthentication: { pendingPlanAuthDestination = destination; openNativeAuth(mode: .login) }, openPlanNeed: openPlanNeed)
             .preferredColorScheme(effectivePreferredColorScheme)
         }
         .sheet(isPresented: $showValetPreviewSheet) {
@@ -789,6 +790,20 @@ struct BytspotNativeShellView: View {
         if let saleID = pendingSaleAuthID {
             pendingSaleAuthID = nil
             contextualDestination = .sale(saleID: saleID)
+        }
+        // Signed in or not, the invitee goes back to the Plan link they opened.
+        if let planDestination = pendingPlanAuthDestination {
+            pendingPlanAuthDestination = nil
+            contextualDestination = planDestination
+        }
+    }
+
+    private func openPlanNeed(_ need: String) {
+        contextualDestination = nil
+        switch NativePlanDisplay.needDestination(need) {
+        case .discover(let filter)?: openDiscoverFilter(filter)
+        case .map?: selectNativeTab(.map)
+        case nil: break
         }
     }
 
@@ -1233,6 +1248,8 @@ private struct NativeContextualDestinationView: View {
     let openAccess: () -> Void
     var requestSaleAuthentication: (String) -> Void = { _ in }
     var showSaleOnMap: (NativeSaleBuyerCard) -> Void = { _ in }
+    var requestPlanAuthentication: () -> Void = {}
+    var openPlanNeed: (String) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
@@ -1274,7 +1291,7 @@ private struct NativeContextualDestinationView: View {
                     NativePartyPassPreview(route: route)
                         .environmentObject(sessionStore)
                 } else if case .plan(let planId, let token) = destination {
-                    NativePlanJoinView(planId: planId, token: token)
+                    NativePlanJoinView(planId: planId, token: token, requestAuthentication: requestPlanAuthentication, openNeed: openPlanNeed)
                         .environmentObject(sessionStore)
                 } else if case .sale(let saleID) = destination {
                     NativePrivateSaleBuyerView(saleID: saleID, requestAuthentication: { requestSaleAuthentication(saleID) }, showOnMap: showSaleOnMap)
@@ -1312,59 +1329,98 @@ private struct NativeContextualDestinationView: View {
     }
 }
 
-/// Opens a Plan from an invite link. When the link carries a bearer join token
+/// Opens a Plan from an invite link. When the link carries a bearer token
 /// the holder is seated on arrival; otherwise the Plan is loaded for someone who
 /// already has a seat. A cancelled, expired, or unknown link is indistinguishable
 /// from a Plan that never existed, so it lands on the same unavailable state.
-private struct NativePlanJoinView: View {
+/// A signed-out holder is asked to sign in, and the join resumes afterwards.
+struct NativePlanJoinView: View {
     enum LoadState: Equatable {
+        case signedOut
         case loading
         case joined(NativePlan)
+        case open
         case unavailable
     }
 
     let planId: String
     let token: String?
+    var requestAuthentication: () -> Void = {}
+    var openNeed: (String) -> Void = { _ in }
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @Environment(\.dismiss) private var dismiss
     @State private var state: LoadState = .loading
 
     var body: some View {
-        NativeScreenScroll {
-            switch state {
-            case .loading:
-                NativeHeroCard(title: "Opening plan", eyebrow: "PLAN", subtitle: "Getting this plan and saving your seat.")
-                ProgressView().tint(NativeTheme.cyan).frame(maxWidth: .infinity).padding(.vertical, 30)
-            case .unavailable:
-                NativeHeroCard(title: "This plan link isn’t available", eyebrow: "PLAN", subtitle: "It may have been cancelled, expired, or the invite was withdrawn. Ask the host for a new link.")
-                Button(action: { dismiss() }) { NativeCTA(title: "Back to Bytspot", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
-                    .buttonStyle(.plain)
-            case .joined(let plan):
-                NativeHeroCard(title: "You’re on the plan", eyebrow: "PLAN", subtitle: plan.title)
-                if !plan.intent.isEmpty {
-                    Text(plan.intent)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(NativeTheme.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 4)
-                }
-                Text("\(plan.readiness.going) going · \(plan.readiness.pending) yet to answer")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(NativeTheme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 4)
-                Button(action: { dismiss() }) { NativeCTA(title: "Open my plan", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
-                    .buttonStyle(.plain)
+        Group {
+            if state == .open {
+                NativePlanDetailSheet(planID: planId, sessionStore: sessionStore, onChanged: {}, onOpenNeed: openNeed)
+            } else {
+                NativeScreenScroll { content }
             }
         }
         .accessibilityIdentifier("native-plan-join")
-        .task { await load() }
+        .task(id: sessionStore.authenticatedUserID) { await load() }
+    }
+
+    @ViewBuilder private var content: some View {
+        switch state {
+        case .signedOut:
+            NativeHeroCard(title: "Sign in to join this plan", eyebrow: "PLAN", subtitle: "A friend shared a Bytspot plan with you. Sign in or create an account to take your seat.")
+            Button(action: requestAuthentication) { NativeCTA(title: "Sign in to join", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-plan-join-sign-in")
+            Button("Not now") { dismiss() }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(NativeTheme.textSecondary)
+                .frame(maxWidth: .infinity, minHeight: 44)
+        case .loading:
+            NativeHeroCard(title: "Opening plan", eyebrow: "PLAN", subtitle: "Getting this plan and saving your seat.")
+            ProgressView().tint(NativeTheme.cyan).frame(maxWidth: .infinity).padding(.vertical, 30)
+        case .unavailable:
+            NativeHeroCard(title: "This plan link isn’t available", eyebrow: "PLAN", subtitle: "It may have been cancelled, expired, or the invite was withdrawn. Ask the host for a new link.")
+            Button(action: { dismiss() }) { NativeCTA(title: "Back to Bytspot", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
+                .buttonStyle(.plain)
+        case .joined(let plan):
+            NativeHeroCard(title: "You’re on the plan", eyebrow: "PLAN", subtitle: plan.title)
+            if !plan.intent.isEmpty {
+                Text(plan.intent)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(NativeTheme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
+            }
+            Text("\(plan.readiness.going) going · \(plan.readiness.pending) yet to answer")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(NativeTheme.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 4)
+            Button(action: { state = .open }) { NativeCTA(title: "Open my plan", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-plan-join-open")
+        case .open:
+            EmptyView()
+        }
+    }
+
+    static func stateBeforeLoad(current: LoadState, signedIn: Bool) -> LoadState? {
+        guard signedIn else { return .signedOut }
+        switch current {
+        case .loading, .signedOut: return .loading
+        case .joined, .open, .unavailable: return nil
+        }
+    }
+
+    static func stateAfterLoad(_ plan: NativePlan, token: String?) -> LoadState {
+        if let token, !token.isEmpty { return .joined(plan) }
+        return .open
     }
 
     @MainActor
     private func load() async {
-        guard state == .loading else { return }
-        guard sessionStore.canAttachBearerToken else { state = .unavailable; return }
+        guard let next = Self.stateBeforeLoad(current: state, signedIn: sessionStore.canAttachBearerToken) else { return }
+        state = next
+        guard next == .loading else { return }
         let client = BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token })
         let api = NativePlanAPI(client: client)
         do {
@@ -1374,9 +1430,8 @@ private struct NativePlanJoinView: View {
             } else {
                 plan = try await api.get(planId)
             }
-            state = .joined(plan)
-            // A live Plan list behind this sheet loaded before the seat existed;
-            // tell it to reload so "Open my plan" reveals the joined Plan.
+            state = Self.stateAfterLoad(plan, token: token)
+            // A live Plan list loaded before the seat existed; tell it to reload.
             NotificationCenter.default.post(name: .nativePlanDidJoin, object: nil)
         } catch {
             // The token is a secret; failures never surface it, only the wall.

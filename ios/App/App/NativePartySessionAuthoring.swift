@@ -161,6 +161,78 @@ struct NativePartySessionAuthoringAPI {
     }
 }
 
+struct NativeSellerInvite: Decodable, Identifiable {
+    let id: String
+    let sellerId: String
+    let sellerName: String
+    let state: String
+    let note: String?
+    let liveSessions: Int
+
+    var statusLabel: String {
+        switch state {
+        case "PENDING": return "Asked · waiting for an answer"
+        case "ACCEPTED": return liveSessions == 0 ? "Accepted · no tables on sale yet" : "Selling · \(liveSessions) on sale"
+        case "DECLINED": return "Declined"
+        default: return "No longer asked"
+        }
+    }
+}
+
+struct NativeInvitableSeller: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let place: String?
+    let invite: String?
+
+    /// A cancelled or removed ask can be made again; an open one or a decline cannot.
+    var canAsk: Bool { invite == nil || invite == "CANCELLED" || invite == "REMOVED" }
+
+    var askedLabel: String? {
+        switch invite {
+        case "PENDING": return "Asked"
+        case "ACCEPTED": return "Selling here"
+        case "DECLINED": return "Declined"
+        default: return nil
+        }
+    }
+}
+
+/// A host asking a business to sell on their Party. The business accepts in
+/// its vendor console and states its own tables; nobody joins a team.
+struct NativePartySellerInviteAPI {
+    static let searchPath = "/trpc/events.sellerInvites.search"
+    static let listPath = "/trpc/events.sellerInvites.list"
+    static let createPath = "/trpc/events.sellerInvites.create"
+    static let cancelPath = "/trpc/events.sellerInvites.cancel"
+    let client: BytspotAPIClient
+
+    private func decode<T: Decodable>(_ type: T.Type, _ payload: Any) throws -> T {
+        try JSONDecoder().decode(type, from: JSONSerialization.data(withJSONObject: payload))
+    }
+
+    func search(partyID: String, query: String) async throws -> [NativeInvitableSeller] {
+        struct Reply: Decodable { let sellers: [NativeInvitableSeller] }
+        let input: [String: Any] = ["partyId": partyID, "query": query.trimmingCharacters(in: .whitespacesAndNewlines)]
+        return try decode(Reply.self, await client.trpcQueryPayload(path: Self.searchPath, input: input)).sellers
+    }
+
+    func list(partyID: String) async throws -> [NativeSellerInvite] {
+        struct Reply: Decodable { let invites: [NativeSellerInvite] }
+        return try decode(Reply.self, await client.trpcQueryPayload(path: Self.listPath, input: ["partyId": partyID])).invites
+    }
+
+    func create(partyID: String, sellerID: String, note: String) async throws -> NativeSellerInvite {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let input: [String: Any] = ["partyId": partyID, "sellerId": sellerID, "note": trimmed.isEmpty ? NSNull() : String(trimmed.prefix(280)) as Any]
+        return try decode(NativeSellerInvite.self, await client.trpcPayload(path: Self.createPath, method: "POST", input: input))
+    }
+
+    func cancel(partyID: String, inviteID: String) async throws -> NativeSellerInvite {
+        try decode(NativeSellerInvite.self, await client.trpcPayload(path: Self.cancelPath, method: "POST", input: ["partyId": partyID, "inviteId": inviteID]))
+    }
+}
+
 /// Present in a sheet after publishing, or from Party Control. Inherits the
 /// existing BytspotSessionStore environment object; no vendor token is minted.
 @MainActor public struct NativePartySessionAuthoringView: View {
@@ -173,7 +245,8 @@ struct NativePartySessionAuthoringAPI {
         NativeSessionAuthoringSheet(
             partyID: partyID,
             signedIn: sessionStore.authenticatedUserID != nil,
-            api: NativePartySessionAuthoringAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.token }))
+            api: NativePartySessionAuthoringAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.token })),
+            inviteAPI: NativePartySellerInviteAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.token }))
         )
         // Destroy private seller data and draft state when account or party changes.
         .id("\(partyID):\(sessionStore.authenticatedUserID ?? "signed-out")")
@@ -184,6 +257,7 @@ struct NativePartySessionAuthoringAPI {
     let partyID: String
     let signedIn: Bool
     let api: NativePartySessionAuthoringAPI
+    let inviteAPI: NativePartySellerInviteAPI
     @Environment(\.dismiss) private var dismiss
     @State private var access: NativeSessionAuthoringAccess?
     @State private var sellerID = ""
@@ -195,8 +269,17 @@ struct NativePartySessionAuthoringAPI {
             Group {
                 if !signedIn {
                     Text("Sign in to manage sessions for a party you host.").padding()
+                } else if let access, access.sellers.isEmpty {
+                    // A host on no seller team asks a business instead.
+                    NativeSellerInvitePanel(partyID: partyID, api: inviteAPI)
                 } else if let access {
                     VStack(spacing: 0) {
+                        NavigationLink(destination: NativeSellerInvitePanel(partyID: partyID, api: inviteAPI).navigationTitle("Invite a seller")) {
+                            Label("Ask another business to sell", systemImage: "person.badge.plus")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding()
+                        .accessibilityIdentifier("seller-invite-open")
                         if access.sellers.count > 1 {
                             Picker("Seller business", selection: $sellerID) {
                                 Text("Choose a seller").tag("")
@@ -425,6 +508,155 @@ struct NativePartySessionAuthoringAPI {
             problem = NativeSessionAuthoringFailure.message(error)
         }
         pendingWithdrawal = nil
+        busy = false
+    }
+}
+
+@MainActor struct NativeSellerInvitePanel: View {
+    let partyID: String
+    let api: NativePartySellerInviteAPI
+    @State private var invites: [NativeSellerInvite] = []
+    @State private var results: [NativeInvitableSeller] = []
+    @State private var query = ""
+    @State private var note = ""
+    @State private var searched = false
+    @State private var loaded = false
+    @State private var busy = false
+    @State private var problem: String?
+    @State private var notice: String?
+    @State private var pendingRemoval: NativeSellerInvite?
+    @State private var confirmRemoval = false
+
+    private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        Form {
+            Section(header: Text("Sellers at this party"),
+                    footer: Text("A business you ask sets its own tables and prices. Its table sales are owed to that business, not to you; your door sales are unchanged.")) {
+                if busy { ProgressView() }
+                if let problem { Text(problem).foregroundColor(.red).accessibilityIdentifier("seller-invite-error") }
+                if let notice { Text(notice).foregroundColor(.secondary) }
+                if loaded && invites.isEmpty { Text("No businesses asked yet.").foregroundColor(.secondary) }
+                ForEach(invites) { invite in inviteRow(invite) }
+            }
+            Section(header: Text("Ask a business"),
+                    footer: Text("Only businesses already selling on Bytspot appear. They accept in their vendor console, then add their tables here.")) {
+                TextField("Business or place name", text: $query)
+                    .disableAutocorrection(true)
+                    .submitLabel(.search)
+                    .onSubmit { Task { await search() } }
+                    .accessibilityIdentifier("seller-invite-query")
+                TextField("Note to the business (optional)", text: $note)
+                Button("Search") { Task { await search() } }
+                    .disabled(busy || trimmedQuery.count < 2)
+                if searched && results.isEmpty { Text("No business on Bytspot matches that name.").foregroundColor(.secondary) }
+                ForEach(results) { seller in resultRow(seller) }
+            }
+        }
+        .task { await refresh() }
+        .confirmationDialog("Remove this business?", isPresented: $confirmRemoval, titleVisibility: .visible) {
+            Button("Remove", role: .destructive) {
+                guard let invite = pendingRemoval else { return }
+                Task { await cancel(invite) }
+            }
+            Button("Keep", role: .cancel) { pendingRemoval = nil }
+        } message: {
+            Text("\(pendingRemoval?.sellerName ?? "This business") will no longer be able to add tables to this party. A business with tables on sale must withdraw them first.")
+        }
+    }
+
+    private func inviteRow(_ invite: NativeSellerInvite) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(invite.sellerName).font(.headline)
+            Text(invite.statusLabel).font(.subheadline).foregroundColor(.secondary)
+            if invite.state == "PENDING" {
+                Button("Cancel request", role: .destructive) { Task { await cancel(invite) } }.disabled(busy)
+            } else if invite.state == "ACCEPTED" {
+                Button("Remove…", role: .destructive) {
+                    pendingRemoval = invite
+                    confirmRemoval = true
+                }.disabled(busy)
+            }
+        }.padding(.vertical, 4)
+    }
+
+    private func resultRow(_ seller: NativeInvitableSeller) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(seller.name).font(.headline)
+                if let place = seller.place { Text(place).font(.footnote).foregroundColor(.secondary) }
+            }
+            Spacer()
+            if seller.canAsk {
+                Button("Ask to sell") { Task { await ask(seller) } }
+                    .disabled(busy)
+                    .accessibilityIdentifier("seller-invite-ask")
+            } else if let label = seller.askedLabel {
+                Text(label).font(.footnote).foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private func refresh() async {
+        guard !busy else { return }
+        busy = true
+        defer { busy = false }
+        problem = nil
+        do {
+            invites = try await api.list(partyID: partyID)
+            loaded = true
+        } catch {
+            guard !Task.isCancelled else { return }
+            problem = NativeSessionAuthoringFailure.message(error)
+        }
+    }
+
+    private func search() async {
+        guard !busy, trimmedQuery.count >= 2 else { return }
+        busy = true
+        defer { busy = false }
+        problem = nil
+        do {
+            results = try await api.search(partyID: partyID, query: trimmedQuery)
+            searched = true
+        } catch {
+            guard !Task.isCancelled else { return }
+            problem = NativeSessionAuthoringFailure.message(error)
+        }
+    }
+
+    private func ask(_ seller: NativeInvitableSeller) async {
+        guard !busy else { return }
+        busy = true
+        problem = nil
+        notice = nil
+        do {
+            let invite = try await api.create(partyID: partyID, sellerID: seller.id, note: note)
+            invites.removeAll { $0.id == invite.id }
+            invites.append(invite)
+            results = results.map { $0.id == seller.id ? NativeInvitableSeller(id: $0.id, name: $0.name, place: $0.place, invite: invite.state) : $0 }
+            note = ""
+            notice = "Asked \(seller.name). You'll get a notification when they answer."
+        } catch {
+            problem = NativeSessionAuthoringFailure.message(error)
+        }
+        busy = false
+    }
+
+    private func cancel(_ invite: NativeSellerInvite) async {
+        guard !busy else { return }
+        busy = true
+        problem = nil
+        notice = nil
+        do {
+            _ = try await api.cancel(partyID: partyID, inviteID: invite.id)
+            invites.removeAll { $0.id == invite.id }
+            results = results.map { $0.id == invite.sellerId ? NativeInvitableSeller(id: $0.id, name: $0.name, place: $0.place, invite: nil) : $0 }
+            notice = invite.state == "PENDING" ? "Request cancelled." : "\(invite.sellerName) removed."
+        } catch {
+            problem = NativeSessionAuthoringFailure.message(error)
+        }
+        pendingRemoval = nil
         busy = false
     }
 }

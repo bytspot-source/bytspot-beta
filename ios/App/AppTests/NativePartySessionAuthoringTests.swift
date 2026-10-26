@@ -178,12 +178,84 @@ struct NativePartySessionAuthoringTests {
         #expect(requests == 1) // Invalid forms never reach URLSession.
     }
 
+    @Test func sellerInvitesUseTheirRoutesAndSendTheNoteOnlyWhenWritten() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [SessionAuthoringURLProtocol.self]
+        let urlSession = URLSession(configuration: configuration)
+        defer { urlSession.invalidateAndCancel(); SessionAuthoringURLProtocol.handler = nil }
+        var routes: [String] = []
+        var notes: [Any?] = []
+        SessionAuthoringURLProtocol.handler = { request in
+            let path = try #require(request.url?.path)
+            routes.append(path)
+            let input: [String: Any]
+            if request.httpMethod == "GET" {
+                let requestURL = try #require(request.url)
+                let components = try #require(URLComponents(url: requestURL, resolvingAgainstBaseURL: false))
+                let raw = try #require(components.queryItems?.first(where: { $0.name == "input" })?.value)
+                input = try #require(JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+            } else {
+                #expect(request.httpMethod == "POST")
+                input = try #require(JSONSerialization.jsonObject(with: SessionAuthoringURLProtocol.body(request)) as? [String: Any])
+            }
+            #expect(input["partyId"] as? String == "party-1")
+            let payload: Any
+            switch path {
+            case NativePartySellerInviteAPI.searchPath:
+                #expect(input["query"] as? String == "bottle co")
+                payload = ["sellers": [["id": "seller-2", "name": "Bottle Co", "place": "Midtown", "invite": NSNull()]]]
+            case NativePartySellerInviteAPI.listPath:
+                payload = ["invites": [Self.inviteFixture(state: "ACCEPTED", live: 2)]]
+            case NativePartySellerInviteAPI.createPath:
+                #expect(input["sellerId"] as? String == "seller-2")
+                notes.append(input["note"])
+                payload = Self.inviteFixture(state: "PENDING", live: 0)
+            case NativePartySellerInviteAPI.cancelPath:
+                #expect(input["inviteId"] as? String == "inv-1")
+                payload = Self.inviteFixture(state: "CANCELLED", live: 0)
+            default:
+                throw NativeSessionAuthoringFailure.validation("Unexpected route")
+            }
+            return (200, try JSONSerialization.data(withJSONObject: ["result": ["data": payload]]))
+        }
+        let api = NativePartySellerInviteAPI(client: BytspotAPIClient(baseURL: URL(string: "https://seller-invites.test")!, tokenProvider: { "synthetic-test-session" }, urlSession: urlSession))
+
+        let found = try await api.search(partyID: "party-1", query: "  bottle co ")
+        #expect(found.first?.canAsk == true)
+        let listed = try await api.list(partyID: "party-1")
+        #expect(listed.first?.statusLabel == "Selling · 2 on sale")
+        _ = try await api.create(partyID: "party-1", sellerID: "seller-2", note: "   ")
+        _ = try await api.create(partyID: "party-1", sellerID: "seller-2", note: " Two tables? ")
+        _ = try await api.cancel(partyID: "party-1", inviteID: "inv-1")
+
+        #expect(notes.count == 2)
+        #expect(notes.first.flatMap { $0 } is NSNull)
+        #expect(notes.last.flatMap { $0 } as? String == "Two tables?")
+        #expect(routes == [NativePartySellerInviteAPI.searchPath, NativePartySellerInviteAPI.listPath, NativePartySellerInviteAPI.createPath,
+                           NativePartySellerInviteAPI.createPath, NativePartySellerInviteAPI.cancelPath])
+    }
+
+    @Test func aDeclinedOrOpenAskCannotBeRepeatedButAWithdrawnOneCan() {
+        let seller = { (invite: String?) in NativeInvitableSeller(id: "s", name: "Bottle Co", place: nil, invite: invite) }
+        #expect(seller(nil).canAsk)
+        #expect(seller("CANCELLED").canAsk)
+        #expect(seller("REMOVED").canAsk)
+        #expect(!seller("PENDING").canAsk && seller("PENDING").askedLabel == "Asked")
+        #expect(!seller("ACCEPTED").canAsk && seller("ACCEPTED").askedLabel == "Selling here")
+        #expect(!seller("DECLINED").canAsk && seller("DECLINED").askedLabel == "Declined")
+    }
+
     @Test func errorsNeverRenderArbitraryServerBodies() {
         let error = BytspotAPIClient.APIError.server(status: 500, body: "<html>Internal details</html>")
         #expect(!NativeSessionAuthoringFailure.message(error).contains("Internal details"))
         #expect(NativeSessionAuthoringFailure.message(error).contains("Refresh"))
         let notFound = BytspotAPIClient.APIError.server(status: 404, body: "")
         #expect(NativeSessionAuthoringFailure.message(notFound).contains("not available"))
+    }
+
+    private static func inviteFixture(state: String, live: Int) -> [String: Any] {
+        ["id": "inv-1", "sellerId": "seller-2", "sellerName": "Bottle Co", "state": state, "note": NSNull(),
+         "createdAt": "2026-10-26T18:00:00.000Z", "respondedAt": NSNull(), "liveSessions": live]
     }
 
     private static var sessionFixture: [String: Any] {

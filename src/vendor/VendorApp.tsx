@@ -24,6 +24,7 @@ import { BookingsView, HomeView, ScannerView } from './BookingsView';
 import { PatchesView } from './PatchesView';
 import { BandsView } from './BandsView';
 import { TicketsView } from './TicketsView';
+import { PartiesView } from './PartiesView';
 import { demoConsoleTransport, httpConsoleTransport, type ConsoleTransport } from './consoleTransport';
 import { WebhooksView } from './WebhooksView';
 import { AuthGate } from './AuthGate';
@@ -740,7 +741,7 @@ function VendorConsole({
   );
 }
 
-const BUILT_VIEWS = ['home', 'bookings', 'earnings', 'scanner', 'patches', 'bands', 'tickets', 'partnerships', 'bookables', 'availability', 'demand', 'locations', 'staff', 'webhooks', 'business', 'analytics', 'payouts', 'settings'];
+const BUILT_VIEWS = ['home', 'bookings', 'earnings', 'scanner', 'patches', 'bands', 'tickets', 'parties', 'partnerships', 'bookables', 'availability', 'demand', 'locations', 'staff', 'webhooks', 'business', 'analytics', 'payouts', 'settings'];
 
 function ConsoleShell({
   session,
@@ -869,6 +870,7 @@ function ConsoleShell({
             ) : null}
             {current === 'bands' ? <BandsView transport={consoleApi} locations={bookables.locations} /> : null}
             {current === 'tickets' ? <TicketsView transport={consoleApi} locations={bookables.locations} /> : null}
+            {current === 'parties' ? <PartiesView transport={consoleApi} /> : null}
             {current === 'bookables' ? <BookablesView viewer={viewer} {...bookables} session={session} /> : null}
             {current === 'availability' ? <AvailabilityGrid session={session} transport={consoleApi} windows={windows} /> : null}
             {current === 'demand' ? demand : null}

@@ -23,9 +23,6 @@ export interface AskOffer {
   terms?: string;
   holdExpiresAt: string;
   accepted: boolean;
-  /** Absent from an older API, which only knew paying at the venue. */
-  payAt?: 'venue' | 'bytspot';
-  payment?: { state: 'paying' | 'paid' | 'refunded'; reason?: string };
   /** The code shown at the door. Present only on the booking the guest holds. */
   pass?: string;
   checkedIn?: boolean;
@@ -48,7 +45,6 @@ export interface AskClient {
     ask: { mutate: (input: { windowId: string; partySize: number; startsAt: string; note?: string; viaPatch?: string }) => Promise<{ id: string; state: string; expiresAt: string }> };
     mine: { query: () => Promise<AskStatus[]> };
     acceptOffer: { mutate: (input: { offerId: string }) => Promise<unknown> };
-    payOffer: { mutate: (input: { offerId: string }) => Promise<{ url: string }> };
     withdraw: { mutate: (input: { demandId: string }) => Promise<unknown> };
   };
 }
@@ -89,7 +85,6 @@ export function liveAskFor(rows: AskStatus[], windowId: string): AskStatus | und
 /** One line on where a request stands, for the guest's list. */
 export function askStateLabel(status: AskStatus): string {
   if (status.state === 'BOOKED') return 'Booked';
-  if (status.offers.some((offer) => offer.payment?.state === 'paying')) return 'Confirming payment';
   const waiting = status.offers.filter((offer) => !offer.accepted).length;
   if (waiting > 0) return waiting === 1 ? '1 offer to answer' : `${waiting} offers to answer`;
   if (askIsLive(status)) return 'Waiting for an answer';
@@ -106,25 +101,10 @@ export function unseenOffers(rows: AskStatus[], seen: ReadonlySet<string>): { ro
     .flatMap((row) => row.offers.filter((offer) => !offer.accepted && !seen.has(offer.id)).map((offer) => ({ row, offer })));
 }
 
-/**
- * What the guest can do with one offer.
- *
- * An offer paid in the app is booked by paying for it, never by Accept: the
- * API refuses that. Paying again while a checkout is open resumes it.
- */
-export function offerAction(offer: AskOffer): { kind: 'accept' | 'pay' | 'none'; label: string } {
+/** What the guest can do with one offer. Every offer is paid at the venue. */
+export function offerAction(offer: AskOffer): { kind: 'accept' | 'none'; label: string } {
   if (offer.accepted) return { kind: 'none', label: '' };
-  if (offer.payAt !== 'bytspot') return { kind: 'accept', label: 'Accept' };
-  if (offer.payment?.state === 'paying') return { kind: 'pay', label: 'Finish paying' };
-  return { kind: 'pay', label: `Pay $${(offer.priceCents / 100).toFixed(2)}` };
-}
-
-/** Where Stripe sent the guest back, if it did. */
-export function offerCheckoutReturn(search: string): { outcome: 'paid' | 'cancelled'; demandId?: string } | undefined {
-  const query = new URLSearchParams(search);
-  const checkout = query.get('checkout');
-  if (checkout !== 'offer-paid' && checkout !== 'offer-cancelled') return undefined;
-  return { outcome: checkout === 'offer-paid' ? 'paid' : 'cancelled', demandId: query.get('demand') ?? undefined };
+  return { kind: 'accept', label: 'Accept' };
 }
 
 export function askTransport(client: AskClient) {
@@ -143,8 +123,6 @@ export function askTransport(client: AskClient) {
     list: () => client.demand.mine.query(),
     resume: async (windowId: string) => liveAskFor(await client.demand.mine.query(), windowId),
     accept: (offerId: string) => client.demand.acceptOffer.mutate({ offerId }),
-    /** A hosted checkout URL; the booking is made when the payment is confirmed. */
-    pay: async (offerId: string) => (await client.demand.payOffer.mutate({ offerId })).url,
     withdraw: (demandId: string) => client.demand.withdraw.mutate({ demandId }),
   };
 }

@@ -75,7 +75,7 @@ import {
 } from './utils/personalization';
 import { readQuizAnswers, recommendationDetail, useRecommendations, type Recommendation } from './utils/hooks/useRecommendations';
 import { trpc } from './utils/trpc';
-import { askTransport, formatSlotLabel, offerCheckoutReturn, SEEN_OFFERS_KEY, unseenOffers, type AskClient } from './utils/guestAsk';
+import { askTransport, formatSlotLabel, SEEN_OFFERS_KEY, unseenOffers, type AskClient } from './utils/guestAsk';
 import { PENDING_TICKET_KEY, ticketLink } from './utils/guestTickets';
 import { TicketSheet } from './components/TicketSheet';
 import { getPasswordRecoveryRoute } from './utils/passwordRecovery';
@@ -1301,19 +1301,6 @@ export default function App() {
       } else if (ticketReturn.outcome === 'cancelled') {
         toast('Payment cancelled — no charges made.', { duration: 3000 });
       }
-      return;
-    }
-    const offerReturn = offerCheckoutReturn(window.location.search);
-    if (offerReturn) {
-      localStorage.setItem('bytspot_profile_focus', 'requests');
-      setCurrentScreen('main');
-      setActiveTab('profile');
-      if (offerReturn.outcome === 'paid') {
-        toast.success('Payment received', { description: 'Confirming your booking with the venue. It shows in My Requests.', duration: 6000 });
-      } else {
-        toast('Payment cancelled — no charges made.', { duration: 3000 });
-      }
-      window.history.replaceState({}, '', '/');
       return;
     }
     if (path.includes('/booking/success') || path.includes('/booking/cancelled')) {

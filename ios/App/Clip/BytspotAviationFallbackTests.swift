@@ -206,6 +206,7 @@ enum BytspotAviationFallbackTests {
         model.invocationTaskForTesting?.cancel()
 
         model.handle(url: URL(string: "https://bytspot.app/")!)
+        precondition(model.flow == .awaitingInvocation && model.services.isEmpty, "The bare home page must not open the vendor catalog.")
         print("BAND_INVOCATION_REGRESSIONS_PASSED")
     }
 
@@ -322,7 +323,7 @@ enum BytspotAviationFallbackTests {
         model.handle(url: URL(string: "https://bytspot.app/")!)
         requests.finish("old-party", .success(invite("old-party")))
         await abandonedTask.value
-        precondition(model.flow == .catalog && !model.isLoadingContext && !model.isLoadingServices)
+        precondition(model.flow == .awaitingInvocation && !model.isLoadingContext && !model.isLoadingServices)
         precondition(model.partyShareURL == nil)
 
         // A genuine current failure remains recoverable without reopening iOS.

@@ -1106,7 +1106,15 @@ final class ClipInvocationModel: ObservableObject {
         }
         #endif
 
-        guard let patchId else { return }
+        guard let patchId else {
+            // The bare home page names nothing to open; it must not land in
+            // the vendor catalog.
+            if pathParts.isEmpty {
+                services = []
+                flow = .awaitingInvocation
+            }
+            return
+        }
         let token = token
         loadTask = Task { [weak self] in
             await self?.loadContextAndVerify(patchId: patchId, token: token)

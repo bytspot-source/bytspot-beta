@@ -60,7 +60,7 @@ export function nativeAppClipArgumentFor(rawUrl: string): string {
     const current = new URL(rawUrl);
     const parts = pathParts(current);
     const [first] = parts;
-    if (first && ['party', 'group'].includes(first.toLowerCase())) return current.toString();
+    if (first && ['party', 'group', 'sale'].includes(first.toLowerCase())) return current.toString();
     const patchId = patchIdFrom(current, parts);
     if (!patchId) return current.toString();
     const next = new URL('https://bytspot.app/p/app-clip');

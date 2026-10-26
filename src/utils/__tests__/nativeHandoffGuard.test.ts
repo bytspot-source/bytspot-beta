@@ -75,6 +75,14 @@ test('party links get a self-referencing Smart App Banner before the bundle boot
   assert.match(html, /app-argument=' \+ window\.location\.href/);
 });
 
+test('sale links hand the App Clip the sale, never the home page', () => {
+  const html = readFileSync(new URL('../../../index.html', import.meta.url), 'utf8');
+  assert.match(html, /parts\[0\] === 'sale'\) && parts\[1\]\) \{\s*document\.write/);
+  assert.match(html, /pathParts\[0\] === 'sale'\) && pathParts\[1\]/);
+  // A ?p= or ?patch= on a sale link is not a patch; the sale URL is kept whole.
+  assert.equal(nativeAppClipArgumentFor('https://bytspot.app/sale/sale-1?p=BYT424-0301'), 'https://bytspot.app/sale/sale-1?p=BYT424-0301');
+});
+
 test('search structured data parses and claims only what ships', () => {
   const html = readFileSync(new URL('../../../index.html', import.meta.url), 'utf8');
   const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)];

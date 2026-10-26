@@ -130,6 +130,7 @@ final class NativeLocationStore: NSObject, ObservableObject, CLLocationManagerDe
     private let geocoder = CLGeocoder()
     private var localityRequestGeneration = 0
     private var localityCoordinate: CLLocation?
+    private var visitLocationRefresh = NativeVenueLocationRefreshSchedule()
 
     override init() {
         super.init()
@@ -171,6 +172,13 @@ final class NativeLocationStore: NSObject, ObservableObject, CLLocationManagerDe
         updateAuthorization(manager.authorizationStatus)
         guard authorizationState == .allowed else { return }
         manager.requestLocation()
+    }
+
+    /// Several visible venue cards share this store. Refresh at most once per
+    /// interval, even when a location request fails or many cards ask at once.
+    func refreshForVisitIfNeeded(now: Date = Date()) {
+        guard authorizationState == .allowed, visitLocationRefresh.shouldRequest(now: now) else { return }
+        startIfAuthorized()
     }
 
     func requestWhenInUseIfNeeded() {
@@ -12076,7 +12084,7 @@ private struct NativeDiscoverView: View {
         while !Task.isCancelled {
             try? await Task.sleep(nanoseconds: UInt64(NativeDiscoverMoreNearbyPolicy.locationRefreshInterval * 1_000_000_000))
             guard !Task.isCancelled else { return }
-            locationStore.startIfAuthorized()
+            locationStore.refreshForVisitIfNeeded()
         }
     }
 
@@ -12149,7 +12157,7 @@ private struct NativeDiscoverView: View {
             switch action {
             case .checkIn:
                 NativeVenueCheckInChip(venue: venue, openAuth: openNativeAuth)
-                    .fixedSize()
+                    .frame(maxWidth: 200)
             case .book(let booking):
                 if let placeID {
                     Button { openNearbyBooking(booking, placeID: placeID) } label: {
@@ -12509,12 +12517,12 @@ enum NativeDiscoverMoreNearbyPolicy {
         case none
     }
 
-    /// One action per row: Check in when the guest is at a place that supports
-    /// it, otherwise Book with the place's OpenTable or Resy link, otherwise none.
+    /// Nearby check-in takes priority; otherwise keep an existing booking link.
+    /// Without a booking link, eligible places offer the directions/arrival control.
     static func action(canCheckIn: Bool, isAtPlace: Bool, booking: NativeDiscoverNearbyBooking?) -> Action {
         if canCheckIn && isAtPlace { return .checkIn }
         if let booking { return .book(booking) }
-        return .none
+        return canCheckIn ? .checkIn : .none
     }
 
     /// "Nearby" repeats the section header, so the row omits it.
@@ -12703,28 +12711,113 @@ private struct NativeVenueCheckInChip: View {
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var locationStore: NativeLocationStore
     @ObservedObject private var visits = NativeVenueVisitStore.shared
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var now = Date()
+    @State private var navigationMessage: String?
 
     private var userID: String? { sessionStore.canAttachBearerToken ? sessionStore.authenticatedUserID : nil }
     private var state: NativeVenueVisitState { visits.state(userID: userID, venueID: venue.checkInVenueID) }
+    private var coordinate: NativeLocationCoordinate? {
+        NativeVenueVisitLocation.freshCoordinate(location: locationStore.lastLocation,
+            authorized: locationStore.authorizationState == .allowed, now: now)
+    }
+    private var arrivalAction: NativeVenueArrivalAction {
+        NativeVenueArrivalAction.resolve(venue: venue, coordinate: coordinate, state: state)
+    }
+    private var actionLabel: String {
+        if arrivalAction == .locate {
+            switch locationStore.authorizationState {
+            case .notDetermined: return "Enable location"
+            case .denied: return "Open location settings"
+            default: return "Refresh location"
+            }
+        }
+        if arrivalAction == .checkIn && state.canRetry { return "Retry Check In" }
+        return arrivalAction.label
+    }
+    private var locationDetail: String {
+        switch locationStore.authorizationState {
+        case .denied: return "Location access is off. Enable it in Settings to verify arrival, or get directions below."
+        case .restricted: return "Location access is restricted on this device. You can still get directions."
+        case .unavailable: return "Location Services are unavailable. Turn them on in Settings, or get directions below."
+        default: return locationStore.lastErrorMessage ?? arrivalAction.detail
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Button(action: validate) {
+            Button(action: performArrivalAction) {
                 HStack(spacing: 8) {
                     if state.isLoading { ProgressView().tint(.white) }
-                    else { Image(systemName: state.isConfirmed ? "checkmark.seal" : "location.circle") }
-                    Text(state.label).font(.subheadline.weight(.semibold))
+                    else { Image(systemName: state.isConfirmed ? "checkmark.seal" : arrivalAction == .directions ? "arrow.triangle.turn.up.right.diamond" : "location.circle") }
+                    Text(actionLabel).font(.subheadline.weight(.semibold))
                 }
                 .foregroundColor(.white).padding(.horizontal, 12).frame(minHeight: 44)
                 .background(Color.white.opacity(0.10)).clipShape(Capsule())
             }
-            .buttonStyle(.plain).disabled(state.isLoading || state.isConfirmed)
+            .buttonStyle(.plain).disabled(state.isLoading || state.isConfirmed || arrivalAction == .unavailable)
             .accessibilityIdentifier("native-venue-check-in-\(venue.id)")
-            .accessibilityHint("Validates your visit. Points are determined by the server.")
-            if let detail = state.detail {
-                Text(detail).font(.footnote).foregroundColor(.white.opacity(0.80))
+            .accessibilityHint(arrivalAction.detail)
+            Text(arrivalAction == .locate ? locationDetail : arrivalAction.detail)
+                .font(.footnote).foregroundColor(.white.opacity(0.80))
+                .fixedSize(horizontal: false, vertical: true)
+            if let detail = state.detail, !state.isLoading {
+                Text(detail).font(.footnote.weight(.semibold)).foregroundColor(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("native-venue-check-in-result-\(venue.id)")
+            }
+            if arrivalAction == .locate {
+                Button("Get directions", action: directions)
+                    .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                    .accessibilityHint("Opens Apple Maps. No check-in or points are recorded.")
+            }
+            if let navigationMessage {
+                Text(navigationMessage).font(.footnote).foregroundColor(.white.opacity(0.80))
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+        .task(id: scenePhase) { await refreshWhileVisible() }
+        .onChange(of: locationStore.lastLocation?.timestamp) { _ in now = Date() }
+        .onChange(of: arrivalAction) { _ in navigationMessage = nil }
+    }
+
+    private func performArrivalAction() {
+        now = Date()
+        switch arrivalAction {
+        case .directions: directions()
+        case .locate:
+            if locationStore.authorizationState == .denied,
+               let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            } else {
+                locationStore.requestWhenInUseIfNeeded()
+                navigationMessage = "Location requested. If it stays unavailable, check Location Services in Settings or use directions."
+            }
+        case .checkIn, .retry: validate()
+        case .verifying, .confirmed, .unavailable: break
+        }
+    }
+
+    private func directions() {
+        guard venue.hasKnownCoordinates else { return }
+        let destination = MKMapItem(placemark: MKPlacemark(coordinate:
+            CLLocationCoordinate2D(latitude: venue.latitude, longitude: venue.longitude)))
+        destination.name = venue.name
+        let opened = destination.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
+        navigationMessage = opened
+            ? "Directions opened in Apple Maps. Return to Bytspot when you arrive to check in."
+            : "Apple Maps could not open. Try again."
+    }
+
+    private func refreshWhileVisible() async {
+        guard scenePhase == .active else { return }
+        while !Task.isCancelled {
+            now = Date()
+            if arrivalAction != .confirmed && arrivalAction != .unavailable {
+                locationStore.refreshForVisitIfNeeded(now: now)
+            }
+            do { try await Task.sleep(nanoseconds: 15_000_000_000) }
+            catch { return }
         }
     }
 

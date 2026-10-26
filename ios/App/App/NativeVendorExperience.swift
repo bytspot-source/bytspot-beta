@@ -535,6 +535,58 @@ enum NativeVenueVisitLocation {
     }
 }
 
+/// Shared by automatic foreground refreshes, not explicit user requests.
+struct NativeVenueLocationRefreshSchedule {
+    private var lastRequest: Date?
+
+    mutating func shouldRequest(now: Date) -> Bool {
+        if let lastRequest, (0..<15).contains(now.timeIntervalSince(lastRequest)) { return false }
+        lastRequest = now
+        return true
+    }
+}
+
+/// Navigation is not visit evidence. Only a fresh, nearby fix enables a check-in;
+/// confirmation and points always come from the existing server response.
+enum NativeVenueArrivalAction: Equatable {
+    case directions, locate, checkIn, retry, verifying, confirmed, unavailable
+
+    static func resolve(venue: NativeVenueSummary, coordinate: NativeLocationCoordinate?, state: NativeVenueVisitState) -> Self {
+        if state.isLoading { return .verifying }
+        if state.isConfirmed { return .confirmed }
+        guard NativeM5DetailPolicy.canValidateVisit(venue), venue.hasKnownCoordinates else { return .unavailable }
+        guard NativeVenueVisitLocation.isUsable(coordinate) else { return .locate }
+        // A lost response may already have earned points. Reuse the store's
+        // idempotency key to reconcile it, even if the person has since left.
+        if state == .failed { return .retry }
+        return NativeVendorExperience.isAtVenue(coordinate, venue: venue) ? .checkIn : .directions
+    }
+
+    var label: String {
+        switch self {
+        case .directions: return "Get directions"
+        case .locate: return "Refresh location"
+        case .checkIn: return "Check In"
+        case .retry: return "Retry Check In"
+        case .verifying: return "Verifying arrival…"
+        case .confirmed: return "Checked In"
+        case .unavailable: return "Location unavailable"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .directions: return "Check in when you arrive. Points require a verified visit."
+        case .locate: return "A fresh location is needed to verify your arrival. You can still get directions."
+        case .checkIn: return "You're nearby — check in to verify your visit."
+        case .retry: return "Retry to find out whether your last check-in was confirmed."
+        case .verifying: return "Verifying your arrival. Points are not confirmed yet."
+        case .confirmed: return "Visit confirmed."
+        case .unavailable: return "This place does not have a check-in location."
+        }
+    }
+}
+
 enum NativeVenueVisitState: Equatable {
     case idle
     case inProgress

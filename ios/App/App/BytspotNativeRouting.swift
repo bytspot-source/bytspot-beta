@@ -321,8 +321,7 @@ final class NativeNavigationCoordinator: ObservableObject {
             return true
         }
         if let planRoute = NativePlanRoute(url: url) {
-            // The Plan tab sits behind the join sheet, so dismissing it reveals
-            // the Plan the holder just took a seat on.
+            // The join sheet opens the Plan detail itself once the holder is seated.
             requestedTab = .plan
             requestedDestination = .plan(planId: planRoute.planID, token: planRoute.token)
             return true

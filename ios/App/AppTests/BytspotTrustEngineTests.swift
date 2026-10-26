@@ -3018,7 +3018,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.action(canCheckIn: true, isAtPlace: true, booking: booking), .checkIn)
         XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.action(canCheckIn: true, isAtPlace: false, booking: booking), .book(booking))
         XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.action(canCheckIn: false, isAtPlace: true, booking: booking), .book(booking))
-        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.action(canCheckIn: true, isAtPlace: false, booking: nil), NativeDiscoverMoreNearbyPolicy.Action.none)
+        XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.action(canCheckIn: true, isAtPlace: false, booking: nil), .checkIn, "Eligible rows without booking links show the shared directions/arrival control")
         XCTAssertEqual(NativeDiscoverMoreNearbyPolicy.action(canCheckIn: false, isAtPlace: false, booking: nil), NativeDiscoverMoreNearbyPolicy.Action.none)
     }
 
@@ -8145,6 +8145,75 @@ final class NativeDiscoverCoffeeSourceTests: XCTestCase {
 }
 
 final class NativeVenueVisitTests: XCTestCase {
+    @MainActor
+    private func arrivalVenue() throws -> NativeVenueSummary {
+        try XCTUnwrap(NativeTabContentStore.canonicalVenue(from: [
+            "id": "arrival-venue", "name": "Arrival Cafe", "category": "coffee",
+            "lat": 33.7866, "lng": -84.3833
+        ]))
+    }
+
+    @MainActor
+    func testArrivalOffersDirectionsAwayAndCheckInOnlyNearby() throws {
+        let venue = try arrivalVenue()
+        let far = NativeLocationCoordinate(latitude: 33.80, longitude: -84.40, isFallback: false)
+        XCTAssertEqual(NativeVenueArrivalAction.resolve(venue: venue, coordinate: far, state: .idle), .directions)
+        XCTAssertEqual(NativeVenueArrivalAction.resolve(venue: venue, coordinate: .verifiedMidtown, state: .idle), .checkIn)
+        let unusable: [NativeLocationCoordinate?] = [nil, .midtown,
+            NativeLocationCoordinate(latitude: 999, longitude: 0, isFallback: false)]
+        for coordinate in unusable {
+            XCTAssertEqual(NativeVenueArrivalAction.resolve(venue: venue, coordinate: coordinate, state: .idle), .locate)
+        }
+        var reference = venue
+        reference.checkInVenueID = nil
+        XCTAssertEqual(NativeVenueArrivalAction.resolve(venue: reference, coordinate: .verifiedMidtown, state: .idle), .unavailable)
+    }
+
+    @MainActor
+    func testArrivalCannotUseAnExpiredOrUnauthorizedFix() throws {
+        let venue = try arrivalVenue()
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let fix = CLLocation(coordinate: CLLocationCoordinate2D(latitude: venue.latitude, longitude: venue.longitude),
+            altitude: 0, horizontalAccuracy: 20, verticalAccuracy: 20, timestamp: now)
+        let fresh = NativeVenueVisitLocation.freshCoordinate(location: fix, authorized: true, now: now)
+        XCTAssertEqual(NativeVenueArrivalAction.resolve(venue: venue, coordinate: fresh, state: .idle), .checkIn)
+        for coordinate in [
+            NativeVenueVisitLocation.freshCoordinate(location: fix, authorized: true, now: now.addingTimeInterval(61)),
+            NativeVenueVisitLocation.freshCoordinate(location: fix, authorized: false, now: now)
+        ] {
+            XCTAssertEqual(NativeVenueArrivalAction.resolve(venue: venue, coordinate: coordinate, state: .idle), .locate)
+        }
+    }
+
+    @MainActor
+    func testArrivalKeepsInFlightAndConfirmedResultsWhenLocationChanges() throws {
+        let venue = try arrivalVenue()
+        XCTAssertEqual(NativeVenueArrivalAction.resolve(venue: venue, coordinate: nil, state: .inProgress), .verifying)
+        XCTAssertEqual(NativeVenueArrivalAction.resolve(venue: venue, coordinate: nil, state: .confirmed(try response())), .confirmed)
+        XCTAssertEqual(NativeVenueArrivalAction.resolve(venue: venue, coordinate: .verifiedMidtown, state: .rejected("Not nearby")), .checkIn)
+        let far = NativeLocationCoordinate(latitude: 33.80, longitude: -84.40, isFallback: false)
+        for coordinate in [NativeLocationCoordinate.verifiedMidtown, far] {
+            XCTAssertEqual(NativeVenueArrivalAction.resolve(venue: venue, coordinate: coordinate, state: .failed), .retry,
+                "A lost response must remain reconcilable using the same idempotency key after leaving")
+        }
+        XCTAssertEqual(NativeVenueArrivalAction.resolve(venue: venue, coordinate: nil, state: .failed), .locate)
+        XCTAssertEqual(NativeVenueArrivalAction.verifying.label, "Verifying arrival…")
+        XCTAssertTrue(NativeVenueArrivalAction.directions.detail.contains("verified visit"))
+    }
+
+    func testForegroundLocationRefreshCoalescesCardsAndDiscoverIncludingFailedFixes() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var schedule = NativeVenueLocationRefreshSchedule()
+        for second in [0, 15, 30] {
+            let now = start.addingTimeInterval(TimeInterval(second))
+            XCTAssertTrue(schedule.shouldRequest(now: now))
+            // Discover and multiple visible cards must not issue duplicate requests.
+            for _ in 0..<10 { XCTAssertFalse(schedule.shouldRequest(now: now)) }
+            XCTAssertFalse(schedule.shouldRequest(now: now.addingTimeInterval(14)))
+        }
+        XCTAssertTrue(schedule.shouldRequest(now: start), "A clock correction must not suppress refresh indefinitely")
+    }
+
     private func response(_ json: String = #"{"success":true,"proof":"nearby","pointsEarned":10,"pointsReason":"paid"}"#) throws -> NativeVenueVisitResponse {
         try JSONDecoder().decode(NativeVenueVisitResponse.self, from: Data(json.utf8))
     }

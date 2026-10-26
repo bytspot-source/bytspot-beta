@@ -64,7 +64,9 @@ function sizeError(partySize: string): string | null {
 }
 function whereError(areaLabel: string, coords: PlanCoords | null): string | null {
   if (areaLabel.trim().length > 80) return 'Keep the area to 80 characters or fewer.';
-  return coords && !validPlanCoords(coords) ? 'That location is not valid.' : null;
+  if (coords && !validPlanCoords(coords)) return 'That location is not valid.';
+  // A typed area with no map point cannot be used to ask venues nearby.
+  return areaLabel.trim() && !coords ? `Pick a match for “${areaLabel.trim()}”, or clear it.` : null;
 }
 export function planDraftError(draft: PlanDraft, now: Date = new Date()): string | null {
   if (!draft.title.trim() || draft.title.trim().length > 80) return 'Give your plan a title of 1–80 characters.';
@@ -102,7 +104,22 @@ export function planEditDraft(plan: Plan): PlanEditDraft {
 }
 export function planEditError(plan: Plan, edit: PlanEditDraft, now: Date = new Date()): string | null {
   const original = planEditDraft(plan);
-  return (edit.startsAt !== original.startsAt ? whenError(edit.startsAt, now) : null) ?? sizeError(edit.partySize) ?? whereError(edit.areaLabel, edit.coords);
+  const whereChanged = edit.areaLabel !== original.areaLabel || edit.coords?.latitude !== original.coords?.latitude || edit.coords?.longitude !== original.coords?.longitude;
+  return (edit.startsAt !== original.startsAt ? whenError(edit.startsAt, now) : null) ?? sizeError(edit.partySize) ?? (whereChanged ? whereError(edit.areaLabel, edit.coords) : null);
+}
+export interface PlanPlaceMatch { id: string; name: string; address: string; coords: PlanCoords }
+/** Only results with a real map point; anything else cannot anchor a Plan. */
+export function parsePlaceMatches(value: unknown): PlanPlaceMatch[] {
+  const rows = value && typeof value === 'object' && Array.isArray((value as RecordValue).places) ? (value as { places: unknown[] }).places : [];
+  return rows.flatMap((row, index) => {
+    if (!row || typeof row !== 'object') return [];
+    const place = row as RecordValue;
+    const name = typeof place.name === 'string' ? place.name.trim().slice(0, 80) : '';
+    const coords = { latitude: Number(place.lat), longitude: Number(place.lng) };
+    if (!name || typeof place.lat !== 'number' || typeof place.lng !== 'number' || !validPlanCoords(coords)) return [];
+    const id = typeof place.placeId === 'string' && place.placeId ? place.placeId : `place-${index}`;
+    return [{ id, name, address: typeof place.address === 'string' ? place.address : '', coords }];
+  });
 }
 /** Only changed fields are sent; a cleared field is sent as null. */
 export function planEditInput(plan: Plan, edit: PlanEditDraft, now: Date = new Date()): UpdatePlanInput {
@@ -180,6 +197,7 @@ export interface PlanApi {
   confirm(id: string): Promise<void>;
   cancel(id: string): Promise<void>;
   respond(id: string, response: 'accepted' | 'maybe' | 'declined'): Promise<void>;
+  searchPlaces(query: string): Promise<PlanPlaceMatch[]>;
 }
 type Query<I> = { query(input: I): Promise<unknown> };
 type Mutation<I> = { mutate(input: I): Promise<unknown> };
@@ -190,6 +208,7 @@ export interface PlansTransport {
     confirm: Mutation<{ planId: string }>; cancel: Mutation<{ planId: string }>;
     respond: Mutation<{ planId: string; response: 'accepted' | 'maybe' | 'declined' }>;
   };
+  places: { textSearch: Query<{ query: string; maxResults: number }> };
 }
 type RecordValue = Record<string, unknown>;
 function object(value: unknown): RecordValue {
@@ -269,5 +288,6 @@ export function createPlanApi(client: PlansTransport): PlanApi {
     async confirm(id) { await client.plans.confirm.mutate({ planId: id }); },
     async cancel(id) { await client.plans.cancel.mutate({ planId: id }); },
     async respond(id, response) { await client.plans.respond.mutate({ planId: id, response }); },
+    async searchPlaces(query) { return parsePlaceMatches(await client.places.textSearch.query({ query: query.trim(), maxResults: 5 })); },
   };
 }

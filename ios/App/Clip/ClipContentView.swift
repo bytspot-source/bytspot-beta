@@ -157,6 +157,17 @@ struct ClipContentView: View {
                     PartyPassClipView(invite: invite, showOverlay: $showOverlay)
                         .id(invite.id)
                         .transition(.opacity)
+                case .saleLoading:
+                    ClipPartyInviteStateView(title: "Loading sale…", message: "Getting the listing the seller shared.", isLoading: true)
+                        .transition(.opacity)
+                case .saleFailed(let saleID, let message):
+                    ClipPartyInviteStateView(title: "Sale unavailable", message: message, isLoading: false,
+                                             retry: saleID.isEmpty ? nil : { invocation.retrySale() })
+                        .transition(.opacity)
+                case .sale(let listing):
+                    ClipSaleView(listing: listing, showOverlay: $showOverlay)
+                        .id(listing.saleID)
+                        .transition(.opacity)
                 case .band(let screen):
                     ClipBandTapView(screen: screen, showOverlay: $showOverlay)
                         .transition(.opacity)
@@ -186,8 +197,91 @@ struct ClipContentView: View {
     }
 
     private var bandIsUncoded: Bool {
-        if case .band(let screen) = invocation.flow { return screen.tier == nil }
-        return false
+        switch invocation.flow {
+        case .band(let screen): return screen.tier == nil
+        case .saleLoading, .saleFailed, .sale: return true
+        default: return false
+        }
+    }
+}
+
+private struct ClipSaleView: View {
+    @EnvironmentObject var invocation: ClipInvocationModel
+    let listing: ClipSaleListing
+    @Binding var showOverlay: Bool
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                if let photo = listing.photoURL {
+                    // The bitmap is an overlay so its size never widens the Clip.
+                    Color.white.opacity(0.06)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 240)
+                        .overlay(AsyncImage(url: photo) { phase in
+                            if let image = phase.image { image.resizable().scaledToFill() }
+                        })
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .accessibilityHidden(true)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(ClipSaleListing.eyebrow)
+                        .font(.system(size: 11, weight: .black))
+                        .foregroundColor(ClipTheme.cyan)
+                        .tracking(1.4)
+                    Text(listing.title)
+                        .font(.system(size: 28, weight: .heavy))
+                        .foregroundColor(.white)
+                        .lineLimit(3)
+                        .minimumScaleFactor(0.8)
+                    Text(listing.priceLabel)
+                        .font(.system(size: 22, weight: .black))
+                        .foregroundColor(.white)
+                    Text("Sold by \(listing.sellerName)")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.74))
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("clip-sale-header")
+                VStack(alignment: .leading, spacing: 12) {
+                    if let window = listing.windowLabel {
+                        Label(window, systemImage: "clock")
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.82))
+                    }
+                    if let area = listing.areaLabel {
+                        Label(area, systemImage: "mappin.and.ellipse")
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.82))
+                    }
+                    Text(ClipSaleListing.requestNote)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.62))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(action: { impactLight(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.down.app.fill")
+                            Text(ClipSaleListing.getAppTitle)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                        }
+                        .font(.system(size: 14, weight: .black))
+                        .foregroundColor(.black)
+                        .padding(.vertical, 14).padding(.horizontal, 14)
+                        .background(ClipTheme.cyan)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("clip-sale-get-app")
+                }
+                .padding(16)
+                .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(ClipTheme.panelElevated))
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 22)
+            .padding(.bottom, 28)
+        }
+        .accessibilityIdentifier("clip-sale")
     }
 }
 

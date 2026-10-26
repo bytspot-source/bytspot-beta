@@ -403,6 +403,11 @@ struct NativePrivateSalesAPI {
         _ = try await client.trpcPayload(path: "/trpc/sales.close", method: "POST", input: ["saleId": saleID, "outcome": sold ? "sold" : "cancelled"])
     }
 
+    /// Sold, cancelled or ended sales only; the server refuses an open one.
+    func delete(saleID: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/sales.delete", method: "POST", input: ["saleId": saleID])
+    }
+
     func decide(requestID: String, approve: Bool) async throws {
         _ = try await client.trpcPayload(path: approve ? "/trpc/sales.approve" : "/trpc/sales.decline", method: "POST", input: ["requestId": requestID])
     }
@@ -578,6 +583,7 @@ struct NativePrivateSalesCard: View {
     @State private var limits: NativeSaleLimits?
     @State private var message = ""
     @State private var sheet: SaleSheet?
+    @State private var pendingDelete: NativeOwnSale?
 
     private enum SaleSheet: Identifiable, Equatable {
         case create, handles, manage(String)
@@ -629,6 +635,14 @@ struct NativePrivateSalesCard: View {
         .saleCard()
         .accessibilityIdentifier("native-private-sales-card")
         .task(id: sessionStore.isAuthenticated) { await reload() }
+        .confirmationDialog("Delete this sale?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible) {
+            if let sale = pendingDelete {
+                Button("Delete sale", role: .destructive) { pendingDelete = nil; Task { await delete(sale) } }
+            }
+            Button("Keep it", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text("It leaves your list along with its requests and photo. This can't be undone.")
+        }
         .sheet(item: $sheet, onDismiss: { Task { await reload() } }) { target in
             Group {
                 switch target {
@@ -658,6 +672,15 @@ struct NativePrivateSalesCard: View {
                     .foregroundColor(sale.isOpen ? .black : NativeTheme.textSecondary)
                     .padding(.horizontal, 10).frame(height: 28)
                     .background(sale.isOpen ? NativeTheme.cyan : Color.white.opacity(0.1)).clipShape(Capsule())
+                if !sale.isOpen {
+                    Button(action: { nativeImpactLight(); pendingDelete = sale }) {
+                        Image(systemName: "trash").font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.orange)
+                            .frame(width: 36, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Delete \(sale.title)")
+                    .accessibilityIdentifier("native-private-sale-delete-\(sale.saleId)")
+                }
             }
             .padding(12)
             .background(Color.white.opacity(sale.isOpen ? 0.08 : 0.04))
@@ -665,6 +688,18 @@ struct NativePrivateSalesCard: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("native-private-sale-\(sale.saleId)")
+    }
+
+    @MainActor private func delete(_ sale: NativeOwnSale) async {
+        guard let token = sessionStore.token else { return }
+        do {
+            try await NativePrivateSalesAPI(client: BytspotAPIClient(tokenProvider: { token })).delete(saleID: sale.saleId)
+            sales.removeAll { $0.saleId == sale.saleId }
+            message = ""
+        } catch {
+            message = NativePrivateSaleFailure.message(for: error, fallback: "The sale couldn't be deleted.")
+        }
+        await reload()
     }
 
     @MainActor private func reload() async {
@@ -1104,6 +1139,7 @@ struct NativePrivateSaleCreateView: View {
 
 struct NativePrivateSaleManageView: View {
     @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @Environment(\.dismiss) private var dismiss
     let saleID: String
     @State private var sale: NativeOwnSale?
     @State private var loaded = false
@@ -1113,6 +1149,7 @@ struct NativePrivateSaleManageView: View {
     @State private var newStart = NativePrivateSalePolicy.defaultStart()
     @State private var newMinutes = 60
     @State private var confirmClose = false
+    @State private var confirmDelete = false
     @State private var pickingPhoto = false
 
     var body: some View {
@@ -1126,6 +1163,8 @@ struct NativePrivateSaleManageView: View {
                         requests(sale)
                         window(sale)
                         closeControls
+                    } else {
+                        deleteControls
                     }
                 } else if loaded {
                     Text("This sale isn't available.").font(.system(size: 14, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
@@ -1149,6 +1188,12 @@ struct NativePrivateSaleManageView: View {
             Button("Keep it open", role: .cancel) {}
         } message: {
             Text("The link stops working at once for every buyer.")
+        }
+        .confirmationDialog("Delete this sale?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete sale", role: .destructive) { Task { await deleteSale() } }
+            Button("Keep it", role: .cancel) {}
+        } message: {
+            Text("It leaves your list along with its requests and photo. This can't be undone.")
         }
         .sheet(isPresented: $pickingPhoto) {
             NativePartyPhotoPicker(selectionLimit: 1) { images in
@@ -1307,6 +1352,17 @@ struct NativePrivateSaleManageView: View {
         .accessibilityIdentifier("native-private-sale-close")
     }
 
+    private var deleteControls: some View {
+        Button(action: { confirmDelete = true }) {
+            Label("Delete sale", systemImage: "trash").font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.orange)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .overlay(Capsule().stroke(NativeTheme.orange.opacity(0.6)))
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .accessibilityIdentifier("native-private-sale-delete")
+    }
+
     private var api: NativePrivateSalesAPI? {
         guard let token = sessionStore.token else { return nil }
         return NativePrivateSalesAPI(client: BytspotAPIClient(tokenProvider: { token }))
@@ -1357,6 +1413,18 @@ struct NativePrivateSaleManageView: View {
             message = NativePrivateSaleFailure.message(for: error, fallback: "The sale couldn't close.")
         }
         await reload()
+    }
+
+    @MainActor private func deleteSale() async {
+        guard let api else { return }
+        busy = true; defer { busy = false }
+        do {
+            try await api.delete(saleID: saleID)
+            dismiss()
+        } catch {
+            message = NativePrivateSaleFailure.message(for: error, fallback: "The sale couldn't be deleted.")
+            await reload()
+        }
     }
 }
 

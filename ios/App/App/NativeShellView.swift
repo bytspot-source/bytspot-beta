@@ -327,6 +327,7 @@ struct BytspotNativeShellView: View {
     @State private var pendingPostAuthIntent: NativePostAuthIntent?
     @State private var welcomeBannerText: String?
     @State private var welcomeBannerGeneration = 0
+    @State private var showDisplayNamePrompt = false
     @State private var networkResumeGeneration = 0
     @State private var contextualDestination: NativeContextualDestination?
     @State private var pendingProfilePanel: NativeProfilePanel?
@@ -624,6 +625,11 @@ struct BytspotNativeShellView: View {
             })))
             .preferredColorScheme(effectivePreferredColorScheme)
         }
+        .task(id: sessionStore.authenticatedUserID ?? "") { await syncSignedInDisplayName() }
+        .sheet(isPresented: $showDisplayNamePrompt) {
+            NativeDisplayNamePrompt(sessionStore: sessionStore) { showDisplayNamePrompt = false }
+                .preferredColorScheme(.dark)
+        }
     }
 
     private static var previewBoutiqueStayVenue: NativeVenueSummary {
@@ -794,16 +800,36 @@ struct BytspotNativeShellView: View {
     private func presentWelcomeBannerIfNeeded() {
         guard sessionStore.isAuthenticated, NativeSignedInIdentity.consumePendingWelcome() else { return }
         let restored = NativeSignedInIdentity.consumeAccountRestored(userID: sessionStore.authenticatedUserID)
-        let message = NativeSignedInIdentity.welcomeMessage(displayName: NativeSignedInIdentity.displayName, accountRestored: restored)
-        welcomeBannerGeneration += 1
-        let generation = welcomeBannerGeneration
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { welcomeBannerText = message }
-        // A restoration notice must outlast a routine greeting; it reports an
-        // account state change the member did not ask for on this screen.
-        DispatchQueue.main.asyncAfter(deadline: .now() + (restored ? 5.5 : 3.2)) {
-            guard welcomeBannerGeneration == generation else { return }
-            withAnimation(.easeOut(duration: 0.3)) { welcomeBannerText = nil }
+        Task { @MainActor in
+            // Apple sends a name only on the first authorization, so a returning
+            // member's name comes from the account before the greeting.
+            if NativeSignedInIdentity.displayName == nil { await syncSignedInDisplayName() }
+            let message = NativeSignedInIdentity.welcomeMessage(displayName: NativeSignedInIdentity.displayName, accountRestored: restored)
+            welcomeBannerGeneration += 1
+            let generation = welcomeBannerGeneration
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { welcomeBannerText = message }
+            // A restoration notice must outlast a routine greeting; it reports an
+            // account state change the member did not ask for on this screen.
+            DispatchQueue.main.asyncAfter(deadline: .now() + (restored ? 5.5 : 3.2)) {
+                guard welcomeBannerGeneration == generation else { return }
+                withAnimation(.easeOut(duration: 0.3)) { welcomeBannerText = nil }
+            }
         }
+    }
+
+    /// The account's name is the source of truth for the header and greeting.
+    /// An account with no name is asked for one once, instead of reading as
+    /// "Bytspot member" to friends and hosts.
+    @MainActor private func syncSignedInDisplayName() async {
+        guard sessionStore.canAttachBearerToken, sessionStore.token != nil else { return }
+        let userID = sessionStore.authenticatedUserID
+        let api = NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in
+            guard let sessionStore, sessionStore.canAttachBearerToken else { return nil }
+            return sessionStore.token
+        }))
+        guard let profile = try? await api.loadProfile(), sessionStore.authenticatedUserID == userID else { return }
+        NativeSignedInIdentity.refresh(displayName: profile.name)
+        if NativeSignedInIdentity.shouldPromptForName(profileName: profile.name, userID: userID) { showDisplayNamePrompt = true }
     }
 
     private func resolvePendingPostAuthIntentIfReady() {
@@ -3055,6 +3081,7 @@ private struct NativePersonalInformationPanel: View {
         defer { isLoading = false }
         do {
             let profile = try await api.loadProfile()
+            NativeSignedInIdentity.refresh(displayName: profile.name)
             displayName = profile.name ?? displayName
             email = profile.email ?? email
             phone = profile.phone ?? phone
@@ -3073,6 +3100,7 @@ private struct NativePersonalInformationPanel: View {
         Task {
             do {
                 let profile = try await api.updateProfile(name: clean(displayName), phone: clean(phone), address: clean(city), birthday: clean(birthday))
+                NativeSignedInIdentity.refresh(displayName: profile.name)
                 displayName = profile.name ?? displayName
                 phone = profile.phone ?? phone
                 city = profile.address ?? city
@@ -3088,6 +3116,66 @@ private struct NativePersonalInformationPanel: View {
     private func clean(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+/// Shown once per account when it has no name, so friends, hosts and the
+/// greeting stop reading "Bytspot member".
+private struct NativeDisplayNamePrompt: View {
+    let sessionStore: BytspotSessionStore
+    let onFinished: () -> Void
+    @State private var name = ""
+    @State private var saving = false
+    @State private var message = ""
+
+    private var trimmed: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("What should friends call you?").font(.system(size: 26, weight: .black)).foregroundColor(NativeProfileStyle.title)
+                .accessibilityAddTraits(.isHeader)
+            Text("Your name shows on invites, plans and lineups instead of \u{201C}Bytspot member\u{201D}. Your email stays private.")
+                .font(.system(size: 14, weight: .semibold)).foregroundColor(NativeProfileStyle.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            NativeProfileFormField(title: "Display name", placeholder: "First and last name", text: $name, capitalization: .words)
+            Button(action: save) { NativeCTA(title: saving ? "Saving…" : "Save name", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
+                .buttonStyle(.plain)
+                .disabled(saving || trimmed.isEmpty)
+                .accessibilityIdentifier("native-display-name-save")
+            Button("Not now") {
+                NativeSignedInIdentity.dismissNamePrompt(userID: sessionStore.authenticatedUserID)
+                onFinished()
+            }
+            .font(.system(size: 14, weight: .bold)).foregroundColor(NativeProfileStyle.muted)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            if !message.isEmpty {
+                Text(message).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.orange)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(24)
+        .background(NativeDeepSpaceGround().ignoresSafeArea())
+        .accessibilityIdentifier("native-display-name-prompt")
+    }
+
+    private func save() {
+        guard !trimmed.isEmpty else { return }
+        saving = true
+        let api = NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in
+            guard let sessionStore, sessionStore.canAttachBearerToken else { return nil }
+            return sessionStore.token
+        }))
+        Task { @MainActor in
+            defer { saving = false }
+            do {
+                let profile = try await api.updateProfile(name: trimmed, phone: nil, address: nil, birthday: nil)
+                NativeSignedInIdentity.refresh(displayName: profile.name ?? trimmed)
+                UserDefaults.standard.set(profile.name ?? trimmed, forKey: "bytspot_profile_display_name")
+                onFinished()
+            } catch {
+                message = "Your name couldn't be saved. Try again."
+            }
+        }
     }
 }
 
@@ -4783,6 +4871,8 @@ private struct NativeNetworkHubView: View {
     @State private var hiddenPeople = NativeSafetyHiddenSet()
     @State private var ownInvite: NativeInvite?
     @State private var inviteCodeCopied = false
+    @State private var friendIDQuery = ""
+    @State private var bytspotIDCopied = false
     let requestAuthentication: () -> Void
 
     init(initialCircleSnapshot: NativeSocialCircleSnapshot, requestAuthentication: @escaping () -> Void) {
@@ -5068,9 +5158,11 @@ private struct NativeNetworkHubView: View {
 
     private var peopleContent: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Find a person, choose a circle, then add them and send an invitation.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
+            Text("Add friends from your contacts or by their Bytspot ID. Circles are optional groups for inviting several friends at once.").font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeProfileStyle.body)
             if sessionStore.isAuthenticated {
                 NativeProfileEmailConfirmCard(sessionStore: sessionStore, compact: true)
+                addByIDRow
+                if let ownID = sessionStore.authenticatedUserID, !ownID.isEmpty { ownBytspotIDRow(ownID) }
                 Button(action: { Task { await contactSyncStore.syncDeviceContacts(sessionStore: sessionStore) } }) { NativeCTA(title: contactSyncStore.phase == .syncing ? "Syncing contacts…" : "Find people from contacts", color: NativeTheme.purple, foreground: .white) }.buttonStyle(.plain).disabled(isWorking || contactSyncStore.phase == .syncing || contactSyncStore.phase == .requesting)
                 if let ownInvite { ownInviteCodeRow(ownInvite) }
                 if ownInvite != nil || NativeFriendInviteLink.url(forUserID: sessionStore.authenticatedUserID) != nil {
@@ -5136,16 +5228,73 @@ private struct NativeNetworkHubView: View {
 
     private var personActions: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Menu {
-                ForEach(circleSnapshot.groups) { circle in Button(circle.name) { selectedCircleID = circle.id } }
-            } label: {
-                HStack { Text(selectedCircleName ?? "Select a circle"); Spacer(); Image(systemName: "chevron.up.chevron.down") }.font(.system(size: 13, weight: .black)).foregroundColor(NativeProfileStyle.title).padding(.horizontal, 13).frame(height: 42).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }.disabled(circleSnapshot.groups.isEmpty)
-            HStack(spacing: 8) {
+            let relationship = selectedPersonRelationship
+            networkAction(NativeNetworkFriendPolicy.addFriendTitle(relationship: relationship), icon: relationship == "connected" ? "link" : "person.crop.circle.badge.plus", color: NativeTheme.cyan, disabled: !NativeNetworkFriendPolicy.canAddFriend(relationship: relationship)) { Task { await sendSelectedInvitation() } }
+                .accessibilityIdentifier("native-network-add-friend")
+            if circleSnapshot.groups.isEmpty {
+                Text("Optional: create a circle in Circles to group friends you invite together.")
+                    .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeProfileStyle.muted)
+            } else {
+                Menu {
+                    ForEach(circleSnapshot.groups) { circle in Button(circle.name) { selectedCircleID = circle.id } }
+                } label: {
+                    HStack { Text(selectedCircleName ?? "Select a circle"); Spacer(); Image(systemName: "chevron.up.chevron.down") }.font(.system(size: 13, weight: .black)).foregroundColor(NativeProfileStyle.title).padding(.horizontal, 13).frame(height: 42).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
                 networkAction(hasSelectedMembership ? "Added to circle" : "Add to circle", icon: hasSelectedMembership ? "checkmark" : "person.badge.plus", color: NativeTheme.emerald, requiresCircle: true, disabled: hasSelectedMembership) { Task { await addSelectedPersonToCircle() } }
-                networkAction("Send invite", icon: "paperplane.fill", color: NativeTheme.cyan, requiresCircle: true, disabled: !hasSelectedMembership) { Task { await sendSelectedInvitation() } }
             }
         }.padding(13).background(NativePolish.elevatedSurface.opacity(0.72)).clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+    }
+
+    private var selectedPersonRelationship: String? {
+        guard let personID = selectedPersonID else { return nil }
+        return contactSyncStore.suggestions.first { $0.userId == personID }?.relationshipStatus
+    }
+
+    private var addByIDRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                TextField("Add by Bytspot ID", text: $friendIDQuery)
+                    .textFieldStyle(.plain).textInputAutocapitalization(.never).disableAutocorrection(true)
+                    .padding(.horizontal, 12).frame(height: 42).background(NativeProfileStyle.insetSurface).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .accessibilityIdentifier("native-network-add-by-id-field")
+                Button("Add") { Task { await addFriendByID() } }
+                    .font(.system(size: 13, weight: .black)).foregroundColor(.black).padding(.horizontal, 16).frame(height: 42).background(NativeTheme.cyan).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .disabled(isWorking || NativeNetworkFriendPolicy.cleanID(friendIDQuery, ownID: sessionStore.authenticatedUserID) == nil)
+                    .accessibilityIdentifier("native-network-add-by-id")
+            }
+            Text("Ask a friend for the ID under Your Bytspot ID on their People screen.")
+                .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeProfileStyle.muted)
+        }
+    }
+
+    private func ownBytspotIDRow(_ ownID: String) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Your Bytspot ID").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeProfileStyle.muted)
+                Text(ownID).font(.system(size: 12.5, weight: .bold, design: .monospaced)).foregroundColor(NativeProfileStyle.title).lineLimit(1).truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
+            Spacer(minLength: 8)
+            Button(action: {
+                UIPasteboard.general.string = ownID
+                nativeImpactLight()
+                bytspotIDCopied = true
+                Task {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    bytspotIDCopied = false
+                }
+            }) {
+                Label(bytspotIDCopied ? "Copied" : "Copy", systemImage: bytspotIDCopied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 12.5, weight: .black)).foregroundColor(NativeTheme.cyan)
+                    .padding(.horizontal, 12).frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(bytspotIDCopied ? "Bytspot ID copied" : "Copy your Bytspot ID")
+            .accessibilityIdentifier("native-network-own-id-copy")
+        }
+        .padding(.leading, 14).padding(.trailing, 4)
+        .background(NativeProfileStyle.insetSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var circlesContent: some View {
@@ -5551,9 +5700,37 @@ private struct NativeNetworkHubView: View {
     }
 
     private func sendSelectedInvitation() async {
-        guard let personID = selectedPersonID, let circleID = selectedCircleID else { statusMessage = "Select a person and circle first."; return }
+        guard let personID = selectedPersonID else { statusMessage = "Select a person first."; return }
+        await sendFriendInvitation(to: personID, circleID: hasSelectedMembership ? selectedCircleID : nil)
+    }
+
+    private func addFriendByID() async {
+        guard let personID = NativeNetworkFriendPolicy.cleanID(friendIDQuery, ownID: sessionStore.authenticatedUserID) else {
+            statusMessage = "Enter your friend's Bytspot ID."
+            return
+        }
+        if await sendFriendInvitation(to: personID, circleID: nil) { friendIDQuery = "" }
+    }
+
+    /// A circle is optional: the friend invitation stands on its own.
+    @discardableResult
+    private func sendFriendInvitation(to personID: String, circleID: String?) async -> Bool {
         isWorking = true; defer { isWorking = false }
-        do { if let invitation = try await api.sendSocialInvitationViaRpc(userID: personID, circleID: circleID) { invitations.removeAll { $0.id == invitation.id }; invitations.insert(invitation, at: 0) }; statusMessage = "Invitation sent."; segment = .invitations } catch { statusMessage = "The invitation couldn't be sent. Try again." }
+        do {
+            if let invitation = try await api.sendSocialInvitationViaRpc(userID: personID, circleID: circleID) {
+                invitations.removeAll { $0.id == invitation.id }
+                invitations.insert(invitation, at: 0)
+                statusMessage = invitation.status == "accepted" ? "You're already connected with \(invitation.personName)." : "Friend request sent to \(invitation.personName)."
+            } else {
+                statusMessage = "Friend request sent."
+            }
+            await contactSyncStore.refresh(sessionStore: sessionStore)
+            segment = .invitations
+            return true
+        } catch {
+            statusMessage = NativeNetworkFriendPolicy.failureMessage(error)
+            return false
+        }
     }
 
     private func respond(to invitation: NativeSocialInvitation, response: String) async {

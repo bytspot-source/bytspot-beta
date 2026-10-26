@@ -114,6 +114,21 @@ struct NativePartyLineupTests {
         }
     }
 
+    @Test func hostsPickPerformersOnlyFromAcceptedConnections() {
+        let rows = [
+            NativeSocialInvitation(id: "i1", direction: "outgoing", status: "accepted", personID: "u_zed", personName: "Zed"),
+            NativeSocialInvitation(id: "i2", direction: "incoming", status: "accepted", personID: "u_ama", personName: "ama"),
+            NativeSocialInvitation(id: "i3", direction: "outgoing", status: "pending", personID: "u_kofi", personName: "Kofi"),
+            NativeSocialInvitation(id: "i4", direction: "incoming", status: "declined", personID: "u_esi", personName: "Esi"),
+            NativeSocialInvitation(id: "i5", direction: "incoming", status: "accepted", personID: "u_zed", personName: "Zed"),
+            NativeSocialInvitation(id: "i6", direction: "incoming", status: "accepted", personID: "", personName: "Nobody"),
+        ]
+        #expect(NativeLineupConnection.from(rows) == [
+            NativeLineupConnection(userID: "u_ama", name: "ama"),
+            NativeLineupConnection(userID: "u_zed", name: "Zed"),
+        ])
+    }
+
     @Test func mutationUsesPOSTAndDoesNotInterpretUnknownStatusAsSuccess() async throws {
         try await api().mutate("confirm", input: ["id": "credit", "version": 0, "consent": true, "tips": []])
         await #expect(throws: (any Error).self) {

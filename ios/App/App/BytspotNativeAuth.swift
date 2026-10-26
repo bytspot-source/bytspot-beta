@@ -183,10 +183,36 @@ enum NativeSignedInIdentity {
         UserDefaults.standard.set(true, forKey: pendingWelcomeKey)
     }
 
+    /// Updates the name from the account without announcing a new sign-in.
+    /// An empty name never erases one already shown.
+    static func refresh(displayName: String?) {
+        let trimmed = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return }
+        UserDefaults.standard.set(trimmed, forKey: displayNameKey)
+    }
+
+    static let namePromptDismissedKey = "bytspot_display_name_prompt_dismissed"
+
+    /// Ask for a name only when the account has none and this account has not
+    /// said "Not now" on this device.
+    static func shouldPromptForName(profileName: String?, userID: String?) -> Bool {
+        let name = profileName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let user = userID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard name.isEmpty, !user.isEmpty else { return false }
+        return UserDefaults.standard.string(forKey: namePromptDismissedKey) != user
+    }
+
+    static func dismissNamePrompt(userID: String?) {
+        let user = userID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !user.isEmpty else { return }
+        UserDefaults.standard.set(user, forKey: namePromptDismissedKey)
+    }
+
     static func clear() {
         UserDefaults.standard.removeObject(forKey: displayNameKey)
         UserDefaults.standard.removeObject(forKey: pendingWelcomeKey)
         UserDefaults.standard.removeObject(forKey: restoredAccountKey)
+        UserDefaults.standard.removeObject(forKey: namePromptDismissedKey)
         UserDefaults.standard.removeObject(forKey: NativeHomeVibeCard.dismissedKey)
         UserDefaults.standard.removeObject(forKey: NativeHomeFindFriendsCard.dismissedKey)
     }

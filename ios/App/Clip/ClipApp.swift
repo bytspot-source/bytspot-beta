@@ -26,6 +26,7 @@ struct BytspotClipApp: App {
                     if ProcessInfo.processInfo.arguments.contains("--test-party-invocation") {
                         await BytspotAviationFallbackTests.runPartyInvocationRegressions()
                         BytspotAviationFallbackTests.runBandInvocationRegressions()
+                        await BytspotAviationFallbackTests.runSaleInvocationRegressions()
                         return
                     }
                     // Simulator recovery path: on iOS 26 the _XCAppClipURL
@@ -714,6 +715,9 @@ enum ClipFlowStep: Equatable {
     case partyLoading(partyID: String)
     case partyFailed(partyID: String, message: String)
     case party(PartyPassInvite)
+    case saleLoading(saleID: String)
+    case saleFailed(saleID: String, message: String)
+    case sale(ClipSaleListing)
     case band(ClipBandTapScreen)
     case vendors(service: ClipLocalService)
     case checkout(service: ClipLocalService, vendor: ClipVendor)
@@ -788,6 +792,94 @@ struct ClipBandTapScreen: Equatable {
     }
 }
 
+/// What a shared Private Sale link shows in the Clip: the public listing from
+/// `sales.view` only. The meet point and payment handles stay in the app, for
+/// buyers the seller approves. Never a vendor catalog or a membership tier.
+struct ClipSaleListing: Equatable {
+    enum Route: Equatable { case sale(id: String), invalid, none }
+
+    static let eyebrow = "PRIVATE SALE"
+    static let requestNote = "The seller shares the meet point only with buyers they approve. Get Bytspot to ask for it."
+    static let getAppTitle = "Get Bytspot to request"
+    static let unavailableMessage = "This sale has ended or the link is no longer active."
+
+    let saleID: String
+    let title: String
+    let priceCents: Int
+    let sellerName: String
+    let photoURL: URL?
+    let windowStart: Date?
+    let windowEnd: Date?
+    let areaLabel: String?
+
+    var priceLabel: String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.minimumFractionDigits = priceCents % 100 == 0 ? 0 : 2
+        formatter.maximumFractionDigits = formatter.minimumFractionDigits
+        return formatter.string(from: NSNumber(value: Double(priceCents) / 100)) ?? "$\(priceCents / 100)"
+    }
+
+    var windowLabel: String? {
+        guard let windowStart, let windowEnd else { return nil }
+        return "\(windowStart.formatted(date: .abbreviated, time: .shortened)) – \(windowEnd.formatted(date: .omitted, time: .shortened))"
+    }
+
+    var appURL: URL { Self.appURL(saleID: saleID) }
+
+    nonisolated static func appURL(saleID: String) -> URL {
+        URL(string: "https://bytspot.app/sale/\(saleID)")!
+    }
+
+    nonisolated static func isValidID(_ value: String) -> Bool {
+        value.range(of: "^[A-Za-z0-9_-]{1,64}$", options: .regularExpression) != nil
+    }
+
+    /// `/sale/<id>` on bytspot.app, or `saleId` on Apple's default App Clip link.
+    nonisolated static func route(from pathParts: [String], queryItems: [URLQueryItem] = [], isDefaultAppClipLink: Bool = false) -> Route {
+        if isDefaultAppClipLink {
+            guard let raw = queryItems.first(where: {
+                ["saleid", "sale"].contains($0.name.lowercased())
+                    && !($0.value ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            })?.value else { return .none }
+            let id = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return isValidID(id) ? .sale(id: id) : .invalid
+        }
+        guard pathParts.first?.lowercased() == "sale" else { return .none }
+        guard pathParts.count == 2, isValidID(pathParts[1]) else { return .invalid }
+        return .sale(id: pathParts[1])
+    }
+
+    nonisolated static func fromPayload(_ payload: Any, expectedID: String) -> ClipSaleListing? {
+        guard let row = payload as? [String: Any],
+              let id = row["saleId"] as? String, id == expectedID,
+              let title = (row["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty,
+              let price = (row["priceCents"] as? NSNumber)?.intValue, price >= 0 else { return nil }
+        let seller = (row["sellerName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let area = (row["areaLabel"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let photo = (row["photoUrl"] as? String).flatMap(URL.init(string:)).flatMap { $0.scheme == "https" ? $0 : nil }
+        return ClipSaleListing(
+            saleID: id,
+            title: title,
+            priceCents: price,
+            sellerName: seller.isEmpty ? "Seller" : seller,
+            photoURL: photo,
+            windowStart: date(row["windowStart"]),
+            windowEnd: date(row["windowEnd"]),
+            areaLabel: area.isEmpty ? nil : area
+        )
+    }
+
+    nonisolated private static func date(_ value: Any?) -> Date? {
+        guard let raw = value as? String else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
+    }
+}
+
 #if DEBUG
 /// Supplies a deterministic access state only for the explicit simulator Party
 /// walkthrough. Real Party links must always be resolved by the server.
@@ -859,14 +951,18 @@ final class ClipInvocationModel: ObservableObject {
 
     private let api = ClipPatchVerifier()
     private let partyInviteLoader: @MainActor (String) async throws -> PartyPassInvite
+    private let saleLoader: @MainActor (String) async throws -> ClipSaleListing
     private var invocationGeneration = UUID()
     private var loadTask: Task<Void, Never>?
     private var vendorTasks: [String: Task<Void, Never>] = [:]
 
     init(partyInviteLoader: @escaping @MainActor (String) async throws -> PartyPassInvite = {
         try await ClipPatchVerifier().partyInvite(partyID: $0)
+    }, saleLoader: @escaping @MainActor (String) async throws -> ClipSaleListing = {
+        try await ClipPatchVerifier().saleListing(saleID: $0)
     }) {
         self.partyInviteLoader = partyInviteLoader
+        self.saleLoader = saleLoader
     }
 
     #if DEBUG
@@ -931,6 +1027,24 @@ final class ClipInvocationModel: ObservableObject {
 
         let detectedTier = BytspotTier.detect(url: url, patchId: patchId)
         tier = detectedTier
+        // A sale link is a listing, never a patch: it must not reach the
+        // vendor catalog or pick up the default Black tier.
+        switch ClipSaleListing.route(from: pathParts, queryItems: items, isDefaultAppClipLink: isDefaultAppClipLink) {
+        case .sale(let saleID):
+            services = []
+            flow = .saleLoading(saleID: saleID)
+            isLoadingContext = true
+            loadTask = Task { [weak self] in
+                await self?.loadSale(saleID: saleID, generation: generation)
+            }
+            return
+        case .invalid:
+            services = []
+            flow = .saleFailed(saleID: "", message: "This sale link is incomplete. Ask the seller to share it again.")
+            return
+        case .none:
+            break
+        }
         switch Self.partyRoute(from: pathParts, queryItems: items, isDefaultAppClipLink: isDefaultAppClipLink) {
         case .party(let partyID):
             flow = .partyLoading(partyID: partyID)
@@ -1005,6 +1119,14 @@ final class ClipInvocationModel: ObservableObject {
     /// only on the ticket path, so a plain "Open in Bytspot" never claims a save
     /// the guest did not ask for.
     var mainAppHandoffURL: URL? {
+        switch flow {
+        case .sale(let listing):
+            return listing.appURL
+        case .saleLoading(let saleID), .saleFailed(let saleID, _):
+            return saleID.isEmpty ? nil : ClipSaleListing.appURL(saleID: saleID)
+        default:
+            break
+        }
         if case .party(let invite) = flow {
             guard var components = URLComponents(url: invite.handoffURL ?? URL(string: "https://bytspot.app/party/")!, resolvingAgainstBaseURL: false),
                   components.host == "bytspot.app", components.path.hasPrefix("/party/"),
@@ -1273,6 +1395,31 @@ final class ClipInvocationModel: ObservableObject {
         guard case .partyFailed(let partyID, _) = flow,
               !partyID.isEmpty, let invocationURL else { return }
         handle(url: invocationURL)
+    }
+
+    func retrySale() {
+        guard case .saleFailed(let saleID, _) = flow,
+              !saleID.isEmpty, let invocationURL else { return }
+        handle(url: invocationURL)
+    }
+
+    private func loadSale(saleID: String, generation: UUID) async {
+        guard !Task.isCancelled, generation == invocationGeneration else { return }
+        defer {
+            if generation == invocationGeneration {
+                isLoadingContext = false
+                loadTask = nil
+            }
+        }
+        do {
+            let listing = try await saleLoader(saleID)
+            guard !Task.isCancelled, generation == invocationGeneration else { return }
+            guard listing.saleID == saleID else { throw ClipPatchVerifier.VerifyError.decode }
+            flow = .sale(listing)
+        } catch {
+            guard !Task.isCancelled, generation == invocationGeneration else { return }
+            flow = .saleFailed(saleID: saleID, message: ClipSaleListing.unavailableMessage)
+        }
     }
 
     private func loadPartyInvite(partyID: String, generation: UUID) async {

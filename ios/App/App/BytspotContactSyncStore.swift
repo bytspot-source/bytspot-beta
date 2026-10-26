@@ -41,6 +41,40 @@ enum NativeFriendInviteLink {
     }
 }
 
+/// Adding a friend needs only the other member's account ID; a circle is
+/// optional and only groups friends for inviting together.
+enum NativeNetworkFriendPolicy {
+    static func canAddFriend(relationship: String?) -> Bool {
+        !["connected", "invite_sent", "invite_received"].contains(relationship ?? "")
+    }
+
+    static func addFriendTitle(relationship: String?) -> String {
+        switch relationship {
+        case "connected": return "Connected"
+        case "invite_sent": return "Request sent"
+        case "invite_received": return "Invited you · see Invitations"
+        default: return "Add friend"
+        }
+    }
+
+    /// A pasted account ID, or nil when it is empty, malformed or the caller's own.
+    static func cleanID(_ raw: String, ownID: String?) -> String? {
+        let id = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard id.range(of: "^[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil else { return nil }
+        guard id != ownID?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        return id
+    }
+
+    static func failureMessage(_ error: Error) -> String {
+        guard case let BytspotAPIClient.APIError.server(_, body) = error else { return "Couldn't reach Bytspot. Try again." }
+        if body.contains("NOT_FOUND") || body.localizedCaseInsensitiveContains("not found") {
+            return "No Bytspot member has that ID. Check it and try again."
+        }
+        let said = NativePlanDemandFailure.serverMessage(in: body)
+        return said.isEmpty ? "The friend request couldn't be sent. Try again." : said
+    }
+}
+
 /// Sharing a member's own invite code from `auth.invite`. The user-id link
 /// stays the fallback so sharing works while the server lacks invite codes.
 enum NativeInviteShare {

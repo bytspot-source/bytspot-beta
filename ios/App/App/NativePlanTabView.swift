@@ -8,6 +8,7 @@ struct NativePlanTabView: View {
     var openMap: () -> Void = {}
     var onCancel: () -> Void = {}
     var onSavingChanged: (Bool) -> Void = { _ in }
+    var onSignIn: () -> Void = {}
     @State private var createdPlan: CreatedPlan?
     @State private var draftID = UUID()
 
@@ -19,6 +20,7 @@ struct NativePlanTabView: View {
             isEmbedded: true,
             onCancel: onCancel,
             onSavingChanged: onSavingChanged,
+            onSignIn: onSignIn,
             onCreated: { createdPlan = CreatedPlan(id: $0) }
         )
         .id(draftID)

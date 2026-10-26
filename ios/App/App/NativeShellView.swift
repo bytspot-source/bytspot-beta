@@ -467,7 +467,7 @@ struct BytspotNativeShellView: View {
                         NativeHostStudioView(circles: hostStudioCircles, membershipTier: membershipStore.tier, presentation: .tab)
                             .task { await loadHostStudioCircles() }
                     case .plan:
-                        NativePlanTabView(sessionStore: sessionStore, openDiscoverFilter: openDiscoverFilter, openMap: { selectNativeTab(.map) }, onCancel: { selectNativeTab(.home) }, onSavingChanged: { isPlanSaving = $0 })
+                        NativePlanTabView(sessionStore: sessionStore, openDiscoverFilter: openDiscoverFilter, openMap: { selectNativeTab(.map) }, onCancel: { selectNativeTab(.home) }, onSavingChanged: { isPlanSaving = $0 }, onSignIn: { openNativeAuth(mode: .login) })
                     case .discover:
                         NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                     case .map:
@@ -1349,6 +1349,8 @@ struct NativePlanJoinView: View {
         case joined(NativePlan)
         case open
         case unavailable
+        /// Something retrying can fix: no connection, too many tries, a full Plan.
+        case failed(String)
     }
 
     let planId: String
@@ -1389,6 +1391,15 @@ struct NativePlanJoinView: View {
             NativeHeroCard(title: "This plan link isn’t available", eyebrow: "PLAN", subtitle: "It may have been cancelled, expired, or the invite was withdrawn. Ask the host for a new link.")
             Button(action: { dismiss() }) { NativeCTA(title: "Back to Bytspot", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
                 .buttonStyle(.plain)
+        case .failed(let message):
+            NativeHeroCard(title: "Couldn’t open this plan", eyebrow: "PLAN", subtitle: message)
+            Button(action: { Task { await load() } }) { NativeCTA(title: "Try again", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-plan-join-retry")
+            Button("Not now") { dismiss() }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(NativeTheme.textSecondary)
+                .frame(maxWidth: .infinity, minHeight: 44)
         case .joined(let plan):
             NativeHeroCard(title: "You’re on the plan", eyebrow: "PLAN", subtitle: plan.title)
             if !plan.intent.isEmpty {
@@ -1414,7 +1425,7 @@ struct NativePlanJoinView: View {
     static func stateBeforeLoad(current: LoadState, signedIn: Bool) -> LoadState? {
         guard signedIn else { return .signedOut }
         switch current {
-        case .loading, .signedOut: return .loading
+        case .loading, .signedOut, .failed: return .loading
         case .joined, .open, .unavailable: return nil
         }
     }
@@ -1422,6 +1433,24 @@ struct NativePlanJoinView: View {
     static func stateAfterLoad(_ plan: NativePlan, token: String?) -> LoadState {
         if let token, !token.isEmpty { return .joined(plan) }
         return .open
+    }
+
+    /// Only a link the server says is gone reads as gone. Anything retrying
+    /// can fix keeps the guest here with a way to try again.
+    static func stateAfterFailure(_ error: Error) -> LoadState {
+        if case let BytspotAPIClient.APIError.server(status, body) = error {
+            switch status {
+            case 404: return .unavailable
+            case 401: return .signedOut
+            case 429: return .failed("Too many tries just now. Wait a moment and try again.")
+            default:
+                if NativePlanDisplay.knownServerMessage(in: body) == "This Plan is full." {
+                    return .failed("This plan is full. Ask the host to make room, then try again.")
+                }
+                return .failed("Something went wrong on our side. Try again in a moment.")
+            }
+        }
+        return .failed("We couldn't connect. Check your internet and try again.")
     }
 
     @MainActor
@@ -1442,8 +1471,8 @@ struct NativePlanJoinView: View {
             // A live Plan list loaded before the seat existed; tell it to reload.
             NotificationCenter.default.post(name: .nativePlanDidJoin, object: nil)
         } catch {
-            // The token is a secret; failures never surface it, only the wall.
-            state = .unavailable
+            // The token is a secret; failures never surface it.
+            state = Self.stateAfterFailure(error)
         }
     }
 }
@@ -1475,7 +1504,7 @@ private struct NativeMobilityHandoffConfirmationCard: View {
 
 /// Read-only continuation for App Clip Party Pass handoffs. Participation is
 /// deliberately absent until a Party-specific server-authorized action exists.
-private struct NativePartyPassPreview: View {
+struct NativePartyPassPreview: View {
     enum LoadState {
         case loading
         case loaded(NativePartyPassRecord)

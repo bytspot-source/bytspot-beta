@@ -1,3 +1,4 @@
+import CoreLocation
 import SwiftUI
 
 extension Notification.Name {
@@ -87,6 +88,50 @@ struct NativePlan: Codable, Identifiable, Equatable {
     /// The bearer join link secret. The server returns it to the creator alone,
     /// so it is absent - nil - on a guest's copy of the same Plan.
     let joinToken: String?
+    /// Where the Plan is happening. Venue asks and nearby suggestions need both.
+    var latitude: Double? = nil
+    var longitude: Double? = nil
+    /// When the Plan and its invite link stop working. Nil when nothing ends it.
+    var expiresAt: String? = nil
+
+    var place: NativePlanPlace? {
+        guard let latitude, let longitude else { return nil }
+        return NativePlanPlace(label: areaLabel ?? "", latitude: latitude, longitude: longitude)
+    }
+}
+
+/// A resolved place for a Plan: what the guest calls it, and where it is.
+struct NativePlanPlace: Equatable {
+    static let labelLimit = 80
+    static let fallbackLabel = "Near me"
+    let label: String
+    let latitude: Double
+    let longitude: Double
+
+    /// Nil for anything that is not a real point: off-Earth values and Null Island.
+    init?(label: String, latitude: Double, longitude: Double) {
+        guard latitude.isFinite, longitude.isFinite,
+              (-90...90).contains(latitude), (-180...180).contains(longitude),
+              !(latitude == 0 && longitude == 0) else { return nil }
+        let trimmed = NativePlanDisplay.clamped(label.trimmingCharacters(in: .whitespacesAndNewlines), utf16Limit: Self.labelLimit)
+        self.label = trimmed.isEmpty ? Self.fallbackLabel : trimmed
+        self.latitude = latitude
+        self.longitude = longitude
+    }
+
+    init?(result: NativePlaceSearchResult) {
+        guard let latitude = result.latitude, let longitude = result.longitude else { return nil }
+        self.init(label: result.name, latitude: latitude, longitude: longitude)
+    }
+
+    /// A device fix good enough to say where a group is meeting: recent, and
+    /// accurate to a neighbourhood rather than a city.
+    init?(fix: CLLocation?, label: String?, now: Date = Date()) {
+        guard let fix, fix.horizontalAccuracy >= 0, fix.horizontalAccuracy <= 1_000 else { return nil }
+        let age = now.timeIntervalSince(fix.timestamp)
+        guard age >= -5, age <= 300 else { return nil }
+        self.init(label: label ?? "", latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude)
+    }
 }
 
 struct NativePlansList: Codable { let plans: [NativePlan] }
@@ -229,6 +274,8 @@ struct NativePlanWriteDraft {
         return request
     }
     mutating func finish() { isSaving = false }
+    /// A refusal that resending can never fix unfreezes the draft for editing.
+    mutating func release() { request = nil }
 }
 
 /// Category metadata only. Templates are never projected into offerings.
@@ -369,6 +416,10 @@ struct NativePlanAPI: NativeDiscoverPlanAdding {
         _ = try await client.trpcPayload(path: "/trpc/plans.remove", method: "POST", input: ["planId": planID, "userId": userId])
     }
 
+    func update(_ input: [String: Any]) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/plans.update", method: "POST", input: input)
+    }
+
     func create(
         idempotencyKey: String,
         title: String,
@@ -457,10 +508,11 @@ enum NativePlanContract {
 
     static func createRequest(
         idempotencyKey: String, title: String, intent: String, startsAt: Date?,
-        partySize: Int?, needs: Set<String>, bookableSelections: [NativePlanBookableSelection]
+        partySize: Int?, needs: Set<String>, bookableSelections: [NativePlanBookableSelection],
+        place: NativePlanPlace? = nil
     ) -> NativePlanWriteRequest {
         var input = createInput(idempotencyKey: idempotencyKey, title: title, intent: intent,
-                                startsAt: startsAt, partySize: partySize, needs: needs)
+                                startsAt: startsAt, partySize: partySize, needs: needs, place: place)
         let selections = selectionInput(bookableSelections)
         // Preserve the existing no-selection create contract. Selected creation
         // is ONE atomic write, never create followed by a series of attaches.
@@ -483,7 +535,8 @@ enum NativePlanContract {
         intent: String,
         startsAt: Date?,
         partySize: Int?,
-        needs: Set<String>
+        needs: Set<String>,
+        place: NativePlanPlace? = nil
     ) -> [String: Any] {
         var input: [String: Any] = [
             "idempotencyKey": idempotencyKey,
@@ -493,6 +546,34 @@ enum NativePlanContract {
         ]
         if let startsAt { input["startsAt"] = ISO8601DateFormatter.partyControlInstant.string(from: startsAt) }
         if let partySize { input["partySize"] = partySize }
+        if let place {
+            input["areaLabel"] = place.label
+            input["latitude"] = place.latitude
+            input["longitude"] = place.longitude
+        }
+        return input
+    }
+
+    /// Only what changed is sent. A field the guest cleared is sent as null,
+    /// which the router reads as clear; an omitted one is left as it was.
+    static func updateInput(planID: String, original: NativePlan, startsAt: Date?, partySize: Int?, place: NativePlanPlace?) -> [String: Any] {
+        var input: [String: Any] = ["planId": planID]
+        let originalStart = original.startsAt.flatMap { ISO8601DateFormatter.partyControlDate(from: $0) }
+        if originalStart.map({ Int($0.timeIntervalSince1970 / 60) }) != startsAt.map({ Int($0.timeIntervalSince1970 / 60) }) {
+            input["startsAt"] = startsAt.map { ISO8601DateFormatter.partyControlInstant.string(from: $0) as Any } ?? NSNull()
+        }
+        if original.partySize != partySize { input["partySize"] = partySize.map { $0 as Any } ?? NSNull() }
+        if original.place != place {
+            if let place {
+                input["areaLabel"] = place.label
+                input["latitude"] = place.latitude
+                input["longitude"] = place.longitude
+            } else {
+                input["areaLabel"] = NSNull()
+                input["latitude"] = NSNull()
+                input["longitude"] = NSNull()
+            }
+        }
         return input
     }
 }
@@ -877,6 +958,8 @@ enum NativePlanDisplay {
         default: return "Details"
         }
     }
+
+    static let placeFootnote = "Asking venues and nearby suggestions use this. Anyone with the invite link sees the area name."
 
     static let timeShortensLifeFootnote = "A Plan with a time stops waiting at that time. Without one it stays open for a week."
 
@@ -1782,6 +1865,8 @@ struct NativePlanDetailSheet: View {
     @State private var recordingBooking: NativePlan.Item?
     @State private var safetyAction: NativeSafetyAction?
     @State private var hiddenMembers = NativeSafetyHiddenSet()
+    @State private var showEdit = false
+    @State private var partyPass: NativePlanPartyPassTarget?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
 
@@ -1837,6 +1922,15 @@ struct NativePlanDetailSheet: View {
         .sheet(item: $showingOffers) { ask in
             NativePlanOffersSheet(ask: ask, accept: { offer in await take(offer, from: ask) })
         }
+        .sheet(isPresented: $showEdit) {
+            if let plan {
+                NativePlanEditSheet(plan: plan) { input in await saveEdit(input) }
+            }
+        }
+        .sheet(item: $partyPass) { target in
+            NativePartyPassPreview(route: target.route)
+                .environmentObject(sessionStore)
+        }
         .onChange(of: scenePhase) { phase in
             guard phase == .active, let item = leftForTableBooking else { return }
             leftForTableBooking = nil
@@ -1879,6 +1973,16 @@ struct NativePlanDetailSheet: View {
             Text(NativePlanDisplay.rowSubtitle(state: plan.state, readiness: plan.readiness))
                 .font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
             if let area = plan.areaLabel { Text(area).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary) }
+            if let closes = NativePlanDisplay.closesLabel(plan) {
+                Text(closes).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+                    .accessibilityIdentifier("native-plan-closes")
+            }
+            if isCreator && NativePlanDisplay.canAddBookables(plan, userID: sessionStore.authenticatedUserID) {
+                Button("Edit time, size & place") { showEdit = true }
+                    .font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.purple)
+                    .frame(minHeight: 44).disabled(busy)
+                    .accessibilityIdentifier("native-plan-edit")
+            }
         }
 
         if isCreator && NativePlanDisplay.canAddBookables(plan, userID: sessionStore.authenticatedUserID) {
@@ -2197,13 +2301,21 @@ struct NativePlanDetailSheet: View {
                 Text(NativePlanDisplay.seatsLabel(candidate))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(candidate.confirmableNow ? accent : NativeTheme.textTertiary)
-                Text(NativePlanDisplay.primePathCTA(candidate))
-                    .font(.system(size: 11, weight: .black))
-                    .foregroundColor(fulfillment == .details ? accent : .black)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(fulfillment == .details ? NativeTheme.selectedControlSurface : accent)
-                    .overlay(fulfillment == .details ? Capsule().stroke(accent.opacity(0.38), lineWidth: 1) : nil)
-                    .clipShape(Capsule())
+                if let action = primePathAction(candidate) {
+                    Button(action: { perform(action) }) {
+                        Text(NativePlanDisplay.primePathCTA(candidate))
+                            .font(.system(size: 11, weight: .black))
+                            .foregroundColor(fulfillment == .details ? accent : .black)
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .background(fulfillment == .details ? NativeTheme.selectedControlSurface : accent)
+                            .overlay(fulfillment == .details ? Capsule().stroke(accent.opacity(0.38), lineWidth: 1) : nil)
+                            .clipShape(Capsule())
+                            .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(busy)
+                    .accessibilityIdentifier("native-prime-path-action-\(candidate.id)")
+                }
             }
 
             if let reason {
@@ -2221,6 +2333,41 @@ struct NativePlanDetailSheet: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityIdentifier("native-prime-path-card-\(candidate.id)")
+    }
+
+    private func primePathAction(_ candidate: NativePrimePathCandidate) -> NativePlanDisplay.PrimePathAction? {
+        guard let plan else { return nil }
+        return NativePlanDisplay.primePathAction(candidate, items: plan.items,
+                                                 canEdit: NativePlanDisplay.canAddBookables(plan, userID: sessionStore.authenticatedUserID))
+    }
+
+    private func perform(_ action: NativePlanDisplay.PrimePathAction) {
+        switch action {
+        case .addParty(let partyID):
+            let request = NativePlanContract.addRequest(planID: planID, selections: [NativePlanBookableSelection(sourceKind: .party, sourceId: partyID)])
+            Task { await run { _ = try await api().addBookables(request) } }
+        case .openParty(let partyID):
+            partyPass = NativePlanPartyPassTarget(partyID: partyID)
+        case .requestCoffee(let spotID):
+            suggestedCoffeeSpotID = spotID
+            showCoffeeAttach = true
+        }
+    }
+
+    /// Nil on success; otherwise what to tell the guest, kept on the edit sheet.
+    private func saveEdit(_ input: [String: Any]) async -> String? {
+        guard sessionStore.canAttachBearerToken else { return "Sign in to update this Plan." }
+        busy = true; defer { busy = false }
+        do {
+            try await api().update(input)
+            errorMessage = nil
+            onChanged()
+            demandState.refusal = [:]
+            Task { await reload() }
+            return nil
+        } catch {
+            return NativePlanDisplay.actionFailureMessage(for: error)
+        }
     }
 
     @ViewBuilder private func actions(for plan: NativePlan) -> some View {
@@ -2353,7 +2500,7 @@ struct NativePlanDetailSheet: View {
         // must never issue an authenticated tRPC call with a nil token.
         guard sessionStore.canAttachBearerToken else { errorMessage = "Sign in to update this Plan."; return }
         busy = true; defer { busy = false }
-        do { try await operation(); onChanged(); await reload() } catch { errorMessage = "That didn't go through." }
+        do { try await operation(); errorMessage = nil; onChanged(); await reload() } catch { errorMessage = NativePlanDisplay.actionFailureMessage(for: error) }
     }
 
     /// Reloads are started from several places at once — the task on appear,
@@ -2449,22 +2596,143 @@ struct NativePlanDetailSheet: View {
 
     // Mirrors `run` but returns whether the invite landed, so the sheet only
     // marks a row "Invited" on success and leaves it retryable on failure.
-    private func inviteUser(_ userId: String) async -> Bool {
+    // Nil when the invite landed; otherwise why it did not.
+    private func inviteUser(_ userId: String) async -> String? {
+        let tryAgain = "Try again."
         guard !busy, sessionStore.canAttachBearerToken,
               let plan, NativePlanDisplay.canAddBookables(plan, userID: sessionStore.authenticatedUserID),
-              connections.contains(where: { $0.id == userId }) else { return false }
+              connections.contains(where: { $0.id == userId }) else { return tryAgain }
         let userID = sessionStore.authenticatedUserID
         busy = true; defer { busy = false }
         do {
             try await api().invite(planID, userId: userId)
-            guard sessionStore.canAttachBearerToken, sessionStore.authenticatedUserID == userID else { return false }
+            guard sessionStore.canAttachBearerToken, sessionStore.authenticatedUserID == userID else { return tryAgain }
             errorMessage = nil
             onChanged()
             // A successful invitation is visible immediately; refreshing Plan
             // and Prime Path must not keep the row stuck on Sending.
             Task { await reload() }
-            return true
-        } catch { return false }
+            return nil
+        } catch { return NativePlanDisplay.actionFailureMessage(for: error) }
+    }
+}
+
+private struct NativePlanPartyPassTarget: Identifiable {
+    let id: String
+    let route: NativePartyPassRoute
+
+    init?(partyID: String) {
+        guard let url = URL(string: "bytspot://party/\(partyID)"),
+              let route = NativePartyPassRoute(url: url), route.partyID == partyID else { return nil }
+        self.id = partyID
+        self.route = route
+    }
+}
+
+/// Time, size and place after creation. Only what changed is sent.
+private struct NativePlanEditSheet: View {
+    let plan: NativePlan
+    let onSave: ([String: Any]) async -> String?
+    @Environment(\.dismiss) private var dismiss
+    @State private var setsTime: Bool
+    @State private var startsAt: Date
+    @State private var setsPartySize: Bool
+    @State private var partySize: Int
+    @State private var place: NativePlanPlace?
+    @State private var placeQuery: String
+    @State private var saving = false
+    @State private var errorMessage: String?
+    private let originalStart: Date?
+
+    init(plan: NativePlan, onSave: @escaping ([String: Any]) async -> String?) {
+        self.plan = plan
+        self.onSave = onSave
+        let start = plan.startsAt.flatMap { ISO8601DateFormatter.partyControlDate(from: $0) }
+        originalStart = start
+        _setsTime = State(initialValue: start != nil)
+        _startsAt = State(initialValue: start ?? Date().addingTimeInterval(60 * 60))
+        _setsPartySize = State(initialValue: plan.partySize != nil)
+        _partySize = State(initialValue: min(max(plan.partySize ?? 2, 1), 20))
+        _place = State(initialValue: plan.place)
+        _placeQuery = State(initialValue: plan.place?.label ?? "")
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Edit Plan").font(.system(size: 22, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                    Spacer()
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 24, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
+                            .frame(width: 44, height: 44)
+                    }
+                    .disabled(saving)
+                    .accessibilityLabel("Close")
+                }
+                header("Where")
+                NativePlanPlaceField(place: $place, query: $placeQuery)
+                Toggle(isOn: $setsTime) {
+                    Text("Set a time").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+                }
+                .accessibilityIdentifier("native-plan-edit-sets-time")
+                if setsTime {
+                    DatePicker("", selection: $startsAt, in: min(originalStart ?? Date(), Date())...)
+                        .datePickerStyle(.compact).labelsHidden()
+                        .accessibilityIdentifier("native-plan-edit-starts-at")
+                    if plan.lifecycle == "proposed" {
+                        Text(NativePlanDisplay.timeShortensLifeFootnote)
+                            .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+                    }
+                }
+                Toggle(isOn: $setsPartySize) {
+                    Text("Set a size").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+                }
+                .accessibilityIdentifier("native-plan-edit-sets-size")
+                if setsPartySize {
+                    Stepper(value: $partySize, in: 1...20) {
+                        Text("\(partySize) \(partySize == 1 ? "person" : "people")")
+                            .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+                    }
+                    .accessibilityIdentifier("native-plan-edit-party-size")
+                }
+                if let errorMessage {
+                    Text(errorMessage).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.orange)
+                        .accessibilityIdentifier("native-plan-edit-error")
+                }
+                Button(action: { Task { await save() } }) {
+                    Text(saving ? "Saving…" : "Save").font(.system(size: 14, weight: .black)).foregroundColor(.white)
+                        .frame(maxWidth: .infinity).padding(.vertical, 12)
+                        .background(NativeTheme.purple)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain).disabled(saving)
+                .accessibilityIdentifier("native-plan-edit-save")
+            }
+            .padding(20)
+        }
+        .background(NativeDeepSpaceGround())
+        .interactiveDismissDisabled(saving)
+        .accessibilityIdentifier("native-plan-edit-sheet")
+    }
+
+    private func header(_ title: String) -> some View {
+        Text(title.uppercased()).font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textTertiary).tracking(1.2)
+    }
+
+    @MainActor private func save() async {
+        if place == nil, !placeQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            errorMessage = "Pick a match for “\(placeQuery.trimmingCharacters(in: .whitespacesAndNewlines))”, or clear it."
+            return
+        }
+        let input = NativePlanContract.updateInput(
+            planID: plan.id, original: plan,
+            startsAt: setsTime ? startsAt : nil, partySize: setsPartySize ? partySize : nil, place: place
+        )
+        guard input.count > 1 else { dismiss(); return }
+        saving = true
+        defer { saving = false }
+        if let failure = await onSave(input) { errorMessage = failure } else { dismiss() }
     }
 }
 
@@ -2476,7 +2744,7 @@ private struct NativePlanInviteSheet: View {
     @Binding var connectionsState: NativePlanConnectionsState
     let participants: [NativePlan.Participant]
     let onRetry: () async -> Void
-    let onInvite: (String) async -> Bool
+    let onInvite: (String) async -> String?
     let onInviteByText: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var invited: Set<String> = []
@@ -2581,11 +2849,190 @@ private struct NativePlanInviteSheet: View {
         inviteError = nil
         Task {
             defer { busyID = nil }
-            if await onInvite(person.id) {
-                invited.insert(person.id)
+            if let failure = await onInvite(person.id) {
+                inviteError = "Couldn't invite \(person.name). \(failure)"
             } else {
-                inviteError = "Couldn't invite \(person.name). Tap Invite to try again."
+                invited.insert(person.id)
             }
+        }
+    }
+}
+
+/// One fix on request, for "Use my location". Asks for permission the first
+/// time; never reports a position it did not get.
+@MainActor
+final class NativePlanLocationFix: NSObject, ObservableObject, CLLocationManagerDelegate {
+    enum Outcome: Equatable { case located(NativePlanPlace), denied, failed }
+
+    @Published private(set) var isLocating = false
+    private let manager = CLLocationManager()
+    private let geocoder = CLGeocoder()
+    private var waiting: CheckedContinuation<CLLocation?, Never>?
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+    }
+
+    func locate() async -> Outcome {
+        guard waiting == nil else { return .failed }
+        guard CLLocationManager.locationServicesEnabled() else { return .denied }
+        let status = manager.authorizationStatus
+        if status == .denied || status == .restricted { return .denied }
+        isLocating = true
+        defer { isLocating = false }
+        let fix = await withCheckedContinuation { continuation in
+            waiting = continuation
+            if status == .notDetermined { manager.requestWhenInUseAuthorization() } else { manager.requestLocation() }
+        }
+        if fix == nil, manager.authorizationStatus == .denied || manager.authorizationStatus == .restricted { return .denied }
+        guard let fix else { return .failed }
+        let placemark = try? await geocoder.reverseGeocodeLocation(fix).first
+        let label = placemark?.subLocality ?? placemark?.locality
+        guard let place = NativePlanPlace(fix: fix, label: label) else { return .failed }
+        return .located(place)
+    }
+
+    private func finish(_ location: CLLocation?) {
+        waiting?.resume(returning: location)
+        waiting = nil
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let status = manager.authorizationStatus
+        Task { @MainActor in
+            guard self.waiting != nil else { return }
+            switch status {
+            case .authorizedAlways, .authorizedWhenInUse: self.manager.requestLocation()
+            case .notDetermined: break
+            default: self.finish(nil)
+            }
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let latest = locations.last else { return }
+        Task { @MainActor in self.finish(latest) }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in self.finish(nil) }
+    }
+}
+
+/// Where a Plan is happening: a searched area or the guest's own position.
+/// Only a place with real coordinates is ever handed back.
+private struct NativePlanPlaceField: View {
+    @Binding var place: NativePlanPlace?
+    @Binding var query: String
+    @StateObject private var locationFix = NativePlanLocationFix()
+    @State private var results: [NativePlaceSearchResult] = []
+    @State private var searching = false
+    @State private var message: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let place {
+                HStack(spacing: 8) {
+                    Image(systemName: "mappin.circle.fill").foregroundColor(NativeTheme.purple)
+                    Text(place.label).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+                    Spacer()
+                    Button("Change") { self.place = nil; query = "" }
+                        .font(.system(size: 12, weight: .bold)).frame(minHeight: 44)
+                        .accessibilityIdentifier("native-plan-place-clear")
+                }
+                .padding(.horizontal, 12)
+                .background(planRowBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .accessibilityIdentifier("native-plan-place-set")
+            } else {
+                HStack(spacing: 8) {
+                    TextField("Neighborhood, venue or address", text: $query)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(NativeTheme.textPrimary)
+                        .submitLabel(.search)
+                        .onSubmit { Task { await search() } }
+                        .onChange(of: query) { value in
+                            if value.utf16.count > NativePlanPlace.labelLimit { query = NativePlanDisplay.clamped(value, utf16Limit: NativePlanPlace.labelLimit) }
+                            results = []
+                        }
+                        .accessibilityIdentifier("native-plan-place-query")
+                    Button(action: { Task { await search() } }) {
+                        if searching { ProgressView().controlSize(.small) } else { Text("Find").font(.system(size: 13, weight: .bold)) }
+                    }
+                    .frame(minWidth: 44, minHeight: 44)
+                    .disabled(searching || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("native-plan-place-search")
+                }
+                .padding(.horizontal, 12)
+                .background(planRowBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                ForEach(results) { result in
+                    Button(action: { choose(result) }) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(result.name).font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
+                            if !result.address.isEmpty {
+                                Text(result.address).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("native-plan-place-result-\(result.id)")
+                }
+                Button(action: { Task { await useMyLocation() } }) {
+                    HStack(spacing: 6) {
+                        if locationFix.isLocating { ProgressView().controlSize(.small) }
+                        Label("Use my location", systemImage: "location.fill").font(.system(size: 13, weight: .bold))
+                    }
+                    .frame(minHeight: 44)
+                }
+                .buttonStyle(.plain).foregroundColor(NativeTheme.purple)
+                .disabled(locationFix.isLocating)
+                .accessibilityIdentifier("native-plan-place-use-location")
+            }
+            if let message {
+                Text(message).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.orange)
+                    .accessibilityIdentifier("native-plan-place-message")
+            }
+        }
+    }
+
+    private func choose(_ result: NativePlaceSearchResult) {
+        guard let chosen = NativePlanPlace(result: result) else { message = "That place has no map location. Pick another."; return }
+        place = chosen
+        query = chosen.label
+        results = []
+        message = nil
+    }
+
+    @MainActor private func search() async {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !searching else { return }
+        searching = true
+        defer { searching = false }
+        message = nil
+        do {
+            let found = try await NativeLiveDiscoveryAPI(client: BytspotAPIClient()).placesTextSearchAnywhere(query: text)
+            results = found.filter { NativePlanPlace(result: $0) != nil }
+            if results.isEmpty { message = "No places found for “\(text)”. Try a neighborhood and city." }
+        } catch {
+            message = "Couldn't search places right now. Try again."
+        }
+    }
+
+    @MainActor private func useMyLocation() async {
+        message = nil
+        switch await locationFix.locate() {
+        case .located(let found):
+            place = found
+            query = found.label
+            results = []
+        case .denied:
+            message = "Location is off for Bytspot. Turn it on in Settings, or search for the area instead."
+        case .failed:
+            message = "Couldn't get your location. Try again, or search for the area instead."
         }
     }
 }
@@ -2615,13 +3062,16 @@ struct NativePlanCreateSheet: View {
     let isEmbedded: Bool
     let onCancel: (() -> Void)?
     let onSavingChanged: (Bool) -> Void
+    /// Signing in from the form keeps the draft: the form stays where it is.
+    let onSignIn: (() -> Void)?
     let onCreated: (String) -> Void
 
-    init(sessionStore: BytspotSessionStore, template: NativePlanDisplay.PlanTemplate? = nil, isEmbedded: Bool = false, onCancel: (() -> Void)? = nil, onSavingChanged: @escaping (Bool) -> Void = { _ in }, onCreated: @escaping (String) -> Void) {
+    init(sessionStore: BytspotSessionStore, template: NativePlanDisplay.PlanTemplate? = nil, isEmbedded: Bool = false, onCancel: (() -> Void)? = nil, onSavingChanged: @escaping (Bool) -> Void = { _ in }, onSignIn: (() -> Void)? = nil, onCreated: @escaping (String) -> Void) {
         self.sessionStore = sessionStore
         self.isEmbedded = isEmbedded
         self.onCancel = onCancel
         self.onSavingChanged = onSavingChanged
+        self.onSignIn = onSignIn
         self.onCreated = onCreated
         _title = State(initialValue: template?.title ?? "")
         _intent = State(initialValue: template?.intent ?? "")
@@ -2643,6 +3093,8 @@ struct NativePlanCreateSheet: View {
     @State private var setsPartySize = false
     @State private var partySize = 2
     @State private var needs: Set<String>
+    @State private var place: NativePlanPlace?
+    @State private var placeQuery = ""
     @State private var errorMessage: String?
     /// One key for the whole form session, not one per tap. The client times
     /// out at 8s, so a create that commits slowly surfaces as a connection
@@ -2662,6 +3114,7 @@ struct NativePlanCreateSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     header.id("plan-create-top")
                     progress
+                    if !sessionStore.canAttachBearerToken { signInBanner }
                     Group {
                         switch step {
                         case .idea:
@@ -2670,6 +3123,7 @@ struct NativePlanCreateSheet: View {
                         case .details:
                             bookablesRow
                             needsRow
+                            whereRow
                             timeRow
                             partySizeRow
                         case .review:
@@ -2708,9 +3162,43 @@ struct NativePlanCreateSheet: View {
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             }
             .buttonStyle(.plain)
+            .disabled(!sessionStore.canAttachBearerToken)
             .accessibilityIdentifier("native-plan-create-add-bookables")
+            if !sessionStore.canAttachBearerToken {
+                Text("Sign in to browse Bookables.").font(.footnote).foregroundColor(NativeTheme.textSecondary)
+            }
             NativePlanBookableSelectionRows(draft: $bookableDraft, allowsRemoval: !hasSubmitted)
             Text(NativePlanDisplay.bookablesFootnote).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+        }
+    }
+
+    private var signInBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Sign in to save this Plan. What you've written stays here.")
+                .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+            if let onSignIn {
+                Button(action: onSignIn) {
+                    Text("Sign in").font(.system(size: 13, weight: .black)).foregroundColor(.white)
+                        .padding(.horizontal, 16).frame(minHeight: 44)
+                        .background(NativeTheme.purple).clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-plan-create-sign-in")
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(planRowBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityIdentifier("native-plan-create-signed-out")
+    }
+
+    private var whereRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("Where · Optional")
+            NativePlanPlaceField(place: $place, query: $placeQuery)
+            Text(NativePlanDisplay.placeFootnote)
+                .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
         }
     }
 
@@ -2757,6 +3245,8 @@ struct NativePlanCreateSheet: View {
                 .foregroundColor(NativeTheme.textSecondary)
             sectionHeader("When")
             Text(setsTime ? startsAt.formatted(date: .abbreviated, time: .shortened) : "When TBD")
+            sectionHeader("Where")
+            Text(place?.label ?? "To be decided")
             sectionHeader("Group size")
             Text(setsPartySize ? "\(partySize) \(partySize == 1 ? "person" : "people")" : "To be decided")
             sectionHeader("Bookables")
@@ -2783,7 +3273,7 @@ struct NativePlanCreateSheet: View {
                     .accessibilityIdentifier("native-plan-create-back")
             }
             if let next = step.next {
-                Button(action: { changeStep(next) }) {
+                Button(action: { advance(to: next) }) {
                     Text("Continue").font(.system(size: 14, weight: .bold))
                         .foregroundColor(.white).frame(maxWidth: .infinity, minHeight: 44)
                         .background(NativeTheme.purple)
@@ -2798,6 +3288,17 @@ struct NativePlanCreateSheet: View {
         }
         .padding(16)
         .background(.ultraThinMaterial)
+    }
+
+    /// A typed place that was never matched is not a place: say so rather
+    /// than drop it on the way to Review.
+    private func advance(to next: NativePlanCreationStep) {
+        if step == .details, place == nil, !placeQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            errorMessage = "Pick a match for “\(placeQuery.trimmingCharacters(in: .whitespacesAndNewlines))”, or clear it."
+            return
+        }
+        errorMessage = nil
+        changeStep(next)
     }
 
     private func changeStep(_ next: NativePlanCreationStep) {
@@ -2924,7 +3425,7 @@ struct NativePlanCreateSheet: View {
         guard let request = submission.begin(NativePlanContract.createRequest(
             idempotencyKey: idempotencyKey, title: title, intent: intent,
             startsAt: setsTime ? startsAt : nil, partySize: setsPartySize ? partySize : nil,
-            needs: needs, bookableSelections: bookableDraft.selections
+            needs: needs, bookableSelections: bookableDraft.selections, place: place
         )) else { return }
         onSavingChanged(true)
         defer { submission.finish(); onSavingChanged(false) }
@@ -2935,8 +3436,15 @@ struct NativePlanCreateSheet: View {
             onCreated(planID)
             if !isEmbedded { dismiss() }
         } catch {
-            errorMessage = NativePlanDisplay.createFailureMessage(for: error)
-                + " Retry sends the same Plan and selections. If you close, check My Plans before starting another."
+            if NativePlanDisplay.createFailureIsFinal(error) {
+                // Nothing was created, so the next attempt is a new request.
+                submission.release()
+                idempotencyKey = UUID().uuidString
+                errorMessage = NativePlanDisplay.createFailureMessage(for: error)
+            } else {
+                errorMessage = NativePlanDisplay.createFailureMessage(for: error)
+                    + " Retry sends the same Plan and selections. If you close, check My Plans before starting another."
+            }
         }
     }
 }
@@ -2949,12 +3457,88 @@ extension NativePlanDisplay {
            [.timedOut, .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {
             return "We couldn't connect. Check your internet and try again."
         }
-        guard case let BytspotAPIClient.APIError.server(status, _) = error else { return "That didn't go through." }
+        guard case let BytspotAPIClient.APIError.server(status, body) = error else { return "That didn't go through." }
+        if let known = knownServerMessage(in: body) { return known }
         switch status {
         case 400: return "Check the title and what the plan is, then try again."
         case 401: return "Sign in to start a Plan."
+        case 404: return "Something you picked isn't available anymore. Remove it and try again."
+        case 409: return "This clashed with an earlier attempt. Change the plan and try again."
         case 429: return "Too many plans just now. Wait a moment and try again."
         default: return "That didn't go through."
         }
+    }
+
+    /// Resending the identical request can never fix these, so the draft is
+    /// unfrozen for editing instead of offering a Retry that always fails.
+    static func createFailureIsFinal(_ error: Error) -> Bool {
+        guard case let BytspotAPIClient.APIError.server(status, _) = error else { return false }
+        return [400, 404, 409].contains(status)
+    }
+
+    /// Server refusals the app repeats word for word. Anything else is
+    /// replaced with app copy, so an API message cannot rewrite a promise.
+    static let knownServerMessages: Set<String> = [
+        "This Plan expired.", "This Plan was cancelled.", "This Plan is full.",
+        "A Plan cannot start in the past.", "A Plan cannot end before it starts.", "That location is not valid.",
+        "That offering is not available.", "That person could not be found.", "That person is not on this Plan.",
+        "Cancel the booking before removing it from the Plan.",
+        "This Plan has a booking or pending hold and cannot be deleted.",
+        "Another change to this Plan is in flight. Try again.",
+    ]
+
+    static func knownServerMessage(in body: String) -> String? {
+        let said = NativePlanDemandFailure.serverMessage(in: body)
+        return knownServerMessages.contains(said) ? said : nil
+    }
+
+    /// Copy for a failed change to an existing Plan.
+    static func actionFailureMessage(for error: Error) -> String {
+        if let urlError = error as? URLError,
+           [.timedOut, .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost].contains(urlError.code) {
+            return "We couldn't connect. Check your internet and try again."
+        }
+        guard case let BytspotAPIClient.APIError.server(status, body) = error else { return "That didn't go through. Try again." }
+        if let known = knownServerMessage(in: body) { return known }
+        switch status {
+        case 401: return "Sign in again to update this Plan."
+        case 404: return "This Plan isn't available anymore."
+        case 429: return "Too many changes just now. Wait a moment and try again."
+        default: return "That didn't go through. Try again."
+        }
+    }
+
+    /// When the Plan stops working, said before it happens rather than found
+    /// out by seeing it marked Expired.
+    static func closesLabel(_ plan: NativePlan, now: Date = Date()) -> String? {
+        guard let raw = plan.expiresAt, let closes = ISO8601DateFormatter.partyControlDate(from: raw), closes > now else { return nil }
+        let when = closes.formatted(date: .abbreviated, time: .shortened)
+        switch plan.lifecycle {
+        case "proposed": return "Confirm by \(when) or this Plan expires."
+        case "confirmed": return "This Plan and its invite link close \(when)."
+        default: return nil
+        }
+    }
+
+    enum PrimePathAction: Equatable {
+        case addParty(String)
+        case openParty(String)
+        case requestCoffee(String)
+    }
+
+    /// What a Prime Path card's button does, or nil when it does nothing and
+    /// must not be drawn as a button. Suggestions are added by the creator;
+    /// an attached room opens its pass; a coffee selection asks for a table.
+    static func primePathAction(_ candidate: NativePrimePathCandidate, items: [NativePlan.Item], canEdit: Bool) -> PrimePathAction? {
+        if candidate.discovered == true {
+            let prefix = "discovered:"
+            guard canEdit, candidate.id.hasPrefix(prefix) else { return nil }
+            let partyID = String(candidate.id.dropFirst(prefix.count))
+            return partyID.isEmpty ? nil : .addParty(partyID)
+        }
+        guard let item = items.first(where: { $0.id == candidate.id }), item.status != "cancelled" else { return nil }
+        if let partyID = item.partyId, !partyID.isEmpty, candidate.capability != "details" { return .openParty(partyID) }
+        if canEdit, let spotID = coffeeRequestSpotID(item) { return .requestCoffee(spotID) }
+        return nil
     }
 }

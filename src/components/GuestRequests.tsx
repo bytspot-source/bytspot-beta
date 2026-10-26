@@ -54,10 +54,6 @@ export function GuestRequests() {
 
   const take = (offer: AskOffer) =>
     act(async () => {
-      if (offerAction(offer).kind === 'pay') {
-        window.location.assign(await transport.pay(offer.id));
-        return;
-      }
       await transport.accept(offer.id);
     });
 
@@ -104,11 +100,6 @@ export function GuestRequests() {
                   </div>
                 </div>
               ) : null}
-              {offer.payment?.state === 'refunded' ? (
-                <p className="mt-1 text-[12px]" style={{ color: '#fda4af' }}>
-                  Refunded{offer.payment.reason ? `: ${offer.payment.reason}` : ''}
-                </p>
-              ) : null}
               {offerAction(offer).kind !== 'none' ? (
                 <button
                   type="button"
@@ -120,8 +111,8 @@ export function GuestRequests() {
                   {offerAction(offer).label}
                 </button>
               ) : null}
-              {offer.payAt === 'bytspot' && !offer.accepted ? (
-                <p className="mt-1 text-center text-[11px] text-slate-400">Paid through Stripe. Refunded in full if the time is gone.</p>
+              {!offer.accepted ? (
+                <p className="mt-1 text-center text-[11px] text-slate-400">Pay at the venue.</p>
               ) : null}
             </div>
           ))}

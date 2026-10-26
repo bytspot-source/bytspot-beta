@@ -730,8 +730,7 @@ function VendorConsole({
           blockers={feed.blockers}
           busy={feed.busy}
           loading={feed.loading}
-          onRespond={(demandId, bookableId, operation, payAt) => void feed.respond(demandId, bookableId, operation, payAt)}
-          canTakePayment={payoutIsUsable(setup.profile.payout)}
+          onRespond={(demandId, bookableId, operation) => void feed.respond(demandId, bookableId, operation)}
           media={media}
           authorizedFetch={authorizedFetch}
         />

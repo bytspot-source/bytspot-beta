@@ -1,13 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { formatSlotTime } from './availability';
 import {
   demandLostToCapacity,
   matchDemand,
-  offerPayAt,
   unmetDemand,
   type Demand,
   type DemandSupply,
-  type OfferPayAt,
 } from './demand';
 import { MediaPicker } from './MediaPicker';
 import type { MediaTransport } from './mediaTransport';
@@ -21,14 +19,10 @@ export interface DemandFeedProps {
   blockers: string[];
   busy: boolean;
   loading: boolean;
-  onRespond: (demandId: string, bookableId: string, operation: 'OFFER' | 'DECLINE', payAt?: OfferPayAt) => void;
-  /** True once payouts are active, so the guest can be charged in the app. */
-  canTakePayment: boolean;
+  onRespond: (demandId: string, bookableId: string, operation: 'OFFER' | 'DECLINE') => void;
   media: MediaTransport;
   authorizedFetch?: AuthorizedFetch;
 }
-
-const PAY_IN_APP_KEY = 'bytspot_vendor_pay_in_app';
 
 export function DemandFeed({
   session,
@@ -38,27 +32,10 @@ export function DemandFeed({
   busy,
   loading,
   onRespond,
-  canTakePayment,
   media,
   authorizedFetch,
 }: DemandFeedProps) {
   const now = useMemo(() => new Date(), []);
-  const [payInApp, setPayInApp] = useState(() => {
-    try {
-      return localStorage.getItem(PAY_IN_APP_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
-  const choosePayInApp = (next: boolean) => {
-    setPayInApp(next);
-    try {
-      localStorage.setItem(PAY_IN_APP_KEY, next ? '1' : '0');
-    } catch {
-      /* private mode: the choice lasts this visit */
-    }
-  };
-
   // Demand is only answerable from capacity this seat can actually see.
   const supply = useMemo(() => visibleByBookable(session, owned), [owned, session]);
 
@@ -66,15 +43,9 @@ export function DemandFeed({
   const unmet = useMemo(() => unmetDemand(demands, supply, now), [demands, supply, now]);
   const fixable = useMemo(() => demandLostToCapacity(demands, supply, now), [demands, supply, now]);
 
-  // Checked here as well as on the server: the button should not be offered to
-  // a seat that cannot use it, and the server is what actually decides.
-  const payAtFor = (bookableId: string): OfferPayAt =>
-    offerPayAt(payInApp, canTakePayment, supply.find((item) => item.bookableId === bookableId)?.priceCents ?? 0);
-
   const respond = (demand: Demand, bookableId: string, operation: 'OFFER' | 'DECLINE') => {
     if (!authorizeDemand(session, operation, 'MATCHED', bookableId).ok) return;
-    if (operation === 'OFFER') onRespond(demand.id, bookableId, operation, payAtFor(bookableId));
-    else onRespond(demand.id, bookableId, operation);
+    onRespond(demand.id, bookableId, operation);
   };
 
   if (loading) {
@@ -112,14 +83,7 @@ export function DemandFeed({
 
       <section>
         <h2 className="vendor-section-title">Can answer now ({matches.length})</h2>
-        {canTakePayment ? (
-          <label className="vendor-muted" style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '4px 0 12px' }}>
-            <input type="checkbox" checked={payInApp} onChange={(event) => choosePayInApp(event.target.checked)} />
-            Take payment in the app. The guest pays to book; Bytspot keeps a booking fee and pays out the rest.
-          </label>
-        ) : (
-          <p className="vendor-muted">Finish payout setup to take payment in the app. Until then, guests pay you at the venue.</p>
-        )}
+        <p className="vendor-muted">Guests pay you at the venue.</p>
         {matches.length === 0 ? (
           <p className="vendor-muted">No open request matches a sellable slot.</p>
         ) : (
@@ -148,7 +112,6 @@ export function DemandFeed({
                       onClick={() => respond(match.demand, match.bookableId, 'OFFER')}
                     >
                       Offer {formatSlotTime(match.slots[0].startMins)}
-                      {payAtFor(match.bookableId) === 'bytspot' ? ' · paid in app' : ''}
                     </button>
                     <button
                       type="button"

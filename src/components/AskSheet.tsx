@@ -98,10 +98,6 @@ export function AskSheet({ ask, onClose }: { ask: VendorAsk; onClose: () => void
     setBusy(true);
     setProblem(undefined);
     try {
-      if (offerAction(offer).kind === 'pay') {
-        window.location.assign(await transport.pay(offer.id));
-        return;
-      }
       await transport.accept(offer.id);
       setBooked(true);
     } catch (error) {
@@ -209,11 +205,6 @@ export function AskSheet({ ask, onClose }: { ask: VendorAsk; onClose: () => void
                   <p className="text-[13px] text-white/60">
                     {dollars(offer.priceCents)} · {offer.durationMins} min{offer.terms ? ` · ${offer.terms}` : ''}
                   </p>
-                  {offer.payment?.state === 'refunded' ? (
-                    <p className="mt-1 text-[12px]" style={{ color: '#fda4af' }}>
-                      Refunded{offer.payment.reason ? `: ${offer.payment.reason}` : ''}
-                    </p>
-                  ) : null}
                   <button
                     type="button"
                     disabled={busy}
@@ -223,9 +214,7 @@ export function AskSheet({ ask, onClose }: { ask: VendorAsk; onClose: () => void
                   >
                     {offerAction(offer).label} · held until {new Date(offer.holdExpiresAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                   </button>
-                  {offer.payAt === 'bytspot' ? (
-                    <p className="mt-1 text-center text-[11px] text-white/50">Paid through Stripe. Refunded in full if the time is gone.</p>
-                  ) : null}
+                  <p className="mt-1 text-center text-[11px] text-white/50">Pay at the venue.</p>
                 </li>
               ))}
             </ul>

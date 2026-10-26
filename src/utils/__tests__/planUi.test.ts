@@ -35,7 +35,7 @@ const { BottomNav } = await import('../../components/BottomNav.tsx');
 test.after(() => hooks.deregister());
 
 const noNetwork = () => { throw new Error('SSR must not make API requests'); };
-const api = { list: noNetwork, get: noNetwork, create: noNetwork, confirm: noNetwork, cancel: noNetwork, respond: noNetwork };
+const api = { list: noNetwork, get: noNetwork, create: noNetwork, update: noNetwork, confirm: noNetwork, cancel: noNetwork, respond: noNetwork };
 const props = { api, authenticated: false, onSignIn: () => {}, onExploreNeed: () => {} };
 
 test('Standalone Plan renders one ground, ideas, sign-in and honest booking copy', () => {

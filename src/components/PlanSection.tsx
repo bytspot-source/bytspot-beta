@@ -1,8 +1,8 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, Plus, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, MapPin, Plus, Sparkles } from 'lucide-react';
 import { DeepSpaceSurface } from './DeepSpaceGround';
-import { PLAN_IDEAS, PLAN_NEEDS, PLAN_STEPS, createPlanInput, emptyPlanDraft, planDraftError, planItemStatus, type CreatePlanInput, type Plan, type PlanApi, type PlanDraft } from '../utils/planRpc';
+import { PLAN_IDEAS, PLAN_NEEDS, PLAN_STEPS, createPlanInput, emptyPlanDraft, localDateTimeInput, planArea, planDraftError, planEditDraft, planEditError, planEditInput, planErrorMessage, planErrorRetryable, planItemStatus, validPlanCoords, type CreatePlanInput, type Plan, type PlanApi, type PlanCoords, type PlanDraft, type PlanEditDraft } from '../utils/planRpc';
 
 const spring = { type: 'spring' as const, stiffness: 320, damping: 30, mass: 0.8 };
 interface PlanSectionProps {
@@ -14,6 +14,18 @@ interface PlanSectionProps {
   onExploreNeed: (need: string) => void;
 }
 const dateLabel = (date: string | null) => date ? new Date(date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Time to be decided';
+
+function WhereFields({ areaLabel, coords, disabled, locating, note, onArea, onLocate, onClear }: {
+  areaLabel: string; coords: PlanCoords | null; disabled: boolean; locating: boolean; note: string;
+  onArea: (value: string) => void; onLocate: () => void; onClear: () => void;
+}) {
+  return <div className="plan-stack">
+    <label>Area or neighborhood<input maxLength={80} value={areaLabel} disabled={disabled} onChange={event => onArea(event.target.value)} placeholder={coords ? 'Near me' : 'To be decided'} autoComplete="off" /></label>
+    <button type="button" className="plan-button" disabled={disabled || locating} onClick={onLocate}><MapPin aria-hidden="true" size={18} />{locating ? 'Finding your location…' : 'Use my current location'}</button>
+    {coords && <p className="plan-footnote">Using your current location. <button type="button" className="plan-button" disabled={disabled} onClick={onClear}>Remove location</button></p>}
+    {note && <p className="plan-footnote" role="status">{note}</p>}
+  </div>;
+}
 
 export function PlanSection({ api, authenticated, viewerId, groundDrawn = false, onSignIn, onExploreNeed }: PlanSectionProps) {
   const reducedMotion = useReducedMotion();
@@ -30,6 +42,9 @@ export function PlanSection({ api, authenticated, viewerId, groundDrawn = false,
   const [cancelPrompt, setCancelPrompt] = useState(false);
   const [pendingInput, setPendingInput] = useState<CreatePlanInput | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<PlanEditDraft | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationNote, setLocationNote] = useState('');
   const request = useRef(0);
   const busyRef = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -38,7 +53,7 @@ export function PlanSection({ api, authenticated, viewerId, groundDrawn = false,
 
   useEffect(() => {
     let current = true;
-    setSelected(null); setPlans([]); setError(''); setLoadError('');
+    setSelected(null); setPlans([]); setError(''); setLoadError(''); setEditing(null);
     if (!authenticated) return;
     setLoading(true);
     api.list().then(rows => { if (current) setPlans(rows); })
@@ -59,19 +74,34 @@ export function PlanSection({ api, authenticated, viewerId, groundDrawn = false,
     finally { setLoading(false); }
   }
 
-  async function run(action: () => Promise<void>) {
+  async function run(action: () => Promise<void>, failure: (problem: unknown) => string = problem => planErrorMessage(problem, 'That action could not be completed. Please retry.')) {
     if (busyRef.current) return;
     busyRef.current = true; setBusy(true); setError('');
     const version = ++request.current;
     try { await action(); }
-    catch { if (request.current === version) setError('That action could not be completed. Your draft is unchanged. Please retry.'); }
+    catch (problem) { if (request.current === version) setError(failure(problem)); }
     finally { if (request.current === version) { busyRef.current = false; setBusy(false); } }
+  }
+
+  function locate(apply: (coords: PlanCoords) => void) {
+    setLocationNote('');
+    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) { setLocationNote('Location is not available here. Type an area instead.'); return; }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(position => {
+      setLocating(false);
+      const coords = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+      if (validPlanCoords(coords)) apply(coords);
+      else setLocationNote('We could not get a usable location. Type an area instead.');
+    }, problem => {
+      setLocating(false);
+      setLocationNote(problem.code === problem.PERMISSION_DENIED ? 'Location access is off. Type an area instead.' : 'We could not get your location. Type an area instead.');
+    }, { timeout: 15_000, maximumAge: 300_000 });
   }
 
   function start(idea?: typeof PLAN_IDEAS[number]) {
     if (!authenticated) { onSignIn(); return; }
     setDraft(idea ? { ...emptyPlanDraft(), ...idea, needs: [...idea.needs] } : emptyPlanDraft());
-    setPendingInput(null); setCreatedId(null); setStep(0); setError(''); setCreating(true); setSelected(null); setShowDetails(false);
+    setPendingInput(null); setCreatedId(null); setStep(0); setError(''); setCreating(true); setSelected(null); setShowDetails(false); setEditing(null); setLocationNote('');
   }
 
   function advance() {
@@ -89,13 +119,34 @@ export function PlanSection({ api, authenticated, viewerId, groundDrawn = false,
     // the server. Never turn a retry into a second plan or change its intent.
     const input = pendingInput ?? createPlanInput(draft, crypto.randomUUID());
     setPendingInput(input);
+    let id = createdId;
     await run(async () => {
-      const id = createdId ?? await api.create(input);
-      setCreatedId(id);
-      const plan = await api.get(id);
-      setPlans(rows => [plan, ...rows.filter(row => row.id !== id)]);
+      const created = id ?? await api.create(input);
+      id = created;
+      setCreatedId(created);
+      const plan = await api.get(created);
+      setPlans(rows => [plan, ...rows.filter(row => row.id !== created)]);
       setSelected(plan); setCreating(false); setPendingInput(null); setCreatedId(null);
+    }, failure => {
+      if (id || planErrorRetryable(failure)) return planErrorMessage(failure, 'That action could not be completed. Your draft is unchanged. Please retry.');
+      setPendingInput(null);
+      return planErrorMessage(failure, 'Your plan could not be created. Check the details and try again.');
     });
+  }
+
+  async function saveEdit() {
+    if (!selected || !editing) return;
+    const problem = planEditError(selected, editing);
+    if (problem) { setError(problem); return; }
+    const input = planEditInput(selected, editing);
+    if (!Object.keys(input).length) { setEditing(null); setError(''); return; }
+    const id = selected.id;
+    await run(async () => {
+      await api.update(id, input);
+      const plan = await api.get(id);
+      setSelected(plan); setEditing(null); setLocationNote('');
+      setPlans(rows => rows.map(row => row.id === id ? plan : row));
+    }, failure => planErrorMessage(failure, 'Your changes could not be saved. Please retry.'));
   }
 
   async function updatePlan(action: 'confirm' | 'cancel' | 'accepted' | 'maybe' | 'declined') {
@@ -116,6 +167,8 @@ export function PlanSection({ api, authenticated, viewerId, groundDrawn = false,
   const owner = Boolean(viewerId && selected?.creatorUserId === viewerId);
   const press = reducedMotion ? undefined : { scale: 0.97 };
   const patchDraft = (values: Partial<PlanDraft>) => setDraft(current => ({ ...current, ...values }));
+  const patchEdit = (values: Partial<PlanEditDraft>) => setEditing(current => current && { ...current, ...values });
+  const minStart = localDateTimeInput(new Date());
 
   return <DeepSpaceSurface alreadyDrawn={groundDrawn}>
     <section className="plan-section" aria-label="Plan" data-testid="plan-section">
@@ -159,13 +212,22 @@ export function PlanSection({ api, authenticated, viewerId, groundDrawn = false,
             {creating && step === 1 && <>
               <div className="plan-panel plan-stack"><h2>What should this plan include?</h2><p>Choose what you still need. Nothing is held or booked here.</p><div className="plan-needs">{PLAN_NEEDS.map(need => <motion.button key={need} aria-pressed={draft.needs.includes(need)} className="plan-button plan-choice" whileTap={press} transition={transition} disabled={!editable} onClick={() => patchDraft({ needs: draft.needs.includes(need) ? draft.needs.filter(item => item !== need) : [...draft.needs, need] })}>{draft.needs.includes(need) && <Check aria-hidden="true" size={16} />}{need}</motion.button>)}</div></div>
               <div className="plan-panel"><button className="plan-disclosure" aria-expanded={showDetails} aria-controls="plan-timing-fields" onClick={() => setShowDetails(value => !value)}>Time & group size · optional<ChevronDown aria-hidden="true" size={20} /></button><AnimatePresence initial={false}>{showDetails && <motion.div id="plan-timing-fields" className="plan-stack plan-disclosure-content" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={transition}>
-                <label>Date & time<input type="datetime-local" disabled={!editable} value={draft.startsAt} onChange={event => patchDraft({ startsAt: event.target.value })} /></label>
+                <label>Date & time<input type="datetime-local" min={minStart} disabled={!editable} value={draft.startsAt} onChange={event => patchDraft({ startsAt: event.target.value })} /></label>
                 <label>Group size<input type="number" inputMode="numeric" min={1} max={200} step={1} disabled={!editable} value={draft.partySize} onChange={event => patchDraft({ partySize: event.target.value })} placeholder="To be decided" /></label>
               </motion.div>}</AnimatePresence></div>
+              <div className="plan-panel plan-stack"><h2>Where</h2><p>Optional. An area helps find places near your group.</p><WhereFields areaLabel={draft.areaLabel} coords={draft.coords} disabled={!editable} locating={locating} note={locationNote} onArea={areaLabel => patchDraft({ areaLabel })} onLocate={() => locate(coords => patchDraft({ coords }))} onClear={() => patchDraft({ coords: null })} /></div>
             </>}
-            {creating && step === 2 && <div className="plan-panel plan-stack"><h2>{draft.title}</h2><p>{draft.intent}</p><dl className="plan-summary"><dt>When</dt><dd>{dateLabel(draft.startsAt || null)}</dd><dt>People</dt><dd>{draft.partySize || 'To be decided'}</dd><dt>Still to arrange</dt><dd>{draft.needs.join(', ') || 'No needs selected'}</dd></dl><p className="plan-footnote">This creates a proposed plan. Attendance, bookings, and payments are confirmed separately.</p>{pendingInput && <p role="status">{createdId ? 'Your plan was created. Retry to load it.' : 'An attempt was sent. Retry safely with the same details.'}</p>}</div>}
+            {creating && step === 2 && <div className="plan-panel plan-stack"><h2>{draft.title}</h2><p>{draft.intent}</p><dl className="plan-summary"><dt>When</dt><dd>{dateLabel(draft.startsAt || null)}</dd><dt>People</dt><dd>{draft.partySize || 'To be decided'}</dd><dt>Where</dt><dd>{planArea(draft.areaLabel, draft.coords) ?? 'To be decided'}</dd><dt>Still to arrange</dt><dd>{draft.needs.join(', ') || 'No needs selected'}</dd></dl><p className="plan-footnote">This creates a proposed plan. Attendance, bookings, and payments are confirmed separately.</p>{pendingInput && <p role="status">{createdId ? 'Your plan was created. Retry to load it.' : 'An attempt was sent. Retry safely with the same details.'}</p>}</div>}
             {selected && !creating && <>
-              <div className="plan-panel plan-stack"><span className="plan-badge">{selected.state}</span><p>{selected.intent}</p><dl className="plan-summary"><dt>When</dt><dd>{dateLabel(selected.startsAt)}</dd><dt>Group size</dt><dd>{selected.partySize ?? 'To be decided'}</dd><dt>Attendance</dt><dd>{selected.readiness.going} going · {selected.readiness.maybe} maybe · {selected.readiness.pending} pending</dd></dl><p className="plan-footnote">Plan confirmation is the organizer's decision—not a booking or everyone's RSVP.</p></div>
+              <div className="plan-panel plan-stack"><span className="plan-badge">{selected.state}</span><p>{selected.intent}</p><dl className="plan-summary"><dt>When</dt><dd>{dateLabel(selected.startsAt)}</dd><dt>Group size</dt><dd>{selected.partySize ?? 'To be decided'}</dd><dt>Where</dt><dd>{selected.areaLabel ?? 'To be decided'}</dd><dt>Attendance</dt><dd>{selected.readiness.going} going · {selected.readiness.maybe} maybe · {selected.readiness.pending} pending</dd></dl>{selected.expiresAt && (selected.state === 'proposed' || selected.state === 'confirmed') && <p className="plan-footnote">{selected.state === 'proposed' ? `Confirm before ${dateLabel(selected.expiresAt)} or this plan expires.` : `Invite link and plan close ${dateLabel(selected.expiresAt)}.`}</p>}<p className="plan-footnote">Plan confirmation is the organizer's decision—not a booking or everyone's RSVP.</p>{owner && activePlan && !editing && <button className="plan-button" disabled={busy} onClick={() => { setEditing(planEditDraft(selected)); setError(''); setLocationNote(''); setCancelPrompt(false); }}>Edit details</button>}</div>
+              {owner && activePlan && editing && <div className="plan-panel plan-stack" role="group" aria-labelledby="plan-edit-heading"><h2 id="plan-edit-heading">Edit details</h2>
+                <label>Date & time<input type="datetime-local" min={minStart} disabled={busy} value={editing.startsAt} onChange={event => patchEdit({ startsAt: event.target.value })} /></label>
+                <label>Group size<input type="number" inputMode="numeric" min={1} max={200} step={1} disabled={busy} value={editing.partySize} onChange={event => patchEdit({ partySize: event.target.value })} placeholder="To be decided" /></label>
+                <WhereFields areaLabel={editing.areaLabel} coords={editing.coords} disabled={busy} locating={locating} note={locationNote} onArea={areaLabel => patchEdit({ areaLabel })} onLocate={() => locate(coords => patchEdit({ coords }))} onClear={() => patchEdit({ coords: null })} />
+                <p className="plan-footnote">Clear a field to leave it undecided.</p>
+                <button className="plan-button plan-primary" disabled={busy || locating} onClick={() => void saveEdit()}>{busy ? 'Saving…' : 'Save changes'}</button>
+                <button className="plan-button" disabled={busy} onClick={() => { setEditing(null); setError(''); setLocationNote(''); }}>Cancel</button>
+              </div>}
               <div className="plan-panel plan-stack"><h2>Still to arrange</h2>{selected.openNeeds.length ? selected.openNeeds.map(need => <button className="plan-button plan-choice" key={need} onClick={() => onExploreNeed(need)}>Explore {need}<ArrowRight size={16} aria-hidden="true" /></button>) : <p>No open needs. Check individual items for booking status.</p>}<p className="plan-footnote">Exploring does not attach or book an option.</p></div>
               {!!selected.items.length && <div className="plan-panel plan-stack"><h2>In this plan</h2>{selected.items.map(item => <div key={item.id}><h3>{item.title}</h3><p>{planItemStatus(item)}{item.guestBooking?.bookedFor && item.status !== 'cancelled' && !item.booked ? ` for ${dateLabel(item.guestBooking.bookedFor)}` : ''} · {item.needKind}</p>{item.tableBooking && item.status !== 'cancelled' && <a className="plan-footnote" href={item.tableBooking.url} target="_blank" rel="noopener noreferrer">Book on {item.tableBooking.label} ↗</a>}</div>)}</div>}
               {activePlan && <div className="plan-panel plan-stack"><h2>{owner ? 'Organize your plan' : 'Your attendance'}</h2>{owner && selected.state === 'proposed' && <button className="plan-button plan-primary" disabled={busy} onClick={() => void updatePlan('confirm')}>Confirm plan</button>}{(['accepted', 'maybe', 'declined'] as const).map(response => <button key={response} className="plan-button" disabled={busy} onClick={() => void updatePlan(response)}>{response === 'accepted' ? "I'm going" : response === 'maybe' ? 'Maybe' : "Can't go"}</button>)}{owner && <button className="plan-button" disabled={busy} onClick={() => setCancelPrompt(true)}>Cancel plan…</button>}{cancelPrompt && <div role="group" aria-label="Confirm cancellation"><p>Cancel this plan? This cannot be undone and does not cancel separate bookings.</p><button className="plan-button" disabled={busy} onClick={() => void updatePlan('cancel')}>Yes, cancel plan</button><button className="plan-button" disabled={busy} onClick={() => setCancelPrompt(false)}>Keep plan</button></div>}</div>}
@@ -174,7 +236,7 @@ export function PlanSection({ api, authenticated, viewerId, groundDrawn = false,
         </AnimatePresence>
       </div>
       {(creating || selected) && <footer className="plan-footer">
-        <motion.button className="plan-button" whileTap={press} transition={transition} disabled={busy || Boolean(pendingInput)} onClick={() => { setError(''); setCancelPrompt(false); if (creating && step > 0) setStep(value => value - 1); else { setCreating(false); setSelected(null); } }}><ArrowLeft aria-hidden="true" size={20} />{creating && step > 0 ? 'Back' : 'All plans'}</motion.button>
+        <motion.button className="plan-button" whileTap={press} transition={transition} disabled={busy || Boolean(pendingInput)} onClick={() => { setError(''); setCancelPrompt(false); setEditing(null); setLocationNote(''); if (creating && step > 0) setStep(value => value - 1); else { setCreating(false); setSelected(null); } }}><ArrowLeft aria-hidden="true" size={20} />{creating && step > 0 ? 'Back' : 'All plans'}</motion.button>
         {creating && <motion.button className="plan-button plan-primary" whileTap={press} transition={transition} disabled={busy} onClick={() => step === 2 ? void create() : advance()}>{busy ? 'Saving…' : step === 2 ? pendingInput ? 'Retry safely' : 'Create plan' : 'Continue'}{!busy && <ArrowRight aria-hidden="true" size={20} />}</motion.button>}
       </footer>}
       {busy && <span className="plan-sr-only" role="status">Updating plan…</span>}

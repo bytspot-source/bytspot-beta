@@ -8109,6 +8109,142 @@ final class NativePlanCreateTests: XCTestCase {
             "That didn't go through."
         )
     }
+
+    private func serverError(_ status: Int, _ message: String) -> BytspotAPIClient.APIError {
+        .server(status: status, body: #"{"error":{"message":"\#(message)","code":-32600}}"#)
+    }
+
+    private func editablePlan(startsAt: String? = nil, partySize: Int? = nil, areaLabel: String? = nil,
+                              latitude: Double? = nil, longitude: Double? = nil) -> NativePlan {
+        NativePlan(id: "plan-1", title: "Catch up", intent: "Together", creatorUserId: "creator", startsAt: startsAt,
+                   endsAt: nil, areaLabel: areaLabel, partySize: partySize, needs: ["dining"], lifecycle: "proposed", state: "proposed",
+                   readiness: .init(going: 1, maybe: 0, pending: 0, declined: 0, total: 1), openNeeds: ["dining"],
+                   participants: [], items: [], joinToken: nil, latitude: latitude, longitude: longitude)
+    }
+
+    func testAPlanPlaceIsAWholeRealPointAndIsSentOnCreate() throws {
+        XCTAssertNil(NativePlanPlace(label: "Null Island", latitude: 0, longitude: 0))
+        XCTAssertNil(NativePlanPlace(label: "Off Earth", latitude: 91, longitude: 10))
+        XCTAssertEqual(NativePlanPlace(label: "   ", latitude: 33.78, longitude: -84.38)?.label, "Near me")
+        let place = try XCTUnwrap(NativePlanPlace(label: "Midtown", latitude: 33.78, longitude: -84.38))
+        let input = NativePlanContract.createInput(idempotencyKey: "k", title: "T", intent: "I", startsAt: nil, partySize: nil, needs: [], place: place)
+        XCTAssertEqual(input["areaLabel"] as? String, "Midtown")
+        XCTAssertEqual(input["latitude"] as? Double, 33.78)
+        XCTAssertEqual(input["longitude"] as? Double, -84.38)
+        let without = NativePlanContract.createInput(idempotencyKey: "k", title: "T", intent: "I", startsAt: nil, partySize: nil, needs: [])
+        XCTAssertNil(without["areaLabel"])
+        XCTAssertNil(without["latitude"])
+    }
+
+    func testADeviceFixIsAPlanPlaceOnlyWhenRecentAndAccurate() {
+        let now = Date()
+        let coordinate = CLLocationCoordinate2D(latitude: 33.78, longitude: -84.38)
+        let good = CLLocation(coordinate: coordinate, altitude: 0, horizontalAccuracy: 50, verticalAccuracy: 10, timestamp: now)
+        XCTAssertEqual(NativePlanPlace(fix: good, label: "Midtown", now: now)?.label, "Midtown")
+        XCTAssertEqual(NativePlanPlace(fix: good, label: nil, now: now)?.label, "Near me")
+        let vague = CLLocation(coordinate: coordinate, altitude: 0, horizontalAccuracy: 5_000, verticalAccuracy: 10, timestamp: now)
+        XCTAssertNil(NativePlanPlace(fix: vague, label: "Midtown", now: now))
+        let stale = CLLocation(coordinate: coordinate, altitude: 0, horizontalAccuracy: 50, verticalAccuracy: 10, timestamp: now.addingTimeInterval(-3_600))
+        XCTAssertNil(NativePlanPlace(fix: stale, label: "Midtown", now: now))
+        XCTAssertNil(NativePlanPlace(fix: nil, label: "Midtown", now: now))
+    }
+
+    func testAPlanUpdateSendsOnlyWhatChangedAndNullForWhatWasCleared() throws {
+        let start = "2026-11-08T23:00:00.000Z"
+        let original = editablePlan(startsAt: start, partySize: 4, areaLabel: "Midtown", latitude: 33.78, longitude: -84.38)
+        let sameStart = try XCTUnwrap(ISO8601DateFormatter.partyControlDate(from: start))
+        let unchanged = NativePlanContract.updateInput(planID: "plan-1", original: original, startsAt: sameStart, partySize: 4, place: original.place)
+        XCTAssertEqual(unchanged.keys.sorted(), ["planId"])
+
+        let cleared = NativePlanContract.updateInput(planID: "plan-1", original: original, startsAt: nil, partySize: nil, place: nil)
+        XCTAssertTrue(cleared["startsAt"] is NSNull)
+        XCTAssertTrue(cleared["partySize"] is NSNull)
+        XCTAssertTrue(cleared["latitude"] is NSNull)
+        XCTAssertTrue(cleared["longitude"] is NSNull)
+        XCTAssertTrue(cleared["areaLabel"] is NSNull)
+
+        let moved = try XCTUnwrap(NativePlanPlace(label: "Old Fourth Ward", latitude: 33.77, longitude: -84.36))
+        let changed = NativePlanContract.updateInput(planID: "plan-1", original: editablePlan(), startsAt: nil, partySize: 6, place: moved)
+        XCTAssertEqual(changed["partySize"] as? Int, 6)
+        XCTAssertEqual(changed["areaLabel"] as? String, "Old Fourth Ward")
+        XCTAssertNil(changed["startsAt"], "A time that was never set and is still unset is not sent.")
+        XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: cleared))
+    }
+
+    func testOnlyARefusalRetryingCannotFixUnfreezesTheCreateDraft() {
+        XCTAssertTrue(NativePlanDisplay.createFailureIsFinal(serverError(404, "That offering is not available.")))
+        XCTAssertTrue(NativePlanDisplay.createFailureIsFinal(serverError(400, "A Plan cannot start in the past.")))
+        XCTAssertFalse(NativePlanDisplay.createFailureIsFinal(URLError(.timedOut)))
+        XCTAssertFalse(NativePlanDisplay.createFailureIsFinal(serverError(429, "Too many requests")))
+        XCTAssertFalse(NativePlanDisplay.createFailureIsFinal(serverError(500, "boom")))
+        XCTAssertEqual(NativePlanDisplay.createFailureMessage(for: serverError(400, "A Plan cannot start in the past.")), "A Plan cannot start in the past.")
+
+        var write = NativePlanWriteDraft()
+        let request = NativePlanContract.createRequest(idempotencyKey: "k", title: "T", intent: "I", startsAt: nil, partySize: nil, needs: [], bookableSelections: [])
+        _ = write.begin(request)
+        write.finish()
+        XCTAssertFalse(write.allowsEdits)
+        write.release()
+        XCTAssertTrue(write.allowsEdits)
+    }
+
+    func testPlanChangeFailuresSayWhatHappenedWithoutEchoingUnknownServerText() {
+        XCTAssertEqual(NativePlanDisplay.actionFailureMessage(for: serverError(409, "This Plan is full.")), "This Plan is full.")
+        XCTAssertEqual(NativePlanDisplay.actionFailureMessage(for: serverError(409, "This Plan expired.")), "This Plan expired.")
+        XCTAssertEqual(NativePlanDisplay.actionFailureMessage(for: serverError(409, "Cancel the booking before removing it from the Plan.")),
+                       "Cancel the booking before removing it from the Plan.")
+        XCTAssertEqual(NativePlanDisplay.actionFailureMessage(for: serverError(409, "Prisma exploded at row 7")), "That didn't go through. Try again.")
+        XCTAssertEqual(NativePlanDisplay.actionFailureMessage(for: serverError(404, "Plan not found.")), "This Plan isn't available anymore.")
+        XCTAssertEqual(NativePlanDisplay.actionFailureMessage(for: serverError(429, "slow")), "Too many changes just now. Wait a moment and try again.")
+        XCTAssertEqual(NativePlanDisplay.actionFailureMessage(for: URLError(.notConnectedToInternet)), "We couldn't connect. Check your internet and try again.")
+    }
+
+    func testAPlanSaysWhenItCloses() {
+        let now = Date()
+        let iso = ISO8601DateFormatter()
+        var proposed = editablePlan()
+        proposed.expiresAt = iso.string(from: now.addingTimeInterval(3_600))
+        XCTAssertTrue(NativePlanDisplay.closesLabel(proposed, now: now)?.hasPrefix("Confirm by") == true)
+        proposed.expiresAt = iso.string(from: now.addingTimeInterval(-60))
+        XCTAssertNil(NativePlanDisplay.closesLabel(proposed, now: now), "A deadline already past is the Expired state, not a warning.")
+        proposed.expiresAt = nil
+        XCTAssertNil(NativePlanDisplay.closesLabel(proposed, now: now))
+    }
+
+    func testAJoinFailureIsOnlyAClosedLinkWhenTheServerSaysSo() {
+        XCTAssertEqual(NativePlanJoinView.stateAfterFailure(serverError(404, "Plan not found.")), .unavailable)
+        guard case .failed(let full) = NativePlanJoinView.stateAfterFailure(serverError(409, "This Plan is full.")) else { return XCTFail("A full Plan can be retried") }
+        XCTAssertTrue(full.contains("full"))
+        guard case .failed = NativePlanJoinView.stateAfterFailure(URLError(.notConnectedToInternet)) else { return XCTFail("Offline is retryable") }
+        guard case .failed = NativePlanJoinView.stateAfterFailure(serverError(429, "slow")) else { return XCTFail("Rate limits are retryable") }
+        XCTAssertEqual(NativePlanJoinView.stateBeforeLoad(current: .failed("x"), signedIn: true), .loading, "Try again re-sends the join.")
+    }
+
+    func testPrimePathButtonsDoWhatTheySayOrAreNotButtons() throws {
+        func candidate(_ id: String, capability: String, discovered: Bool?) -> NativePrimePathCandidate {
+            NativePrimePathCandidate(id: id, label: "X", capability: capability, ownInventory: true, seats: 5, discovered: discovered, minParty: 1,
+                                     confirmableNow: true, travelMinutes: nil, reliability: 0, continuationValue: 0, startLabel: nil)
+        }
+        func item(_ row: [String: Any]) throws -> NativePlan.Item {
+            var base: [String: Any] = ["id": "item-1", "needKind": "nightlife", "title": "Room", "capability": "book", "status": "available"]
+            base.merge(row) { _, new in new }
+            return try JSONDecoder().decode(NativePlan.Item.self, from: JSONSerialization.data(withJSONObject: base))
+        }
+        let suggestion = candidate("discovered:party-9", capability: "book", discovered: true)
+        XCTAssertEqual(NativePlanDisplay.primePathAction(suggestion, items: [], canEdit: true), .addParty("party-9"))
+        XCTAssertNil(NativePlanDisplay.primePathAction(suggestion, items: [], canEdit: false), "Only the creator can add to the Plan.")
+
+        let room = try item(["id": "item-1", "partyId": "party-1"])
+        XCTAssertEqual(NativePlanDisplay.primePathAction(candidate("item-1", capability: "book", discovered: false), items: [room], canEdit: false), .openParty("party-1"))
+
+        let coffee = try item(["id": "item-2", "needKind": "coffee", "capability": "request", "coffeeSpotId": "spot-1"])
+        XCTAssertEqual(NativePlanDisplay.primePathAction(candidate("item-2", capability: "request", discovered: false), items: [coffee], canEdit: true), .requestCoffee("spot-1"))
+        XCTAssertNil(NativePlanDisplay.primePathAction(candidate("item-2", capability: "request", discovered: false), items: [coffee], canEdit: false))
+
+        let gone = try item(["id": "item-3", "partyId": "party-3", "status": "cancelled"])
+        XCTAssertNil(NativePlanDisplay.primePathAction(candidate("item-3", capability: "book", discovered: false), items: [gone], canEdit: true))
+        XCTAssertNil(NativePlanDisplay.primePathAction(candidate("missing", capability: "book", discovered: false), items: [room], canEdit: true))
+    }
 }
 
 /// Asking Google the coffee question. Discover previously filtered the

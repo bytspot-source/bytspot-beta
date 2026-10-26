@@ -7585,7 +7585,7 @@ final class NativePlanInviteRegressionTests: XCTestCase {
             XCTAssertTrue(sheet.contains(identifier), "Missing visible picker state/action: \(identifier)")
         }
         XCTAssertTrue(sheet.contains("await onRetry()"))
-        XCTAssertTrue(sheet.contains("if await onInvite(person.id)"))
+        XCTAssertTrue(sheet.contains("if let failure = await onInvite(person.id)"))
         XCTAssertTrue(sheet.contains("guard busyID == nil"))
         XCTAssertTrue(sheet.contains("participantIDs.contains(person.id)"))
         XCTAssertTrue(source.contains("Button(action: { showInvite = true })"))

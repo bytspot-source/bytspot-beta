@@ -287,6 +287,50 @@ export interface TicketEdit {
   quantity?: number;
 }
 
+export type PartyInviteState = 'PENDING' | 'ACCEPTED';
+
+/** A host asking this business to sell tables at their Party. */
+export interface PartyInvite {
+  id: string;
+  state: PartyInviteState;
+  note?: string;
+  party: { id: string; title: string; startsAt: Date; endsAt: Date; venueName: string; hostName: string; ended: boolean };
+  liveSessions: number;
+  /** Completed table sales on this Party owed to this business, after fees. */
+  owedCents: number;
+}
+
+export type PartyTableKind = 'table' | 'after-hours';
+export type BottleTerms = 'included' | 'minimum';
+
+/** Bottles and a stretch of time this business sells on one Party. */
+export interface PartyTable {
+  id: string;
+  name: string;
+  kind: PartyTableKind;
+  startsAt: Date;
+  endsAt: Date;
+  venueName?: string;
+  bottleCount: number;
+  bottleTerms: BottleTerms;
+  priceCents: number;
+  quantity: number;
+  committed: number;
+}
+
+export interface PartyTableDraft {
+  name: string;
+  kind: PartyTableKind;
+  /** Local date and times; an end before the start means the next day. */
+  date: string;
+  startTime: string;
+  endTime: string;
+  bottleCount: number;
+  bottleTerms: BottleTerms;
+  priceCents: number;
+  quantity: number;
+}
+
 export interface ConsoleTransport {
   patches: (kind: PatchKind) => Promise<SetupResult<Patch[]>>;
   createPatch: (draft: PatchDraft) => Promise<SetupResult<Patch>>;
@@ -299,6 +343,11 @@ export interface ConsoleTransport {
   createTicket: (draft: TicketDraft) => Promise<SetupResult<VendorTicket>>;
   editTicket: (id: string, edit: TicketEdit) => Promise<SetupResult<VendorTicket>>;
   withdrawTicket: (id: string) => Promise<SetupResult<VendorTicket>>;
+  partyInvites: () => Promise<SetupResult<PartyInvite[]>>;
+  answerPartyInvite: (id: string, answer: 'accept' | 'decline') => Promise<SetupResult<PartyInviteState | 'DECLINED'>>;
+  partyTables: (partyId: string) => Promise<SetupResult<PartyTable[]>>;
+  addPartyTable: (partyId: string, draft: PartyTableDraft) => Promise<SetupResult<PartyTable>>;
+  withdrawPartyTable: (id: string) => Promise<SetupResult<true>>;
   bookings: (when: BookingsWhen) => Promise<SetupResult<Booking[]>>;
   moveBooking: (id: string, operation: BookingMoveId) => Promise<SetupResult<Booking>>;
   verifyPass: (code: string) => Promise<SetupResult<Booking>>;
@@ -560,6 +609,85 @@ export function ticketDraftProblems(draft: TicketDraft): string[] {
   return problems;
 }
 
+const INVITE_STATES: PartyInviteState[] = ['PENDING', 'ACCEPTED'];
+
+export function revivePartyInvite(json: Json): PartyInvite | undefined {
+  const party = (json.party ?? {}) as Json;
+  const startsAt = date(party.startsAt);
+  const endsAt = date(party.endsAt);
+  const state = str(json.state) as PartyInviteState;
+  if (!str(json.id) || !str(party.id) || !startsAt || !endsAt || !INVITE_STATES.includes(state)) return undefined;
+  return {
+    id: str(json.id),
+    state,
+    note: typeof json.note === 'string' && json.note ? json.note : undefined,
+    party: {
+      id: str(party.id),
+      title: str(party.title) || 'Party',
+      startsAt,
+      endsAt,
+      venueName: str(party.venueName),
+      hostName: str(party.hostName) || 'A Bytspot host',
+      ended: party.ended === true,
+    },
+    liveSessions: num(json.liveSessions),
+    owedCents: num(json.owedCents),
+  };
+}
+
+export function revivePartyInvites(json: Json): PartyInvite[] {
+  const rows = Array.isArray(json.invites) ? (json.invites as Json[]) : [];
+  return rows.map(revivePartyInvite).filter((row): row is PartyInvite => row !== undefined);
+}
+
+export function revivePartyTable(json: Json): PartyTable | undefined {
+  const startsAt = date(json.startsAt);
+  const endsAt = date(json.endsAt);
+  if (!str(json.id) || !startsAt || !endsAt) return undefined;
+  return {
+    id: str(json.id),
+    name: str(json.name) || 'Table',
+    kind: json.kind === 'after-hours' ? 'after-hours' : 'table',
+    startsAt,
+    endsAt,
+    venueName: typeof json.venueName === 'string' && json.venueName ? json.venueName : undefined,
+    bottleCount: num(json.bottleCount),
+    bottleTerms: json.bottleTerms === 'minimum' ? 'minimum' : 'included',
+    priceCents: num(json.priceCents),
+    quantity: num(json.quantity),
+    committed: num(json.committed),
+  };
+}
+
+export function revivePartyTables(json: Json): PartyTable[] {
+  const rows = Array.isArray(json.sessions) ? (json.sessions as Json[]) : [];
+  return rows.map(revivePartyTable).filter((row): row is PartyTable => row !== undefined);
+}
+
+/** Local wall-clock times to instants; an end at or before the start rolls to the next day. */
+export function partyTableTimes(draft: Pick<PartyTableDraft, 'date' | 'startTime' | 'endTime'>): { startsAt: Date; endsAt: Date } | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date) || !/^\d{2}:\d{2}$/.test(draft.startTime) || !/^\d{2}:\d{2}$/.test(draft.endTime)) return undefined;
+  const startsAt = new Date(`${draft.date}T${draft.startTime}`);
+  const endsAt = new Date(`${draft.date}T${draft.endTime}`);
+  if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) return undefined;
+  if (endsAt <= startsAt) endsAt.setDate(endsAt.getDate() + 1);
+  return { startsAt, endsAt };
+}
+
+/** The refusals the API would give, checked before the round-trip. */
+export function partyTableDraftProblems(draft: PartyTableDraft): string[] {
+  const problems: string[] = [];
+  if (!draft.name.trim()) problems.push('Name the table, like Front booth');
+  else if (draft.name.trim().length > 80) problems.push('Keep the name under 80 characters');
+  if (!partyTableTimes(draft)) problems.push('Choose a date and when it starts and ends');
+  if (!Number.isInteger(draft.bottleCount) || draft.bottleCount < 0 || draft.bottleCount > 200) problems.push('Bottles must be between 0 and 200');
+  else if (draft.bottleTerms === 'minimum' && draft.bottleCount === 0) problems.push('A bottle minimum needs at least one bottle');
+  if (!Number.isInteger(draft.priceCents) || draft.priceCents < 1) problems.push('Charge at least $0.01');
+  else if (draft.priceCents > 10_000_000) problems.push('Charge at most $100,000');
+  if (!Number.isInteger(draft.quantity) || draft.quantity < 1 || draft.quantity > 500) problems.push('Sell between 1 and 500');
+  return problems;
+}
+
 export function reviveTeam(json: Json): Team {
   const seats = Array.isArray(json.seats) ? (json.seats as Json[]) : [];
   return {
@@ -816,6 +944,40 @@ export function httpConsoleTransport(authorized: AuthorizedFetch): ConsoleTransp
         ticket,
       ),
     withdrawTicket: (id) => send(`/vendor/tickets/${encodeURIComponent(id)}/withdraw`, post({}), ticket),
+    partyInvites: () => send('/vendor/party-invites', get, revivePartyInvites),
+    answerPartyInvite: (id, answer) =>
+      send(`/vendor/party-invites/${encodeURIComponent(id)}/${answer}`, post({}), (json) => {
+        const state = str(json.state);
+        return state === 'PENDING' || state === 'ACCEPTED' || state === 'DECLINED' ? state : undefined;
+      }),
+    partyTables: (partyId) => send(`/vendor/parties/${encodeURIComponent(partyId)}/sessions`, get, revivePartyTables),
+    addPartyTable: async (partyId, draft) => {
+      const times = partyTableTimes(draft);
+      if (!times) return { status: 400, blockers: ['Choose a date and when it starts and ends'] };
+      const response = await authorized(
+        `/vendor/parties/${encodeURIComponent(partyId)}/sessions`,
+        post({
+          name: draft.name.trim(),
+          kind: draft.kind,
+          startsAt: times.startsAt.toISOString(),
+          endsAt: times.endsAt.toISOString(),
+          bottleCount: draft.bottleCount,
+          bottleTerms: draft.bottleTerms,
+          priceCents: draft.priceCents,
+          quantity: draft.quantity,
+        }),
+      );
+      const json = await readJson(response);
+      if (!response.ok) {
+        // A refused draft names every field at once rather than a blocker.
+        const issues = Array.isArray(json.issues) ? (json.issues as Json[]).map((issue) => str(issue.message)).filter(Boolean) : [];
+        const blockers = Array.isArray(json.blockers) ? strings(json.blockers) : [];
+        return { status: response.status, blockers: issues.length ? issues : blockers.length ? blockers : undefined };
+      }
+      const table = revivePartyTable(json);
+      return table ? { status: response.status, value: table } : { status: 502, blockers: ['That did not load. Try again'] };
+    },
+    withdrawPartyTable: (id) => send(`/vendor/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }, () => true as const),
     bookings: (when) => send(`/vendor/bookings?when=${encodeURIComponent(when)}`, get, reviveBookings),
     moveBooking: (id, operation) => send(`/vendor/bookings/${encodeURIComponent(id)}/state`, post({ operation }), booking),
     verifyPass: (code) => send('/vendor/passes/verify', post({ code }), booking),
@@ -864,6 +1026,11 @@ export function demoConsoleTransport(): ConsoleTransport {
     createTicket: async () => ({ status: 409, blockers: ['Tickets are not available in the demo build'] }),
     editTicket: async () => ({ status: 404, blockers: ['That ticket is not here'] }),
     withdrawTicket: async () => ({ status: 404, blockers: ['That ticket is not here'] }),
+    partyInvites: async () => ({ status: 200, value: [] }),
+    answerPartyInvite: async () => ({ status: 404, blockers: ['That request is not here'] }),
+    partyTables: async () => ({ status: 404, blockers: ['That party is not here'] }),
+    addPartyTable: async () => ({ status: 404, blockers: ['That party is not here'] }),
+    withdrawPartyTable: async () => ({ status: 404, blockers: ['That table is not here'] }),
     bookings: async () => ({ status: 200, value: [] }),
     moveBooking: async () => ({ status: 404, blockers: ['That booking is not here'] }),
     verifyPass: async () => ({ status: 404, blockers: ['No booking here has that pass'] }),

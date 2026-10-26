@@ -4,6 +4,8 @@ import {
   bandActivationProblems,
   demoConsoleTransport,
   httpConsoleTransport,
+  partyTableDraftProblems,
+  partyTableTimes,
   patchDraftProblems,
   readBandSerial,
   readPassCode,
@@ -14,6 +16,7 @@ import {
   reviveBooking,
   reviveBookings,
   reviveEarnings,
+  revivePartyInvites,
   revivePatch,
   revivePatches,
   revivePayouts,
@@ -354,6 +357,60 @@ test('tickets go to their API paths with trimmed fields', async () => {
   );
   assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { locationId: 'loc_1', title: 'Brunch', date: '2026-10-18', startTime: '13:00', endTime: '17:00', priceCents: 4500, quantity: 80 });
   assert.deepEqual(JSON.parse(String(calls[2].init?.body)), { priceCents: 5000 });
+});
+
+test('party requests keep only open asks with readable times', () => {
+  const party = { id: 'party_1', title: 'Rooftop', startsAt: '2026-10-31T02:00:00.000Z', endsAt: '2026-10-31T08:00:00.000Z', venueName: 'The Roof', hostName: '', ended: false };
+  const rows = revivePartyInvites({
+    invites: [
+      { id: 'inv_1', state: 'ACCEPTED', note: '', party, liveSessions: 2, owedCents: 36000 },
+      { id: 'inv_2', state: 'DECLINED', party },
+      { id: 'inv_3', state: 'PENDING', party: { ...party, startsAt: 'soon' } },
+    ],
+  });
+  assert.deepEqual(rows.map((row) => [row.id, row.state, row.liveSessions, row.owedCents, row.note, row.party.hostName]), [
+    ['inv_1', 'ACCEPTED', 2, 36000, undefined, 'A Bytspot host'],
+  ]);
+});
+
+test('party tables send instants, roll a past-midnight end to the next day, and surface every refused field', async () => {
+  const times = partyTableTimes({ date: '2026-10-30', startTime: '22:00', endTime: '02:00' });
+  assert.ok(times && times.endsAt.getTime() - times.startsAt.getTime() === 4 * 60 * 60 * 1000);
+  const draft = { name: ' Front booth ', kind: 'table' as const, date: '2026-10-30', startTime: '22:00', endTime: '02:00', bottleCount: 2, bottleTerms: 'minimum' as const, priceCents: 40000, quantity: 3 };
+  assert.deepEqual(partyTableDraftProblems(draft), []);
+  assert.ok(partyTableDraftProblems({ ...draft, bottleCount: 0 }).some((problem) => problem.includes('minimum')));
+
+  const session = { id: 'ses_1', name: 'Front booth', kind: 'table', startsAt: times!.startsAt.toISOString(), endsAt: times!.endsAt.toISOString(), bottleCount: 2, bottleTerms: 'minimum', priceCents: 40000, quantity: 3, committed: 0 };
+  const { authorized, calls } = stubFetch((path, init) => {
+    if (path.endsWith('/accept')) return { status: 200, body: { id: 'inv 1', state: 'ACCEPTED' } };
+    if (init?.method === 'DELETE') return { status: 204, body: null };
+    if (path.includes('party_2')) return { status: 422, body: { error: 'Session refused', issues: [{ field: 'name', message: 'Name taken' }, { field: 'quantity', message: 'Too many' }] } };
+    return { status: init?.method === 'POST' ? 201 : 200, body: init?.method === 'POST' ? session : { sessions: [session], invites: [] } };
+  });
+  const api = httpConsoleTransport(authorized);
+  assert.equal((await api.answerPartyInvite('inv 1', 'accept')).value, 'ACCEPTED');
+  assert.equal((await api.partyTables('party_1')).value?.length, 1);
+  assert.equal((await api.addPartyTable('party_1', draft)).value?.id, 'ses_1');
+  assert.deepEqual((await api.addPartyTable('party_2', draft)).blockers, ['Name taken', 'Too many']);
+  assert.equal((await api.withdrawPartyTable('ses_1')).value, true);
+
+  assert.deepEqual(calls.map((call) => [call.init?.method, call.path]), [
+    ['POST', '/vendor/party-invites/inv%201/accept'],
+    ['GET', '/vendor/parties/party_1/sessions'],
+    ['POST', '/vendor/parties/party_1/sessions'],
+    ['POST', '/vendor/parties/party_2/sessions'],
+    ['DELETE', '/vendor/sessions/ses_1'],
+  ]);
+  assert.deepEqual(JSON.parse(String(calls[2].init?.body)), {
+    name: 'Front booth', kind: 'table', startsAt: times!.startsAt.toISOString(), endsAt: times!.endsAt.toISOString(),
+    bottleCount: 2, bottleTerms: 'minimum', priceCents: 40000, quantity: 3,
+  });
+});
+
+test('the demo build has no party requests', async () => {
+  const demo = demoConsoleTransport();
+  assert.deepEqual((await demo.partyInvites()).value, []);
+  assert.equal((await demo.answerPartyInvite('inv_1', 'accept')).status, 404);
 });
 
 test('the demo build sells no tickets', async () => {

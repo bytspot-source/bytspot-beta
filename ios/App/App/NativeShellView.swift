@@ -438,7 +438,7 @@ struct BytspotNativeShellView: View {
         return AnyView(shellBody)
     }
 
-    private var shellBody: some View {
+    private var shellContent: some View {
         ZStack {
             BytspotNativeBackground(tier: activeTier, intent: launchIntent).ignoresSafeArea()
             // The ground belongs to the window, not to the scrolling content:
@@ -625,11 +625,15 @@ struct BytspotNativeShellView: View {
             })))
             .preferredColorScheme(effectivePreferredColorScheme)
         }
-        .task(id: sessionStore.authenticatedUserID ?? "") { await syncSignedInDisplayName() }
-        .sheet(isPresented: $showDisplayNamePrompt) {
-            NativeDisplayNamePrompt(sessionStore: sessionStore) { showDisplayNamePrompt = false }
-                .preferredColorScheme(.dark)
-        }
+    }
+
+    private var shellBody: some View {
+        shellContent
+            .task(id: sessionStore.authenticatedUserID ?? "") { await syncSignedInDisplayName() }
+            .sheet(isPresented: $showDisplayNamePrompt) {
+                NativeDisplayNamePrompt(sessionStore: sessionStore) { showDisplayNamePrompt = false }
+                    .preferredColorScheme(.dark)
+            }
     }
 
     private static var previewBoutiqueStayVenue: NativeVenueSummary {

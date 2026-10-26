@@ -804,7 +804,7 @@ struct NativeHostStudioView: View {
                 }.pickerStyle(.menu).frame(minHeight: 44)
                 Text(roleSummary).font(.footnote).foregroundColor(NativeTheme.textSecondary)
             }
-            Text("After publishing, add tables and sessions or invite a DJ / MC to the lineup. Paid sessions require an eligible seller account.")
+            Text("Adding a DJ or MC? Publish first, then tap DJ / MC lineup and pick them from your connections or paste their Bytspot ID. Paid sessions require an eligible seller account.")
                 .font(.footnote).foregroundColor(NativeTheme.textSecondary)
             Text("Publishing creates your Party Pass and share link.")
                 .font(.footnote).foregroundColor(NativeTheme.textSecondary)
@@ -1338,7 +1338,7 @@ struct NativeHostStudioView: View {
     private func accessDetail(_ mode: NativePartyAccessMode) -> String { mode == .freeRSVP ? "Fastest way to fill the room." : mode == .paidTicket ? "Sell a limited first drop." : "You approve every guest." }
     // Finance says refund only: this build ships without a payout rail, so
     // promising payout access would be a capability the app does not have.
-    private var roleSummary: String { "Saves a teammate contact and intended role only. This does not grant account access. Invite DJs and MCs to the public lineup after publishing." }
+    private var roleSummary: String { "Saves a teammate contact and intended role only. This does not grant account access. Not for DJs or MCs: add them from DJ / MC lineup after publishing." }
 
     private func setCoverImage(_ image: UIImage?) {
         guard let image, let media = NativePartyPendingImage(image: image, shape: .cover) else { if image != nil { publishPresentation.message = "That cover could not be prepared." }; return }

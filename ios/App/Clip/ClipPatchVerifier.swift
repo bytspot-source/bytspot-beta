@@ -877,6 +877,14 @@ struct ClipPatchVerifier {
         return invite
     }
 
+    /// The public listing behind a shared Private Sale link. An ended, sold,
+    /// cancelled or deleted sale fails like one that never existed.
+    func saleListing(saleID: String) async throws -> ClipSaleListing {
+        let payload = try await getTRPC("sales.view", input: ["saleId": saleID])
+        guard let listing = ClipSaleListing.fromPayload(payload, expectedID: saleID) else { throw VerifyError.decode }
+        return listing
+    }
+
     /// The Party resolver is the only client-action authority. The Clip may
     /// render its result but must never infer an RSVP, approval, or ticket CTA
     /// from the invite template or access mode.

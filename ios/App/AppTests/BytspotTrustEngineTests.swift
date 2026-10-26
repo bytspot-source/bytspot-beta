@@ -3856,6 +3856,53 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertFalse(NativeSignedInIdentity.consumeAccountRestored(userID: "usr_ama"), "the banner is one-shot")
     }
 
+    func testAccountNameRefreshUpdatesTheHeaderWithoutAnnouncingASignIn() {
+        NativeSignedInIdentity.clear()
+        defer { NativeSignedInIdentity.clear() }
+        NativeSignedInIdentity.refresh(displayName: "  Ama Boateng ")
+        XCTAssertEqual(NativeSignedInIdentity.displayName, "Ama Boateng")
+        XCTAssertFalse(NativeSignedInIdentity.consumePendingWelcome(), "a profile refresh is not a sign-in")
+        NativeSignedInIdentity.refresh(displayName: "   ")
+        NativeSignedInIdentity.refresh(displayName: nil)
+        XCTAssertEqual(NativeSignedInIdentity.displayName, "Ama Boateng", "an account without a name never erases the one shown")
+    }
+
+    func testANamelessAccountIsAskedOncePerAccountOnThisDevice() {
+        NativeSignedInIdentity.clear()
+        defer { NativeSignedInIdentity.clear() }
+        XCTAssertTrue(NativeSignedInIdentity.shouldPromptForName(profileName: nil, userID: "usr_ama"))
+        XCTAssertTrue(NativeSignedInIdentity.shouldPromptForName(profileName: "  ", userID: "usr_ama"))
+        XCTAssertFalse(NativeSignedInIdentity.shouldPromptForName(profileName: "Ama", userID: "usr_ama"))
+        XCTAssertFalse(NativeSignedInIdentity.shouldPromptForName(profileName: nil, userID: nil))
+
+        NativeSignedInIdentity.dismissNamePrompt(userID: "usr_ama")
+        XCTAssertFalse(NativeSignedInIdentity.shouldPromptForName(profileName: nil, userID: "usr_ama"))
+        // "Not now" on a shared device belongs to the account that said it.
+        XCTAssertTrue(NativeSignedInIdentity.shouldPromptForName(profileName: nil, userID: "usr_kwame"))
+        NativeSignedInIdentity.clear()
+        XCTAssertTrue(NativeSignedInIdentity.shouldPromptForName(profileName: nil, userID: "usr_ama"), "signing out resets the choice")
+    }
+
+    func testAFriendIsAddedByAccountIDWithoutACircle() {
+        XCTAssertTrue(NativeNetworkFriendPolicy.canAddFriend(relationship: nil))
+        XCTAssertTrue(NativeNetworkFriendPolicy.canAddFriend(relationship: "suggested"))
+        for settled in ["connected", "invite_sent", "invite_received"] {
+            XCTAssertFalse(NativeNetworkFriendPolicy.canAddFriend(relationship: settled), settled)
+        }
+        XCTAssertEqual(NativeNetworkFriendPolicy.addFriendTitle(relationship: "suggested"), "Add friend")
+        XCTAssertEqual(NativeNetworkFriendPolicy.addFriendTitle(relationship: "connected"), "Connected")
+
+        XCTAssertEqual(NativeNetworkFriendPolicy.cleanID("  cmh3x9k2p0001  ", ownID: "usr_ama"), "cmh3x9k2p0001")
+        XCTAssertNil(NativeNetworkFriendPolicy.cleanID("usr_ama", ownID: " usr_ama "), "you can't add yourself")
+        XCTAssertNil(NativeNetworkFriendPolicy.cleanID("", ownID: nil))
+        XCTAssertNil(NativeNetworkFriendPolicy.cleanID("ama@example.com", ownID: nil), "an email is not an account ID")
+        XCTAssertNil(NativeNetworkFriendPolicy.cleanID("a/b", ownID: nil))
+
+        let missing = BytspotAPIClient.APIError.server(status: 404, body: #"{"error":{"message":"That member was not found.","data":{"code":"NOT_FOUND"}}}"#)
+        XCTAssertEqual(NativeNetworkFriendPolicy.failureMessage(missing), "No Bytspot member has that ID. Check it and try again.")
+        XCTAssertEqual(NativeNetworkFriendPolicy.failureMessage(URLError(.notConnectedToInternet)), "Couldn't reach Bytspot. Try again.")
+    }
+
     func testASignInThatDidNotRestoreClearsAnyStaleMarker() {
         NativeSignedInIdentity.recordRestoration(true, userID: "usr_ama")
         NativeSignedInIdentity.recordRestoration(false, userID: "usr_ama")

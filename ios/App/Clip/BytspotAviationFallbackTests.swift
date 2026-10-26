@@ -209,6 +209,50 @@ enum BytspotAviationFallbackTests {
         print("BAND_INVOCATION_REGRESSIONS_PASSED")
     }
 
+    /// Explicit DEBUG launch test (`--test-party-invocation`). A shared sale
+    /// link shows its listing, never the vendor catalog or a Black tier.
+    @MainActor static func runSaleInvocationRegressions() async {
+        let payload: [String: Any] = [
+            "saleId": "sale-17", "title": " Jordan 4 Retro ", "priceCents": 22_000, "sellerName": "Kojo",
+            "photoUrl": "http://insecure.example/x.jpg", "windowStart": "2026-10-28T18:00:00.000Z",
+            "windowEnd": "2026-10-28T19:00:00.000Z", "areaLabel": NSNull(), "isSeller": false,
+        ]
+        guard let listing = ClipSaleListing.fromPayload(payload, expectedID: "sale-17") else { preconditionFailure("Sale: a public listing must parse.") }
+        precondition(listing.title == "Jordan 4 Retro" && listing.priceLabel == "$220" && listing.windowLabel != nil, "Sale: title, price and window drifted.")
+        precondition(listing.photoURL == nil && listing.areaLabel == nil, "Sale: only an https photo and a real area are shown.")
+        precondition(ClipSaleListing.fromPayload(payload, expectedID: "sale-other") == nil, "Sale: a response for another sale must never render.")
+
+        precondition(ClipSaleListing.route(from: ["sale", "sale-17"]) == .sale(id: "sale-17"))
+        precondition(ClipSaleListing.route(from: ["Sale", "sale-17"]) == .sale(id: "sale-17"))
+        precondition(ClipSaleListing.route(from: ["sale"]) == .invalid && ClipSaleListing.route(from: ["sale", "a", "b"]) == .invalid)
+        precondition(ClipSaleListing.route(from: ["party", "p1"]) == .none && ClipSaleListing.route(from: ["BYT424-0017"]) == .none)
+        precondition(ClipSaleListing.route(from: [], queryItems: [URLQueryItem(name: "saleId", value: " s1 ")], isDefaultAppClipLink: true) == .sale(id: "s1"))
+        precondition(ClipSaleListing.route(from: [], queryItems: [URLQueryItem(name: "partyId", value: "p1")], isDefaultAppClipLink: true) == .none)
+
+        let model = ClipInvocationModel(
+            partyInviteLoader: { _ in preconditionFailure("Sale: a sale link must never load a party.") },
+            saleLoader: { id in
+                guard id == "sale-17" else { throw URLError(.badServerResponse) }
+                return listing
+            })
+        model.handle(url: URL(string: "https://bytspot.app/sale/sale-17")!)
+        precondition(model.flow == .saleLoading(saleID: "sale-17") && model.services.isEmpty && model.vendorsByService.isEmpty, "Sale: a sale link must not show the vendor catalog.")
+        precondition(model.mainAppHandoffURL?.absoluteString == "https://bytspot.app/sale/sale-17", "Sale: Get Bytspot must open this sale in the app.")
+        let loaded = model.invocationTaskForTesting!
+        await loaded.value
+        precondition(model.flow == .sale(listing) && !model.isLoadingContext)
+
+        model.handle(url: URL(string: "https://bytspot.app/sale/gone")!)
+        let failed = model.invocationTaskForTesting!
+        await failed.value
+        guard case .saleFailed(let failedID, _) = model.flow, failedID == "gone" else { preconditionFailure("Sale: an ended sale must say so, never fall back to the catalog.") }
+
+        model.handle(url: URL(string: "https://bytspot.app/sale/")!)
+        guard case .saleFailed(let emptyID, _) = model.flow, emptyID.isEmpty else { preconditionFailure("Sale: an incomplete sale link must fail explicitly.") }
+        precondition(model.invocationTaskForTesting == nil && model.mainAppHandoffURL == nil)
+        print("SALE_INVOCATION_REGRESSIONS_PASSED")
+    }
+
     /// Explicit DEBUG launch test (`--test-party-invocation`). Uses suspended
     /// in-memory requests, never URLSession or an authenticated party endpoint.
     @MainActor static func runPartyInvocationRegressions() async {

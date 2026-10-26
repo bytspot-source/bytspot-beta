@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import Foundation
 
 // MARK: - Contract and canonical recipient policy
@@ -127,6 +128,22 @@ struct NativePartyLineupAPI {
     }
 }
 
+/// People the host is already connected with on Bytspot. The host already holds
+/// their account IDs, so picking one reveals no account the host didn't know.
+struct NativeLineupConnection: Identifiable, Equatable {
+    let userID: String
+    let name: String
+    var id: String { userID }
+
+    static func from(_ invitations: [NativeSocialInvitation]) -> [NativeLineupConnection] {
+        var seen = Set<String>()
+        return invitations
+            .filter { $0.status == "accepted" && !$0.personID.isEmpty }
+            .compactMap { seen.insert($0.personID).inserted ? NativeLineupConnection(userID: $0.personID, name: $0.personName) : nil }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+}
+
 /// Pure state seam: a dismissed screen, account swap or refresh invalidates all
 /// outstanding reads and handoffs. Nothing is cached to disk or UserDefaults.
 struct NativeLineupLoadState {
@@ -227,7 +244,12 @@ private struct NativeLineupSessionView: View {
         let credential = sessionStore.canAttachBearerToken ? sessionStore.token : nil
         let userID = sessionStore.canAttachBearerToken ? sessionStore.authenticatedUserID : nil
         NativeLineupScreen(mode: mode, userID: userID,
-                           api: NativePartyLineupAPI.session(authorization: credential), openAuth: openAuth)
+                           api: NativePartyLineupAPI.session(authorization: credential), openAuth: openAuth,
+                           loadConnections: {
+                               guard mode.isHost, credential != nil else { return [] }
+                               let profile = NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { credential }))
+                               return NativeLineupConnection.from((try? await profile.listSocialInvitationsViaRpc()) ?? [])
+                           })
             // Recreate the whole subtree, including forms/sheets, on account or
             // credential changes. An old response cannot become the new account's UI.
             .id(NativeLineupSessionIdentity(userID: userID, credential: credential, mode: mode))
@@ -239,6 +261,7 @@ private struct NativeLineupScreen: View {
     let userID: String?
     let api: NativePartyLineupAPI
     let openAuth: () -> Void
+    var loadConnections: () async -> [NativeLineupConnection] = { [] }
     @Environment(\.scenePhase) private var scenePhase
     @State private var state = NativeLineupLoadState()
     @State private var revision = UUID()
@@ -250,6 +273,7 @@ private struct NativeLineupScreen: View {
     @State private var targetID = ""
     @State private var creditName = ""
     @State private var role = "dj"
+    @State private var connections: [NativeLineupConnection] = []
 
     var body: some View {
         Group {
@@ -272,6 +296,7 @@ private struct NativeLineupScreen: View {
             }
         }
         .task(id: revision) { await load() }
+        .task { if mode.isHost && userID != nil { connections = await loadConnections() } }
         .onChange(of: scenePhase) { phase in
             // Clear reviews while backgrounded, then refetch on return. No
             // "payment complete" status is inferred from app activation.
@@ -328,22 +353,66 @@ private struct NativeLineupScreen: View {
         Section {
             Text("Your Bytspot account ID").font(.caption).foregroundStyle(.secondary)
             Text(userID ?? "").font(.body.monospaced()).textSelection(.enabled)
-            Text("Share this ID directly with your host. Invitations appear here after the party is published; no email delivery is promised.")
+                .accessibilityIdentifier("native-performer-account-id")
+            HStack(spacing: 20) {
+                Button {
+                    guard let userID else { return }
+                    UIPasteboard.general.string = userID
+                    message = "Account ID copied. Send it to your host."
+                } label: { Label("Copy ID", systemImage: "doc.on.doc").frame(minHeight: 44) }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("native-performer-copy-id")
+                Button {
+                    guard let userID else { return }
+                    if !NativePartySharePresentation.share([Self.shareText(userID: userID)]) { message = "Your ID is \(userID)" }
+                } label: { Label("Share ID", systemImage: "square.and.arrow.up").frame(minHeight: 44) }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("native-performer-share-id")
+            }
+            Text("Send this ID to your host. If you're connected on Bytspot, they can also pick you from their connections. Invitations appear here after the party is published; no email delivery is promised.")
                 .font(.footnote).foregroundStyle(.secondary)
         }
     }
 
-    private var hostProposal: some View {
+    static func shareText(userID: String) -> String {
+        "My Bytspot ID for your DJ / MC lineup: \(userID)"
+    }
+
+    @ViewBuilder private var hostProposal: some View {
         Section {
-            TextField("Exact Bytspot account ID", text: $targetID)
-                .textInputAutocapitalization(.never).disableAutocorrection(true)
+            if connections.isEmpty {
+                Text("No Bytspot connections yet. Add the DJ or MC as a friend in Network, or ask for their ID: Profile → DJ / MC invitations → Copy ID.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            ForEach(connections.prefix(30)) { person in
+                Button {
+                    targetID = person.userID
+                    if creditName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { creditName = person.name }
+                } label: {
+                    HStack {
+                        Text(person.name).foregroundStyle(.primary)
+                        Spacer()
+                        if targetID == person.userID { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                    }
+                    .frame(minHeight: 44)
+                }
+                .accessibilityIdentifier("native-lineup-connection-\(person.userID)")
+            }
+        } header: { Text("Pick from your connections") }
+        Section {
+            HStack {
+                TextField("Bytspot account ID", text: $targetID)
+                    .textInputAutocapitalization(.never).disableAutocorrection(true)
+                Button("Paste") { targetID = (UIPasteboard.general.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .buttonStyle(.borderless)
+            }
             TextField("Public display credit", text: $creditName)
             Picker("Role", selection: $role) { Text("DJ").tag("dj"); Text("MC").tag("mc") }
                 .pickerStyle(.segmented)
             Button { Task { await invite() } } label: {
                 Label("Record invitation", systemImage: "person.badge.plus").frame(minHeight: 44)
             }.disabled(busy || targetID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || creditName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            Text("Ask the performer for their account ID. They must sign in, accept this exact credit and set their own payment handles. Nothing is public before acceptance. To change a name, role or account, remove the entry and invite again.")
+            Text("Pick a connection above or paste the ID they sent you. They must sign in, accept this exact credit and set their own payment handles. Nothing is public before acceptance. To change a name, role or account, remove the entry and invite again.")
                 .font(.footnote).foregroundStyle(.secondary)
         } header: { Text("Invite a DJ or MC") }
     }

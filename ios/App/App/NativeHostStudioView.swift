@@ -233,6 +233,7 @@ struct NativeHostStudioView: View {
     @State private var isLoadingArrivalVenues = false
     @State private var isBindingArrivalDestination = false
     @State private var showingPartyControl = false
+    @State private var showingPayouts = false
     @State private var showingEmailConfirm = false
 
     private static var previewInitialStep: Step {
@@ -291,6 +292,9 @@ struct NativeHostStudioView: View {
         .sheet(isPresented: $showingPartyControl) {
             if let party = publishPresentation.party { NativePartyControlView(partyID: party.id).environmentObject(sessionStore) }
         }
+        .sheet(isPresented: $showingPayouts) {
+            NativeHostPayoutsSheet().environmentObject(sessionStore)
+        }
         .fullScreenCover(isPresented: $showingEmailConfirm) {
             NativeEmailCodeEntryView(email: "", sessionStore: sessionStore, laterTitle: "Not now", onFinish: finishEmailConfirm)
         }
@@ -339,6 +343,12 @@ struct NativeHostStudioView: View {
                     Text(publishPresentation.message).font(.footnote.weight(.semibold))
                         .foregroundColor(NativeTheme.orange)
                         .accessibilityIdentifier("native-host-studio-message")
+                }
+                if publishPresentation.message == NativeHostPayoutsContract.setupRequiredMessage {
+                    Button("Set up payouts") { showingPayouts = true }
+                        .font(.subheadline.weight(.bold)).foregroundColor(NativeTheme.cyan)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("native-host-studio-set-up-payouts")
                 }
                 navigationButtons
             }

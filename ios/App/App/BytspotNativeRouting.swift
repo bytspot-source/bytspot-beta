@@ -272,6 +272,8 @@ final class NativeNavigationCoordinator: ObservableObject {
     @Published var requestsRequested = false
     /// Set by a feedback push or a `/feedback` link; the shell opens the feedback sheet.
     @Published var requestedFeedback: NativeFeedbackTarget?
+    /// Set by `bytspot://payouts/host`, where Stripe onboarding sends a host back.
+    @Published var requestedProfilePanel: NativeProfilePanel?
     @Published private(set) var lastURL: URL?
     @Published private(set) var lastScanSource: NativePatchScanSource?
 
@@ -297,6 +299,7 @@ final class NativeNavigationCoordinator: ObservableObject {
         if path == "concierge" || path.hasPrefix("concierge/") { requestedTab = .concierge; return true }
         if path == "profile" || path.hasPrefix("profile/") { requestedTab = .home; requestedDestination = .profile; return true }
         if path == "access" { requestedTab = .home; requestedDestination = .accessWallet; return true }
+        if path == "payouts/host" { requestedProfilePanel = .getPaid; return true }
         // `plans` is where offer pushes pointed before My Requests existed; it lists the same asks.
         if path == "requests" || path == "plans" { requestedTab = .home; requestsRequested = true; return true }
         if let feedbackRoute = NativeFeedbackRoute(url: url) {

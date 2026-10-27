@@ -1438,6 +1438,7 @@ enum NativePartyStudioError: LocalizedError, Equatable {
             return "We couldn't reach Bytspot. Check your connection and try again."
         }
         if needsEmailConfirmation(error) { return emailConfirmationMessage }
+        if NativeHostPayoutsContract.needsSetup(error) { return NativeHostPayoutsContract.setupRequiredMessage }
         if case let BytspotAPIClient.APIError.server(status, _) = error {
             switch status {
             case 401: return "Your sign-in session expired. Sign in again before publishing."

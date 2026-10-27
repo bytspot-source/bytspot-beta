@@ -14,6 +14,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         NativePushService.shared.configure(delegate: self)
         BytspotDiagnostics.shared.start()
+        UserDefaults.standard.removeObject(forKey: NativeHomeVibeCard.dismissedKey)
         return true
     }
 

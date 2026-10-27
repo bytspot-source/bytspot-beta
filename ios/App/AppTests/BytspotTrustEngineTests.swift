@@ -6925,6 +6925,14 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeHomeVibeCard.progressLabel(for: .crew), "3 of 3")
     }
 
+    func testHomeVibePicksShowOnEveryVisitWhileAVibeIsStored() {
+        XCTAssertTrue(NativeHomeVibeCard.showsPicks(vibe: "drinks", pickCount: 2))
+        XCTAssertFalse(NativeHomeVibeCard.showsPicks(vibe: "drinks", pickCount: 0))
+        XCTAssertFalse(NativeHomeVibeCard.showsPicks(vibe: " ", pickCount: 3))
+        XCTAssertTrue(NativeHomeVibeCard.hasVibe("coffee"))
+        XCTAssertFalse(NativeHomeVibeCard.hasVibe(""))
+    }
+
     func testHomeVibeCardAnswersStoreTheLaunchQuizTokens() throws {
         let suiteName = "NativeHomeVibeCardTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

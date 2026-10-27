@@ -486,11 +486,20 @@ enum NativeHomeVibeCard {
     static let eyebrow = "MAKE IT YOURS"
     static let steps: [NativePersonalizationStep] = [.vibe, .walk, .crew]
 
-    /// Keyed off the stored vibe and the dismissal, never the completed flag:
-    /// signing in clears that flag to collapse the picks, and must not bring
-    /// the card back.
+    /// Keyed off the stored vibe and the dismissal, never the completed flag.
+    /// "Not now" lasts until the next launch; `AppDelegate` clears it.
     static func isVisible(vibe: String, dismissed: Bool) -> Bool {
-        vibe.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !dismissed
+        !hasVibe(vibe) && !dismissed
+    }
+
+    static func hasVibe(_ vibe: String) -> Bool {
+        !vibe.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Picks for a stored vibe show on every Home visit, however the vibe was
+    /// set: the launch quiz, this card, or Vibe Preferences.
+    static func showsPicks(vibe: String, pickCount: Int) -> Bool {
+        hasVibe(vibe) && pickCount > 0
     }
 
     static func progressLabel(for step: NativePersonalizationStep) -> String { "\(step.index) of \(steps.count)" }

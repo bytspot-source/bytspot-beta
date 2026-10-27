@@ -1,0 +1,47 @@
+name: iOS → App Clip Experiences
+
+# Advanced App Clip experiences give a link prefix its own App Clip card.
+# Pull requests only list what App Store Connect has; `apply` is manual.
+
+on:
+  pull_request:
+    paths:
+      - 'ios/App/scripts/app_clip_advanced_experiences.rb'
+      - 'ios/App/fastlane/app_clip_advanced_experiences/**'
+      - '.github/workflows/ios-app-clip-experiences.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'list (read-only) or apply (create missing experiences)'
+        required: true
+        default: 'list'
+        type: choice
+        options: [list, apply]
+
+concurrency:
+  group: ios-app-clip-experiences
+  cancel-in-progress: false
+
+jobs:
+  experiences:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: ios/App
+
+      - name: App Clip advanced experiences
+        working-directory: ios/App
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_KEY_CONTENT }}
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'list' }}
+        run: bundle exec ruby scripts/app_clip_advanced_experiences.rb "$MODE"

@@ -2002,7 +2002,7 @@ struct NativePlanDetailSheet: View {
         // Above the item list: whether the evening holds together is the
         // question the list itself cannot answer.
         if let feasibility {
-            sectionHeader("Does this work?")
+            sectionHeader("Quick check")
             NativePlanFeasibilityView(feasibility: feasibility)
         }
 

@@ -394,24 +394,16 @@ final class NativePlanFeasibilityTests: XCTestCase {
         XCTAssertEqual(NativePlanFeasibilityDisplay.title(for: "capacity"), "Group size")
     }
 
-    func testOnlyChecksThatRanAreListedProblemsFirst() {
-        let visible = NativePlanFeasibilityDisplay.visibleChecks([
+    func testOnlyProblemsAreShownAndNothingWhenThereAreNone() {
+        let checks = [
             check("window", .unknown),
-            check("travel", .fits),
-            check("budget", .unknown),
-            check("capacity", .breaks),
-        ])
-        XCTAssertEqual(visible.map(\.check), ["capacity", "travel"])
-        XCTAssertTrue(NativePlanFeasibilityDisplay.visibleChecks([check("window", .unknown)]).isEmpty)
-    }
-
-    func testPartlyCheckedIsNeitherAPassNorNothing() {
-        let partial = NativePlanFeasibility(verdict: .unknown, checks: [check("travel", .fits), check("budget", .unknown)])
-        XCTAssertEqual(NativePlanFeasibilityDisplay.headline(for: partial), "Partly checked")
-        let none = NativePlanFeasibility(verdict: .unknown, checks: [check("budget", .unknown)])
-        XCTAssertEqual(NativePlanFeasibilityDisplay.headline(for: none), "Nothing to check yet")
-        let broken = NativePlanFeasibility(verdict: .breaks, checks: [check("travel", .fits), check("capacity", .breaks)])
-        XCTAssertEqual(NativePlanFeasibilityDisplay.headline(for: broken), "Something needs a fix")
+            check("travel", .breaks),
+            check("budget", .fits),
+            check("overlap", .breaks),
+        ]
+        XCTAssertEqual(NativePlanFeasibilityDisplay.problems(checks).map(\.check), ["travel", "overlap"])
+        XCTAssertTrue(NativePlanFeasibilityDisplay.problems([check("window", .unknown), check("travel", .fits)]).isEmpty)
+        XCTAssertTrue(NativePlanFeasibilityDisplay.problems([]).isEmpty)
     }
 
     func testAnUnnamedCheckStillGetsATitleRatherThanBlank() {

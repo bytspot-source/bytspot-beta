@@ -76,6 +76,8 @@ struct NativePlan: Codable, Identifiable, Equatable {
     let endsAt: String?
     let areaLabel: String?
     let partySize: Int?
+    /// The group's total spend ceiling. Missing on older APIs.
+    var budgetCents: Int? = nil
     let needs: [String]
     let lifecycle: String
     let state: String
@@ -556,13 +558,17 @@ enum NativePlanContract {
 
     /// Only what changed is sent. A field the guest cleared is sent as null,
     /// which the router reads as clear; an omitted one is left as it was.
-    static func updateInput(planID: String, original: NativePlan, startsAt: Date?, partySize: Int?, place: NativePlanPlace?) -> [String: Any] {
+    static func updateInput(planID: String, original: NativePlan, startsAt: Date?, endsAt: Date?, partySize: Int?,
+                            budgetCents: Int?, place: NativePlanPlace?) -> [String: Any] {
         var input: [String: Any] = ["planId": planID]
+        func minute(_ date: Date?) -> Int? { date.map { Int($0.timeIntervalSince1970 / 60) } }
+        func instant(_ date: Date?) -> Any { date.map { ISO8601DateFormatter.partyControlInstant.string(from: $0) as Any } ?? NSNull() }
         let originalStart = original.startsAt.flatMap { ISO8601DateFormatter.partyControlDate(from: $0) }
-        if originalStart.map({ Int($0.timeIntervalSince1970 / 60) }) != startsAt.map({ Int($0.timeIntervalSince1970 / 60) }) {
-            input["startsAt"] = startsAt.map { ISO8601DateFormatter.partyControlInstant.string(from: $0) as Any } ?? NSNull()
-        }
+        if minute(originalStart) != minute(startsAt) { input["startsAt"] = instant(startsAt) }
+        let originalEnd = original.endsAt.flatMap { ISO8601DateFormatter.partyControlDate(from: $0) }
+        if minute(originalEnd) != minute(endsAt) { input["endsAt"] = instant(endsAt) }
         if original.partySize != partySize { input["partySize"] = partySize.map { $0 as Any } ?? NSNull() }
+        if original.budgetCents != budgetCents { input["budgetCents"] = budgetCents.map { $0 as Any } ?? NSNull() }
         if original.place != place {
             if let place {
                 input["areaLabel"] = place.label
@@ -962,6 +968,14 @@ enum NativePlanDisplay {
     static let placeFootnote = "Asking venues and nearby suggestions use this. Anyone with the invite link sees the area name."
 
     static let timeShortensLifeFootnote = "A Plan with a time stops waiting at that time. Without one it stays open for a week."
+    static let budgetFootnote = "The total for the whole group. Quick check uses it to flag stops that cost too much."
+
+    /// Whole dollars typed by the guest, as cents. Nil when it is not a usable amount.
+    static func budgetCents(fromDollars text: String) -> Int? {
+        let digits = text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: "")
+        guard !digits.isEmpty, digits.allSatisfy(\.isASCII), let dollars = Int(digits), (0...100_000).contains(dollars) else { return nil }
+        return dollars * 100
+    }
 
     /// A coffee hold tops out at eight seats, so a larger Plan cannot be met
     /// by that path in one ask. Said up front rather than clamped in silence.
@@ -2629,15 +2643,19 @@ private struct NativePlanPartyPassTarget: Identifiable {
     }
 }
 
-/// Time, size and place after creation. Only what changed is sent.
+/// Time, size, budget and place after creation. Only what changed is sent.
 private struct NativePlanEditSheet: View {
     let plan: NativePlan
     let onSave: ([String: Any]) async -> String?
     @Environment(\.dismiss) private var dismiss
     @State private var setsTime: Bool
     @State private var startsAt: Date
+    @State private var setsEnd: Bool
+    @State private var endsAt: Date
     @State private var setsPartySize: Bool
     @State private var partySize: Int
+    @State private var setsBudget: Bool
+    @State private var budgetText: String
     @State private var place: NativePlanPlace?
     @State private var placeQuery: String
     @State private var saving = false
@@ -2651,8 +2669,13 @@ private struct NativePlanEditSheet: View {
         originalStart = start
         _setsTime = State(initialValue: start != nil)
         _startsAt = State(initialValue: start ?? Date().addingTimeInterval(60 * 60))
+        let end = plan.endsAt.flatMap { ISO8601DateFormatter.partyControlDate(from: $0) }
+        _setsEnd = State(initialValue: end != nil)
+        _endsAt = State(initialValue: end ?? (start ?? Date().addingTimeInterval(60 * 60)).addingTimeInterval(3 * 60 * 60))
         _setsPartySize = State(initialValue: plan.partySize != nil)
         _partySize = State(initialValue: min(max(plan.partySize ?? 2, 1), 20))
+        _setsBudget = State(initialValue: plan.budgetCents != nil)
+        _budgetText = State(initialValue: plan.budgetCents.map { String($0 / 100) } ?? "")
         _place = State(initialValue: plan.place)
         _placeQuery = State(initialValue: plan.place?.label ?? "")
     }
@@ -2684,6 +2707,16 @@ private struct NativePlanEditSheet: View {
                         Text(NativePlanDisplay.timeShortensLifeFootnote)
                             .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
                     }
+                    Toggle(isOn: $setsEnd) {
+                        Text("Set an end time").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+                    }
+                    .accessibilityIdentifier("native-plan-edit-sets-end")
+                    if setsEnd {
+                        DatePicker("Ends at", selection: $endsAt, in: startsAt.addingTimeInterval(60)...)
+                            .datePickerStyle(.compact)
+                            .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+                            .accessibilityIdentifier("native-plan-edit-ends-at")
+                    }
                 }
                 Toggle(isOn: $setsPartySize) {
                     Text("Set a size").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
@@ -2695,6 +2728,22 @@ private struct NativePlanEditSheet: View {
                             .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
                     }
                     .accessibilityIdentifier("native-plan-edit-party-size")
+                }
+                Toggle(isOn: $setsBudget) {
+                    Text("Set a budget").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+                }
+                .accessibilityIdentifier("native-plan-edit-sets-budget")
+                if setsBudget {
+                    HStack(spacing: 6) {
+                        Text("$").font(.system(size: 15, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
+                        TextField("Total for the group", text: $budgetText)
+                            .keyboardType(.numberPad)
+                            .font(.system(size: 15, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+                            .accessibilityLabel("Budget in dollars")
+                            .accessibilityIdentifier("native-plan-edit-budget")
+                    }
+                    Text(NativePlanDisplay.budgetFootnote)
+                        .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
                 }
                 if let errorMessage {
                     Text(errorMessage).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.orange)
@@ -2725,9 +2774,22 @@ private struct NativePlanEditSheet: View {
             errorMessage = "Pick a match for “\(placeQuery.trimmingCharacters(in: .whitespacesAndNewlines))”, or clear it."
             return
         }
+        if setsTime, setsEnd, endsAt <= startsAt {
+            errorMessage = "The end time has to be after the start."
+            return
+        }
+        var budgetCents: Int?
+        if setsBudget {
+            guard let cents = NativePlanDisplay.budgetCents(fromDollars: budgetText) else {
+                errorMessage = "Enter the budget as a whole dollar amount."
+                return
+            }
+            budgetCents = cents
+        }
         let input = NativePlanContract.updateInput(
             planID: plan.id, original: plan,
-            startsAt: setsTime ? startsAt : nil, partySize: setsPartySize ? partySize : nil, place: place
+            startsAt: setsTime ? startsAt : nil, endsAt: setsTime && setsEnd ? endsAt : nil,
+            partySize: setsPartySize ? partySize : nil, budgetCents: budgetCents, place: place
         )
         guard input.count > 1 else { dismiss(); return }
         saving = true

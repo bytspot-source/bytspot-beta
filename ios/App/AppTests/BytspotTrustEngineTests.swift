@@ -8114,10 +8114,10 @@ final class NativePlanCreateTests: XCTestCase {
         .server(status: status, body: #"{"error":{"message":"\#(message)","code":-32600}}"#)
     }
 
-    private func editablePlan(startsAt: String? = nil, partySize: Int? = nil, areaLabel: String? = nil,
-                              latitude: Double? = nil, longitude: Double? = nil) -> NativePlan {
+    private func editablePlan(startsAt: String? = nil, endsAt: String? = nil, partySize: Int? = nil, budgetCents: Int? = nil,
+                              areaLabel: String? = nil, latitude: Double? = nil, longitude: Double? = nil) -> NativePlan {
         NativePlan(id: "plan-1", title: "Catch up", intent: "Together", creatorUserId: "creator", startsAt: startsAt,
-                   endsAt: nil, areaLabel: areaLabel, partySize: partySize, needs: ["dining"], lifecycle: "proposed", state: "proposed",
+                   endsAt: endsAt, areaLabel: areaLabel, partySize: partySize, budgetCents: budgetCents, needs: ["dining"], lifecycle: "proposed", state: "proposed",
                    readiness: .init(going: 1, maybe: 0, pending: 0, declined: 0, total: 1), openNeeds: ["dining"],
                    participants: [], items: [], joinToken: nil, latitude: latitude, longitude: longitude)
     }
@@ -8151,24 +8151,46 @@ final class NativePlanCreateTests: XCTestCase {
 
     func testAPlanUpdateSendsOnlyWhatChangedAndNullForWhatWasCleared() throws {
         let start = "2026-11-08T23:00:00.000Z"
-        let original = editablePlan(startsAt: start, partySize: 4, areaLabel: "Midtown", latitude: 33.78, longitude: -84.38)
+        let end = "2026-11-09T02:00:00.000Z"
+        let original = editablePlan(startsAt: start, endsAt: end, partySize: 4, budgetCents: 40_000,
+                                    areaLabel: "Midtown", latitude: 33.78, longitude: -84.38)
         let sameStart = try XCTUnwrap(ISO8601DateFormatter.partyControlDate(from: start))
-        let unchanged = NativePlanContract.updateInput(planID: "plan-1", original: original, startsAt: sameStart, partySize: 4, place: original.place)
+        let sameEnd = try XCTUnwrap(ISO8601DateFormatter.partyControlDate(from: end))
+        let unchanged = NativePlanContract.updateInput(planID: "plan-1", original: original, startsAt: sameStart, endsAt: sameEnd,
+                                                       partySize: 4, budgetCents: 40_000, place: original.place)
         XCTAssertEqual(unchanged.keys.sorted(), ["planId"])
 
-        let cleared = NativePlanContract.updateInput(planID: "plan-1", original: original, startsAt: nil, partySize: nil, place: nil)
+        let cleared = NativePlanContract.updateInput(planID: "plan-1", original: original, startsAt: nil, endsAt: nil,
+                                                     partySize: nil, budgetCents: nil, place: nil)
         XCTAssertTrue(cleared["startsAt"] is NSNull)
+        XCTAssertTrue(cleared["endsAt"] is NSNull)
         XCTAssertTrue(cleared["partySize"] is NSNull)
+        XCTAssertTrue(cleared["budgetCents"] is NSNull)
         XCTAssertTrue(cleared["latitude"] is NSNull)
         XCTAssertTrue(cleared["longitude"] is NSNull)
         XCTAssertTrue(cleared["areaLabel"] is NSNull)
 
         let moved = try XCTUnwrap(NativePlanPlace(label: "Old Fourth Ward", latitude: 33.77, longitude: -84.36))
-        let changed = NativePlanContract.updateInput(planID: "plan-1", original: editablePlan(), startsAt: nil, partySize: 6, place: moved)
+        let later = sameEnd.addingTimeInterval(3_600)
+        let changed = NativePlanContract.updateInput(planID: "plan-1", original: editablePlan(), startsAt: nil, endsAt: later,
+                                                     partySize: 6, budgetCents: 25_000, place: moved)
         XCTAssertEqual(changed["partySize"] as? Int, 6)
+        XCTAssertEqual(changed["budgetCents"] as? Int, 25_000)
+        XCTAssertEqual(changed["endsAt"] as? String, ISO8601DateFormatter.partyControlInstant.string(from: later))
         XCTAssertEqual(changed["areaLabel"] as? String, "Old Fourth Ward")
         XCTAssertNil(changed["startsAt"], "A time that was never set and is still unset is not sent.")
         XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: cleared))
+    }
+
+    func testABudgetIsWholeDollarsTurnedIntoCents() {
+        XCTAssertEqual(NativePlanDisplay.budgetCents(fromDollars: "400"), 40_000)
+        XCTAssertEqual(NativePlanDisplay.budgetCents(fromDollars: " 1,200 "), 120_000)
+        XCTAssertEqual(NativePlanDisplay.budgetCents(fromDollars: "0"), 0)
+        XCTAssertNil(NativePlanDisplay.budgetCents(fromDollars: ""))
+        XCTAssertNil(NativePlanDisplay.budgetCents(fromDollars: "12.50"))
+        XCTAssertNil(NativePlanDisplay.budgetCents(fromDollars: "-5"))
+        XCTAssertNil(NativePlanDisplay.budgetCents(fromDollars: "١٠٠"))
+        XCTAssertNil(NativePlanDisplay.budgetCents(fromDollars: "100001"))
     }
 
     func testOnlyARefusalRetryingCannotFixUnfreezesTheCreateDraft() {

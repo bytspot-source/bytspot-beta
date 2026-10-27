@@ -46,6 +46,28 @@ type QueuedMedia = {
   business: string; place: string | null; offering: string | null; videoHosting: boolean;
 };
 type Stats = { totalUsers: number; newSignupsToday: number; totalCheckins: number; betaLeadCount: number };
+type FeeScope = 'party-ticket' | 'vendor-booking';
+type FeeRate = {
+  scope: FeeScope; currentFeeBps: number; defaultFeeBps: number; maxFeeBps: number;
+  history: { feeBps: number; note: string | null; setByUserId: string | null; createdAt: string }[];
+};
+
+const FEE_SCOPES: { scope: FeeScope; title: string; appliesTo: string }[] = [
+  { scope: 'party-ticket', title: 'Party tickets and tables', appliesTo: 'Applies to parties published after the change. A live party keeps the rate its host was shown.' },
+  { scope: 'vendor-booking', title: 'Business tickets', appliesTo: 'Applies to checkouts started after the change. Tickets already bought keep their split.' },
+];
+
+/** "12.5" → 1250. Null when it is not a percentage the API would accept. */
+function percentToBps(value: string, maxBps: number): number | null {
+  const trimmed = value.trim();
+  if (!/^\d{1,2}(\.\d{1,2})?$/.test(trimmed)) return null;
+  const bps = Math.round(Number(trimmed) * 100);
+  return bps >= 0 && bps <= maxBps ? bps : null;
+}
+
+function percentLabel(bps: number): string {
+  return `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 2)}%`;
+}
 type ReportKind = 'user' | 'party' | 'review' | 'sale';
 type ReportedItem = {
   kind: ReportKind; targetId: string; snapshot: Record<string, unknown> | null; firstReportedAt: string; status: string;
@@ -926,6 +948,87 @@ function ReportsTab({ onCount }: { onCount: (open: number) => void }) {
   );
 }
 
+function FeeRateCard({ scope, title, appliesTo }: { scope: FeeScope; title: string; appliesTo: string }) {
+  const [rate, setRate] = useState<FeeRate | null>(null);
+  const [percent, setPercent] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setRate(await trpc.admin.platformFee.query({ scope }));
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }, [scope]);
+  useEffect(() => { void load(); }, [load]);
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!rate) return;
+    const feeBps = percentToBps(percent, rate.maxFeeBps);
+    if (feeBps === null) { setError(`Enter a percentage from 0 to ${percentLabel(rate.maxFeeBps)}, up to two decimals.`); return; }
+    if (feeBps === rate.currentFeeBps) { setError('That is already the rate.'); return; }
+    if (!window.confirm(`Change ${title.toLowerCase()} from ${percentLabel(rate.currentFeeBps)} to ${percentLabel(feeBps)}? ${appliesTo}`)) return;
+    setBusy(true); setError(null); setSaved(null);
+    try {
+      const result = await trpc.admin.setPlatformFee.mutate({ scope, feeBps, note: note.trim() || undefined });
+      setSaved(`Now ${percentLabel(result.currentFeeBps)}, for ${result.appliesTo}.`);
+      setPercent(''); setNote('');
+      await load();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <h2>{title}</h2>
+      {rate === null ? <p className="admin-muted">{error ?? 'Loading…'}</p> : (
+        <>
+          <p className="admin-big">{percentLabel(rate.currentFeeBps)}</p>
+          <p className="admin-muted">
+            {rate.history.length === 0 ? `Default rate. No admin has set one yet.` : `Set ${dateLabel(rate.history[0].createdAt)}.`} {appliesTo}
+          </p>
+          <form className="admin-form" onSubmit={save}>
+            <label className="admin-small">New rate (%)
+              <input className={input} inputMode="decimal" value={percent} onChange={(e) => setPercent(e.target.value)} placeholder={`0 to ${rate.maxFeeBps / 100}`} />
+            </label>
+            <label className="admin-small">Reason (kept with the change)
+              <input className={input} maxLength={280} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional" />
+            </label>
+            <Button type="submit" disabled={busy || !percent.trim()}>{busy ? 'Saving…' : 'Change rate'}</Button>
+          </form>
+          {error && <p className="admin-warn">{error}</p>}
+          {saved && <p className="admin-muted">{saved}</p>}
+          {rate.history.length > 0 && (
+            <ul className="admin-list">
+              {rate.history.map((row, index) => (
+                <li key={`${row.createdAt}-${index}`}>
+                  <p className="admin-strong">{percentLabel(row.feeBps)} <span className="admin-tag">{dateLabel(row.createdAt)}</span></p>
+                  {row.note && <p className="admin-small">{row.note}</p>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+function FeesTab() {
+  return (
+    <div className="admin-stack">
+      {FEE_SCOPES.map((item) => <FeeRateCard key={item.scope} {...item} />)}
+    </div>
+  );
+}
+
 function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   useEffect(() => {
@@ -950,7 +1053,7 @@ function Dashboard() {
 export default function AdminApp() {
   const [signedIn, setSignedIn] = useState(() => Boolean(localStorage.getItem(TOKEN_KEY)));
   const [access, setAccess] = useState<'checking' | 'ok' | string>('checking');
-  const [tab, setTab] = useState<'places' | 'vendors' | 'reports'>('places');
+  const [tab, setTab] = useState<'places' | 'vendors' | 'reports' | 'fees'>('places');
   const [awaiting, setAwaiting] = useState(0);
   const [openReports, setOpenReports] = useState(0);
 
@@ -998,8 +1101,10 @@ export default function AdminApp() {
                 <Button kind={tab === 'reports' ? 'primary' : 'quiet'} onClick={() => setTab('reports')}>
                   Reports{openReports > 0 ? ` (${openReports} open)` : ''}
                 </Button>
+                <Button kind={tab === 'fees' ? 'primary' : 'quiet'} onClick={() => setTab('fees')}>Fees</Button>
               </nav>
-              {tab === 'places' ? <PlacesTab /> : tab === 'vendors' ? <VendorsTab onCount={setAwaiting} /> : <ReportsTab onCount={setOpenReports} />}
+              {tab === 'places' ? <PlacesTab /> : tab === 'vendors' ? <VendorsTab onCount={setAwaiting} />
+                : tab === 'reports' ? <ReportsTab onCount={setOpenReports} /> : <FeesTab />}
             </>
           )}
         </div>

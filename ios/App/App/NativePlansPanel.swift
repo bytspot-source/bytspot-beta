@@ -1999,9 +1999,8 @@ struct NativePlanDetailSheet: View {
             .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-invite")
         }
 
-        // Above the item list: whether the evening holds together is the
-        // question the list itself cannot answer.
-        if let feasibility {
+        // Above the item list, and only when a check found a problem.
+        if let feasibility, !NativePlanFeasibilityDisplay.problems(feasibility.checks).isEmpty {
             sectionHeader("Quick check")
             NativePlanFeasibilityView(feasibility: feasibility)
         }

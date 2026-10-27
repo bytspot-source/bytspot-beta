@@ -86,22 +86,10 @@ enum NativePlanFeasibilityDisplay {
         }
     }
 
-    /// An unknown verdict with some passed checks is partly checked, not
-    /// unchecked; it still must not read as a pass.
-    static func headline(for feasibility: NativePlanFeasibility) -> String {
-        if feasibility.verdict == .unknown, feasibility.checks.contains(where: { $0.verdict == .fits }) {
-            return "Partly checked"
-        }
-        return headline(for: feasibility.verdict)
-    }
-
-    /// Shown in place of the rows when nothing could be checked.
-    static let nothingCheckedHint = "We'll check this once your stops have times and places."
-
-    /// Only checks that were actually run are listed. A row per missing fact
-    /// reads as a wall of question marks the guest cannot act on.
-    static func visibleChecks(_ checks: [NativePlanFeasibilityCheck]) -> [NativePlanFeasibilityCheck] {
-        ordered(checks).filter { $0.verdict != .unknown }
+    /// The section only speaks up about problems. Passes and unanswered
+    /// checks are not listed, so a Plan with no problem shows nothing.
+    static func problems(_ checks: [NativePlanFeasibilityCheck]) -> [NativePlanFeasibilityCheck] {
+        checks.filter { $0.verdict == .breaks }
     }
 
     /// Colour is earned. A check that could not be run gets none.
@@ -180,24 +168,16 @@ struct NativePlanFeasibilityView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Image(systemName: NativePlanFeasibilityDisplay.symbol(for: feasibility.verdict))
+                Image(systemName: NativePlanFeasibilityDisplay.symbol(for: .breaks))
                     .font(.system(size: 15, weight: .bold))
-                Text(NativePlanFeasibilityDisplay.headline(for: feasibility))
+                Text(NativePlanFeasibilityDisplay.headline(for: .breaks))
                     .font(.system(size: 15, weight: .black))
             }
-            .foregroundColor(NativePlanFeasibilityDisplay.tint(for: feasibility.verdict))
+            .foregroundColor(NativePlanFeasibilityDisplay.tint(for: .breaks))
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("native-plan-feasibility-headline")
 
-            let visible = NativePlanFeasibilityDisplay.visibleChecks(feasibility.checks)
-            if visible.isEmpty {
-                Text(NativePlanFeasibilityDisplay.nothingCheckedHint)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(NativeTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("native-plan-feasibility-hint")
-            }
-            ForEach(visible) { check in
+            ForEach(NativePlanFeasibilityDisplay.problems(feasibility.checks)) { check in
                 row(check)
             }
         }

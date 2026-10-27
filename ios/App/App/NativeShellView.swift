@@ -7287,7 +7287,6 @@ private struct NativeHomeDashboardView: View {
     @State private var guestHomePromptSubtitle = "Sign in to keep favorites, routes, and parking preferences across devices."
     @State private var guestHomePromptCTA = "Sign in"
     @State private var guestHomePendingIntent: NativePostAuthIntent? = nil
-    @State private var didScheduleAuthenticatedLaunchPicksCollapse = false
     @State private var showValetRideSheet = false
     @State private var didOpenValetPreview = false
     @State private var headerNow = Date()
@@ -7326,7 +7325,6 @@ private struct NativeHomeDashboardView: View {
 
     static let recommendationTitles = ["Reserved parking near you", "Broni Home Taste", "GH Akwaaba Pass"]
     static let launchPicksSignInHint = "Sign in to continue with your personalized picks."
-    static let authenticatedLaunchPicksCollapseDelay: TimeInterval = 1.8
     static let aiPickEyebrow = "Today's Pick"
     static let aiPickSecondaryCTA = "Details"
     static let prohibitedContextSnapshotLabels = ["context snapshot", "aggregate crowd", "time/day"]
@@ -7380,7 +7378,7 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var shouldShowLocalEmptyState: Bool {
-        NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: regionalSnapshot, launchPicksCompleted: launchPicksCompleted, launchPickCount: launchRecommendationPicks.count)
+        NativeHomeRegionPresentation.shouldShowLocalEmptyState(in: regionalSnapshot, launchPicksCompleted: launchPicksCompleted || NativeHomeVibeCard.hasVibe(launchIntent), launchPickCount: launchRecommendationPicks.count)
     }
 
     private var typicalHomePlan: NativeCollapsePlan? {
@@ -7406,7 +7404,7 @@ private struct NativeHomeDashboardView: View {
                 NativeFeedbackHomeCard(item: item) { openFeedback(item.target) }
             }
             if showsVibeCard { homeVibeCard }
-            if launchPicksCompleted && !launchRecommendationPicks.isEmpty { launchPicksReadySection }
+            if showsVibePicks { launchPicksReadySection }
             exploreAroundYouSection
             if shouldShowHomeEmptyState { noLocalRecommendationsSection }
             if hasTrustedLocalRecommendations || typicalHomePlan != nil { tonightPickCard }
@@ -7421,13 +7419,12 @@ private struct NativeHomeDashboardView: View {
             nearbySection
         }
         .accessibilityIdentifier("native-home-dashboard")
-        .onAppear { scheduleAuthenticatedLaunchPicksCollapseIfNeeded(); openValetPreviewIfRequested(); locationStore.startIfAuthorized(); contactsAuthorization = CNContactStore.authorizationStatus(for: .contacts) }
+        .onAppear { openValetPreviewIfRequested(); locationStore.startIfAuthorized(); contactsAuthorization = CNContactStore.authorizationStatus(for: .contacts) }
         .task { await refreshLiveWeather() }
         .task { await refreshPresence() }
         .task(id: recommendationRequestKey) { await refreshRecommendations() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in Task { await refreshLiveWeather() } }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { headerNow = $0 }
-        .onChange(of: sessionStore.token ?? "") { _ in scheduleAuthenticatedLaunchPicksCollapseIfNeeded() }
         .sheet(item: $aiPickDetailVenue) { venue in
             let detail = Group {
                 if Self.isValetPremiumRide(venue) {
@@ -7479,14 +7476,6 @@ private struct NativeHomeDashboardView: View {
             } else {
                 sheet
             }
-        }
-    }
-
-    private func scheduleAuthenticatedLaunchPicksCollapseIfNeeded() {
-        guard sessionStore.isAuthenticated, launchPicksCompleted, !didScheduleAuthenticatedLaunchPicksCollapse else { return }
-        didScheduleAuthenticatedLaunchPicksCollapse = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.authenticatedLaunchPicksCollapseDelay) {
-            if sessionStore.isAuthenticated { launchPicksCompleted = false }
         }
     }
 
@@ -7789,6 +7778,10 @@ private struct NativeHomeDashboardView: View {
         .nativePanel()
         .accessibilityIdentifier("native-home-launch-picks-ready")
         .sheet(isPresented: $showGuestSavePrompt) { NativeGuestSavePromptSheet(title: guestHomePromptTitle, subtitle: guestHomePromptSubtitle, ctaTitle: guestHomePromptCTA, onSignIn: continueHomeGuestPromptSignIn) }
+    }
+
+    private var showsVibePicks: Bool {
+        NativeHomeVibeCard.showsPicks(vibe: launchIntent, pickCount: launchRecommendationPicks.count)
     }
 
     private var showsVibeCard: Bool {
@@ -22374,7 +22367,6 @@ enum NativePostAuthIntentSelfTests {
         precondition(NativePostAuthIntent.allCases.map(\.rawValue) == ["explorePicks", "mapPicks", "savePicks", "network"], "NativePostAuthIntentSelfTests: post-auth intent order drifted.")
         precondition(NativePostAuthIntent.allCases.allSatisfy { $0.authMode == .login }, "NativePostAuthIntentSelfTests: protected destinations should open sign-in auth, not a premium lock flow.")
         precondition(NativeHomeDashboardView.launchPicksSignInHint == "Sign in to continue with your personalized picks.", "NativePostAuthIntentSelfTests: Home picks sign-in hint should stay non-premium and non-locking.")
-        precondition(NativeHomeDashboardView.authenticatedLaunchPicksCollapseDelay > 1.0, "NativePostAuthIntentSelfTests: Active confirmation should remain briefly visible before Home collapses back to normal.")
         precondition(NativeHomeDashboardView.rankedLaunchPicks(from: .fallback, location: .verifiedMidtown, intent: "parking", walk: "close", crew: "safe").isEmpty, "NativePostAuthIntentSelfTests: fallback fixture venues must never become personalized Home picks.")
         let liveParking = NativeVenueSummary(id: "live-midtown-parking", name: "Live Midtown Parking", category: "parking", address: "1200 Peachtree St NE", distance: "0.3 mi", rating: 4.7, latitude: 33.7865, longitude: -84.3830, crowd: NativeCrowdSummary(level: 1, label: "Open", waitMins: 0), parking: NativeParkingSummary(totalAvailable: 18, priceLabel: "$6/hr"), verifiedPatchId: "LIVE-PARKING", imageUrl: nil)
         let liveDining = NativeVenueSummary(id: "live-midtown-kitchen", name: "Live Midtown Kitchen", category: "dining", address: "1210 Peachtree St NE", distance: "0.4 mi", rating: 4.8, latitude: 33.7870, longitude: -84.3831, crowd: NativeCrowdSummary(level: 2, label: "Active", waitMins: 4), parking: NativeParkingSummary(totalAvailable: 6, priceLabel: "$8/hr"), verifiedPatchId: "LIVE-DINING", imageUrl: nil)

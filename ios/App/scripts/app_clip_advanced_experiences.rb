@@ -3,7 +3,7 @@
 # Lists, and with `apply` creates, the App Clip's advanced experiences in App
 # Store Connect. The default experience (title, subtitle, header image) is what
 # iOS shows for every link with no more specific experience, so without one
-# for https://bytspot.app/sale/ a Private Sale link showed the Party Pass card.
+# for https://bytspot.app/sale a Private Sale link showed the Party Pass card.
 #
 #   bundle exec ruby scripts/app_clip_advanced_experiences.rb list
 #   bundle exec ruby scripts/app_clip_advanced_experiences.rb apply
@@ -25,7 +25,7 @@ ASSET_DIR = File.expand_path("../fastlane/app_clip_advanced_experiences", __dir_
 
 EXPERIENCES = [
   {
-    link: "https://bytspot.app/sale/",
+    link: "https://bytspot.app/sale",
     action: "VIEW",
     title: "Private Sale",
     subtitle: "See the item and ask the seller to meet",

@@ -90,7 +90,12 @@ def upload_header_image(file_name)
     (op["requestHeaders"] || []).each { |h| req[h["name"]] = h["value"] }
     req.body = bytes.byteslice(op["offset"], op["length"])
     res = Net::HTTP.start(uri.host, uri.port, use_ssl: true) { |http| http.request(req) }
-    abort("Header image upload failed (#{res.code})") unless res.is_a?(Net::HTTPSuccess)
+    next if res.is_a?(Net::HTTPSuccess)
+    if res.code == "409"
+      warn "Header image part already stored (409); Apple's processing check below confirms it"
+      next
+    end
+    abort("Header image upload failed (#{res.code}): #{res.body.to_s[0, 500]}")
   end
 
   request(:patch, "/v1/appClipAdvancedExperienceImages/#{image['id']}", {

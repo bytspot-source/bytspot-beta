@@ -299,6 +299,66 @@ struct NativePartyCommerceTests {
     }
 }
 
+@Suite("Host payouts")
+struct NativeHostPayoutsTests {
+    private func status(_ json: String) throws -> NativeHostPayoutStatus {
+        try JSONDecoder().decode(NativeHostPayoutStatus.self, from: Data(json.utf8))
+    }
+
+    @Test func eachPayoutStateSaysWhatIsTrueAndOffersTheNextStep() throws {
+        let none = try status(#"{"status":"none","last4":null,"detail":null,"payoutsLive":false}"#)
+        #expect(NativeHostPayoutsContract.headline(none).title == "Get paid for ticket sales")
+        #expect(NativeHostPayoutsContract.actionTitle(none.status) == "Set up payouts")
+
+        let pending = try status(#"{"status":"pending","last4":null,"detail":"The processor is reviewing these details","payoutsLive":true}"#)
+        #expect(NativeHostPayoutsContract.headline(pending).body == "The processor is reviewing these details")
+        #expect(NativeHostPayoutsContract.actionTitle(pending.status) == "Continue setup")
+
+        let restricted = try status(#"{"status":"restricted","last4":null,"detail":null,"payoutsLive":true}"#)
+        #expect(NativeHostPayoutsContract.headline(restricted).title == "Stripe needs more information")
+        #expect(NativeHostPayoutsContract.actionTitle(restricted.status) == "Update details")
+
+        let active = try status(#"{"status":"active","last4":"6789","detail":null,"payoutsLive":true}"#)
+        #expect(NativeHostPayoutsContract.headline(active).title == "Payouts are on")
+        #expect(NativeHostPayoutsContract.headline(active).body == "Paid to the account ending in 6789.")
+        #expect(NativeHostPayoutsContract.actionTitle(active.status) == "Change bank account")
+    }
+
+    @Test func feeAndTimingComeFromTheServerQuote() throws {
+        let quote = try JSONDecoder().decode(NativeTicketFeeQuote.self, from: Data(#"{"feeBps":1250,"feePercent":12.5,"hostSharePercent":87.5,"payoutsEnabled":false,"payoutDelayHours":48,"note":"x"}"#.utf8))
+        #expect(NativeHostPayoutsContract.feeLine(quote) == "You keep 87.5% of each ticket. Bytspot keeps 12.5%.")
+        #expect(NativeHostPayoutsContract.delayLine(quote) == "Your share is sent 48 hours after your party ends.")
+        #expect(NativeHostPayoutsContract.percentLabel(10) == "10%")
+    }
+
+    @Test func onlyStripePagesAreOpened() {
+        #expect(NativeHostPayoutsContract.stripeURL("https://connect.stripe.com/setup/e/acct_1/abc") != nil)
+        #expect(NativeHostPayoutsContract.stripeURL("https://connect.stripe.com/express/acct_1/xyz") != nil)
+        #expect(NativeHostPayoutsContract.stripeURL("http://connect.stripe.com/setup/e/acct_1/abc") == nil)
+        #expect(NativeHostPayoutsContract.stripeURL("https://connect.stripe.com.example.net/setup") == nil)
+        #expect(NativeHostPayoutsContract.stripeURL("https://notstripe.com/setup") == nil)
+        #expect(NativeHostPayoutsContract.stripeURL(nil) == nil)
+    }
+
+    @Test func onlyThePayoutRefusalOffersSetupWhenPublishing() {
+        let refusal = BytspotAPIClient.APIError.server(status: 412, body: #"{"error":{"message":"Set up payouts before publishing a party with paid tickets. Free parties do not need payouts.","code":-32012,"data":{"code":"PRECONDITION_FAILED"}}}"#)
+        #expect(NativeHostPayoutsContract.needsSetup(refusal))
+        #expect(NativePartyStudioError.publishUserMessage(for: refusal) == NativeHostPayoutsContract.setupRequiredMessage)
+
+        let other = BytspotAPIClient.APIError.server(status: 412, body: #"{"error":{"message":"Add at least one recap photo before publishing."}}"#)
+        #expect(!NativeHostPayoutsContract.needsSetup(other))
+        #expect(NativePartyStudioError.publishUserMessage(for: other) != NativeHostPayoutsContract.setupRequiredMessage)
+    }
+
+    @MainActor @Test func stripeReturnLinkOpensGetPaid() throws {
+        let coordinator = NativeNavigationCoordinator()
+        #expect(coordinator.handle(url: try #require(URL(string: "bytspot://payouts/host"))))
+        #expect(coordinator.requestedProfilePanel == .getPaid)
+        #expect(coordinator.requestedDestination == nil)
+        #expect(NativeProfilePanel.getPaid.title == "Get paid")
+    }
+}
+
 /// Immutable per-request fixture: tests can run concurrently, no live network
 /// or Stripe methods are invoked. Rejects malformed native payloads with 400.
 private final class CommerceProtocol: URLProtocol {

@@ -841,3 +841,232 @@ struct NativePartyPersonalPassView: View {
         }
     }
 }
+
+// MARK: - Host payouts
+
+/// A host's payout account, as Stripe last reported it to the API.
+struct NativeHostPayoutStatus: Decodable, Equatable {
+    enum State: String, Decodable { case none, pending, active, restricted }
+    let status: State
+    let last4: String?
+    let detail: String?
+    /// False while Bytspot is not sending party payouts yet.
+    let payoutsLive: Bool
+}
+
+struct NativeTicketFeeQuote: Decodable, Equatable {
+    let feePercent: Double
+    let hostSharePercent: Double
+    let payoutsEnabled: Bool
+    let payoutDelayHours: Int
+}
+
+private struct NativeHostPayoutLink: Decodable { let url: String }
+
+enum NativeHostPayoutsContract {
+    static let statusRoute = "/trpc/payouts.host.status"
+    static let onboardingLinkRoute = "/trpc/payouts.host.onboardingLink"
+    static let dashboardLinkRoute = "/trpc/payouts.host.dashboardLink"
+    static let feeQuoteRoute = "/trpc/events.control.ticketFeeQuote"
+    /// The API's publish refusal, matched exactly so only this error offers setup.
+    static let setupRequiredMessage = "Set up payouts before publishing a party with paid tickets. Free parties do not need payouts."
+
+    /// Only Stripe's own pages are opened.
+    static func stripeURL(_ raw: String?) -> URL? {
+        guard let raw, let url = URL(string: raw), url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(), host == "stripe.com" || host.hasSuffix(".stripe.com") else { return nil }
+        return url
+    }
+
+    static func needsSetup(_ error: Error) -> Bool {
+        guard case let BytspotAPIClient.APIError.server(status, body) = error else { return false }
+        guard status == 412 || body.contains("\"code\":\"PRECONDITION_FAILED\"") else { return false }
+        return NativeAuthDataAPI.serverMessage(in: body) == setupRequiredMessage
+    }
+
+    static func percentLabel(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
+        return "\(formatter.string(from: NSNumber(value: value)) ?? String(value))%"
+    }
+
+    static func feeLine(_ quote: NativeTicketFeeQuote) -> String {
+        "You keep \(percentLabel(quote.hostSharePercent)) of each ticket. Bytspot keeps \(percentLabel(quote.feePercent))."
+    }
+
+    static func delayLine(_ quote: NativeTicketFeeQuote) -> String {
+        "Your share is sent \(quote.payoutDelayHours) hours after your party ends."
+    }
+
+    static func headline(_ status: NativeHostPayoutStatus) -> (title: String, body: String) {
+        switch status.status {
+        case .none:
+            return ("Get paid for ticket sales", "Parties with paid tickets need a payout account. Setup takes a few minutes on Stripe.")
+        case .pending:
+            return ("Stripe is checking your details", status.detail ?? "Finish setup on Stripe if anything is still missing.")
+        case .restricted:
+            return ("Stripe needs more information", status.detail ?? "Payouts are paused until you update your details on Stripe.")
+        case .active:
+            return ("Payouts are on", status.last4.map { "Paid to the account ending in \($0)." } ?? "Your payout account is ready.")
+        }
+    }
+
+    static func actionTitle(_ state: NativeHostPayoutStatus.State) -> String {
+        switch state {
+        case .none: return "Set up payouts"
+        case .pending: return "Continue setup"
+        case .restricted: return "Update details"
+        case .active: return "Change bank account"
+        }
+    }
+}
+
+struct NativeHostPayoutsAPI {
+    let client: BytspotAPIClient
+
+    func status() async throws -> NativeHostPayoutStatus {
+        try await client.trpcDecode(NativeHostPayoutStatus.self, path: NativeHostPayoutsContract.statusRoute)
+    }
+
+    func feeQuote() async throws -> NativeTicketFeeQuote {
+        try await client.trpcDecode(NativeTicketFeeQuote.self, path: NativeHostPayoutsContract.feeQuoteRoute)
+    }
+
+    /// Stripe's onboarding while setup is unfinished; its dashboard once active.
+    func stripeLink(for state: NativeHostPayoutStatus.State) async throws -> URL {
+        let route = state == .active ? NativeHostPayoutsContract.dashboardLinkRoute : NativeHostPayoutsContract.onboardingLinkRoute
+        let link = try await client.trpcDecode(NativeHostPayoutLink.self, path: route, method: "POST", input: [:])
+        guard let url = NativeHostPayoutsContract.stripeURL(link.url) else { throw BytspotAPIClient.APIError.invalidResponse }
+        return url
+    }
+}
+
+/// Where a host sets up and checks payouts. Every form is Stripe's: this only
+/// opens it and reads back what Stripe decided, again whenever the app returns.
+struct NativeHostPayoutsPanel: View {
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var status: NativeHostPayoutStatus?
+    @State private var quote: NativeTicketFeeQuote?
+    @State private var loading = false
+    @State private var opening = false
+    @State private var message = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if !sessionStore.canAttachBearerToken {
+                note("Sign in to set up payouts for paid party tickets.")
+            } else if let status {
+                content(status)
+            } else if loading {
+                ProgressView().tint(NativeTheme.cyan).frame(maxWidth: .infinity, minHeight: 48)
+            }
+            if !message.isEmpty {
+                Text(message).font(.system(size: 12.5, weight: .bold)).foregroundColor(NativeTheme.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("native-host-payouts-message")
+            }
+        }
+        .task(id: sessionStore.token ?? "") { await load() }
+        .onChange(of: scenePhase) { phase in if phase == .active { Task { await load() } } }
+        .accessibilityIdentifier("native-host-payouts")
+    }
+
+    private func content(_ status: NativeHostPayoutStatus) -> some View {
+        let headline = NativeHostPayoutsContract.headline(status)
+        return VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(headline.title).font(.system(size: 17, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                    .accessibilityIdentifier("native-host-payouts-title")
+                note(headline.body)
+            }
+            if let quote {
+                VStack(alignment: .leading, spacing: 4) {
+                    note(NativeHostPayoutsContract.feeLine(quote))
+                    note(NativeHostPayoutsContract.delayLine(quote))
+                }
+            }
+            if !status.payoutsLive {
+                note("Bytspot hasn't started sending party payouts yet. Set up now so you're ready when it does.")
+            }
+            Button { Task { await openStripe(status.status) } } label: {
+                ZStack {
+                    Text(NativeHostPayoutsContract.actionTitle(status.status)).opacity(opening ? 0 : 1)
+                    if opening { ProgressView().tint(.black) }
+                }
+                .font(.system(size: 15, weight: .black)).foregroundColor(.black)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(NativeTheme.cyan)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(opening)
+            .accessibilityIdentifier("native-host-payouts-action")
+            note("You enter your bank or Cash App details on Stripe. Bytspot never sees them.")
+        }
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var api: NativeHostPayoutsAPI? {
+        guard sessionStore.canAttachBearerToken, let token = sessionStore.token else { return nil }
+        return NativeHostPayoutsAPI(client: BytspotAPIClient(tokenProvider: { token }))
+    }
+
+    @MainActor private func load() async {
+        guard let api, !loading else { return }
+        loading = true
+        defer { loading = false }
+        async let quoteResult = try? api.feeQuote()
+        do {
+            status = try await api.status()
+            message = ""
+        } catch {
+            if status == nil { message = "Payout details didn't load. Try again in a moment." }
+        }
+        if let loaded = await quoteResult { quote = loaded }
+    }
+
+    @MainActor private func openStripe(_ state: NativeHostPayoutStatus.State) async {
+        guard let api, !opening else { return }
+        opening = true
+        defer { opening = false }
+        do {
+            openURL(try await api.stripeLink(for: state))
+            message = ""
+        } catch {
+            message = "Stripe couldn't be opened. Try again in a moment."
+        }
+    }
+}
+
+/// The payouts panel on its own, for flows outside Profile.
+struct NativeHostPayoutsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Get paid").font(.title2.weight(.bold)).foregroundColor(NativeTheme.textPrimary).accessibilityAddTraits(.isHeader)
+                    Spacer()
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 24, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .accessibilityLabel("Close")
+                    .accessibilityIdentifier("native-host-payouts-close")
+                }
+                NativeHostPayoutsPanel()
+            }
+            .padding(20)
+        }
+        .background(NativeDeepSpaceGround())
+    }
+}

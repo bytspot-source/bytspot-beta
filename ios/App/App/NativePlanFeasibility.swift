@@ -77,13 +77,31 @@ enum NativePlanFeasibilityDisplay {
     /// The one line at the top of the section.
     static func headline(for verdict: NativePlanFeasibilityVerdict) -> String {
         switch verdict {
-        case .fits: return "This works"
+        case .fits: return "Everything fits"
         // Not "this is broken": the Plan is fixable, and the checks below say
         // what to change.
-        case .breaks: return "This doesn't work yet"
+        case .breaks: return "Something needs a fix"
         // Not "looks fine so far", which is a pass wearing a hedge.
-        case .unknown: return "Not enough to tell yet"
+        case .unknown: return "Nothing to check yet"
         }
+    }
+
+    /// An unknown verdict with some passed checks is partly checked, not
+    /// unchecked; it still must not read as a pass.
+    static func headline(for feasibility: NativePlanFeasibility) -> String {
+        if feasibility.verdict == .unknown, feasibility.checks.contains(where: { $0.verdict == .fits }) {
+            return "Partly checked"
+        }
+        return headline(for: feasibility.verdict)
+    }
+
+    /// Shown in place of the rows when nothing could be checked.
+    static let nothingCheckedHint = "We'll check this once your stops have times and places."
+
+    /// Only checks that were actually run are listed. A row per missing fact
+    /// reads as a wall of question marks the guest cannot act on.
+    static func visibleChecks(_ checks: [NativePlanFeasibilityCheck]) -> [NativePlanFeasibilityCheck] {
+        ordered(checks).filter { $0.verdict != .unknown }
     }
 
     /// Colour is earned. A check that could not be run gets none.
@@ -113,11 +131,11 @@ enum NativePlanFeasibilityDisplay {
 
     static func title(for check: String) -> String {
         switch check {
-        case "window": return "Timing"
-        case "overlap": return "Clashes"
-        case "travel": return "Getting between"
-        case "budget": return "Budget"
-        case "capacity": return "Room for everyone"
+        case "window": return "Plan time"
+        case "overlap": return "Overlaps"
+        case "travel": return "Travel time"
+        case "budget": return "Cost"
+        case "capacity": return "Group size"
         default: return check.capitalized
         }
     }
@@ -164,14 +182,22 @@ struct NativePlanFeasibilityView: View {
             HStack(spacing: 8) {
                 Image(systemName: NativePlanFeasibilityDisplay.symbol(for: feasibility.verdict))
                     .font(.system(size: 15, weight: .bold))
-                Text(NativePlanFeasibilityDisplay.headline(for: feasibility.verdict))
+                Text(NativePlanFeasibilityDisplay.headline(for: feasibility))
                     .font(.system(size: 15, weight: .black))
             }
             .foregroundColor(NativePlanFeasibilityDisplay.tint(for: feasibility.verdict))
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("native-plan-feasibility-headline")
 
-            ForEach(NativePlanFeasibilityDisplay.ordered(feasibility.checks)) { check in
+            let visible = NativePlanFeasibilityDisplay.visibleChecks(feasibility.checks)
+            if visible.isEmpty {
+                Text(NativePlanFeasibilityDisplay.nothingCheckedHint)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(NativeTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("native-plan-feasibility-hint")
+            }
+            ForEach(visible) { check in
                 row(check)
             }
         }

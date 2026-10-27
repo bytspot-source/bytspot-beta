@@ -323,7 +323,7 @@ final class NativePlanFeasibilityTests: XCTestCase {
 
     func testTheHeadlineForUnknownDoesNotHedgeTowardFine() {
         let headline = NativePlanFeasibilityDisplay.headline(for: .unknown)
-        XCTAssertEqual(headline, "Not enough to tell yet")
+        XCTAssertEqual(headline, "Nothing to check yet")
         for reassurance in ["works", "fine", "good", "ready"] {
             XCTAssertFalse(headline.lowercased().contains(reassurance), "headline hedges toward a pass: \(headline)")
         }
@@ -350,12 +350,12 @@ final class NativePlanFeasibilityTests: XCTestCase {
         let label = NativePlanFeasibilityDisplay.accessibilityLabel(
             for: check("budget", .unknown, detail: "No budget was set for this Plan.")
         )
-        XCTAssertEqual(label, "Budget, not checked. No budget was set for this Plan.")
+        XCTAssertEqual(label, "Cost, not checked. No budget was set for this Plan.")
     }
 
     func testASettledCheckIsNotSpokenAsUnchecked() {
         let label = NativePlanFeasibilityDisplay.accessibilityLabel(for: check("capacity", .fits, detail: "Everything here can take 4."))
-        XCTAssertEqual(label, "Room for everyone, checked and fine. Everything here can take 4.")
+        XCTAssertEqual(label, "Group size, checked and fine. Everything here can take 4.")
     }
 
     func testTheServersSentenceIsShownAsSentBecauseItNamesWhatIsMissing() throws {
@@ -391,7 +391,27 @@ final class NativePlanFeasibilityTests: XCTestCase {
         XCTAssertEqual(decoded.verdict, .breaks)
         XCTAssertEqual(decoded.checks.count, 2)
         XCTAssertEqual(decoded.checks[0].itemIds, ["item-1"])
-        XCTAssertEqual(NativePlanFeasibilityDisplay.title(for: "capacity"), "Room for everyone")
+        XCTAssertEqual(NativePlanFeasibilityDisplay.title(for: "capacity"), "Group size")
+    }
+
+    func testOnlyChecksThatRanAreListedProblemsFirst() {
+        let visible = NativePlanFeasibilityDisplay.visibleChecks([
+            check("window", .unknown),
+            check("travel", .fits),
+            check("budget", .unknown),
+            check("capacity", .breaks),
+        ])
+        XCTAssertEqual(visible.map(\.check), ["capacity", "travel"])
+        XCTAssertTrue(NativePlanFeasibilityDisplay.visibleChecks([check("window", .unknown)]).isEmpty)
+    }
+
+    func testPartlyCheckedIsNeitherAPassNorNothing() {
+        let partial = NativePlanFeasibility(verdict: .unknown, checks: [check("travel", .fits), check("budget", .unknown)])
+        XCTAssertEqual(NativePlanFeasibilityDisplay.headline(for: partial), "Partly checked")
+        let none = NativePlanFeasibility(verdict: .unknown, checks: [check("budget", .unknown)])
+        XCTAssertEqual(NativePlanFeasibilityDisplay.headline(for: none), "Nothing to check yet")
+        let broken = NativePlanFeasibility(verdict: .breaks, checks: [check("travel", .fits), check("capacity", .breaks)])
+        XCTAssertEqual(NativePlanFeasibilityDisplay.headline(for: broken), "Something needs a fix")
     }
 
     func testAnUnnamedCheckStillGetsATitleRatherThanBlank() {

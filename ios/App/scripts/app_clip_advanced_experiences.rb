@@ -13,6 +13,7 @@
 # experience, so it is safe to re-run.
 
 require "digest"
+require "zlib"
 require "json"
 require "net/http"
 require "spaceship"
@@ -77,9 +78,18 @@ def existing_experiences(clip)
   end
 end
 
+# App Store Connect refuses a second upload of byte-identical image content, so
+# each run adds a PNG text chunk after IHDR. The pixels are unchanged.
+def with_upload_stamp(png)
+  abort("Header image must be a PNG") unless png.start_with?("\x89PNG\r\n\x1a\n".b)
+  data = "Comment\0bytspot upload #{Time.now.utc.strftime('%Y%m%dT%H%M%S%N')}".b
+  chunk = [data.bytesize].pack("N") + "tEXt".b + data + [Zlib.crc32("tEXt".b + data)].pack("N")
+  png.byteslice(0, 33) + chunk + png.byteslice(33..)
+end
+
 def upload_header_image(file_name)
   path = File.join(ASSET_DIR, file_name)
-  bytes = File.binread(path)
+  bytes = with_upload_stamp(File.binread(path))
   image = request(:post, "/v1/appClipAdvancedExperienceImages", {
     data: { type: "appClipAdvancedExperienceImages", attributes: { fileName: file_name, fileSize: bytes.bytesize } },
   })["data"]
@@ -90,12 +100,7 @@ def upload_header_image(file_name)
     (op["requestHeaders"] || []).each { |h| req[h["name"]] = h["value"] }
     req.body = bytes.byteslice(op["offset"], op["length"])
     res = Net::HTTP.start(uri.host, uri.port, use_ssl: true) { |http| http.request(req) }
-    next if res.is_a?(Net::HTTPSuccess)
-    if res.code == "409"
-      warn "Header image part already stored (409); Apple's processing check below confirms it"
-      next
-    end
-    abort("Header image upload failed (#{res.code}): #{res.body.to_s[0, 500]}")
+    abort("Header image upload failed (#{res.code}): #{res.body.to_s[0, 500]}") unless res.is_a?(Net::HTTPSuccess)
   end
 
   request(:patch, "/v1/appClipAdvancedExperienceImages/#{image['id']}", {

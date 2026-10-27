@@ -52,8 +52,8 @@ type FeeRate = {
   history: { feeBps: number; note: string | null; setByUserId: string | null; createdAt: string }[];
 };
 
-const FEE_SCOPES: { scope: FeeScope; title: string; appliesTo: string }[] = [
-  { scope: 'party-ticket', title: 'Party tickets and tables', appliesTo: 'Applies to parties published after the change. A live party keeps the rate its host was shown.' },
+const FEE_SCOPES: { scope: FeeScope; title: string; appliesTo: string; bytspotPaysCardFee?: boolean }[] = [
+  { scope: 'party-ticket', title: 'Party tickets and tables', appliesTo: 'Applies to parties published after the change. A live party keeps the rate its host was shown.', bytspotPaysCardFee: true },
   { scope: 'vendor-booking', title: 'Business tickets', appliesTo: 'Applies to checkouts started after the change. Tickets already bought keep their split.' },
 ];
 
@@ -67,6 +67,19 @@ function percentToBps(value: string, maxBps: number): number | null {
 
 function percentLabel(bps: number): string {
   return `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 2)}%`;
+}
+
+const EXAMPLE_TICKET_CENTS = 2000;
+/** Stripe's standard US card rate, 2.9% + 30¢. Bytspot pays it out of its share. */
+const cardFeeCents = (cents: number) => Math.round(cents * 0.029) + 30;
+const dollarLabel = (cents: number) => `$${(Math.abs(cents) / 100).toFixed(2)}`;
+
+/** Null when the rate covers the card fee on an example ticket; otherwise what to say. */
+function cardFeeWarning(feeBps: number): string | null {
+  const kept = Math.round(EXAMPLE_TICKET_CENTS * feeBps / 10_000);
+  const cost = cardFeeCents(EXAMPLE_TICKET_CENTS);
+  if (kept >= cost) return null;
+  return `At ${percentLabel(feeBps)}, Bytspot keeps ${dollarLabel(kept)} on a ${dollarLabel(EXAMPLE_TICKET_CENTS)} ticket, but pays Stripe's card fee of about ${dollarLabel(cost)} on it, so each paid ticket loses about ${dollarLabel(cost - kept)}. Cheaper tickets lose more.`;
 }
 type ReportKind = 'user' | 'party' | 'review' | 'sale';
 type ReportedItem = {
@@ -948,7 +961,7 @@ function ReportsTab({ onCount }: { onCount: (open: number) => void }) {
   );
 }
 
-function FeeRateCard({ scope, title, appliesTo }: { scope: FeeScope; title: string; appliesTo: string }) {
+function FeeRateCard({ scope, title, appliesTo, bytspotPaysCardFee }: { scope: FeeScope; title: string; appliesTo: string; bytspotPaysCardFee?: boolean }) {
   const [rate, setRate] = useState<FeeRate | null>(null);
   const [percent, setPercent] = useState('');
   const [note, setNote] = useState('');
@@ -971,7 +984,8 @@ function FeeRateCard({ scope, title, appliesTo }: { scope: FeeScope; title: stri
     const feeBps = percentToBps(percent, rate.maxFeeBps);
     if (feeBps === null) { setError(`Enter a percentage from 0 to ${percentLabel(rate.maxFeeBps)}, up to two decimals.`); return; }
     if (feeBps === rate.currentFeeBps) { setError('That is already the rate.'); return; }
-    if (!window.confirm(`Change ${title.toLowerCase()} from ${percentLabel(rate.currentFeeBps)} to ${percentLabel(feeBps)}? ${appliesTo}`)) return;
+    const loss = bytspotPaysCardFee ? cardFeeWarning(feeBps) : null;
+    if (!window.confirm(`Change ${title.toLowerCase()} from ${percentLabel(rate.currentFeeBps)} to ${percentLabel(feeBps)}? ${appliesTo}${loss ? `\n\n${loss}` : ''}`)) return;
     setBusy(true); setError(null); setSaved(null);
     try {
       const result = await trpc.admin.setPlatformFee.mutate({ scope, feeBps, note: note.trim() || undefined });
@@ -994,6 +1008,7 @@ function FeeRateCard({ scope, title, appliesTo }: { scope: FeeScope; title: stri
           <p className="admin-muted">
             {rate.history.length === 0 ? `Default rate. No admin has set one yet.` : `Set ${dateLabel(rate.history[0].createdAt)}.`} {appliesTo}
           </p>
+          {bytspotPaysCardFee && cardFeeWarning(rate.currentFeeBps) && <p className="admin-warn">{cardFeeWarning(rate.currentFeeBps)}</p>}
           <form className="admin-form" onSubmit={save}>
             <label className="admin-small">New rate (%)
               <input className={input} inputMode="decimal" value={percent} onChange={(e) => setPercent(e.target.value)} placeholder={`0 to ${rate.maxFeeBps / 100}`} />

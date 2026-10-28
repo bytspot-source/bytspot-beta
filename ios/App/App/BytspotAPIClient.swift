@@ -1282,7 +1282,16 @@ enum NativeRunOfShowSchedule {
         return beats.lastIndex(where: { $0 <= now })
     }
 }
-struct NativePartyTicketTier: Equatable { let name: String; let priceCents: Int; let quantity: Int; let requiredMembershipTier: BytspotTier }
+struct NativePartyTicketTier: Equatable {
+    let name: String; let priceCents: Int; let quantity: Int; let requiredMembershipTier: BytspotTier
+    /// Notes to the lineup each ticket includes; 0 means none. Paid tiers only.
+    var requestNotes: Int = 0
+    var rpcInput: [String: Any] {
+        var tier: [String: Any] = ["name": name, "priceCents": priceCents, "quantity": quantity, "requiredMembershipTier": requiredMembershipTier.rawValue]
+        if requestNotes > 0 && priceCents > 0 { tier["requestNotes"] = min(requestNotes, NativePartyRequestsContract.maxPerTicket) }
+        return tier
+    }
+}
 struct NativePartyHostAssignment: Equatable { let email: String; let role: NativePartyHostRole }
 
 struct NativePartyDraftInput: Equatable {
@@ -1370,7 +1379,7 @@ struct NativePartyDraftInput: Equatable {
             "requiredMembershipTier": requiredMembershipTier.rawValue,
             "audienceCircleIds": audienceCircleIDs,
             "itinerary": itinerary.map { ["title": $0.title, "offsetMinutes": $0.offsetMinutes] },
-            "ticketTiers": ticketTiers.map { ["name": $0.name, "priceCents": $0.priceCents, "quantity": $0.quantity, "requiredMembershipTier": $0.requiredMembershipTier.rawValue] },
+            "ticketTiers": ticketTiers.map(\.rpcInput),
             "cohosts": cohosts.map { ["email": $0.email, "role": $0.role.rawValue] },
             "templateConfig": templateConfigRPC,
             "source": "host-studio"

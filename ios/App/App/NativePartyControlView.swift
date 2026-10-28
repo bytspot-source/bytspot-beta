@@ -225,22 +225,49 @@ struct NativePartyControlView: View {
     @State private var recapBusy = false
     @State private var showingSessions = false
     @State private var showingLineup = false
+    @State private var showingRequests = false
+    @State private var showingStage = false
+    @State private var newRequests: Int?
     @State private var showOnDiscover: Bool?
 
     var body: some View {
         ZStack { BytspotNativeBackground(tier: .green).ignoresSafeArea(); ScrollView { VStack(alignment: .leading, spacing: 10) {
             HStack { Button(action: { dismiss() }) { Image(systemName: "chevron.left") }; Spacer(); Text("PARTY CONTROL").font(.system(size: 11, weight: .black)).tracking(1.5); Spacer(); Button(action: { Task { await reload() } }) { Image(systemName: "arrow.clockwise") } }.foregroundColor(.white)
+            if !message.isEmpty { Text(message).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.emerald).accessibilityIdentifier("native-party-control-message") }
             if let summary { overview(summary) } else { ProgressView().tint(.white).frame(maxWidth: .infinity, minHeight: 140) }
-            recapCard
-            Button("Tables & sessions") { showingSessions = true }.controlButton(color: NativeTheme.cyan)
-            Button("DJ / MC lineup") { showingLineup = true }.controlButton(color: NativeTheme.purple)
-            HStack(spacing: 10) { Button(showingDoor ? "Close Door Mode" : "Door Mode") { showingDoor.toggle() }.controlButton(color: NativeTheme.purple); Button((summary?.admissionPaused ?? false) ? "Resume RSVPs" : "Pause RSVPs") { Task { await setPaused() } }.controlButton(color: NativeTheme.orange) }
-            closeRoomControl
-            if showingDoor { doorMode }
-            if !message.isEmpty { Text(message).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.emerald) }
-            pendingGuests
-            paidGuests
-            guestList
+
+            controlSection("At the door") {
+                HStack(spacing: 10) { Button(showingDoor ? "Close Door Mode" : "Door Mode") { showingDoor.toggle() }.controlButton(color: NativeTheme.purple); Button((summary?.admissionPaused ?? false) ? "Resume RSVPs" : "Pause RSVPs") { Task { await setPaused() } }.controlButton(color: NativeTheme.orange) }
+                if showingDoor { doorMode }
+                pendingGuests
+            }
+
+            controlSection("Lineup & requests") { lineupCard }
+
+            if let summary, summary.retrievedShareURL != nil || showOnDiscover != nil {
+                controlSection("Share") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let current = showOnDiscover {
+                            NativeShowOnDiscoverToggle(isOn: Binding(get: { current }, set: { next in Task { await setShowOnDiscover(next) } }))
+                                .accessibilityIdentifier("native-party-control-show-on-discover")
+                        }
+                        roomShareCard(url: summary.retrievedShareURL, passCode: summary.retrievedPassCode, expired: summary.shareLinkExpired == true)
+                        shareLinkStatus(summary)
+                    }.padding(14).partyControlSurface()
+                }
+            }
+
+            controlSection("Guests") {
+                paidGuests
+                guestList
+            }
+
+            controlSection("Tables & recap") {
+                Button("Tables & sessions") { showingSessions = true }.controlButton(color: NativeTheme.cyan)
+                recapCard
+            }
+
+            closeRoomControl.padding(.top, 8)
         }.padding(18) } }
         .preferredColorScheme(.dark).task { await reload() }
         // Recap bytes are photographs of identifiable people held under a
@@ -253,6 +280,12 @@ struct NativePartyControlView: View {
         }
         .sheet(isPresented: $showingLineup) {
             NativePartyLineupHostSheet(partyID: partyID).environmentObject(sessionStore)
+        }
+        .sheet(isPresented: $showingRequests, onDismiss: { Task { await loadRequestCount() } }) {
+            NativePartyRequestsInbox(partyID: partyID).environmentObject(sessionStore)
+        }
+        .fullScreenCover(isPresented: $showingStage) {
+            NativePartyStageScreen(source: .live(partyID: partyID)).environmentObject(sessionStore)
         }
         .sheet(isPresented: $pickingRecap) {
             NativePartyPhotoPicker(selectionLimit: recapFreeSlots) { images in
@@ -278,12 +311,6 @@ struct NativePartyControlView: View {
                 Text(rating).font(.system(size: 13, weight: .bold)).foregroundColor(.white.opacity(0.82))
                     .accessibilityIdentifier("native-party-control-feedback")
             }
-            if let current = showOnDiscover {
-                NativeShowOnDiscoverToggle(isOn: Binding(get: { current }, set: { next in Task { await setShowOnDiscover(next) } }))
-                    .accessibilityIdentifier("native-party-control-show-on-discover")
-            }
-            roomShareCard(url: value.retrievedShareURL, passCode: value.retrievedPassCode, expired: value.shareLinkExpired == true)
-            shareLinkStatus(value)
         }.padding(18).background(Color.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 22))
     }
 
@@ -383,6 +410,37 @@ struct NativePartyControlView: View {
         if expired { return "Share link expired \(when). New guests can no longer join from the link." }
         return isDefault ? "Share link dies when the Party ends (\(when))." : "Share link expires \(when)."
     }
+    private func controlSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title.uppercased()).font(.system(size: 11, weight: .black)).tracking(1.4).foregroundColor(.white.opacity(0.6))
+                .accessibilityAddTraits(.isHeader)
+            content()
+        }
+        .padding(.top, 10)
+    }
+
+    private var lineupCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button("DJ / MC lineup") { showingLineup = true }.controlButton(color: NativeTheme.purple)
+            HStack(spacing: 10) {
+                Button(newRequests.map { $0 > 0 ? "Requests · \($0) new" : "Requests" } ?? "Requests") { showingRequests = true }
+                    .controlButton(color: NativeTheme.cyan)
+                    .accessibilityIdentifier("native-party-control-requests")
+                Button("Stage screen") { showingStage = true }
+                    .controlButton(color: NativeTheme.emerald)
+                    .accessibilityIdentifier("native-party-control-stage")
+            }
+            Text("Paid tickets that include requests let guests send notes to your lineup. Accepted notes roll on the stage screen — mirror it to a TV with AirPlay from Control Center.")
+                .font(.system(size: 11, weight: .semibold)).foregroundColor(.white.opacity(0.55))
+        }
+        .padding(14).partyControlSurface()
+    }
+
+    @MainActor private func loadRequestCount() async {
+        guard let api = NativePartyRequestsAPI.current(sessionStore), let inbox = try? await api.inbox(partyID) else { return }
+        newRequests = inbox.notes.filter { $0.status == "sent" }.count
+    }
+
     private func metric(_ label: String, _ value: String) -> some View { VStack(alignment: .leading, spacing: 3) { Text(value).font(.system(size: 20, weight: .black)); Text(label.uppercased()).font(.system(size: 8.5, weight: .black)).foregroundColor(.white.opacity(0.52)) }.frame(maxWidth: .infinity, alignment: .leading) }
     private var doorMode: some View { VStack(alignment: .leading, spacing: 10) { Text("DOOR MODE").partyControlLabel(); Text("Scan a personal attendee QR. A checked-in pass cannot be used again.").font(.system(size: 11, weight: .semibold)).foregroundColor(.white.opacity(0.55)); HStack { TextField("Paste attendee QR pass", text: $passText).textInputAutocapitalization(.never).autocorrectionDisabled(); Button(action: { scanning = true }) { Image(systemName: "qrcode.viewfinder") }.accessibilityLabel("Scan attendee QR pass") }.padding(12).partyControlSurface(); Button(isCheckingIn ? "Checking in…" : "Check in attendee") { Task { await checkIn(passText) } }.disabled(isCheckingIn).controlButton(color: NativeTheme.emerald) }.padding(14).partyControlSurface() }
     private var pendingGuests: some View { let pending = guests.filter { $0.status == "pending" }; return Group { if !pending.isEmpty { VStack(alignment: .leading, spacing: 10) { Text("PENDING APPROVAL · \(pending.count)").partyControlLabel(); ForEach(pending) { guest in HStack { Text(guest.person.name).font(.system(size: 13, weight: .bold)); Spacer(); Button("Decline") { Task { await decide(guest, false) } }.foregroundColor(NativeTheme.orange); Button("Approve") { Task { await decide(guest, true) } }.foregroundColor(NativeTheme.emerald) } } }.padding(14).partyControlSurface() } } }
@@ -413,7 +471,7 @@ struct NativePartyControlView: View {
     }
 
     private var guestList: some View { VStack(alignment: .leading, spacing: 9) { Text("GUEST LIST · \(guests.count)").partyControlLabel(); ForEach(guests.filter { $0.status != "pending" }) { guest in HStack { VStack(alignment: .leading) { Text(guest.person.name).font(.system(size: 13, weight: .bold)); Text("\(guest.status.replacingOccurrences(of: "-", with: " ").uppercased()) · \(guest.source.uppercased())").font(.system(size: 9, weight: .black)).foregroundColor(.white.opacity(0.48)) }; Spacer(); if guest.status == "checked-in" { Image(systemName: "checkmark.seal.fill").foregroundColor(NativeTheme.emerald) } } } }.padding(14).partyControlSurface() }
-    @MainActor private func reload() async { guard let token = sessionStore.token else { return }; do { let api = NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })); async let freshSummary = api.summary(partyID); async let freshGuests = api.guests(partyID); summary = try await freshSummary; showOnDiscover = summary?.door == "approval" ? summary?.showOnDiscover : nil; guests = try await freshGuests; message = "" } catch { message = "Party Control could not refresh." }; await loadRecap() }
+    @MainActor private func reload() async { guard let token = sessionStore.token else { return }; do { let api = NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })); async let freshSummary = api.summary(partyID); async let freshGuests = api.guests(partyID); summary = try await freshSummary; showOnDiscover = summary?.door == "approval" ? summary?.showOnDiscover : nil; guests = try await freshGuests; message = "" } catch { message = "Party Control could not refresh." }; await loadRecap(); await loadRequestCount() }
 
     /// Failure leaves the card hidden rather than showing an empty album: a
     /// server that predates the recap procedures answers the same way as a room

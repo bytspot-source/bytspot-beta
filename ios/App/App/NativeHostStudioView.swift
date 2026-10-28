@@ -194,6 +194,7 @@ struct NativeHostStudioView: View {
     @State private var showOnDiscoverChoice: Bool?
     @State private var requiredTier: BytspotTier = .green
     @State private var ticketPrice = "25"
+    @State private var requestNotesPerTicket = 0
     @State private var selectedCircleIDs: Set<String> = []
     @State private var teammateEmail = ""
     @State private var teammateRole: NativePartyHostRole = .cohost
@@ -784,7 +785,19 @@ struct NativeHostStudioView: View {
                     .padding(16).studioSurface()
                     .accessibilityIdentifier("native-host-studio-show-on-discover")
             }
-            if accessMode == .paidTicket { field("First Drop price", text: $ticketPrice, icon: "dollarsign.circle.fill", prompt: "25", keyboard: .decimalPad) }
+            if accessMode == .paidTicket {
+                field("First Drop price", text: $ticketPrice, icon: "dollarsign.circle.fill", prompt: "25", keyboard: .decimalPad)
+                VStack(alignment: .leading, spacing: 8) {
+                    Stepper(value: $requestNotesPerTicket, in: 0...NativePartyRequestsContract.maxPerTicket) {
+                        Label(NativePartyRequestsContract.perTicketLabel(requestNotesPerTicket), systemImage: "music.quarternote.3")
+                            .font(.subheadline.weight(.semibold)).foregroundColor(NativeTheme.textPrimary)
+                    }
+                    Text("Ticket holders can send short notes to your DJ, MC or performer during the party. Nothing shows on screen until the performer or you accept it.")
+                        .font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                }
+                .padding(16).studioSurface()
+                .accessibilityIdentifier("native-host-studio-request-notes")
+            }
             field("Capacity", text: $capacity, icon: "person.3.fill", prompt: "\(NativeHostTaxonomySelection.recommendedCapacity)", keyboard: .numberPad)
             VStack(alignment: .leading, spacing: 8) {
                 Text("Minimum membership").studioLabel()
@@ -835,7 +848,10 @@ struct NativeHostStudioView: View {
             reviewRow("Access", value: accessMode.title, icon: "ticket")
             reviewRow("Capacity", value: capacity, icon: "person.3")
             reviewRow("Membership", value: requiredTier.displayName, icon: "checkmark.shield")
-            if accessMode == .paidTicket { reviewRow("First Drop price", value: "$\(ticketPrice)", icon: "dollarsign.circle") }
+            if accessMode == .paidTicket {
+                reviewRow("First Drop price", value: "$\(ticketPrice)", icon: "dollarsign.circle")
+                reviewRow("Lineup requests", value: NativePartyRequestsContract.perTicketLabel(requestNotesPerTicket), icon: "music.quarternote.3")
+            }
             if templateID == .releaseParty { reviewRow("Release", value: releaseTitle, icon: "music.note.list") }
         }
         .padding(16).studioSurface()
@@ -1130,7 +1146,7 @@ struct NativeHostStudioView: View {
         let cents = max(0, Int(((Double(ticketPrice) ?? 0) * 100).rounded()))
         let teammate = teammateEmail.trimmingCharacters(in: .whitespacesAndNewlines)
         let venueCoordinate = NativeHostStudioPresentation.retainedVenueCoordinate(typed: venueName, pickedName: pickedVenueName, picked: pickedVenueCoordinate)
-        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, endsAt: hostSetsEnd ? endsAt : nil, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), latitude: venueCoordinate?.latitude, longitude: venueCoordinate?.longitude, locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: currentBeatOffsets[$0.offset]) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration, taxonomy: taxonomy, showOnDiscover: accessMode == .privateApproval ? showOnDiscover : nil)
+        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, endsAt: hostSetsEnd ? endsAt : nil, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), latitude: venueCoordinate?.latitude, longitude: venueCoordinate?.longitude, locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: currentBeatOffsets[$0.offset]) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier, requestNotes: requestNotesPerTicket)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration, taxonomy: taxonomy, showOnDiscover: accessMode == .privateApproval ? showOnDiscover : nil)
     }
 
     private var showOnDiscover: Bool {

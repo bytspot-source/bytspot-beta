@@ -811,7 +811,7 @@ struct NativePartyRequestsAPI {
         try await mutate("decide", input: ["partyId": partyID, "id": note.id, "version": note.version, "decision": decision])
     }
 
-    static func current(_ sessionStore: BytspotSessionStore) -> NativePartyRequestsAPI? {
+    @MainActor static func current(_ sessionStore: BytspotSessionStore) -> NativePartyRequestsAPI? {
         guard sessionStore.canAttachBearerToken, let token = sessionStore.token else { return nil }
         return NativePartyRequestsAPI(client: BytspotAPIClient(tokenProvider: { token }))
     }

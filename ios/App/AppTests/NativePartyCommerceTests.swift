@@ -450,3 +450,67 @@ private final class CommerceProtocol: URLProtocol {
         } catch { client?.urlProtocol(self, didFailWithError: error) }
     }
 }
+
+@Suite("Party request notes")
+struct NativePartyRequestNotesTests {
+    private func note(_ id: String, status: String = "accepted") -> NativePartyRequestNote {
+        NativePartyRequestNote(id: id, performerId: "dj", performerName: "DJ North", performerRole: "dj", body: "Play Outkast", senderName: nil,
+                               status: status, version: 1, createdAt: "2026-10-29T02:00:00Z", acceptedAt: "2026-10-29T02:01:00Z", playedAt: nil)
+    }
+    private func eligibility(_ json: String) throws -> NativePartyRequestEligibility {
+        try JSONDecoder().decode(NativePartyRequestEligibility.self, from: Data(json.utf8))
+    }
+
+    @Test func requestsAreSentOnlyOnPaidTiersAndCapped() {
+        let vip = NativePartyTicketTier(name: "First Drop", priceCents: 4000, quantity: 10, requiredMembershipTier: .green, requestNotes: 3)
+        #expect(vip.rpcInput["requestNotes"] as? Int == 3)
+        let free = NativePartyTicketTier(name: "Comp", priceCents: 0, quantity: 10, requiredMembershipTier: .green, requestNotes: 3)
+        #expect(free.rpcInput["requestNotes"] == nil)
+        let none = NativePartyTicketTier(name: "First Drop", priceCents: 2500, quantity: 10, requiredMembershipTier: .green)
+        #expect(none.rpcInput["requestNotes"] == nil)
+        let tooMany = NativePartyTicketTier(name: "First Drop", priceCents: 2500, quantity: 10, requiredMembershipTier: .green, requestNotes: 9)
+        #expect(tooMany.rpcInput["requestNotes"] as? Int == 5)
+    }
+
+    @Test func notesAreOneLineOfPlainTextUpTo140Characters() {
+        #expect(NativePartyRequestsContract.normalizedBody("  Play Outkast  ") == "Play Outkast")
+        #expect(NativePartyRequestsContract.normalizedBody("line one\nline two") == nil)
+        #expect(NativePartyRequestsContract.normalizedBody("   ") == nil)
+        #expect(NativePartyRequestsContract.normalizedBody(String(repeating: "x", count: 141)) == nil)
+        #expect(NativePartyRequestsContract.normalizedBody("hi \u{202E}there") == nil)
+    }
+
+    @Test func eligibilityDecodesAndSaysWhatIsTrue() throws {
+        let open = try eligibility(#"{"state":"open","allowance":3,"used":1,"remaining":2,"opensAt":"x","closesAt":"y","performers":[{"id":"dj","displayName":"DJ North","role":"dj"}],"tiersWithRequests":[{"name":"VIP","priceCents":4000,"requestNotes":3}]}"#)
+        #expect(open.canSend)
+        #expect(NativePartyRequestsContract.eligibilityHeadline(open) == "2 of 3 requests left")
+
+        let general = try eligibility(#"{"state":"no-request-ticket","allowance":0,"used":0,"remaining":0,"opensAt":"x","closesAt":"y","performers":[],"tiersWithRequests":[{"name":"VIP","priceCents":4000,"requestNotes":3}]}"#)
+        #expect(!general.canSend)
+        #expect(NativePartyRequestsContract.eligibilityHeadline(general) == "VIP tickets include 3 requests to the lineup.")
+
+        let noPerk = try eligibility(#"{"state":"no-request-ticket","allowance":0,"used":0,"remaining":0,"opensAt":"x","closesAt":"y","performers":[],"tiersWithRequests":[]}"#)
+        #expect(NativePartyRequestsContract.eligibilityHeadline(noPerk) == nil)
+
+        let early = try eligibility(#"{"state":"not-started","allowance":1,"used":0,"remaining":1,"opensAt":"x","closesAt":"y","performers":[{"id":"dj","displayName":"DJ North","role":"dj"}],"tiersWithRequests":[]}"#)
+        #expect(!early.canSend)
+        #expect(NativePartyRequestsContract.eligibilityHeadline(early) == "Your ticket includes 1 request to the lineup. They open when the party starts.")
+    }
+
+    @Test func aNewlyAcceptedNoteJumpsToTheFrontAndOtherwiseTheCurrentOneStays() {
+        let a = note("a"), b = note("b"), c = note("c")
+        #expect(NativePartyStageCarousel.nextIndex(previous: [], fresh: [a, b], index: 0) == 0)
+        #expect(NativePartyStageCarousel.nextIndex(previous: [a, b], fresh: [c, a, b], index: 1) == 0)
+        #expect(NativePartyStageCarousel.nextIndex(previous: [a, b, c], fresh: [a, c], index: 2) == 1)
+        #expect(NativePartyStageCarousel.nextIndex(previous: [a, b], fresh: [a], index: 1) == 0)
+        #expect(NativePartyStageCarousel.nextIndex(previous: [a], fresh: [], index: 0) == 0)
+        #expect(NativePartyStageCarousel.current([], index: 3) == nil)
+        #expect(NativePartyStageCarousel.current([a, b], index: 3)?.id == "b")
+    }
+
+    @Test func guestStatusWordingNeverPromisesAPlay() {
+        #expect(NativePartyRequestsContract.guestStatusLabel("sent") == "Waiting for the performer")
+        #expect(NativePartyRequestsContract.guestStatusLabel("dismissed") == "Not picked")
+        #expect(NativePartyRequestsContract.perTicketLabel(0) == "No lineup requests")
+    }
+}

@@ -1412,10 +1412,10 @@ private struct NativePlanBookablesPickerSheet: View {
                     let selected = category == item.id
                     Button(action: { nativeImpactLight(); category = item.id }) {
                         Label(item.title, systemImage: item.icon)
-                            .font(.system(size: 13, weight: .bold)).lineLimit(1).fixedSize()
+                            .font(.footnote.bold()).lineLimit(1).fixedSize()
                             .foregroundColor(selected ? .black : NativeTheme.textPrimary)
                             .padding(.horizontal, 14)
-                            .frame(height: 40)
+                            .frame(minHeight: 44)
                             .background(Capsule(style: .continuous).fill(selected ? NativeTheme.cyan : Color.white.opacity(0.06)))
                             .overlay(Capsule(style: .continuous).stroke(selected ? Color.white.opacity(0.25) : NativePolish.softBorder, lineWidth: 1))
                     }

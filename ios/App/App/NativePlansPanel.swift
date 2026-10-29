@@ -281,12 +281,13 @@ struct NativePlanWriteDraft {
 /// Category metadata only. Templates are never projected into offerings.
 /// Domain IDs travel over the wire; Discover supplies their familiar labels.
 enum NativePlanBookableCategories {
-    struct Category: Identifiable { let id: String; let title: String }
+    struct Category: Identifiable { let id: String; let title: String; let icon: String }
     static var bookables: [Category] {
         let domains = [BookableDomainID.coffee] + BookableDomainID.allCases.filter { $0 != .coffee }
         return domains.map { domain in
-            Category(id: domain.rawValue, title: domain == .coffee ? "Coffee" :
-                BookableTemplateCatalog.shared?.discoverCategories(forDomain: domain).first?.label ?? domain.rawValue.capitalized)
+            let discover = BookableTemplateCatalog.shared?.discoverCategories(forDomain: domain).first
+            return Category(id: domain.rawValue, title: domain == .coffee ? "Coffee" : discover?.label ?? domain.rawValue.capitalized,
+                            icon: discover?.icon ?? "square.grid.2x2")
         }
     }
 }
@@ -803,7 +804,10 @@ enum NativePlanDisplay {
 
     /// Says plainly which needs Bytspot can act on. Without this the chips
     /// would read as six things the app is about to arrange.
-    static let needsFootnote = "Coffee is the only one Bytspot can hold today. The rest stay your own checklist."
+    static let needsFootnote = "Bytspot can ask local businesses for Coffee, Dinner, Nightlife and Somewhere to stay. Parking and Getting there stay your own checklist."
+    static let businessesFootnote = "Free to ask. When you accept an offer, it's added to this Plan. Pay at the venue."
+    static let businessesAfterSaveNote = "Once the Plan is saved, local businesses you can ask show here too."
+    static let businessesNeedPlaceNote = "Add a place to this Plan to see local businesses you can ask."
 
     static func needLabel(_ need: String) -> String {
         switch need {
@@ -923,7 +927,7 @@ enum NativePlanDisplay {
 
     /// Named so the create sheet and the Plan detail cannot drift: the same
     /// sentence has to travel with the needs wherever they are shown.
-    static let openNeedsFootnote = "Coffee is the only one Bytspot can hold. The rest are yours to sort."
+    static let openNeedsFootnote = "Ask venues sends this Plan's time, place and group size to local businesses. Nothing is booked until you accept an offer."
 
     // MARK: - Prime Path display
 
@@ -1325,6 +1329,8 @@ private struct NativePlanBookablesPickerSheet: View {
     @ObservedObject var sessionStore: BytspotSessionStore
     let planID: String?
     let existingSourceIDs: Set<String>
+    let plan: NativeWindowAskPlanChoice?
+    let planPlace: NativePlanPlace?
     let onSelected: (NativePlanBookableDraft) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var draft: NativePlanBookableDraft
@@ -1333,12 +1339,18 @@ private struct NativePlanBookablesPickerSheet: View {
     @State private var catalog = NativePlanBookableLoadState()
     @State private var submission = NativePlanWriteDraft()
     @State private var errorMessage: String?
+    @State private var businesses: [NativeWindowListing] = []
+    @State private var asking: NativeWindowListing?
 
     init(sessionStore: BytspotSessionStore, initialDraft: NativePlanBookableDraft = .init(),
-         planID: String? = nil, existingSourceIDs: Set<String> = [], onSelected: @escaping (NativePlanBookableDraft) -> Void) {
+         planID: String? = nil, existingSourceIDs: Set<String> = [],
+         plan: NativeWindowAskPlanChoice? = nil, planPlace: NativePlanPlace? = nil,
+         onSelected: @escaping (NativePlanBookableDraft) -> Void) {
         self.sessionStore = sessionStore
         self.planID = planID
         self.existingSourceIDs = existingSourceIDs
+        self.plan = plan
+        self.planPlace = planPlace
         self.onSelected = onSelected
         _draft = State(initialValue: initialDraft)
     }
@@ -1359,18 +1371,11 @@ private struct NativePlanBookablesPickerSheet: View {
                     Text("Selected · \(draft.offerings.count)/\(NativePlanBookableDraft.limit)")
                         .font(.headline).foregroundColor(NativeTheme.textPrimary)
                     NativePlanBookableSelectionRows(draft: $draft, allowsRemoval: submission.allowsEdits)
-                    Picker("Category", selection: $category) {
-                        Section("Bookables") {
-                            ForEach(NativePlanBookableCategories.bookables) { category in
-                                Text(category.title).tag(category.id)
-                            }
-                        }
-                    }
-                    .pickerStyle(.menu).tint(NativeTheme.purple)
-                    .accessibilityIdentifier("native-plan-bookables-category")
+                    categoryRail
                     catalogContent
                 }
                 .disabled(!submission.allowsEdits)
+                businessesSection
                 if let errorMessage {
                     Text(errorMessage).font(.subheadline).foregroundColor(NativeTheme.orange)
                 }
@@ -1393,7 +1398,63 @@ private struct NativePlanBookablesPickerSheet: View {
         }
         .interactiveDismissDisabled(submission.isSaving)
         .task(id: loadID) { await loadCategory() }
+        .task(id: loadID) { await loadBusinesses() }
+        .sheet(item: $asking) { listing in
+            NativeWindowAskSheet(listing: listing, windows: windowsAPI(), demand: demandAPI(), fixedPlan: plan)
+        }
         .accessibilityIdentifier("native-plan-bookables-picker")
+    }
+
+    private var categoryRail: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(NativePlanBookableCategories.bookables) { item in
+                    let selected = category == item.id
+                    Button(action: { nativeImpactLight(); category = item.id }) {
+                        Label(item.title, systemImage: item.icon)
+                            .font(.system(size: 13, weight: .bold)).lineLimit(1).fixedSize()
+                            .foregroundColor(selected ? .black : NativeTheme.textPrimary)
+                            .padding(.horizontal, 14)
+                            .frame(height: 40)
+                            .background(Capsule(style: .continuous).fill(selected ? NativeTheme.cyan : Color.white.opacity(0.06)))
+                            .overlay(Capsule(style: .continuous).stroke(selected ? Color.white.opacity(0.25) : NativePolish.softBorder, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    .accessibilityIdentifier("native-plan-bookables-category-\(item.id)")
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .accessibilityIdentifier("native-plan-bookables-category")
+    }
+
+    /// Local businesses that take asks in this category, near the Plan.
+    @ViewBuilder private var businessesSection: some View {
+        if planID == nil {
+            Text(NativePlanDisplay.businessesAfterSaveNote)
+                .font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if planPlace == nil {
+            Text(NativePlanDisplay.businessesNeedPlaceNote)
+                .font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if !businesses.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Ask a local business").font(.headline).foregroundColor(NativeTheme.textPrimary)
+                Text(NativePlanDisplay.businessesFootnote)
+                    .font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(businesses) { listing in
+                            NativeWindowListingCard(listing: listing) { asking = listing }
+                        }
+                    }
+                }
+            }
+            .accessibilityIdentifier("native-plan-bookables-businesses")
+        }
     }
 
     @ViewBuilder private var catalogContent: some View {
@@ -1440,6 +1501,20 @@ private struct NativePlanBookablesPickerSheet: View {
 
     private func api() -> NativePlanAPI {
         NativePlanAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token }))
+    }
+
+    private func windowsAPI() -> NativeWindowAsking { NativeWindowAskAPI(client: api().client) }
+    private func demandAPI() -> NativePlanDemandAsking { NativePlanDemandAPI(client: api().client) }
+
+    private func loadBusinesses() async {
+        let requestedCategory = category
+        businesses = []
+        guard planID != nil, let planPlace, sessionStore.canAttachBearerToken else { return }
+        let near = NativeLocationCoordinate(latitude: planPlace.latitude, longitude: planPlace.longitude, isFallback: false)
+        // A rail that fails to load is absent, not an error: the Plan still works.
+        guard let found = try? await windowsAPI().listings(near: near, domain: requestedCategory),
+              !Task.isCancelled, category == requestedCategory else { return }
+        businesses = found.filter(\.takesAsks)
     }
 
     private func loadCategory() async {
@@ -1905,7 +1980,9 @@ struct NativePlanDetailSheet: View {
         }
         .sheet(isPresented: $showBookables, onDismiss: { Task { await reload() } }) {
             NativePlanBookablesPickerSheet(sessionStore: sessionStore, planID: planID,
-                                          existingSourceIDs: NativePlanDisplay.selectedSourceIDs(in: plan?.items ?? [])) { _ in
+                                          existingSourceIDs: NativePlanDisplay.selectedSourceIDs(in: plan?.items ?? []),
+                                          plan: plan.map { NativeWindowAskPlanChoice(id: $0.id, title: $0.title) },
+                                          planPlace: plan?.place) { _ in
                 onChanged()
             }
         }
@@ -3395,7 +3472,7 @@ struct NativePlanCreateSheet: View {
                 .accessibilityIdentifier("native-plan-create-need-\(need)")
             }
             // Six chips would otherwise read as six things the app is about to
-            // arrange; only one of them has a supply path today.
+            // arrange; only the ones local businesses can answer have a supply path.
             Text(NativePlanDisplay.needsFootnote)
                 .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
         }

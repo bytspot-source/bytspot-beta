@@ -615,26 +615,26 @@ enum NativeWindowAskRules {
 }
 
 protocol NativeWindowAsking {
-    func listings(near coordinate: NativeLocationCoordinate) async throws -> [NativeWindowListing]
-    func ask(windowID: String, partySize: Int, startsAt: String, note: String) async throws -> NativePlanDemandRaised
+    func listings(near coordinate: NativeLocationCoordinate, domain: String?) async throws -> [NativeWindowListing]
+    func ask(windowID: String, partySize: Int, startsAt: String, note: String, planID: String?) async throws -> NativePlanDemandRaised
 }
 
 struct NativeWindowAskAPI: NativeWindowAsking {
     let client: BytspotAPIClient
 
-    func listings(near coordinate: NativeLocationCoordinate) async throws -> [NativeWindowListing] {
-        let payload = try await client.trpcQueryPayload(
-            path: "/trpc/inventory.list",
-            input: ["lat": coordinate.latitude, "lng": coordinate.longitude],
-        )
+    func listings(near coordinate: NativeLocationCoordinate, domain: String?) async throws -> [NativeWindowListing] {
+        var input: [String: Any] = ["lat": coordinate.latitude, "lng": coordinate.longitude]
+        if let domain { input["domain"] = domain }
+        let payload = try await client.trpcQueryPayload(path: "/trpc/inventory.list", input: input)
         let data = try JSONSerialization.data(withJSONObject: NativeTRPCList.rows(payload))
         return try JSONDecoder().decode([NativeWindowListing].self, from: data)
     }
 
-    func ask(windowID: String, partySize: Int, startsAt: String, note: String) async throws -> NativePlanDemandRaised {
+    func ask(windowID: String, partySize: Int, startsAt: String, note: String, planID: String?) async throws -> NativePlanDemandRaised {
         var input: [String: Any] = ["windowId": windowID, "partySize": partySize, "startsAt": startsAt]
         let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { input["note"] = trimmed }
+        if let planID { input["planId"] = planID }
         let payload = try await client.trpcPayload(path: "/trpc/demand.ask", method: "POST", input: input)
         let data = try JSONSerialization.data(withJSONObject: payload)
         return try JSONDecoder().decode(NativePlanDemandRaised.self, from: data)
@@ -652,6 +652,7 @@ struct NativeWindowAskRail: View {
     @State private var listings: [NativeWindowListing] = []
     @State private var asking: NativeWindowListing?
     @State private var showRequests = false
+    @State private var planChoices: [NativeWindowAskPlanChoice] = []
 
     private var client: BytspotAPIClient {
         let store = sessionStore
@@ -692,14 +693,18 @@ struct NativeWindowAskRail: View {
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 12) {
-                        ForEach(listings) { listing in card(listing) }
+                        ForEach(listings) { listing in
+                            NativeWindowListingCard(listing: listing) {
+                                if sessionStore.canAttachBearerToken { asking = listing } else { openAuth() }
+                            }
+                        }
                     }
                 }
             }
         }
         .task(id: "\(coordinate.latitude),\(coordinate.longitude)") { await load() }
         .sheet(item: $asking) { listing in
-            NativeWindowAskSheet(listing: listing, windows: windows, demand: demand)
+            NativeWindowAskSheet(listing: listing, windows: windows, demand: demand, planChoices: planChoices)
         }
         .sheet(isPresented: $showRequests) {
             NativeGuestRequestsView(demand: demand)
@@ -709,8 +714,9 @@ struct NativeWindowAskRail: View {
 
     private func load() async {
         // A rail that fails to load is absent, not an error: Discover still works.
-        guard let found = try? await windows.listings(near: coordinate) else { return }
+        guard let found = try? await windows.listings(near: coordinate, domain: nil) else { return }
         listings = found.filter(\.takesAsks)
+        await loadPlanChoices()
         #if DEBUG
         switch NativeWindowAskPreview.mode {
         case "requests": showRequests = true
@@ -720,7 +726,31 @@ struct NativeWindowAskRail: View {
         #endif
     }
 
-    @ViewBuilder private func card(_ listing: NativeWindowListing) -> some View {
+    /// The guest's own open Plans, so an ask can be filed in one. Absent on failure.
+    private func loadPlanChoices() async {
+        guard sessionStore.canAttachBearerToken, let userID = sessionStore.authenticatedUserID,
+              let plans = try? await NativePlanAPI(client: client).list() else { planChoices = []; return }
+        planChoices = NativeWindowAskPlanChoice.choices(from: plans, userID: userID)
+    }
+}
+
+/// A Plan an ask can be filed in.
+struct NativeWindowAskPlanChoice: Identifiable, Equatable {
+    let id: String
+    let title: String
+
+    static func choices(from plans: [NativePlan], userID: String?) -> [NativeWindowAskPlanChoice] {
+        plans.filter { NativePlanDisplay.canAddBookables($0, userID: userID) }
+            .map { NativeWindowAskPlanChoice(id: $0.id, title: $0.title) }
+    }
+}
+
+/// One published vendor window as a Discover-style card with an Ask.
+struct NativeWindowListingCard: View {
+    let listing: NativeWindowListing
+    let onAsk: () -> Void
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             AsyncImage(url: listing.imageURL) { image in
                 image.resizable().scaledToFill()
@@ -744,9 +774,7 @@ struct NativeWindowAskRail: View {
                 .lineLimit(1)
 
             HStack(spacing: 8) {
-                Button(action: {
-                    if sessionStore.canAttachBearerToken { asking = listing } else { openAuth() }
-                }) {
+                Button(action: onAsk) {
                     Text("Ask")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundColor(.black)
@@ -778,8 +806,12 @@ struct NativeWindowAskSheet: View {
     let listing: NativeWindowListing
     let windows: NativeWindowAsking
     let demand: NativePlanDemandAsking
+    /// Plans the guest may file this ask in; `fixedPlan` is the Plan the sheet was opened from.
+    var planChoices: [NativeWindowAskPlanChoice] = []
+    var fixedPlan: NativeWindowAskPlanChoice? = nil
 
     @Environment(\.dismiss) private var dismiss
+    @State private var planID: String?
     @State private var partySize = 2
     @State private var slotID: String?
     @State private var note = ""
@@ -887,6 +919,8 @@ struct NativeWindowAskSheet: View {
             TextField("Note (optional)", text: $note)
                 .textFieldStyle(.roundedBorder)
 
+            planRow
+
             Button(action: { Task { await send() } }) {
                 HStack(spacing: 8) {
                     if sending { ProgressView().controlSize(.mini).tint(.black) }
@@ -903,6 +937,33 @@ struct NativeWindowAskSheet: View {
             Text("Free to ask. Nothing is booked until you accept an offer.")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(NativeTheme.textTertiary)
+        }
+    }
+
+    @ViewBuilder private var planRow: some View {
+        if let fixedPlan {
+            Label("Added to “\(fixedPlan.title)” when you accept an offer.", systemImage: "list.bullet.rectangle")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(NativeTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("native-window-ask-fixed-plan")
+        } else if !planChoices.isEmpty {
+            HStack {
+                Text("Add to a Plan")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(NativeTheme.textSecondary)
+                Spacer()
+                Picker("Add to a Plan", selection: $planID) {
+                    Text("Don't add").tag(String?.none)
+                    ForEach(planChoices) { choice in
+                        Text(choice.title).tag(Optional(choice.id))
+                    }
+                }
+                .pickerStyle(.menu)
+                .tint(NativeTheme.cyan)
+            }
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("native-window-ask-plan")
         }
     }
 
@@ -949,6 +1010,7 @@ struct NativeWindowAskSheet: View {
     private func resume() async {
         partySize = min(max(1, partySize), max(1, listing.maxGuests))
         if slotID == nil { slotID = listing.slots.first?.id }
+        if let fixedPlan { planID = fixedPlan.id }
         guard let mine = try? await demand.mine() else { return }
         if ask == nil, let live = NativeWindowAskRules.liveAsk(in: mine, windowID: listing.windowId) { ask = live }
         #if DEBUG
@@ -975,10 +1037,10 @@ struct NativeWindowAskSheet: View {
         sending = true
         problem = nil
         do {
-            let raised = try await windows.ask(windowID: listing.windowId, partySize: partySize, startsAt: slot.startsAt, note: note)
+            let raised = try await windows.ask(windowID: listing.windowId, partySize: partySize, startsAt: slot.startsAt, note: note, planID: planID)
             ask = NativePlanDemandAsk(
                 id: raised.id, state: raised.state, category: raised.category, partySize: partySize,
-                planId: nil, expiresAt: raised.expiresAt, offers: [], targetWindowId: listing.windowId,
+                planId: planID, expiresAt: raised.expiresAt, offers: [], targetWindowId: listing.windowId,
             )
         } catch {
             problem = NativePlanDemandFailure.message(for: error)
@@ -1183,8 +1245,8 @@ enum NativeWindowAskPreview {
     }
 
     struct Windows: NativeWindowAsking {
-        func listings(near coordinate: NativeLocationCoordinate) async throws -> [NativeWindowListing] { NativeWindowAskPreview.listings }
-        func ask(windowID: String, partySize: Int, startsAt: String, note: String) async throws -> NativePlanDemandRaised {
+        func listings(near coordinate: NativeLocationCoordinate, domain: String?) async throws -> [NativeWindowListing] { NativeWindowAskPreview.listings }
+        func ask(windowID: String, partySize: Int, startsAt: String, note: String, planID: String?) async throws -> NativePlanDemandRaised {
             NativePlanDemandRaised(id: "preview-demand-new", state: "OPEN", category: "dining", expiresAt: startsAt)
         }
     }

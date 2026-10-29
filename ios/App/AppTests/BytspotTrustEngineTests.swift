@@ -7134,6 +7134,26 @@ final class NativePlanBookablesContractTests: XCTestCase {
                    participants: [], items: [], joinToken: nil)
     }
 
+    func testWindowAskOffersOnlyPlansTheGuestCanStillAddTo() {
+        let open = plan()
+        let cancelled = NativePlan(id: "plan-2", title: "Old", intent: "Together", creatorUserId: "creator", startsAt: nil,
+                                   endsAt: nil, areaLabel: nil, partySize: nil, needs: [], lifecycle: "cancelled", state: "proposed",
+                                   readiness: .init(going: 1, maybe: 0, pending: 0, declined: 0, total: 1), openNeeds: [],
+                                   participants: [], items: [], joinToken: nil)
+        XCTAssertEqual(NativeWindowAskPlanChoice.choices(from: [open, cancelled], userID: "creator"),
+                       [NativeWindowAskPlanChoice(id: "plan-1", title: "Catch up")])
+        XCTAssertEqual(NativeWindowAskPlanChoice.choices(from: [open], userID: "guest"), [],
+                       "Only the creator can file an ask in a Plan.")
+        XCTAssertEqual(NativeWindowAskPlanChoice.choices(from: [open], userID: nil), [])
+    }
+
+    func testPlanBookableCategoriesKeepCoffeeFirstAndCarryAnIcon() {
+        let categories = NativePlanBookableCategories.bookables
+        XCTAssertEqual(categories.first?.id, "coffee")
+        XCTAssertEqual(Set(categories.map(\.id)).count, BookableDomainID.allCases.count)
+        XCTAssertTrue(categories.allSatisfy { !$0.icon.isEmpty })
+    }
+
     func testPlanJoinAsksSignedOutHolderToSignInThenResumesTheJoin() {
         XCTAssertEqual(NativePlanJoinView.stateBeforeLoad(current: .loading, signedIn: false), .signedOut,
                        "A signed-out invitee must not be told the Plan is unavailable.")
@@ -8038,18 +8058,19 @@ final class NativePlanCreateTests: XCTestCase {
         XCTAssertEqual(NativePlanDisplay.normalizedNeeds(selection), NativePlanDisplay.normalizedNeeds(selection))
     }
 
-    func testPlanNeedChipsSayWhichOneBytspotCanActuallyHold() {
-        // Six selectable needs, one supply path. The footnotes are the only
-        // thing stopping the chips from reading as six pending arrangements.
+    func testPlanNeedChipsSayWhichOnesBytspotCanAskFor() {
+        // Six selectable needs; only some reach local businesses. The footnotes
+        // are the only thing stopping the chips from reading as six pending
+        // arrangements.
         XCTAssertEqual(NativePlanDisplay.selectableNeeds.count, 6)
         XCTAssertTrue(NativePlanDisplay.selectableNeeds.contains("coffee"))
         XCTAssertEqual(
             NativePlanDisplay.needsFootnote,
-            "Coffee is the only one Bytspot can hold today. The rest stay your own checklist."
+            "Bytspot can ask local businesses for Coffee, Dinner, Nightlife and Somewhere to stay. Parking and Getting there stay your own checklist."
         )
-        // The durable surface carries the same limit. The create sheet's
-        // footnote is gone by the time anyone reads a Plan's "Still open".
-        XCTAssertTrue(NativePlanDisplay.openNeedsFootnote.contains("only one Bytspot can hold"))
+        // The durable surface says nothing is booked by asking. The create
+        // sheet's footnote is gone by the time anyone reads "Still open".
+        XCTAssertTrue(NativePlanDisplay.openNeedsFootnote.contains("Nothing is booked until you accept an offer"))
         // No chip may name a settlement the app cannot make.
         for need in NativePlanDisplay.selectableNeeds {
             let label = NativePlanDisplay.needLabel(need)

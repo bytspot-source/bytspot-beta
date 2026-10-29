@@ -69,18 +69,29 @@ test('share metadata carries no retired campaign artwork', () => {
 
 test('party links get a self-referencing Smart App Banner before the bundle boots', () => {
   const html = readFileSync(new URL('../../../index.html', import.meta.url), 'utf8');
+  const banner = readFileSync(new URL('../../../public/app-banner.js', import.meta.url), 'utf8');
   // A /party/<id> page must not inherit the homepage app-argument, or iOS
-  // caches a Default App Clip card for every share link.
-  assert.match(html, /parts\[0\] === 'party'[\s\S]*?document\.write/);
-  assert.match(html, /app-argument=' \+ window\.location\.href/);
+  // caches a Default App Clip card for every share link. The script is
+  // classic and synchronous so it runs before the default banner meta.
+  assert.match(html, /<script src="\/app-banner\.js"><\/script>\s*<meta name="apple-itunes-app"/);
+  assert.match(banner, /parts\[0\] === 'party'[\s\S]*?document\.write/);
+  assert.match(banner, /app-argument=' \+ window\.location\.href/);
 });
 
 test('sale links hand the App Clip the sale, never the home page', () => {
-  const html = readFileSync(new URL('../../../index.html', import.meta.url), 'utf8');
-  assert.match(html, /parts\[0\] === 'sale'\) && parts\[1\]\) \{\s*document\.write/);
-  assert.match(html, /pathParts\[0\] === 'sale'\) && pathParts\[1\]/);
+  const banner = readFileSync(new URL('../../../public/app-banner.js', import.meta.url), 'utf8');
+  const boot = readFileSync(new URL('../../../public/app-boot.js', import.meta.url), 'utf8');
+  assert.match(banner, /parts\[0\] === 'sale'\) && parts\[1\]\) \{\s*document\.write/);
+  assert.match(boot, /pathParts\[0\] === 'sale'\) && pathParts\[1\]/);
   // A ?p= or ?patch= on a sale link is not a patch; the sale URL is kept whole.
   assert.equal(nativeAppClipArgumentFor('https://bytspot.app/sale/sale-1?p=BYT424-0301'), 'https://bytspot.app/sale/sale-1?p=BYT424-0301');
+});
+
+test('the homepage runs no inline script, so a strict CSP can drop unsafe-inline', () => {
+  const html = readFileSync(new URL('../../../index.html', import.meta.url), 'utf8');
+  const inline = [...html.matchAll(/<script(?![^>]*\bsrc=)([^>]*)>/g)].filter((m) => !/type="application\/ld\+json"/.test(m[1]));
+  assert.deepEqual(inline, []);
+  assert.doesNotMatch(html, /\son[a-z]+=/i);
 });
 
 test('search structured data parses and claims only what ships', () => {

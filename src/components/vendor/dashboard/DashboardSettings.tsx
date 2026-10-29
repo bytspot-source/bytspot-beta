@@ -1,3 +1,4 @@
+import { getConnectRedirectUrl } from '../../../utils/checkoutRedirect';
 import { motion } from 'motion/react';
 import { trpc } from '../../../utils/trpc';
 import { 
@@ -240,7 +241,8 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
           refreshPath: '/provider/connect/refresh',
           returnPath: '/provider/connect/return',
         });
-        if (result?.url) window.location.href = result.url;
+        const onboardingUrl = getConnectRedirectUrl(result?.url);
+        if (onboardingUrl) window.location.href = onboardingUrl;
         else setSettingsMessage(result?.message ?? 'Stripe Connect is not available right now.');
       } catch (err: any) {
         setSettingsMessage(err?.message ?? 'Unable to open payout settings.');

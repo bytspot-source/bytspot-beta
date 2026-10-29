@@ -1,3 +1,4 @@
+import { getConnectRedirectUrl } from '../../../utils/checkoutRedirect';
 import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import {
@@ -112,7 +113,7 @@ export function DashboardHome({ isDarkMode, access, reviewState, onNavigate }: D
         refreshPath: STRIPE_CONNECT_REFRESH_PATH,
         returnPath: STRIPE_CONNECT_RETURN_PATH,
       });
-      const onboardingUrl = typeof result?.url === 'string' ? result.url.trim() : '';
+      const onboardingUrl = getConnectRedirectUrl(result?.url);
       if (onboardingUrl) {
         window.location.href = onboardingUrl;
         return;

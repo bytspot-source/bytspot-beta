@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { getCheckoutRedirectUrl } from '../checkoutRedirect.ts';
+import { getCheckoutRedirectUrl, getConnectRedirectUrl } from '../checkoutRedirect.ts';
 
 describe('checkoutRedirect', () => {
   it('accepts Stripe test checkout URLs', () => {
@@ -35,5 +35,23 @@ describe('checkoutRedirect', () => {
     assert.equal(getCheckoutRedirectUrl({ url: 'javascript:alert(1)' }), null);
     assert.equal(getCheckoutRedirectUrl({ sessionId: 'sk_test_secret_key_should_not_redirect' }), null);
     assert.equal(getCheckoutRedirectUrl(null), null);
+  });
+
+  it('follows only Stripe-hosted Checkout pages', () => {
+    assert.equal(getCheckoutRedirectUrl({ url: 'https://evil.example/c/pay/cs_test_1' }), null);
+    assert.equal(getCheckoutRedirectUrl({ url: 'http://checkout.stripe.com/c/pay/cs_test_1' }), null);
+    assert.equal(getCheckoutRedirectUrl({ url: 'https://checkout.stripe.com.evil.example/c/pay/cs_test_1' }), null);
+    assert.equal(getCheckoutRedirectUrl({ url: 'https://user@checkout.stripe.com/c/pay/cs_test_1' }), null);
+    assert.equal(getCheckoutRedirectUrl({ url: 'https://connect.stripe.com/setup/e/acct_1/abc' }), null);
+  });
+
+  it('follows only Stripe Connect onboarding links for payouts', () => {
+    const url = 'https://connect.stripe.com/setup/e/acct_1/abc';
+    assert.equal(getConnectRedirectUrl(url), url);
+    assert.equal(getConnectRedirectUrl(` ${url} `), url);
+    assert.equal(getConnectRedirectUrl('https://checkout.stripe.com/c/pay/cs_test_1'), null);
+    assert.equal(getConnectRedirectUrl('https://connect.stripe.com.evil.example/setup'), null);
+    assert.equal(getConnectRedirectUrl('javascript:alert(1)'), null);
+    assert.equal(getConnectRedirectUrl(undefined), null);
   });
 });

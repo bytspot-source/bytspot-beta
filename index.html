@@ -75,61 +75,13 @@
       <!-- Smart App Banner — default argument is this page, never the retired
            Platinum /p/app-clip catalog. JS below rewrites /party/<id> and
            patch URLs before iOS caches the card. -->
-      <script>
-        // Runs before the Smart App Banner meta is parsed so iOS never caches a
-        // homepage app-argument for a /party/<id> or /sale/<id> link. The module
-        // bundle below re-applies the same value once it boots.
-        (function () {
-          try {
-            var parts = window.location.pathname.split('/').filter(Boolean);
-            if ((parts[0] === 'party' || parts[0] === 'group' || parts[0] === 'sale') && parts[1]) {
-              document.write('<meta name="apple-itunes-app" content="app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=' + window.location.href + '">');
-            }
-          } catch (_) {}
-        })();
-      </script>
+      <script src="/app-banner.js"></script>
       <meta name="apple-itunes-app" content="app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=https://bytspot.app/" />
     </head>
 
     <body>
       <div id="root"></div>
-      <script>
-        (function () {
-          var redirect = sessionStorage.getItem('spa_redirect');
-          if (redirect) {
-            sessionStorage.removeItem('spa_redirect');
-            window.history.replaceState(null, '', redirect);
-          }
-          var banner = document.querySelector('meta[name="apple-itunes-app"]');
-          if (banner) {
-            var canonicalArgument = window.location.href;
-            try {
-              var current = new URL(window.location.href);
-              var patchId = current.searchParams.get('patchId') || current.searchParams.get('patch') || current.searchParams.get('p');
-              var pathParts = current.pathname.split('/').filter(Boolean);
-              if (!patchId && pathParts[0] && pathParts[0].toUpperCase().indexOf('BYT') === 0) patchId = pathParts[0];
-              if (!patchId && (pathParts[0] === 'p' || pathParts[0] === 'patch' || pathParts[0] === 't') && pathParts[1]) patchId = pathParts[1];
-              if ((pathParts[0] === 'group' || pathParts[0] === 'party' || pathParts[0] === 'sale') && pathParts[1]) {
-                canonicalArgument = current.toString();
-                patchId = null;
-              } else if (patchId) {
-                var next = new URL('https://bytspot.app/p/app-clip');
-                next.searchParams.set('patchId', patchId);
-                current.searchParams.forEach(function (value, key) {
-                  if (key !== 'patchId' && key !== 'patch' && key !== 'p') next.searchParams.set(key, value);
-                });
-                canonicalArgument = next.toString();
-              }
-            } catch (_) {}
-            banner.setAttribute('content', 'app-id=6761876421, app-clip-bundle-id=com.bytspot.app.Clip, app-clip-display=card, app-argument=' + canonicalArgument);
-          }
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function (regs) {
-              regs.forEach(function (reg) { reg.unregister(); });
-            }).catch(function () {});
-          }
-        })();
-      </script>
+      <script src="/app-boot.js"></script>
       <script type="module" src="/src/main.tsx"></script>
     </body>
   </html>

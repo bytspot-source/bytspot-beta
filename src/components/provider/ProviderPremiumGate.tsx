@@ -1,3 +1,4 @@
+import { getCheckoutRedirectUrl } from '../../utils/checkoutRedirect';
 import { useEffect, useId, useState } from 'react';
 import { motion } from 'motion/react';
 import { CheckCircle2, Crown, Lock, Sparkles, Zap } from 'lucide-react';
@@ -67,8 +68,9 @@ export function ProviderPremiumGate({ title, description, features, compact = fa
         usePoints,
         couponCode: couponCode.trim() || undefined,
       });
-      if (result?.url) {
-        window.location.href = result.url;
+      const checkoutUrl = getCheckoutRedirectUrl(result);
+      if (checkoutUrl) {
+        window.location.href = checkoutUrl;
         return;
       }
       if (result?.message === 'Already premium') {

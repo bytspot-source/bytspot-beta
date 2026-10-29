@@ -1196,7 +1196,7 @@ export function ProfileSection({ isDarkMode, onOpenVirtualPatch, onLogout }: Pro
                 <p className="text-[11px] text-purple-300 tracking-wider" style={{ fontWeight: 800 }}>PEOPLE</p>
                 <p className="text-[16px] text-white" style={{ fontWeight: 700 }}>Find a person</p>
                 <p className="text-[12px] text-slate-300 mt-0.5" style={{ fontWeight: 500 }}>
-                  Bytspot matches your contacts on-device using salted hashes. Your address book is never uploaded or stored.
+                  Only scrambled codes of your contacts' emails and numbers are sent, never names. Bytspot scrambles them again with a private key before storing them.
                 </p>
               </div>
             </div>

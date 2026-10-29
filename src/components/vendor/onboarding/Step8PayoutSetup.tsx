@@ -1,3 +1,4 @@
+import { getConnectRedirectUrl } from '../../../utils/checkoutRedirect';
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { CreditCard, Building2, Calendar, CheckCircle, ExternalLink, RefreshCw } from 'lucide-react';
@@ -124,7 +125,7 @@ export function Step8PayoutSetup({ onComplete, initialValue, businessName }: Ste
         refreshPath: '/provider/connect/refresh',
         returnPath: '/provider/connect/return',
       });
-      const onboardingUrl = typeof result?.url === 'string' ? result.url.trim() : '';
+      const onboardingUrl = getConnectRedirectUrl(result?.url);
       if (!onboardingUrl) {
         setConnectNotice({ tone: 'error', message: result?.message || 'Stripe onboarding is not available yet. Please try again from the Provider dashboard.' });
         return;

@@ -16,6 +16,7 @@ const files = {
   rootAasa: path.join(root, 'public/apple-app-site-association'),
   headers: path.join(root, 'public/_headers'),
   index: path.join(root, 'index.html'),
+  appBoot: path.join(root, 'public/app-boot.js'),
   ghThumbnail: path.join(root, 'public/media/gh-akwaaba-fifa-ghana-thumbnail.png'),
   clipPatchVerifier: path.join(root, 'ios/App/Clip/ClipPatchVerifier.swift'),
 };
@@ -38,6 +39,7 @@ const aasa = read('AASA', files.aasa);
 const rootAasa = read('Root AASA alias', files.rootAasa);
 const headers = read('AASA headers', files.headers);
 const index = read('index.html', files.index);
+const appBoot = read('app-boot.js', files.appBoot);
 const clipPatchVerifier = read('ClipPatchVerifier.swift', files.clipPatchVerifier);
 const stripSwiftComments = (source) => source
   .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -87,7 +89,7 @@ const checks = [
   ['Main App routes incoming URLs through the native pipeline', appDelegate.includes('NativeIncomingURLCenter.publish(url, scanSource: .deepLink)') && appDelegate.includes('NativeIncomingURLCenter.publish(url, scanSource: .universalLink)')],
   ['Native shell resolves legacy hybrid routes natively', nativeShell.includes('openNativeEquivalent(for: route)') && !nativeShell.includes('CAPBridgeViewController')],
   ['Smart App Banner default is the site root, not the retired Platinum catalog', index.includes('app-argument=https://bytspot.app/"') && !index.includes('app-argument=https://bytspot.app/p/app-clip?patchId=BYT424&amp;tier=platinum') && !index.includes('app-argument=https://bytspot.app/patch"')],
-  ['Smart App Banner preserves Party Pass app arguments', index.includes("pathParts[0] === 'party'") && index.includes('canonicalArgument = current.toString()')],
+  ['Smart App Banner preserves Party Pass app arguments', index.includes('<script src="/app-boot.js"></script>') && appBoot.includes("pathParts[0] === 'party'") && appBoot.includes('canonicalArgument = current.toString()')],
   ['Share metadata is native-only, not Platinum PWA', index.includes('property="og:title" content="Bytspot"') && index.includes('property="og:url" content="https://bytspot.app/"') && !index.includes('Bytspot Platinum Access') && !index.includes('rel="manifest"') && !index.includes('apple-mobile-web-app-capable')],
   ['GH Akwaaba FIFA thumbnail PNG exists', fs.existsSync(files.ghThumbnail)],
   ['GH Akwaaba is not a standalone service tile', !clipPatchVerifier.includes('platinum-fifa-matchday') && !clipPatchVerifier.includes('ghAkwaabaFifaService')],

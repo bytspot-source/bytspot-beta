@@ -1,3 +1,4 @@
+import { getConnectRedirectUrl } from '../../../utils/checkoutRedirect';
 import { motion } from 'motion/react';
 import { 
   Activity, 
@@ -205,8 +206,9 @@ export function DashboardFusionEngine({ access }: DashboardFusionEngineProps) {
         returnPath: STRIPE_CONNECT_RETURN_PATH,
       });
       if (result?.vendor) setVendorOnboarding(result.vendor);
-      if (result?.url) {
-        window.location.assign(result.url);
+      const onboardingUrl = getConnectRedirectUrl(result?.url);
+      if (onboardingUrl) {
+        window.location.assign(onboardingUrl);
         return;
       }
       setConnectMessage(result?.message ?? 'Stripe onboarding is not available yet.');

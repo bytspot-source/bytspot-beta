@@ -37,12 +37,23 @@ function normalizeCheckoutCandidate(candidate: string): string | null {
     return `https://checkout.stripe.com/c/pay/${candidate}`;
   }
 
+  return stripeHostedUrl(candidate, 'checkout.stripe.com');
+}
+
+/** Only Stripe's own hosted pages are followed; any other URL is refused. */
+function stripeHostedUrl(candidate: unknown, host: 'checkout.stripe.com' | 'connect.stripe.com'): string | null {
+  if (typeof candidate !== 'string' || !candidate.trim()) return null;
   try {
-    const url = new URL(candidate);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null;
+    const url = new URL(candidate.trim());
+    return url.protocol === 'https:' && url.hostname === host && !url.username && !url.password && !url.port ? url.href : null;
   } catch {
     return null;
   }
+}
+
+/** A Stripe Connect onboarding link, or null when the server sent anything else. */
+export function getConnectRedirectUrl(candidate: unknown): string | null {
+  return stripeHostedUrl(candidate, 'connect.stripe.com');
 }
 
 export function getCheckoutRedirectUrl(result: CheckoutRedirectResponse): string | null {

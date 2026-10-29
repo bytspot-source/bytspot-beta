@@ -1,3 +1,4 @@
+import { getCheckoutRedirectUrl } from '../utils/checkoutRedirect';
 import 'leaflet/dist/leaflet.css';
 import { Capacitor } from '@capacitor/core';
 import { MapContainer, TileLayer, useMap, useMapEvents, Polyline, CircleMarker } from 'react-leaflet';
@@ -541,8 +542,9 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
       const result = await trpc.subscription.createCheckout.mutate({
         plan: PLATINUM_SUBSCRIPTION_PLAN,
       });
-      if (result?.url) {
-        window.location.href = result.url;
+      const checkoutUrl = getCheckoutRedirectUrl(result);
+      if (checkoutUrl) {
+        window.location.href = checkoutUrl;
         return;
       }
       toast('Platinum preview', {

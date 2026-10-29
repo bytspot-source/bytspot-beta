@@ -811,6 +811,7 @@ struct NativeWindowAskSheet: View {
     var fixedPlan: NativeWindowAskPlanChoice? = nil
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var planID: String?
     @State private var partySize = 2
     @State private var slotID: String?
@@ -948,23 +949,40 @@ struct NativeWindowAskSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("native-window-ask-fixed-plan")
         } else if !planChoices.isEmpty {
-            HStack {
-                Text("Add to a Plan")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(NativeTheme.textSecondary)
-                Spacer()
-                Picker("Add to a Plan", selection: $planID) {
-                    Text("Don't add").tag(String?.none)
-                    ForEach(planChoices) { choice in
-                        Text(choice.title).tag(Optional(choice.id))
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 4) {
+                        planLabel
+                        planPicker
+                    }
+                } else {
+                    HStack {
+                        planLabel
+                        Spacer()
+                        planPicker
                     }
                 }
-                .pickerStyle(.menu)
-                .tint(NativeTheme.cyan)
             }
             .frame(minHeight: 44)
             .accessibilityIdentifier("native-window-ask-plan")
         }
+    }
+
+    private var planLabel: some View {
+        Text("Add to a Plan")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(NativeTheme.textSecondary)
+    }
+
+    private var planPicker: some View {
+        Picker("Add to a Plan", selection: $planID) {
+            Text("Don't add").tag(String?.none)
+            ForEach(planChoices) { choice in
+                Text(choice.title).tag(Optional(choice.id))
+            }
+        }
+        .pickerStyle(.menu)
+        .tint(NativeTheme.cyan)
     }
 
     private func waitingView(_ ask: NativePlanDemandAsk) -> some View {

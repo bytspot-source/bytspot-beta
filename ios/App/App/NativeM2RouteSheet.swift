@@ -196,6 +196,7 @@ final class NativeM2RouteModel: ObservableObject {
 @MainActor
 struct NativeM2RouteSheet: View {
     let venue: NativeVenueSummary
+    var note: String? = nil
     @EnvironmentObject private var locationStore: NativeLocationStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -279,6 +280,11 @@ struct NativeM2RouteSheet: View {
             Text(destination.name).font(.title.weight(.bold)).fixedSize(horizontal: false, vertical: true)
             if !destination.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(destination.address).font(.body).foregroundColor(NativeTheme.textSecondary)
+            }
+            if let note {
+                Text(note).font(.subheadline.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("native-m2-route-note")
             }
         }
     }

@@ -900,6 +900,25 @@ enum NativePlanDisplay {
         name.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0).uppercased() } ?? "?"
     }
 
+    /// A Plan for two reads as who it is with, not as a head count. Nil
+    /// unless the viewer is one of exactly two people on it.
+    static func companionSummary(_ participants: [NativePlan.Participant], selfUserId: String?, connections: [NativePlanConnection]) -> String? {
+        let seats = visibleParticipants(participants)
+        guard seats.count == 2, let selfUserId, seats.contains(where: { $0.userId == selfUserId }),
+              let other = seats.first(where: { $0.userId != selfUserId }) else { return nil }
+        let name = participantDisplayName(other, selfUserId: selfUserId, connections: connections)
+        return "With \(name) · \(seatStatusLabel(other.status))"
+    }
+
+    /// What a stop is and where its booking stands, in the words used below.
+    static func stopDetail(_ item: NativePlan.Item) -> String {
+        "\(needLabel(item.needKind)) · \(itemStatusLabel(item))"
+    }
+
+    static func emptyStopsLabel(isCreator: Bool) -> String {
+        isCreator ? "No stops yet. Add the first place you're headed." : "No stops yet. The host adds them."
+    }
+
     /// A participant's name for the People list. The caller is "You"; a known
     /// connection shows their name; anyone else is a plain "Bytspot member"
     /// - a raw opaque userId is never printed at someone else.
@@ -1321,14 +1340,17 @@ private let planRowBackground = Color.white.opacity(0.06)
 private struct NativePlanAvatar: View {
     let initial: String
     let index: Int
+    var isOverflow = false
     private static let colors = [NativeTheme.cyan, NativeTheme.purple, NativeTheme.pink, NativeTheme.orange]
+    @ScaledMetric(relativeTo: .footnote) private var scaled: CGFloat = 30
+    private var size: CGFloat { min(scaled, 44) }
 
     var body: some View {
         Text(initial)
-            .font(.system(size: 12, weight: .black)).foregroundColor(.white)
+            .font(.system(size: size * 0.42, weight: .black)).foregroundColor(.white)
             .lineLimit(1).minimumScaleFactor(0.6)
-            .frame(width: 28, height: 28)
-            .background(Circle().fill(Self.colors[index % Self.colors.count]))
+            .frame(width: size, height: size)
+            .background(Circle().fill(isOverflow ? Color(white: 0.3) : Self.colors[index % Self.colors.count]))
             .overlay(Circle().stroke(NativeTheme.panel, lineWidth: 2))
             .accessibilityHidden(true)
     }
@@ -1983,8 +2005,170 @@ struct NativePlanDetailSheet: View {
     @State private var partyPass: NativePlanPartyPassTarget?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .subheadline) private var stopMarkSize: CGFloat = 30
 
     private var isCreator: Bool { plan?.creatorUserId == sessionStore.authenticatedUserID }
+
+    /// Overlapping initials and honest attendance, as on the Plan card people see first.
+    private func peopleStrip(_ plan: NativePlan) -> some View {
+        let seats = hiddenMembers.visible(NativePlanDisplay.visibleParticipants(plan.participants), id: \.userId)
+        let summary = NativePlanDisplay.companionSummary(plan.participants, selfUserId: sessionStore.authenticatedUserID, connections: connections)
+            ?? NativePlanDisplay.peopleSummary(plan.participants)
+        return stack(alignment: .leading) {
+            HStack(spacing: -8) {
+                ForEach(Array(seats.prefix(4).enumerated()), id: \.element.userId) { index, seat in
+                    let name = NativePlanDisplay.participantDisplayName(seat, selfUserId: sessionStore.authenticatedUserID, connections: connections)
+                    NativePlanAvatar(initial: avatarInitial(seat, name: name), index: index)
+                }
+                if seats.count > 4 {
+                    NativePlanAvatar(initial: "+\(seats.count - 4)", index: 4, isOverflow: true)
+                }
+            }
+            Text(summary)
+                .font(.subheadline.weight(.semibold)).foregroundColor(NativeTheme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(summary)
+        .accessibilityIdentifier("native-plan-people-strip")
+    }
+
+    private var header: some View {
+        HStack {
+            if plan == nil {
+                Text("Plan").font(.title2.weight(.black)).foregroundColor(NativeTheme.textPrimary)
+            }
+            Spacer()
+            Button(action: { dismiss() }) {
+                Image(systemName: "xmark.circle.fill").font(.system(size: 24, weight: .bold)).foregroundColor(NativeTheme.textSecondary)
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Close")
+        }
+    }
+
+    private var isLive: Bool {
+        guard let plan else { return false }
+        return plan.lifecycle != "cancelled" && plan.state != "expired" && plan.state != "completed"
+    }
+
+    /// The Plan at a glance: what, when, who, and the stops in order. Details
+    /// and controls for each part stay below.
+    private func planCard(_ plan: NativePlan) -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(NativePlanDisplay.stateLabel(plan.state).uppercased())
+                    .font(.caption2.weight(.black)).tracking(1.2).foregroundColor(NativeTheme.cyan)
+                Text(plan.title).font(.title2.weight(.black)).foregroundColor(NativeTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                Text([NativePlanDisplay.whenLabel(startsAt: plan.startsAt, endsAt: plan.endsAt), plan.areaLabel].compactMap { $0 }.joined(separator: " · "))
+                    .font(.subheadline.weight(.semibold)).foregroundColor(NativeTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                peopleStrip(plan).padding(.top, 8)
+            }
+            stops(plan)
+            cardActions(plan)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(NativePolish.glassSurface)
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(NativeTheme.cyan.opacity(0.22), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("native-plan-card")
+    }
+
+    @ViewBuilder private func stops(_ plan: NativePlan) -> some View {
+        if plan.items.isEmpty {
+            Text(NativePlanDisplay.emptyStopsLabel(isCreator: isCreator))
+                .font(.subheadline).foregroundColor(NativeTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("native-plan-stops-empty")
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(plan.items.enumerated()), id: \.element.id) { index, item in
+                    stopRow(item, number: index + 1, isLast: index == plan.items.count - 1)
+                }
+            }
+            .accessibilityIdentifier("native-plan-stops")
+        }
+    }
+
+    private func stopRow(_ item: NativePlan.Item, number: Int, isLast: Bool) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(spacing: 0) {
+                Text("\(number)").font(.subheadline.weight(.black)).foregroundColor(NativeTheme.cyan)
+                    .frame(width: stopMarkSize, height: stopMarkSize)
+                    .background(Circle().fill(NativeTheme.cyan.opacity(0.12)))
+                    .overlay(Circle().stroke(NativeTheme.cyan.opacity(0.7), lineWidth: 1.5))
+                if !isLast {
+                    Rectangle().fill(NativeTheme.cyan.opacity(0.35)).frame(width: 1.5).frame(maxHeight: .infinity)
+                }
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.title).font(.body.weight(.bold)).foregroundColor(NativeTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(NativePlanDisplay.stopDetail(item)).font(.footnote.weight(.semibold)).foregroundColor(NativeTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.top, 3)
+            .padding(.bottom, isLast ? 0 : 20)
+            Spacer(minLength: 0)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Stop \(number): \(item.title), \(NativePlanDisplay.stopDetail(item))")
+        .accessibilityIdentifier("native-plan-stop-\(item.id)")
+    }
+
+    @ViewBuilder private func cardActions(_ plan: NativePlan) -> some View {
+        if isCreator && NativePlanDisplay.canAddBookables(plan, userID: sessionStore.authenticatedUserID) {
+            stack {
+                Button(action: { inviteByText(for: plan) }) {
+                    Label("Share invite link", systemImage: "square.and.arrow.up")
+                        .font(.subheadline.weight(.bold)).foregroundColor(.black)
+                        .multilineTextAlignment(.center).padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 0).padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(Capsule().fill(NativeTheme.cyan))
+                }
+                .buttonStyle(.plain)
+                .disabled(busy || plan.joinToken?.isEmpty != false)
+                .opacity(plan.joinToken?.isEmpty != false ? 0.5 : 1)
+                .accessibilityIdentifier("native-plan-share-invite")
+                Button(action: { showBookables = true }) {
+                    Label("Add a stop", systemImage: "plus")
+                        .font(.subheadline.weight(.bold)).foregroundColor(NativeTheme.textPrimary)
+                        .multilineTextAlignment(.center).padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 0).padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(Capsule().fill(planRowBackground))
+                        .overlay(Capsule().stroke(NativeTheme.cyan.opacity(0.35), lineWidth: 1))
+                }
+                .buttonStyle(.plain).disabled(busy)
+                .accessibilityIdentifier("native-plan-add-bookables")
+            }
+        } else if !isCreator && isLive {
+            let own = plan.participants.first { $0.userId == sessionStore.authenticatedUserID }?.status
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Are you in?").font(.subheadline.weight(.bold)).foregroundColor(NativeTheme.textPrimary)
+                stack {
+                    responseButton("Going", value: "accepted", current: own)
+                    responseButton("Maybe", value: "maybe", current: own)
+                    responseButton("Can't go", value: "declined", current: own)
+                }
+            }
+        }
+    }
+
+    /// Side by side normally; stacked at accessibility text sizes.
+    @ViewBuilder private func stack<Content: View>(alignment: HorizontalAlignment = .center, @ViewBuilder _ content: () -> Content) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: alignment, spacing: 10) { content() }
+        } else {
+            HStack(spacing: 10) { content() }
+        }
+    }
 
     var body: some View {
         ScrollView {
@@ -2087,63 +2271,26 @@ struct NativePlanDetailSheet: View {
         NativePlanDisplay.visibleParticipants(plan.participants).firstIndex { $0.userId == seat.userId } ?? 0
     }
 
-    /// Overlapping initials and "3 invited", as on the Plan card people see first.
-    private func peopleStrip(_ plan: NativePlan) -> some View {
-        let seats = hiddenMembers.visible(NativePlanDisplay.visibleParticipants(plan.participants), id: \.userId)
-        return HStack(spacing: 10) {
-            HStack(spacing: -8) {
-                ForEach(Array(seats.prefix(4).enumerated()), id: \.element.userId) { index, seat in
-                    let name = NativePlanDisplay.participantDisplayName(seat, selfUserId: sessionStore.authenticatedUserID, connections: connections)
-                    NativePlanAvatar(initial: avatarInitial(seat, name: name), index: index)
-                }
-                if seats.count > 4 {
-                    NativePlanAvatar(initial: "+\(seats.count - 4)", index: 4)
-                }
-            }
-            Text(NativePlanDisplay.peopleSummary(plan.participants))
-                .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
-        }
-        .padding(.top, 4)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(NativePlanDisplay.peopleSummary(plan.participants))
-        .accessibilityIdentifier("native-plan-people-strip")
-    }
-
-    private var header: some View {
-        HStack {
-            Text(plan?.title ?? "Plan").font(.system(size: 22, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-            Spacer()
-            Button(action: { dismiss() }) { Image(systemName: "xmark.circle.fill").font(.system(size: 24, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
-        }
-    }
-
     @ViewBuilder private func content(for plan: NativePlan) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(NativePlanDisplay.whenLabel(startsAt: plan.startsAt, endsAt: plan.endsAt)).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
-            Text(NativePlanDisplay.rowSubtitle(state: plan.state, readiness: plan.readiness))
-                .font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
-            peopleStrip(plan)
-            if let area = plan.areaLabel { Text(area).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary) }
-            if let closes = NativePlanDisplay.closesLabel(plan) {
-                Text(closes).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
-                    .accessibilityIdentifier("native-plan-closes")
-            }
-            if isCreator && NativePlanDisplay.canAddBookables(plan, userID: sessionStore.authenticatedUserID) {
-                Button("Edit time, size & place") { showEdit = true }
-                    .font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.purple)
-                    .frame(minHeight: 44).disabled(busy)
-                    .accessibilityIdentifier("native-plan-edit")
+        planCard(plan)
+
+        if NativePlanDisplay.closesLabel(plan) != nil || (isCreator && NativePlanDisplay.canAddBookables(plan, userID: sessionStore.authenticatedUserID)) {
+            VStack(alignment: .leading, spacing: 4) {
+                if let closes = NativePlanDisplay.closesLabel(plan) {
+                    Text(closes).font(.footnote.weight(.semibold)).foregroundColor(NativeTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("native-plan-closes")
+                }
+                if isCreator && NativePlanDisplay.canAddBookables(plan, userID: sessionStore.authenticatedUserID) {
+                    Button("Edit time, size & place") { showEdit = true }
+                        .font(.footnote.weight(.bold)).foregroundColor(NativeTheme.cyan)
+                        .frame(minHeight: 44).disabled(busy)
+                        .accessibilityIdentifier("native-plan-edit")
+                }
             }
         }
 
         if isCreator && NativePlanDisplay.canAddBookables(plan, userID: sessionStore.authenticatedUserID) {
-            Button(action: { inviteByText(for: plan) }) {
-                Label("Share invite with partners & friends", systemImage: "square.and.arrow.up")
-                    .font(.headline).frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(.plain).foregroundColor(NativeTheme.purple)
-            .disabled(busy || plan.joinToken?.isEmpty != false)
-            .accessibilityIdentifier("native-plan-share-invite")
             Button(action: { showInvite = true }) {
                 ctaLabel("Invite Bytspot connections", background: planRowBackground, foreground: NativeTheme.textPrimary)
             }
@@ -2523,13 +2670,8 @@ struct NativePlanDetailSheet: View {
     }
 
     @ViewBuilder private func actions(for plan: NativePlan) -> some View {
+        // Add a stop, sharing the link and a guest's answer live on the card.
         if isCreator {
-            if NativePlanDisplay.canAddBookables(plan, userID: sessionStore.authenticatedUserID) {
-                Button(action: { showBookables = true }) {
-                    ctaLabel("Add Bookables", background: planRowBackground, foreground: NativeTheme.textPrimary)
-                }
-                .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-add-bookables")
-            }
             // Coffee is the one supply Bytspot can hold today, so it is the
             // one attach the Plan offers. The verb is Add, not Book: what
             // follows is a hold ask the spot still has to answer.
@@ -2547,23 +2689,20 @@ struct NativePlanDetailSheet: View {
                 ctaLabel("Cancel Plan", background: planRowBackground, foreground: NativeTheme.textPrimary)
             }
             .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-cancel")
-        } else {
-            HStack(spacing: 8) {
-                responseButton("Going", value: "accepted")
-                responseButton("Maybe", value: "maybe")
-                responseButton("Decline", value: "declined")
-            }
         }
     }
 
-    private func responseButton(_ title: String, value: String) -> some View {
-        Button(action: { Task { await run { try await api().respond(planID, response: value) } } }) {
-            Text(title).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary)
-                .frame(maxWidth: .infinity).padding(.vertical, 10)
-                .background(planRowBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    private func responseButton(_ title: String, value: String, current: String?) -> some View {
+        let chosen = current == value
+        return Button(action: { Task { await run { try await api().respond(planID, response: value) } } }) {
+            Text(title).font(.subheadline.weight(.bold))
+                .foregroundColor(chosen ? .black : NativeTheme.textPrimary)
+                .multilineTextAlignment(.center).padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 0).padding(.vertical, 6)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(Capsule().fill(chosen ? NativeTheme.cyan : planRowBackground))
         }
         .buttonStyle(.plain).disabled(busy)
+        .accessibilityAddTraits(chosen ? .isSelected : [])
         .accessibilityIdentifier("native-plan-respond-\(value)")
     }
 

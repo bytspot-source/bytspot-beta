@@ -12747,6 +12747,7 @@ private struct NativeVenueCheckInChip: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var now = Date()
     @State private var navigationMessage: String?
+    @State private var showRoute = false
 
     private var userID: String? { sessionStore.canAttachBearerToken ? sessionStore.authenticatedUserID : nil }
     private var state: NativeVenueVisitState { visits.state(userID: userID, venueID: venue.checkInVenueID) }
@@ -12758,21 +12759,14 @@ private struct NativeVenueCheckInChip: View {
         NativeVenueArrivalAction.resolve(venue: venue, coordinate: coordinate, state: state)
     }
     private var actionLabel: String {
-        if arrivalAction == .locate {
-            switch locationStore.authorizationState {
-            case .notDetermined: return "Enable location"
-            case .denied: return "Open location settings"
-            default: return "Refresh location"
-            }
-        }
         if arrivalAction == .checkIn && state.canRetry { return "Retry Check In" }
         return arrivalAction.label
     }
     private var locationDetail: String {
         switch locationStore.authorizationState {
-        case .denied: return "Location access is off. Enable it in Settings to verify arrival, or get directions below."
-        case .restricted: return "Location access is restricted on this device. You can still get directions."
-        case .unavailable: return "Location Services are unavailable. Turn them on in Settings, or get directions below."
+        case .denied: return "Location access is off. Tap Check In for the route; turn location on in Settings to earn points when you arrive."
+        case .restricted: return "Location access is restricted on this device. Tap Check In for the route."
+        case .unavailable: return "Location Services are unavailable. Tap Check In for the route; turn them on in Settings to earn points."
         default: return locationStore.lastErrorMessage ?? arrivalAction.detail
         }
     }
@@ -12782,7 +12776,7 @@ private struct NativeVenueCheckInChip: View {
             Button(action: performArrivalAction) {
                 HStack(spacing: 8) {
                     if state.isLoading { ProgressView().tint(.white) }
-                    else { Image(systemName: state.isConfirmed ? "checkmark.seal" : arrivalAction == .directions ? "arrow.triangle.turn.up.right.diamond" : "location.circle") }
+                    else { Image(systemName: state.isConfirmed ? "checkmark.seal" : "location.circle") }
                     Text(actionLabel).font(.subheadline.weight(.semibold))
                 }
                 .foregroundColor(.white).padding(.horizontal, 12).frame(minHeight: 44)
@@ -12799,10 +12793,9 @@ private struct NativeVenueCheckInChip: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("native-venue-check-in-result-\(venue.id)")
             }
-            if arrivalAction == .locate {
-                Button("Get directions", action: directions)
+            if arrivalAction == .locate && locationStore.authorizationState == .denied {
+                Button("Location settings", action: openLocationSettings)
                     .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
-                    .accessibilityHint("Opens Apple Maps. No check-in or points are recorded.")
             }
             if let navigationMessage {
                 Text(navigationMessage).font(.footnote).foregroundColor(.white.opacity(0.80))
@@ -12812,34 +12805,43 @@ private struct NativeVenueCheckInChip: View {
         .task(id: scenePhase) { await refreshWhileVisible() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in now = Date() }
         .onChange(of: arrivalAction) { _ in navigationMessage = nil }
+        .sheet(isPresented: $showRoute) {
+            NativeM2RouteSheet(venue: venue, note: navigationMessage).environmentObject(locationStore)
+        }
     }
 
     private func performArrivalAction() {
         now = Date()
+        nativeImpactLight()
         switch arrivalAction {
-        case .directions: directions()
+        case .directions:
+            route(NativeVenueArrivalAction.notThereYetMessage)
         case .locate:
-            if locationStore.authorizationState == .denied,
-               let url = URL(string: UIApplication.openSettingsURLString) {
-                UIApplication.shared.open(url)
-            } else {
+            switch locationStore.authorizationState {
+            case .notDetermined:
                 locationStore.requestWhenInUseIfNeeded()
-                navigationMessage = "Location requested. If it stays unavailable, check Location Services in Settings or use directions."
+                navigationMessage = "Allow location so Bytspot can check you in when you arrive."
+            case .denied, .restricted, .unavailable:
+                route("Here's the route. Turn location on to check in and earn points when you arrive.")
+            default:
+                locationStore.refreshForVisitIfNeeded(now: now)
+                route("Finding your location. Here's the route — tap Check In again when you arrive.")
             }
         case .checkIn, .retry: validate()
         case .verifying, .confirmed, .unavailable: break
         }
     }
 
-    private func directions() {
+    /// Away from the place, Check In becomes the route there. Nothing is recorded.
+    private func route(_ message: String) {
         guard venue.hasKnownCoordinates else { return }
-        let destination = MKMapItem(placemark: MKPlacemark(coordinate:
-            CLLocationCoordinate2D(latitude: venue.latitude, longitude: venue.longitude)))
-        destination.name = venue.name
-        let opened = destination.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
-        navigationMessage = opened
-            ? "Directions opened in Apple Maps. Return to Bytspot when you arrive to check in."
-            : "Apple Maps could not open. Try again."
+        navigationMessage = message
+        showRoute = true
+    }
+
+    private func openLocationSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 
     private func refreshWhileVisible() async {

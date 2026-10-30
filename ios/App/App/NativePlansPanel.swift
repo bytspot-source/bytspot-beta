@@ -877,9 +877,6 @@ enum NativePlanDisplay {
         let taken = Set(visibleParticipants(participants).map(\.userId))
         return connections.filter { !taken.contains($0.id) }
     }
-    /// A participant's name for the People list. The caller is "You"; a known
-    /// connection shows their name; anyone else is a plain "Bytspot member"
-    /// - a raw opaque userId is never printed at someone else.
     /// The plain word for a seat's answer.
     static func seatStatusLabel(_ status: String) -> String {
         switch status {
@@ -903,6 +900,9 @@ enum NativePlanDisplay {
         name.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0).uppercased() } ?? "?"
     }
 
+    /// A participant's name for the People list. The caller is "You"; a known
+    /// connection shows their name; anyone else is a plain "Bytspot member"
+    /// - a raw opaque userId is never printed at someone else.
     static func participantDisplayName(_ seat: NativePlan.Participant, selfUserId: String?, connections: [NativePlanConnection]) -> String {
         if let selfUserId, seat.userId == selfUserId { return "You" }
         if let match = connections.first(where: { $0.id == seat.userId }) { return match.name }

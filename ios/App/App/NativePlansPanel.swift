@@ -880,6 +880,29 @@ enum NativePlanDisplay {
     /// A participant's name for the People list. The caller is "You"; a known
     /// connection shows their name; anyone else is a plain "Bytspot member"
     /// - a raw opaque userId is never printed at someone else.
+    /// The plain word for a seat's answer.
+    static func seatStatusLabel(_ status: String) -> String {
+        switch status {
+        case "accepted": return "Going"
+        case "invited": return "Invited"
+        case "maybe": return "Maybe"
+        case "declined": return "Can't go"
+        default: return status.capitalized
+        }
+    }
+
+    /// "3 invited · 1 going" counts the friends asked, not the host.
+    static func peopleSummary(_ participants: [NativePlan.Participant]) -> String {
+        let guests = visibleParticipants(participants).filter { $0.role != "creator" }
+        guard !guests.isEmpty else { return "Just you so far" }
+        let going = guests.filter { $0.status == "accepted" }.count
+        return going > 0 ? "\(guests.count) invited · \(going) going" : "\(guests.count) invited"
+    }
+
+    static func initial(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0).uppercased() } ?? "?"
+    }
+
     static func participantDisplayName(_ seat: NativePlan.Participant, selfUserId: String?, connections: [NativePlanConnection]) -> String {
         if let selfUserId, seat.userId == selfUserId { return "You" }
         if let match = connections.first(where: { $0.id == seat.userId }) { return match.name }
@@ -1294,6 +1317,22 @@ struct NativeDiscoverAddToPlanSheet: View {
 }
 
 private let planRowBackground = Color.white.opacity(0.06)
+
+private struct NativePlanAvatar: View {
+    let initial: String
+    let index: Int
+    private static let colors = [NativeTheme.cyan, NativeTheme.purple, NativeTheme.pink, NativeTheme.orange]
+
+    var body: some View {
+        Text(initial)
+            .font(.system(size: 12, weight: .black)).foregroundColor(.white)
+            .lineLimit(1).minimumScaleFactor(0.6)
+            .frame(width: 28, height: 28)
+            .background(Circle().fill(Self.colors[index % Self.colors.count]))
+            .overlay(Circle().stroke(NativeTheme.panel, lineWidth: 2))
+            .accessibilityHidden(true)
+    }
+}
 
 private struct NativePlanBookableSelectionRows: View {
     @Binding var draft: NativePlanBookableDraft
@@ -2036,6 +2075,40 @@ struct NativePlanDetailSheet: View {
         }
     }
 
+    private func avatarInitial(_ seat: NativePlan.Participant, name: String) -> String {
+        if seat.userId == sessionStore.authenticatedUserID,
+           let own = UserDefaults.standard.string(forKey: NativeSignedInIdentity.displayNameKey), !own.isEmpty {
+            return NativePlanDisplay.initial(own)
+        }
+        return name == "Bytspot member" ? "?" : NativePlanDisplay.initial(name)
+    }
+
+    private func avatarIndex(_ seat: NativePlan.Participant, in plan: NativePlan) -> Int {
+        NativePlanDisplay.visibleParticipants(plan.participants).firstIndex { $0.userId == seat.userId } ?? 0
+    }
+
+    /// Overlapping initials and "3 invited", as on the Plan card people see first.
+    private func peopleStrip(_ plan: NativePlan) -> some View {
+        let seats = hiddenMembers.visible(NativePlanDisplay.visibleParticipants(plan.participants), id: \.userId)
+        return HStack(spacing: 10) {
+            HStack(spacing: -8) {
+                ForEach(Array(seats.prefix(4).enumerated()), id: \.element.userId) { index, seat in
+                    let name = NativePlanDisplay.participantDisplayName(seat, selfUserId: sessionStore.authenticatedUserID, connections: connections)
+                    NativePlanAvatar(initial: avatarInitial(seat, name: name), index: index)
+                }
+                if seats.count > 4 {
+                    NativePlanAvatar(initial: "+\(seats.count - 4)", index: 4)
+                }
+            }
+            Text(NativePlanDisplay.peopleSummary(plan.participants))
+                .font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
+        }
+        .padding(.top, 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(NativePlanDisplay.peopleSummary(plan.participants))
+        .accessibilityIdentifier("native-plan-people-strip")
+    }
+
     private var header: some View {
         HStack {
             Text(plan?.title ?? "Plan").font(.system(size: 22, weight: .black)).foregroundColor(NativeTheme.textPrimary)
@@ -2049,6 +2122,7 @@ struct NativePlanDetailSheet: View {
             Text(NativePlanDisplay.whenLabel(startsAt: plan.startsAt, endsAt: plan.endsAt)).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
             Text(NativePlanDisplay.rowSubtitle(state: plan.state, readiness: plan.readiness))
                 .font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+            peopleStrip(plan)
             if let area = plan.areaLabel { Text(area).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary) }
             if let closes = NativePlanDisplay.closesLabel(plan) {
                 Text(closes).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
@@ -2195,11 +2269,13 @@ struct NativePlanDetailSheet: View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(hiddenMembers.visible(NativePlanDisplay.visibleParticipants(plan.participants), id: \.userId), id: \.userId) { seat in
                 let name = NativePlanDisplay.participantDisplayName(seat, selfUserId: sessionStore.authenticatedUserID, connections: connections)
-                HStack {
+                HStack(spacing: 10) {
+                    NativePlanAvatar(initial: avatarInitial(seat, name: name), index: avatarIndex(seat, in: plan))
                     Text(name).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
                     if seat.role == "creator" { Text("HOST").font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.purple) }
                     Spacer()
-                    Text(seat.status.capitalized).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                    Text(NativePlanDisplay.seatStatusLabel(seat.status)).font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(seat.status == "accepted" ? NativeTheme.cyan : NativeTheme.textSecondary)
                     // Only the creator can remove, and never themselves - the
                     // creator leaves by cancelling the Plan, which the router
                     // enforces too.

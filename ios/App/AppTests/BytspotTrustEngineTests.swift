@@ -7154,6 +7154,27 @@ final class NativePlanBookablesContractTests: XCTestCase {
         XCTAssertTrue(categories.allSatisfy { !$0.icon.isEmpty })
     }
 
+    func testPlanPeopleReadLikeTheStoreCard() {
+        typealias Seat = NativePlan.Participant
+        let seats = [
+            Seat(userId: "host", role: "creator", status: "accepted"),
+            Seat(userId: "a", role: "guest", status: "accepted"),
+            Seat(userId: "b", role: "guest", status: "invited"),
+            Seat(userId: "c", role: "guest", status: "maybe"),
+            Seat(userId: "d", role: "guest", status: "removed"),
+        ]
+        XCTAssertEqual(NativePlanDisplay.peopleSummary(seats), "3 invited · 1 going",
+                       "The host is not counted as invited, and a removed seat is gone.")
+        XCTAssertEqual(NativePlanDisplay.peopleSummary([seats[0], seats[2]]), "1 invited")
+        XCTAssertEqual(NativePlanDisplay.peopleSummary([seats[0]]), "Just you so far")
+        XCTAssertEqual(NativePlanDisplay.seatStatusLabel("accepted"), "Going")
+        XCTAssertEqual(NativePlanDisplay.seatStatusLabel("invited"), "Invited")
+        XCTAssertEqual(NativePlanDisplay.seatStatusLabel("maybe"), "Maybe")
+        XCTAssertEqual(NativePlanDisplay.seatStatusLabel("declined"), "Can't go")
+        XCTAssertEqual(NativePlanDisplay.initial(" kemi"), "K")
+        XCTAssertEqual(NativePlanDisplay.initial(""), "?")
+    }
+
     func testPlanJoinAsksSignedOutHolderToSignInThenResumesTheJoin() {
         XCTAssertEqual(NativePlanJoinView.stateBeforeLoad(current: .loading, signedIn: false), .signedOut,
                        "A signed-out invitee must not be told the Plan is unavailable.")

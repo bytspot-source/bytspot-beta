@@ -2129,7 +2129,7 @@ struct NativePlanDetailSheet: View {
                 Button(action: { inviteByText(for: plan) }) {
                     Label("Share invite link", systemImage: "square.and.arrow.up")
                         .font(.subheadline.weight(.bold)).foregroundColor(.black)
-                        .multilineTextAlignment(.center).padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 0).padding(.vertical, 6)
+                        .multilineTextAlignment(.center).lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1).minimumScaleFactor(0.8).padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 10).padding(.vertical, 6)
                         .frame(maxWidth: .infinity, minHeight: 48)
                         .background(Capsule().fill(NativeTheme.cyan))
                 }
@@ -2140,7 +2140,7 @@ struct NativePlanDetailSheet: View {
                 Button(action: { showBookables = true }) {
                     Label("Add a stop", systemImage: "plus")
                         .font(.subheadline.weight(.bold)).foregroundColor(NativeTheme.textPrimary)
-                        .multilineTextAlignment(.center).padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 0).padding(.vertical, 6)
+                        .multilineTextAlignment(.center).lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1).minimumScaleFactor(0.8).padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 10).padding(.vertical, 6)
                         .frame(maxWidth: .infinity, minHeight: 48)
                         .background(Capsule().fill(planRowBackground))
                         .overlay(Capsule().stroke(NativeTheme.cyan.opacity(0.35), lineWidth: 1))
@@ -2697,7 +2697,7 @@ struct NativePlanDetailSheet: View {
         return Button(action: { Task { await run { try await api().respond(planID, response: value) } } }) {
             Text(title).font(.subheadline.weight(.bold))
                 .foregroundColor(chosen ? .black : NativeTheme.textPrimary)
-                .multilineTextAlignment(.center).padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 0).padding(.vertical, 6)
+                .multilineTextAlignment(.center).lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1).minimumScaleFactor(0.8).padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 10).padding(.vertical, 6)
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(Capsule().fill(chosen ? NativeTheme.cyan : planRowBackground))
         }

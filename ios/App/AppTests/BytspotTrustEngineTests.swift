@@ -7198,8 +7198,8 @@ final class NativePlanBookablesContractTests: XCTestCase {
         var booked = item
         booked.booked = true
         XCTAssertEqual(NativePlanDisplay.stopDetail(booked), "Dinner · Booked")
-        XCTAssertTrue(NativePlanDisplay.emptyStopsLabel(isCreator: true).hasPrefix("No stops yet"))
-        XCTAssertTrue(NativePlanDisplay.emptyStopsLabel(isCreator: false).contains("host"))
+        XCTAssertEqual(NativePlanDisplay.emptyStopsLabel(isCreator: true), "What would you like to do?")
+        XCTAssertEqual(NativePlanDisplay.emptyStopsLabel(isCreator: false), "The host hasn’t added anything yet.")
     }
 
     func testPlanJoinAsksSignedOutHolderToSignInThenResumesTheJoin() {

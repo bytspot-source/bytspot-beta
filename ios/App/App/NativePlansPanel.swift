@@ -916,7 +916,7 @@ enum NativePlanDisplay {
     }
 
     static func emptyStopsLabel(isCreator: Bool) -> String {
-        isCreator ? "No stops yet. Add the first place you're headed." : "No stops yet. The host adds them."
+        isCreator ? "What would you like to do?" : "The host hasn’t added anything yet."
     }
 
     /// A participant's name for the People list. The caller is "You"; a known
@@ -2119,7 +2119,7 @@ struct NativePlanDetailSheet: View {
         }
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Stop \(number): \(item.title), \(NativePlanDisplay.stopDetail(item))")
+        .accessibilityLabel("\(number): \(item.title), \(NativePlanDisplay.stopDetail(item))")
         .accessibilityIdentifier("native-plan-stop-\(item.id)")
     }
 
@@ -2138,7 +2138,7 @@ struct NativePlanDetailSheet: View {
                 .opacity(plan.joinToken?.isEmpty != false ? 0.5 : 1)
                 .accessibilityIdentifier("native-plan-share-invite")
                 Button(action: { showBookables = true }) {
-                    Label("Add a stop", systemImage: "plus")
+                    Label("Add to plan", systemImage: "plus")
                         .font(.subheadline.weight(.bold)).foregroundColor(NativeTheme.textPrimary)
                         .multilineTextAlignment(.center).lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1).minimumScaleFactor(0.8).padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 10).padding(.vertical, 6)
                         .frame(maxWidth: .infinity, minHeight: 48)

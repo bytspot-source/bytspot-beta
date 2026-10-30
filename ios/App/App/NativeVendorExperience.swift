@@ -546,7 +546,8 @@ struct NativeVenueLocationRefreshSchedule {
     }
 }
 
-/// Navigation is not visit evidence. Only a fresh, nearby fix enables a check-in;
+/// Navigation is not visit evidence. The button always reads Check In; away from
+/// the place it opens the route. Only a fresh, nearby fix submits a check-in, and
 /// confirmation and points always come from the existing server response.
 enum NativeVenueArrivalAction: Equatable {
     case directions, locate, checkIn, retry, verifying, confirmed, unavailable
@@ -564,8 +565,8 @@ enum NativeVenueArrivalAction: Equatable {
 
     var label: String {
         switch self {
-        case .directions: return "Get directions"
-        case .locate: return "Refresh location"
+        case .directions: return "Check In"
+        case .locate: return "Check In"
         case .checkIn: return "Check In"
         case .retry: return "Retry Check In"
         case .verifying: return "Verifying arrival…"
@@ -574,10 +575,12 @@ enum NativeVenueArrivalAction: Equatable {
         }
     }
 
+    static let notThereYetMessage = "You're not there yet, so here's the route. Tap Check In again when you arrive to earn points."
+
     var detail: String {
         switch self {
-        case .directions: return "Check in when you arrive. Points require a verified visit."
-        case .locate: return "A fresh location is needed to verify your arrival. You can still get directions."
+        case .directions: return "Not there yet? Tap Check In for the route, then check in when you arrive to earn points."
+        case .locate: return "Tap Check In to find your location. Points need a verified visit."
         case .checkIn: return "You're nearby — check in to verify your visit."
         case .retry: return "Retry to find out whether your last check-in was confirmed."
         case .verifying: return "Verifying your arrival. Points are not confirmed yet."

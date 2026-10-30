@@ -8363,7 +8363,18 @@ final class NativeVenueVisitTests: XCTestCase {
         }
         XCTAssertEqual(NativeVenueArrivalAction.resolve(venue: venue, coordinate: nil, state: .failed), .locate)
         XCTAssertEqual(NativeVenueArrivalAction.verifying.label, "Verifying arrival…")
-        XCTAssertTrue(NativeVenueArrivalAction.directions.detail.contains("verified visit"))
+    }
+
+    func testCheckInButtonReadsCheckInAwayAndPromisesTheRouteNotPoints() {
+        // Away from the place the button still says Check In; tapping it opens
+        // the route. Points are only promised on arrival.
+        XCTAssertEqual(NativeVenueArrivalAction.directions.label, "Check In")
+        XCTAssertEqual(NativeVenueArrivalAction.locate.label, "Check In")
+        XCTAssertEqual(NativeVenueArrivalAction.checkIn.label, "Check In")
+        XCTAssertTrue(NativeVenueArrivalAction.directions.detail.contains("route"))
+        XCTAssertTrue(NativeVenueArrivalAction.directions.detail.contains("when you arrive"))
+        XCTAssertTrue(NativeVenueArrivalAction.notThereYetMessage.contains("Tap Check In again when you arrive"))
+        XCTAssertFalse(NativeVenueArrivalAction.notThereYetMessage.contains("+"), "No points are earned for the route itself")
     }
 
     func testForegroundLocationRefreshCoalescesCardsAndDiscoverIncludingFailedFixes() {

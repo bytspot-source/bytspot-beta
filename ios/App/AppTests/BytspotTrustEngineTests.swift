@@ -7154,6 +7154,54 @@ final class NativePlanBookablesContractTests: XCTestCase {
         XCTAssertTrue(categories.allSatisfy { !$0.icon.isEmpty })
     }
 
+    func testPlanPeopleReadLikeTheStoreCard() {
+        typealias Seat = NativePlan.Participant
+        let seats = [
+            Seat(userId: "host", role: "creator", status: "accepted"),
+            Seat(userId: "a", role: "guest", status: "accepted"),
+            Seat(userId: "b", role: "guest", status: "invited"),
+            Seat(userId: "c", role: "guest", status: "maybe"),
+            Seat(userId: "d", role: "guest", status: "removed"),
+        ]
+        XCTAssertEqual(NativePlanDisplay.peopleSummary(seats), "3 invited · 1 going",
+                       "The host is not counted as invited, and a removed seat is gone.")
+        XCTAssertEqual(NativePlanDisplay.peopleSummary([seats[0], seats[2]]), "1 invited")
+        XCTAssertEqual(NativePlanDisplay.peopleSummary([seats[0]]), "Just you so far")
+        XCTAssertEqual(NativePlanDisplay.seatStatusLabel("accepted"), "Going")
+        XCTAssertEqual(NativePlanDisplay.seatStatusLabel("invited"), "Invited")
+        XCTAssertEqual(NativePlanDisplay.seatStatusLabel("maybe"), "Maybe")
+        XCTAssertEqual(NativePlanDisplay.seatStatusLabel("declined"), "Can't go")
+        XCTAssertEqual(NativePlanDisplay.initial(" kemi"), "K")
+        XCTAssertEqual(NativePlanDisplay.initial(""), "?")
+    }
+
+    func testPlanCardNamesTheOtherPersonForTwoAndCountsForGroups() {
+        typealias Seat = NativePlan.Participant
+        let host = Seat(userId: "host", role: "creator", status: "accepted")
+        let maya = Seat(userId: "maya", role: "guest", status: "invited")
+        let connections = [NativePlanConnection(id: "maya", name: "Maya"), NativePlanConnection(id: "host", name: "Alex")]
+        XCTAssertEqual(NativePlanDisplay.companionSummary([host, maya], selfUserId: "host", connections: connections), "With Maya · Invited")
+        XCTAssertEqual(NativePlanDisplay.companionSummary([host, Seat(userId: "maya", role: "guest", status: "accepted")], selfUserId: "maya", connections: connections),
+                       "With Alex · Going", "The guest sees the host, by name.")
+        XCTAssertNil(NativePlanDisplay.companionSummary([host, maya], selfUserId: "someone-else", connections: connections),
+                     "Only someone on the Plan reads it as 'with'.")
+        XCTAssertNil(NativePlanDisplay.companionSummary([host, maya, Seat(userId: "sam", role: "guest", status: "maybe")], selfUserId: "host", connections: connections),
+                     "Three or more is a group, counted instead.")
+        XCTAssertNil(NativePlanDisplay.companionSummary([host], selfUserId: "host", connections: connections))
+        XCTAssertNil(NativePlanDisplay.companionSummary([host, Seat(userId: "maya", role: "guest", status: "removed")], selfUserId: "host", connections: connections))
+    }
+
+    func testPlanStopsUseTheRealItemAndNeverPromiseABooking() {
+        let item = NativePlan.Item(id: "i1", needKind: "dining", title: "Lucian", partyId: nil, coffeeReservationId: nil,
+                                   capability: "details", status: "available", reservation: nil)
+        XCTAssertEqual(NativePlanDisplay.stopDetail(item), "Dinner · Not booked")
+        var booked = item
+        booked.booked = true
+        XCTAssertEqual(NativePlanDisplay.stopDetail(booked), "Dinner · Booked")
+        XCTAssertEqual(NativePlanDisplay.emptyStopsLabel(isCreator: true), "What would you like to do?")
+        XCTAssertEqual(NativePlanDisplay.emptyStopsLabel(isCreator: false), "The host hasn’t added anything yet.")
+    }
+
     func testPlanJoinAsksSignedOutHolderToSignInThenResumesTheJoin() {
         XCTAssertEqual(NativePlanJoinView.stateBeforeLoad(current: .loading, signedIn: false), .signedOut,
                        "A signed-out invitee must not be told the Plan is unavailable.")

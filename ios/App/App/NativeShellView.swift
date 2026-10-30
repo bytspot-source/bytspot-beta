@@ -12806,7 +12806,7 @@ private struct NativeVenueCheckInChip: View {
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in now = Date() }
         .onChange(of: arrivalAction) { _ in navigationMessage = nil }
         .sheet(isPresented: $showRoute) {
-            NativeM2RouteSheet(venue: venue).environmentObject(locationStore)
+            NativeM2RouteSheet(venue: venue, note: navigationMessage).environmentObject(locationStore)
         }
     }
 

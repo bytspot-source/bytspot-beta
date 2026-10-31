@@ -597,7 +597,7 @@ struct BytspotNativeShellView: View {
         }
         .sheet(item: $contextualDestination) { destination in
             NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }, openNativeProfilePanel: { panel in openNativeProfile(panel: panel) }, requestNetworkAuthentication: { openNativeAuth(mode: .login, pendingIntent: .network) }, openAccess: { openNativeEquivalent(for: .access) }, requestSaleAuthentication: { saleID in pendingSaleAuthID = saleID; openNativeAuth(mode: .login) }, showSaleOnMap: showSaleOnMap, requestPlanAuthentication: { pendingPlanAuthDestination = destination; openNativeAuth(mode: .login) }, openPlanNeed: openPlanNeed)
-            .preferredColorScheme(effectivePreferredColorScheme)
+            .preferredColorScheme(NativeContextualDestinationView.isSale(destination) ? .dark : effectivePreferredColorScheme)
         }
         .sheet(isPresented: $showValetPreviewSheet) {
             NativeValetPremiumRideSheet(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) })
@@ -1338,10 +1338,9 @@ private struct NativeContextualDestinationView: View {
             .navigationTitle(destination.title)
             .navigationBarTitleDisplayMode(.inline)
         }
-        .preferredColorScheme(isSale ? .dark : nil)
     }
 
-    private var isSale: Bool {
+    static func isSale(_ destination: NativeContextualDestination) -> Bool {
         if case .sale = destination { return true }
         return false
     }

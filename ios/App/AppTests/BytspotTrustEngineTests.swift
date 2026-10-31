@@ -174,6 +174,32 @@ final class NativeMapOpenLifecycleTests: XCTestCase {
         XCTAssertTrue(location.contains("focusedHandoffIsLocationScoped"))
         XCTAssertTrue(location.contains("focusedHandoffPin?.id != selectedPin.id"))
     }
+
+    func testRouteCardStartIsTheOnlyAppleMapsHandoff() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("App/NativeShellView.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertEqual(source.components(separatedBy: "startTurnByTurn(to: pin)").count - 1, 1)
+        let panel = try XCTUnwrap(source.range(of: "    private func routeActivationPanel(for pin: NativeMapPin) -> some View {"))
+        let call = try XCTUnwrap(source.range(of: "startTurnByTurn(to: pin)"))
+        let panelEnd = try XCTUnwrap(source.range(of: "native-map-route-active-panel", range: panel.upperBound..<source.endIndex))
+        XCTAssertTrue(panel.upperBound < call.lowerBound && call.upperBound < panelEnd.lowerBound)
+        let peek = try XCTUnwrap(source.range(of: "    private func nonPartnerPeekCard(for pin: NativeMapPin) -> some View {"))
+        let navigate = try XCTUnwrap(source.range(of: "Button(action: { handleNonPartnerPrimary(pin) })", range: peek.upperBound..<source.endIndex))
+        XCTAssertTrue(source[peek.upperBound..<navigate.lowerBound].contains("if !isRouteCardShowing(for: pin) {"))
+    }
+
+    func testPrivateSalesScreensAlwaysDrawTheirOwnNightSky() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("App/NativePrivateSales.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertFalse(source.contains(".background(NativeDeepSpaceGround())"))
+        XCTAssertEqual(source.components(separatedBy: ".background(NativeDeepSpaceGround().environment(\\.nativeDeepSpaceGroundDrawn, false))").count - 1, 4)
+        for screen in ["native-private-sale-create", "native-private-sale-manage", "native-private-sale-buyer"] {
+            XCTAssertTrue(source.contains(".preferredColorScheme(.dark)\n        .accessibilityIdentifier(\"\(screen)\")"), screen)
+        }
+        XCTAssertTrue(source.contains(".navigationBarHidden(!embedded)\n        .preferredColorScheme(.dark)"))
+    }
 }
 
 final class NativeDiscoverM6BrowseTests: XCTestCase {

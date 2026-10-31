@@ -750,10 +750,11 @@ struct NativePrivateSaleHandlesView: View {
             .padding(20)
         }
         .foregroundColor(NativeTheme.textPrimary)
-        .background(NativeDeepSpaceGround())
+        .background(NativeDeepSpaceGround().environment(\.nativeDeepSpaceGroundDrawn, false))
         .navigationTitle(embedded ? "Payment handles" : "")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarHidden(!embedded)
+        .preferredColorScheme(.dark)
         .accessibilityIdentifier("native-private-sale-handles-view")
         .task { await reload() }
         .onChange(of: provider) { _ in handleText = ""; openedLink = false; goodsAndServices = false }
@@ -904,11 +905,12 @@ struct NativePrivateSaleCreateView: View {
                 .padding(20)
             }
             .foregroundColor(NativeTheme.textPrimary)
-            .background(NativeDeepSpaceGround())
+            .background(NativeDeepSpaceGround().environment(\.nativeDeepSpaceGroundDrawn, false))
             .navigationBarHidden(true)
         }
         .navigationViewStyle(.stack)
         .tint(NativeTheme.cyan)
+        .preferredColorScheme(.dark)
         .accessibilityIdentifier("native-private-sale-create")
         .task { await loadHandles() }
         .sheet(isPresented: $pickingPhoto) {
@@ -1178,8 +1180,9 @@ struct NativePrivateSaleManageView: View {
             .padding(20)
         }
         .foregroundColor(NativeTheme.textPrimary)
-        .background(NativeDeepSpaceGround())
+        .background(NativeDeepSpaceGround().environment(\.nativeDeepSpaceGroundDrawn, false))
         .tint(NativeTheme.cyan)
+        .preferredColorScheme(.dark)
         .accessibilityIdentifier("native-private-sale-manage")
         .task { await reload() }
         .confirmationDialog("Close this sale?", isPresented: $confirmClose, titleVisibility: .visible) {
@@ -1574,7 +1577,8 @@ struct NativePrivateSaleBuyerView: View {
             .padding(20)
         }
         .foregroundColor(NativeTheme.textPrimary)
-        .background(NativeDeepSpaceGround())
+        .background(NativeDeepSpaceGround().environment(\.nativeDeepSpaceGroundDrawn, false))
+        .preferredColorScheme(.dark)
         .accessibilityIdentifier("native-private-sale-buyer")
         .nativeSafetyActions($safetyAction, hidden: $hidden, sessionStore: sessionStore)
         .task(id: token != nil) { await load() }

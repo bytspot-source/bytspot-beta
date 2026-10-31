@@ -12782,7 +12782,7 @@ private struct NativeVenueCheckInChip: View {
             Button(action: performArrivalAction) {
                 HStack(spacing: 8) {
                     if state.isLoading { ProgressView().tint(.white) }
-                    else { Image(systemName: state.isConfirmed ? "checkmark.seal" : arrivalAction == .directions ? "arrow.triangle.turn.up.right.diamond" : "location.circle") }
+                    else { Image(systemName: state.isConfirmed ? "checkmark.seal" : "location.circle") }
                     Text(actionLabel).font(.subheadline.weight(.semibold))
                 }
                 .foregroundColor(.white).padding(.horizontal, 12).frame(minHeight: 44)

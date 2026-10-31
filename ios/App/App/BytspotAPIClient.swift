@@ -4478,14 +4478,17 @@ final class NativeTabContentStore: ObservableObject {
 
         let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
         do {
-            if let bootstrapSnapshot = try? await fetchBootstrap(client: client) {
-                async let liveEvents = fetchEvents(client: client, location: location)
-                async let vendorServices = fetchVendorServices(client: client)
-                async let placeDiscoveryCards = fetchPlaceDiscoveryCards(client: client, location: location)
-                async let nearbyParties = fetchNearbyParties(client: client, location: location)
-                let valueOptions = Self.localValueOptions((try? await fetchBestValue(client: client, location: location)) ?? [])
+            async let bootstrap = try? fetchBootstrap(client: client)
+            async let venues = fetchVenues(client: client)
+            async let eventsRequest = fetchEvents(client: client, location: location)
+            async let vendorServices = fetchVendorServices(client: client)
+            async let placeDiscoveryCards = fetchPlaceDiscoveryCards(client: client, location: location)
+            async let bestValue = fetchBestValue(client: client, location: location)
+            async let nearbyParties = fetchNearbyParties(client: client, location: location)
+            if let bootstrapSnapshot = await bootstrap {
+                let valueOptions = Self.localValueOptions((try? await bestValue) ?? [])
                 let localized = Self.locationAwareSnapshot(bootstrapSnapshot, location: location)
-                let nearbyEvents = (try? await liveEvents) ?? []
+                let nearbyEvents = (try? await eventsRequest) ?? []
                 let events = nearbyEvents.isEmpty ? localized.trustworthyLiveEvents : nearbyEvents
                 let services = (try? await vendorServices) ?? []
                 let places = (try? await placeDiscoveryCards) ?? []
@@ -4500,16 +4503,10 @@ final class NativeTabContentStore: ObservableObject {
                 return
             }
 
-            async let venues = fetchVenues(client: client)
-            async let events = fetchEvents(client: client, location: location)
-            async let vendorServices = fetchVendorServices(client: client)
-            async let placeDiscoveryCards = fetchPlaceDiscoveryCards(client: client, location: location)
-            async let bestValue = fetchBestValue(client: client, location: location)
-            async let nearbyParties = fetchNearbyParties(client: client, location: location)
             let liveVenues = Self.locationAwareVenues(try await venues, location: location).filter { !NativeTabContentSnapshot.isFallbackVenueFixture($0) }
             let liveServices = (try? await vendorServices) ?? []
             let livePlaceCards = (try? await placeDiscoveryCards) ?? []
-            let liveEvents = (try? await events) ?? []
+            let liveEvents = (try? await eventsRequest) ?? []
             let liveParties = (try? await nearbyParties) ?? []
             let valueOptions = Self.localValueOptions((try? await bestValue) ?? [])
             let cards = Self.liveDiscoverCards(apiCards: [], venues: liveVenues, events: liveEvents, services: liveServices, placeCards: livePlaceCards, parties: liveParties, valueOptions: valueOptions, location: location)

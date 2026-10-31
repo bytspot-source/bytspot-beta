@@ -1338,6 +1338,12 @@ private struct NativeContextualDestinationView: View {
             .navigationTitle(destination.title)
             .navigationBarTitleDisplayMode(.inline)
         }
+        .preferredColorScheme(isSale ? .dark : nil)
+    }
+
+    private var isSale: Bool {
+        if case .sale = destination { return true }
+        return false
     }
 }
 
@@ -18797,7 +18803,7 @@ private struct NativeMapExploreView: View {
 
     private var sheetTitle: String {
         switch selectedMode {
-        case "Smart Parking": return "Smart Parking"
+        case "Smart Parking": return selectedPin.map { $0.kind != .parking } == true ? "Nearby Intelligence" : "Smart Parking"
         case "Tap Zones": return "Partnered Tap Zones"
         case "Route": return "Route Preview"
         default: return "Nearby Intelligence"

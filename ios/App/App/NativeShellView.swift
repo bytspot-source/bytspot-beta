@@ -462,7 +462,7 @@ struct BytspotNativeShellView: View {
                 Group {
                     switch selectedTab {
                     case .home:
-                        NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth, openFeedback: { navigation.requestedFeedback = $0 })
+                        NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth, openFeedback: { navigation.requestedFeedback = $0 }, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) })
                     case .host:
                         NativeHostStudioView(circles: hostStudioCircles, membershipTier: membershipStore.tier, presentation: .tab)
                             .task { await loadHostStudioCircles() }
@@ -476,7 +476,7 @@ struct BytspotNativeShellView: View {
                             .environmentObject(directMapRouteStore)
                             .environmentObject(saleMeetStore)
                     case .concierge:
-                        NativeConciergeView(model: conciergeModel, openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) })
+                        NativeConciergeView(model: conciergeModel, openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) })
                     case .profile:
                         NativeProfileTabView(
                             initialPanel: pendingProfilePanel,
@@ -7278,6 +7278,7 @@ private struct NativeHomeDashboardView: View {
     let openNativeAccess: () -> Void
     let openNativeAuth: (NativeAuthMode, NativePostAuthIntent?) -> Void
     var openFeedback: (NativeFeedbackTarget) -> Void = { _ in }
+    var openDirectRoute: ((NativeVenueSummary) -> Void)? = nil
     @ObservedObject private var feedbackStore = NativeFeedbackStore.shared
     @State private var searchText = ""
     @State private var homeFindResults: [NativeFindResult] = []
@@ -7441,7 +7442,7 @@ private struct NativeHomeDashboardView: View {
                 if Self.isValetPremiumRide(venue) {
                     NativeValetPremiumRideSheet(initialVenue: venue, openNativeTab: openNativeTab, openNativeAccess: openNativeAccess, openNativeAuth: { openNativeAuth(.login, nil) })
                 } else {
-                    NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: { openNativeAuth(.login, nil) }, openNativeAccess: openNativeAccess)
+                    NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: { openNativeAuth(.login, nil) }, openNativeAccess: openNativeAccess, openDirectRoute: openDirectRoute)
                 }
             }
             if #available(iOS 16.4, *) {
@@ -20203,6 +20204,7 @@ private struct NativeConciergeView: View {
     let openNativeTab: (BytspotNativeTab) -> Void
     let openNativeAccess: () -> Void
     var openNativeAuth: (() -> Void)? = nil
+    var openDirectRoute: ((NativeVenueSummary) -> Void)? = nil
     @FocusState private var composerFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var didRunPreviewPrompt = false
@@ -20244,7 +20246,7 @@ private struct NativeConciergeView: View {
         .onChange(of: handoffPrompt) { _ in consumeNativeHandoffIfNeeded() }
         .sheet(item: $model.detailVenue) { venue in
             NativeVenueDetailView(venue: venue, openHybrid: { _ in }, openNativeTab: openNativeTab,
-                                  openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess)
+                                  openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess, openDirectRoute: openDirectRoute)
         }
         .confirmationDialog(Text(model.pendingAction?.title ?? ""),
                             isPresented: Binding(get: { model.pendingAction != nil },

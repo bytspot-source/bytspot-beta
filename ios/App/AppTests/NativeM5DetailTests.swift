@@ -1293,6 +1293,10 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(detail.contains("case .route: openRoute()"))
         XCTAssertTrue(detail.contains("if let openDirectRoute, venue.hasKnownCoordinates {"))
         XCTAssertTrue(discover.contains("openDirectRoute: openDirectRoute, offering: detailOffering"))
+        for presenter in ["openNativeAccess: openNativeAccess, openDirectRoute: openDirectRoute)", "openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess, openDirectRoute: openDirectRoute)", "openDirectRoute: { directMapRouteStore.stageRoute(to: $0) })"] {
+            XCTAssertTrue(shell.contains(presenter), presenter)
+        }
+        XCTAssertEqual(shell.components(separatedBy: "openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }").count - 1, 3)
         XCTAssertFalse(detail.contains("NativeMapFocusHandoff.store"))
         XCTAssertFalse(detail.contains(".sheet(isPresented: $showParkingBooking)"))
         XCTAssertFalse(detail.contains(".sheet(isPresented: $showStayBooking)"))

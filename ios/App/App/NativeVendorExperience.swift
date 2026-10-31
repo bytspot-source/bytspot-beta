@@ -564,7 +564,7 @@ enum NativeVenueArrivalAction: Equatable {
 
     var label: String {
         switch self {
-        case .directions: return "Get directions"
+        case .directions: return "Check In"
         case .locate: return "Refresh location"
         case .checkIn: return "Check In"
         case .retry: return "Retry Check In"

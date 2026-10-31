@@ -2768,7 +2768,8 @@ final class BytspotTrustEngineTests: XCTestCase {
 
         XCTAssertEqual(NativeDiscoverRouteResolver.routeVenue(for: venueCard, venues: [venue])?.id, venue.id)
         XCTAssertEqual(NativeDiscoverRouteResolver.routeVenue(for: companionCard, venues: [venue])?.id, venue.id)
-        XCTAssertEqual(eventCard.subtitle, event.address)
+        XCTAssertEqual(eventCard.subtitle, event.venue)
+        XCTAssertEqual(eventCard.address, event.address)
         XCTAssertEqual(NativeDiscoverRouteResolver.routeVenue(for: eventCard, venues: [])?.address, event.address)
         XCTAssertEqual(NativeDiscoverRouteResolver.routeVenue(for: eventCard, venues: [])?.latitude, event.latitude)
         XCTAssertEqual(NativeDiscoverRouteResolver.routeVenue(for: eventCard, venues: [])?.longitude, event.longitude)

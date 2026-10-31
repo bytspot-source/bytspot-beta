@@ -17432,7 +17432,7 @@ private struct NativeMapExploreView: View {
         case .seeAllServices:
             openNativeTab(.discover)
         case .route:
-            if let pin = selectedPin ?? serviceHereParkingPin ?? serviceHerePartnerPin { activateRoute(to: pin); startTurnByTurn(to: pin) }
+            if let pin = selectedPin ?? serviceHereParkingPin ?? serviceHerePartnerPin { activateRoute(to: pin) }
         }
     }
 
@@ -17447,7 +17447,6 @@ private struct NativeMapExploreView: View {
     private func openParkingService(_ pin: NativeMapPin) {
         showParking = true
         activateRoute(to: pin)
-        startTurnByTurn(to: pin)
     }
 
     private func openServiceVenue() {
@@ -17930,22 +17929,24 @@ private struct NativeMapExploreView: View {
                 Text(pin.title).font(.system(size: 17, weight: .heavy)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
                 Text(pin.subtitle).font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2)
             }
-            Button(action: { handleNonPartnerPrimary(pin) }) {
-                HStack(spacing: 8) {
-                    Image(systemName: nonPartnerPrimaryIcon(for: pin)).font(.system(size: 15, weight: .black))
-                    Text(nonPartnerPrimaryTitle(for: pin)).font(.system(size: 14, weight: .black))
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .black)).opacity(0.7)
+            if !isRouteCardShowing(for: pin) {
+                Button(action: { handleNonPartnerPrimary(pin) }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: nonPartnerPrimaryIcon(for: pin)).font(.system(size: 15, weight: .black))
+                        Text(nonPartnerPrimaryTitle(for: pin)).font(.system(size: 14, weight: .black))
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .black)).opacity(0.7)
+                    }
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 14)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 46)
+                    .background(NativeTheme.cyan)
+                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                 }
-                .foregroundColor(.black)
-                .padding(.horizontal, 14)
-                .frame(maxWidth: .infinity)
-                .frame(height: 46)
-                .background(NativeTheme.cyan)
-                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(pin.kind == .parking ? "native-map-parking-directions" : "native-map-nonpartner-navigate")
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier(pin.kind == .parking ? "native-map-parking-directions" : "native-map-nonpartner-navigate")
             HStack(spacing: 8) {
                 ForEach(Self.nonPartnerCardSecondaryLabels, id: \.self) { label in
                     Button(action: { handleNonPartnerSecondary(label, for: pin) }) {
@@ -18051,7 +18052,6 @@ private struct NativeMapExploreView: View {
     private func handleNonPartnerPrimary(_ pin: NativeMapPin) {
         nativeImpactLight()
         activateRoute(to: pin)
-        startTurnByTurn(to: pin)
     }
 
     private func nonPartnerPrimaryTitle(for pin: NativeMapPin) -> String {

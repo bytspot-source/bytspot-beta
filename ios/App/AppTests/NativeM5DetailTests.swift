@@ -1285,12 +1285,18 @@ final class NativeM5DetailTests: XCTestCase {
         let discover = try region(in: shell, from: "private struct NativeDiscoverView: View {", to: "private struct NativeDiscoverFilterChip: View {")
         XCTAssertTrue(discover.contains(".sheet(item: $routeVenue)"))
         XCTAssertTrue(discover.contains("NativeM2RouteSheet(venue: venue)"))
-        XCTAssertTrue(discover.contains("case .route: routeVenue = venueForDetail(card)"))
+        XCTAssertTrue(discover.contains("if venue.hasKnownCoordinates { openDirectRoute(venue) } else { routeVenue = venue }"))
         XCTAssertTrue(discover.contains("detailVenue = venueForDetail(card)"))
-        XCTAssertFalse(discover.contains("openDirectRoute("))
+        XCTAssertFalse(discover.contains("openInMaps("))
         let detail = try region(in: shell, from: "private struct NativeVenueDetailView: View {", to: "private struct NativeEventRideBookingSheet: View {")
         XCTAssertTrue(detail.contains(".sheet(isPresented: $showRoute) { NativeM2RouteSheet(venue: venue) }"))
-        XCTAssertTrue(detail.contains("case .route: showRoute = true"))
+        XCTAssertTrue(detail.contains("case .route: openRoute()"))
+        XCTAssertTrue(detail.contains("if let openDirectRoute, venue.hasKnownCoordinates {"))
+        XCTAssertTrue(discover.contains("openDirectRoute: openDirectRoute, offering: detailOffering"))
+        for presenter in ["openNativeAccess: openNativeAccess, openDirectRoute: openDirectRoute)", "openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess, openDirectRoute: openDirectRoute)", "openDirectRoute: { directMapRouteStore.stageRoute(to: $0) })"] {
+            XCTAssertTrue(shell.contains(presenter), presenter)
+        }
+        XCTAssertEqual(shell.components(separatedBy: "openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }").count - 1, 3)
         XCTAssertFalse(detail.contains("NativeMapFocusHandoff.store"))
         XCTAssertFalse(detail.contains(".sheet(isPresented: $showParkingBooking)"))
         XCTAssertFalse(detail.contains(".sheet(isPresented: $showStayBooking)"))
@@ -1600,7 +1606,7 @@ final class NativeM5DetailTests: XCTestCase {
                             "NativeVenueHeroMedia", "hoursUnknown", "activity(for:", "statusLabel", "availabilityLine"] {
             XCTAssertFalse(listed.contains(bytspotOnly), bytspotOnly)
         }
-        for listedAction in ["NativeVenueCheckInChip(venue: venue", "showRoute = true", "details?.googlePhotos",
+        for listedAction in ["NativeVenueCheckInChip(venue: venue", "openRoute()", "details?.googlePhotos",
                              "NativeM5DetailPolicy.googlePhotoCredit(photo)", "details?.phoneURL", "details?.websiteURL"] {
             XCTAssertTrue(listed.contains(listedAction), listedAction)
         }

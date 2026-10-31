@@ -12234,7 +12234,9 @@ private struct NativeDiscoverView: View {
                                 return
                             }
                             switch NativeM5DetailPolicy.primaryAction(for: card.presentation) {
-                            case .route: routeVenue = venueForDetail(card)
+                            case .route:
+                                let venue = venueForDetail(card)
+                                if venue.hasKnownCoordinates { openDirectRoute(venue) } else { routeVenue = venue }
                             case .requestCoffee: beginPlanSelection(card, requestCoffee: true)
                             case .external, .unavailable: break // No external feed data, booking, or ordering target today.
                             }

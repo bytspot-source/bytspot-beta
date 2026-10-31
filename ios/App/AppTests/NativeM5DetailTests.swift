@@ -1290,7 +1290,9 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertFalse(discover.contains("openInMaps("))
         let detail = try region(in: shell, from: "private struct NativeVenueDetailView: View {", to: "private struct NativeEventRideBookingSheet: View {")
         XCTAssertTrue(detail.contains(".sheet(isPresented: $showRoute) { NativeM2RouteSheet(venue: venue) }"))
-        XCTAssertTrue(detail.contains("case .route: showRoute = true"))
+        XCTAssertTrue(detail.contains("case .route: openRoute()"))
+        XCTAssertTrue(detail.contains("if let openDirectRoute, venue.hasKnownCoordinates {"))
+        XCTAssertTrue(discover.contains("openDirectRoute: openDirectRoute, offering: detailOffering"))
         XCTAssertFalse(detail.contains("NativeMapFocusHandoff.store"))
         XCTAssertFalse(detail.contains(".sheet(isPresented: $showParkingBooking)"))
         XCTAssertFalse(detail.contains(".sheet(isPresented: $showStayBooking)"))
@@ -1600,7 +1602,7 @@ final class NativeM5DetailTests: XCTestCase {
                             "NativeVenueHeroMedia", "hoursUnknown", "activity(for:", "statusLabel", "availabilityLine"] {
             XCTAssertFalse(listed.contains(bytspotOnly), bytspotOnly)
         }
-        for listedAction in ["NativeVenueCheckInChip(venue: venue", "showRoute = true", "details?.googlePhotos",
+        for listedAction in ["NativeVenueCheckInChip(venue: venue", "openRoute()", "details?.googlePhotos",
                              "NativeM5DetailPolicy.googlePhotoCredit(photo)", "details?.phoneURL", "details?.websiteURL"] {
             XCTAssertTrue(listed.contains(listedAction), listedAction)
         }

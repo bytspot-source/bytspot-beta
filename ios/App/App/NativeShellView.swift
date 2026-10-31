@@ -462,7 +462,7 @@ struct BytspotNativeShellView: View {
                 Group {
                     switch selectedTab {
                     case .home:
-                        NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth, openFeedback: { navigation.requestedFeedback = $0 })
+                        NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth, openFeedback: { navigation.requestedFeedback = $0 }, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) })
                     case .host:
                         NativeHostStudioView(circles: hostStudioCircles, membershipTier: membershipStore.tier, presentation: .tab)
                             .task { await loadHostStudioCircles() }
@@ -476,7 +476,7 @@ struct BytspotNativeShellView: View {
                             .environmentObject(directMapRouteStore)
                             .environmentObject(saleMeetStore)
                     case .concierge:
-                        NativeConciergeView(model: conciergeModel, openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) })
+                        NativeConciergeView(model: conciergeModel, openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) })
                     case .profile:
                         NativeProfileTabView(
                             initialPanel: pendingProfilePanel,
@@ -7278,6 +7278,7 @@ private struct NativeHomeDashboardView: View {
     let openNativeAccess: () -> Void
     let openNativeAuth: (NativeAuthMode, NativePostAuthIntent?) -> Void
     var openFeedback: (NativeFeedbackTarget) -> Void = { _ in }
+    var openDirectRoute: ((NativeVenueSummary) -> Void)? = nil
     @ObservedObject private var feedbackStore = NativeFeedbackStore.shared
     @State private var searchText = ""
     @State private var homeFindResults: [NativeFindResult] = []
@@ -7441,7 +7442,7 @@ private struct NativeHomeDashboardView: View {
                 if Self.isValetPremiumRide(venue) {
                     NativeValetPremiumRideSheet(initialVenue: venue, openNativeTab: openNativeTab, openNativeAccess: openNativeAccess, openNativeAuth: { openNativeAuth(.login, nil) })
                 } else {
-                    NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: { openNativeAuth(.login, nil) }, openNativeAccess: openNativeAccess)
+                    NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: { openNativeAuth(.login, nil) }, openNativeAccess: openNativeAccess, openDirectRoute: openDirectRoute)
                 }
             }
             if #available(iOS 16.4, *) {
@@ -11916,7 +11917,7 @@ private struct NativeDiscoverView: View {
             NativeValetPremiumRideSheet(openNativeTab: openNativeTab, openNativeAccess: openNativeAccess, openNativeAuth: openNativeAuth)
         }
         .sheet(item: $detailVenue) { venue in
-            let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess, onRideBookingCompleted: onRideBookingCompleted, offering: detailOffering, offeringUserID: catalogUserID)
+            let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess, onRideBookingCompleted: onRideBookingCompleted, openDirectRoute: openDirectRoute, offering: detailOffering, offeringUserID: catalogUserID)
             if #available(iOS 16.4, *) {
                 detail
                     .presentationDetents([.large])
@@ -12234,7 +12235,9 @@ private struct NativeDiscoverView: View {
                                 return
                             }
                             switch NativeM5DetailPolicy.primaryAction(for: card.presentation) {
-                            case .route: routeVenue = venueForDetail(card)
+                            case .route:
+                                let venue = venueForDetail(card)
+                                if venue.hasKnownCoordinates { openDirectRoute(venue) } else { routeVenue = venue }
                             case .requestCoffee: beginPlanSelection(card, requestCoffee: true)
                             case .external, .unavailable: break // No external feed data, booking, or ordering target today.
                             }
@@ -13158,6 +13161,7 @@ private struct NativeVenueDetailView: View {
     var openNativeAuth: (() -> Void)? = nil
     var openNativeAccess: (() -> Void)? = nil
     var onRideBookingCompleted: ((NativeMobilityRideRecord) -> Void)? = nil
+    var openDirectRoute: ((NativeVenueSummary) -> Void)? = nil
     // Map/Home/Discover remain source-compatible and Listed by default. Supply
     // context must be an exact catalog offering owned by the current account.
     var offering: NativePlanBookableOffering? = nil
@@ -13659,7 +13663,7 @@ private struct NativeVenueDetailView: View {
     }
 
     private var arrivalModule: some View {
-        NativeM2ArrivalModule(venue: venue, openRoute: { showRoute = true })
+        NativeM2ArrivalModule(venue: venue, openRoute: openRoute)
     }
 
     private var vendorInformation: some View {
@@ -13869,7 +13873,7 @@ private struct NativeVenueDetailView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 if NativeM5DetailPolicy.primaryAction(for: placePresentation) != .route {
-                    listedLink("Route", icon: "arrow.triangle.turn.up.right") { showRoute = true }
+                    listedLink("Route", icon: "arrow.triangle.turn.up.right") { openRoute() }
                         .accessibilityIdentifier("native-listed-route")
                 }
                 if let url = details?.phoneURL {
@@ -13918,7 +13922,7 @@ private struct NativeVenueDetailView: View {
             return
         }
         switch NativeM5DetailPolicy.primaryAction(for: placePresentation) {
-        case .route: showRoute = true
+        case .route: openRoute()
         case .requestCoffee: beginDetailPlanSelection(requestCoffee: true)
         case .external(let url):
             // The visible CTA names the provider; only this explicit tap leaves Bytspot.
@@ -14381,7 +14385,16 @@ private struct NativeVenueDetailView: View {
 
     private func openVenueOnNativeMap() {
         nativeImpactLight()
-        showRoute = true
+        openRoute()
+    }
+
+    private func openRoute() {
+        if let openDirectRoute, venue.hasKnownCoordinates {
+            dismiss()
+            openDirectRoute(venue)
+        } else {
+            showRoute = true
+        }
     }
 
     private func openStayBookingFlow() {
@@ -16871,7 +16884,7 @@ private struct NativeMapExploreView: View {
             }
         }
         .sheet(item: $detailVenue) { venue in
-            let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess)
+            let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess, openDirectRoute: { directMapRouteStore.stageRoute(to: $0) })
             if #available(iOS 16.0, *) {
                 detail
                     .presentationDetents([.large])
@@ -20191,6 +20204,7 @@ private struct NativeConciergeView: View {
     let openNativeTab: (BytspotNativeTab) -> Void
     let openNativeAccess: () -> Void
     var openNativeAuth: (() -> Void)? = nil
+    var openDirectRoute: ((NativeVenueSummary) -> Void)? = nil
     @FocusState private var composerFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var didRunPreviewPrompt = false
@@ -20232,7 +20246,7 @@ private struct NativeConciergeView: View {
         .onChange(of: handoffPrompt) { _ in consumeNativeHandoffIfNeeded() }
         .sheet(item: $model.detailVenue) { venue in
             NativeVenueDetailView(venue: venue, openHybrid: { _ in }, openNativeTab: openNativeTab,
-                                  openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess)
+                                  openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess, openDirectRoute: openDirectRoute)
         }
         .confirmationDialog(Text(model.pendingAction?.title ?? ""),
                             isPresented: Binding(get: { model.pendingAction != nil },

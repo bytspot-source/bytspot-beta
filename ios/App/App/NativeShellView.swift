@@ -15454,7 +15454,7 @@ enum NativeDiscoverRouteResolver {
     }
 
     static func routeVenue(for card: NativeDiscoverSummary, venues: [NativeVenueSummary]) -> NativeVenueSummary? {
-        routeVenue(cardID: card.id, title: card.title, subtitle: card.subtitle, type: card.type, distance: card.distance, imageURL: card.imageUrl, latitude: card.latitude, longitude: card.longitude, venues: venues)
+        routeVenue(cardID: card.id, title: card.title, subtitle: card.address ?? card.subtitle, type: card.type, distance: card.distance, imageURL: card.imageUrl, latitude: card.latitude, longitude: card.longitude, venues: venues)
     }
 
     static func routeVenue(cardID: String, title: String, subtitle: String, type: String, distance: String, imageURL: URL?, latitude: Double?, longitude: Double?, venues: [NativeVenueSummary]) -> NativeVenueSummary? {

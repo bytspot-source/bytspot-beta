@@ -192,6 +192,7 @@ struct NativeHostStudioView: View {
     @State private var capacity = "\(NativeHostTaxonomySelection.recommendedCapacity)"
     @State private var accessMode: NativePartyAccessMode = .privateApproval
     @State private var showOnDiscoverChoice: Bool?
+    @State private var musicDraft = NativePartyMusicDraft(defaultSetStart: Self.defaultStart)
     @State private var requiredTier: BytspotTier = .green
     @State private var ticketPrice = "25"
     @State private var requestNotesPerTicket = 0
@@ -470,6 +471,11 @@ struct NativeHostStudioView: View {
             }
             optionalSection("Cover", icon: "photo") {
                 partyMediaEditor
+            }
+            optionalSection("Music", icon: "music.note") {
+                NativePartyMusicEditor(draft: $musicDraft)
+                    .onAppear { if !musicDraft.hasSetTime { musicDraft.setStartsAt = startsAt } }
+                    .onChange(of: startsAt) { newValue in if !musicDraft.hasSetTime { musicDraft.setStartsAt = newValue } }
             }
             if templateID != .comedyNight && templateID != .premiere {
                 optionalSection("Template options", icon: "slider.horizontal.3") { templateConfigurationEditor }
@@ -1146,7 +1152,7 @@ struct NativeHostStudioView: View {
         let cents = max(0, Int(((Double(ticketPrice) ?? 0) * 100).rounded()))
         let teammate = teammateEmail.trimmingCharacters(in: .whitespacesAndNewlines)
         let venueCoordinate = NativeHostStudioPresentation.retainedVenueCoordinate(typed: venueName, pickedName: pickedVenueName, picked: pickedVenueCoordinate)
-        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, endsAt: hostSetsEnd ? endsAt : nil, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), latitude: venueCoordinate?.latitude, longitude: venueCoordinate?.longitude, locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: currentBeatOffsets[$0.offset]) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier, requestNotes: requestNotesPerTicket)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration, taxonomy: taxonomy, showOnDiscover: accessMode == .privateApproval ? showOnDiscover : nil)
+        return NativePartyDraftInput(templateID: templateID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), tagline: tagline.trimmingCharacters(in: .whitespacesAndNewlines), startsAt: startsAt, endsAt: hostSetsEnd ? endsAt : nil, venueName: venueName.trimmingCharacters(in: .whitespacesAndNewlines), latitude: venueCoordinate?.latitude, longitude: venueCoordinate?.longitude, locationDisclosure: locationDisclosure, capacity: count, accessMode: accessMode, requiredMembershipTier: requiredTier, audienceCircleIDs: Array(selectedCircleIDs).sorted(), itinerary: template.itinerary.enumerated().map { NativePartyItineraryItem(title: $0.element, offsetMinutes: currentBeatOffsets[$0.offset]) }, ticketTiers: accessMode == .paidTicket ? [NativePartyTicketTier(name: "First Drop", priceCents: cents, quantity: count, requiredMembershipTier: requiredTier, requestNotes: requestNotesPerTicket)] : [], cohosts: teammate.isEmpty ? [] : [NativePartyHostAssignment(email: teammate, role: teammateRole)], templateConfiguration: templateConfiguration, taxonomy: taxonomy, showOnDiscover: accessMode == .privateApproval ? showOnDiscover : nil, music: musicDraft.music)
     }
 
     private var showOnDiscover: Bool {
@@ -1579,5 +1585,87 @@ struct NativeShowOnDiscoverToggle: View {
             Text(Self.helper).font(.footnote).foregroundColor(.white.opacity(0.68))
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+/// Host-side music state. `kind == nil` is "No music", which publishes nothing.
+struct NativePartyMusicDraft: Equatable {
+    var kind: NativeMusicKind?
+    var genres: [NativeMusicGenre] = []
+    var hasSetTime = false
+    var setStartsAt: Date
+
+    init(kind: NativeMusicKind? = nil, genres: [NativeMusicGenre] = [], setStartsAt: Date? = nil, defaultSetStart: Date) {
+        self.kind = kind
+        self.genres = genres
+        self.hasSetTime = setStartsAt != nil
+        self.setStartsAt = setStartsAt ?? defaultSetStart
+    }
+
+    init(music: NativePartyMusic?, defaultSetStart: Date) {
+        self.init(kind: music?.kind, genres: music?.genres ?? [], setStartsAt: music?.setStartsAt, defaultSetStart: defaultSetStart)
+    }
+
+    var music: NativePartyMusic? {
+        guard let kind else { return nil }
+        return NativePartyMusic(kind: kind, genres: genres, setStartsAt: hasSetTime ? setStartsAt : nil)
+    }
+
+    /// Tapping a third genre is refused rather than silently dropping one.
+    mutating func toggle(_ genre: NativeMusicGenre) {
+        if let index = genres.firstIndex(of: genre) { genres.remove(at: index) }
+        else if genres.count < NativePartyMusic.maxGenres { genres.append(genre) }
+    }
+}
+
+struct NativePartyMusicEditor: View {
+    @Binding var draft: NativePartyMusicDraft
+    static let helper = "Parties with music can appear in \u{201C}Music tonight near you\u{201D} on Home when guests can RSVP or buy a ticket."
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Is there music?").font(.subheadline.weight(.semibold)).foregroundColor(NativeTheme.textSecondary)
+            Picker("Music", selection: $draft.kind) {
+                Text("None").tag(NativeMusicKind?.none)
+                ForEach(NativeMusicKind.allCases) { kind in
+                    Text(kind.shortTitle).tag(NativeMusicKind?.some(kind))
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("native-party-music-kind")
+            if draft.kind != nil {
+                Text("Genre (up to \(NativePartyMusic.maxGenres))").font(.subheadline.weight(.semibold)).foregroundColor(NativeTheme.textSecondary)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 8)], alignment: .leading, spacing: 8) {
+                    ForEach(NativeMusicGenre.allCases) { genre in
+                        let selected = draft.genres.contains(genre)
+                        let full = !selected && draft.genres.count >= NativePartyMusic.maxGenres
+                        Button(action: { draft.toggle(genre) }) {
+                            Text(genre.title)
+                                .font(.footnote.weight(.semibold))
+                                .foregroundColor(selected ? .black : NativeTheme.textPrimary)
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .background(selected ? NativeTheme.cyan : Color.white.opacity(0.06))
+                                .clipShape(Capsule())
+                                .opacity(full ? 0.45 : 1)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(full)
+                        .accessibilityValue(selected ? "Selected" : "Not selected")
+                        .accessibilityAddTraits(selected ? .isSelected : [])
+                    }
+                }
+                Toggle(isOn: $draft.hasSetTime) {
+                    Text("Set time differs from the start").font(.subheadline).foregroundColor(NativeTheme.textPrimary)
+                }
+                .tint(NativeTheme.cyan).frame(minHeight: 44)
+                if draft.hasSetTime {
+                    DatePicker("Set starts", selection: $draft.setStartsAt, displayedComponents: [.date, .hourAndMinute])
+                        .font(.subheadline).frame(minHeight: 44)
+                }
+                Text(Self.helper).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityIdentifier("native-party-music-editor")
     }
 }

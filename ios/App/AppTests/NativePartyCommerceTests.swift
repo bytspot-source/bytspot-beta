@@ -514,3 +514,111 @@ struct NativePartyRequestNotesTests {
         #expect(NativePartyRequestsContract.perTicketLabel(0) == "No lineup requests")
     }
 }
+
+@Suite("Party music on Home")
+struct NativePartyMusicTests {
+    private var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        return calendar
+    }
+    private func date(_ iso: String) -> Date { ISO8601DateFormatter().date(from: iso)! }
+    private func row(_ overrides: [String: Any] = [:]) -> [String: Any] {
+        var row: [String: Any] = [
+            "id": "party-1", "title": "Afro Night", "venueName": "Aster Room",
+            "startsAt": "2026-11-07T01:00:00.000Z", "endsAt": "2026-11-07T05:00:00.000Z",
+            "door": "open", "locationHidden": false, "latitude": 33.787, "longitude": -84.384, "distanceMiles": 1.2,
+            "music": (["kind": "dj", "genres": ["afrobeats", "amapiano"], "setStartsAt": "2026-11-07T02:30:00.000Z"] as [String: Any]),
+            "entry": ["kind": "ticket", "fromCents": 1500] as [String: Any],
+            "performers": [["displayName": "DJ Kofi", "role": "dj"]],
+            "coverURL": "https://api.bytspot.app/media/parties/m1",
+        ]
+        for (key, value) in overrides { row[key] = value }
+        return row
+    }
+
+    @Test func decodesAConfirmedPublicListing() throws {
+        let listing = try #require(NativeMusicListing.decode(row()))
+        #expect(listing.music == NativePartyMusic(kind: .dj, genres: [.afrobeats, .amapiano], setStartsAt: date("2026-11-07T02:30:00Z")))
+        #expect(listing.entryLine == "Tickets from $15")
+        #expect(listing.performerLine == "With DJ Kofi")
+        #expect(listing.confirmationLine == "Host-published · Performer confirmed")
+        #expect(listing.distanceLine == "1.2 mi")
+        #expect(listing.directionsURL?.absoluteString == "https://maps.apple.com/?daddr=33.787,-84.384&dirflg=d")
+        #expect(listing.invitation.partyID == "party-1")
+    }
+
+    @Test func refusesHiddenPlacesAndUndeclaredMusic() {
+        #expect(NativeMusicListing.decode(row(["door": "approval", "locationHidden": true])) == nil)
+        #expect(NativeMusicListing.decode(row(["venueName": NSNull()])) == nil)
+        #expect(NativeMusicListing.decode(row(["latitude": 0.0, "longitude": 0.0])) == nil)
+        #expect(NativeMusicListing.decode(row(["music": NSNull()])) == nil)
+        #expect(NativeMusicListing.decode(row(["music": (["kind": "karaoke", "genres": ["jazz"]] as [String: Any])])) == nil)
+        #expect(NativeMusicListing.decode(row(["music": (["kind": "dj", "genres": ["polka"]] as [String: Any])])) == nil)
+    }
+
+    @Test func freeEntryAndNoCreditsReadPlainly() throws {
+        let listing = try #require(NativeMusicListing.decode(row(["entry": ["kind": "free"], "performers": [] as [[String: Any]]])))
+        #expect(listing.entryLine == "Free")
+        #expect(listing.performerLine == nil)
+        #expect(listing.confirmationLine == "Host-published")
+    }
+
+    @Test func timeLineNamesTheSetAndNeverClaimsPlayingNow() throws {
+        let listing = try #require(NativeMusicListing.decode(row()))
+        // 8 PM Friday New York: the 9:30 PM set is later today.
+        #expect(listing.timeLine(now: date("2026-11-07T01:00:00Z"), calendar: calendar) == "Set starts 9:30 PM")
+        #expect(listing.timeLine(now: date("2026-11-07T03:00:00Z"), calendar: calendar) == "Set started 9:30 PM")
+        #expect(listing.timeLine(now: date("2026-11-05T15:00:00Z"), calendar: calendar) == "Fri · Set starts 9:30 PM")
+        let noSet = try #require(NativeMusicListing.decode(row(["music": (["kind": "live", "genres": ["jazz"]] as [String: Any])])))
+        #expect(noSet.timeLine(now: date("2026-11-06T22:00:00Z"), calendar: calendar) == "Starts 8:00 PM")
+    }
+
+    @Test func filtersLetBothKindsAnswerEitherChip() throws {
+        let dj = try #require(NativeMusicListing.decode(row(["id": "a"])))
+        let both = try #require(NativeMusicListing.decode(row(["id": "b", "music": (["kind": "both", "genres": ["jazz"]] as [String: Any])])))
+        let live = try #require(NativeMusicListing.decode(row(["id": "c", "music": (["kind": "live", "genres": ["gospel", "jazz"]] as [String: Any])])))
+        #expect(NativeMusicFilter(kind: .live).apply([dj, both, live]).map(\.id) == ["b", "c"])
+        #expect(NativeMusicFilter(kind: .dj).apply([dj, both, live]).map(\.id) == ["a", "b"])
+        #expect(NativeMusicFilter(genre: .jazz).apply([dj, both, live]).map(\.id) == ["b", "c"])
+        #expect(NativeMusicFilter.availableGenres(in: [live, dj]) == [.afrobeats, .amapiano, .jazz, .gospel])
+    }
+
+    @Test func tonightRunsToFourAndTheWeekendIsFridayEveningToMonday() {
+        let wednesdayEvening = date("2026-11-04T23:00:00Z") // 6 PM Wed New York
+        let tonight = NativeMusicWindow.tonight.interval(now: wednesdayEvening, calendar: calendar)
+        #expect(tonight.start == wednesdayEvening)
+        #expect(tonight.end == date("2026-11-05T09:00:00Z")) // 4 AM Thu
+        let weekend = NativeMusicWindow.weekend.interval(now: wednesdayEvening, calendar: calendar)
+        #expect(weekend.start == date("2026-11-06T22:00:00Z")) // Fri 5 PM
+        #expect(weekend.end == date("2026-11-09T09:00:00Z")) // Mon 4 AM
+        let saturdayNoon = date("2026-11-07T17:00:00Z")
+        let underway = NativeMusicWindow.weekend.interval(now: saturdayNoon, calendar: calendar)
+        #expect(underway.start == saturdayNoon)
+        #expect(underway.end == date("2026-11-09T09:00:00Z"))
+        #expect(NativeMusicWindow.offersWeekendFallback(now: wednesdayEvening, calendar: calendar))
+        #expect(!NativeMusicWindow.offersWeekendFallback(now: saturdayNoon, calendar: calendar))
+    }
+
+    @Test func hostDraftSendsMusicOnlyWhenDeclaredAndCapsGenresAtTwo() {
+        let start = date("2026-11-07T01:00:00Z")
+        var draft = NativePartyMusicDraft(defaultSetStart: start)
+        #expect(draft.music == nil)
+        draft.kind = .dj
+        draft.toggle(.afrobeats); draft.toggle(.house); draft.toggle(.jazz)
+        #expect(draft.genres == [.afrobeats, .house])
+        draft.hasSetTime = true
+        draft.setStartsAt = start.addingTimeInterval(90 * 60)
+        let input = NativePartyDraftInput(templateID: .listeningParty, title: "Afro Night", tagline: "", startsAt: start, endsAt: start.addingTimeInterval(4 * 3600), venueName: "Aster Room", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .listeningParty(.listeningSession), music: draft.music)
+        let music = input.rpcInput["music"] as? [String: Any]
+        #expect(music?["kind"] as? String == "dj")
+        #expect(music?["genres"] as? [String] == ["afrobeats", "house"])
+        #expect(music?["setStartsAt"] as? String == "2026-11-07T02:30:00Z")
+        #expect(NativePartyMusic(kind: .dj, genres: [], setStartsAt: nil).validationMessage(startsAt: start, endsAt: nil) != nil)
+        #expect(NativePartyMusic(kind: .dj, genres: [.house], setStartsAt: start.addingTimeInterval(-60)).validationMessage(startsAt: start, endsAt: nil) == "The set cannot start before the Party.")
+        #expect(NativePartyMusic(kind: .dj, genres: [.house], setStartsAt: start.addingTimeInterval(5 * 3600)).validationMessage(startsAt: start, endsAt: start.addingTimeInterval(4 * 3600)) == "The set has to start before the Party ends.")
+        draft.kind = nil
+        let silent = NativePartyDraftInput(templateID: .listeningParty, title: "Afro Night", tagline: "", startsAt: start, venueName: "Aster Room", capacity: 40, accessMode: .freeRSVP, requiredMembershipTier: .green, audienceCircleIDs: [], itinerary: [], ticketTiers: [], cohosts: [], templateConfiguration: .listeningParty(.listeningSession), music: draft.music)
+        #expect(silent.rpcInput["music"] == nil)
+    }
+}

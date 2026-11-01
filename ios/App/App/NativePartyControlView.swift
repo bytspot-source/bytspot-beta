@@ -14,6 +14,17 @@ struct NativePartyControlSummary: Codable {
     /// Only meaningful for an approval door; open doors always list.
     let showOnDiscover: Bool?
     let feedback: NativePartyFeedbackAggregate?
+    // Older servers omit these; absent music reads as none declared.
+    var startsAt: String? = nil
+    var endsAt: String? = nil
+    var music: NativePartyControlMusic? = nil
+
+    var partyMusic: NativePartyMusic? {
+        guard let music else { return nil }
+        var object: [String: Any] = ["kind": music.kind, "genres": music.genres]
+        if let setStartsAt = music.setStartsAt { object["setStartsAt"] = setStartsAt }
+        return NativePartyMusic.decode(object)
+    }
 
     /// Canonical Party Pass URL. Prefer the server value; fall back to the
     /// deterministic https://bytspot.app/party/<id> host already owns.
@@ -23,6 +34,12 @@ struct NativePartyControlSummary: Codable {
         let trimmed = passCode.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
+}
+
+struct NativePartyControlMusic: Codable, Equatable {
+    let kind: String
+    let genres: [String]
+    let setStartsAt: String?
 }
 
 struct NativePartyFeedbackAggregate: Codable, Equatable {
@@ -198,6 +215,9 @@ struct NativePartyControlAPI {
     func summary(_ partyID: String) async throws -> NativePartyControlSummary { try await query(NativePartyControlSummary.self, path: "/trpc/events.control.summary", input: ["partyId": partyID]) }
     func guests(_ partyID: String) async throws -> [NativePartyControlGuest] { try await query(NativePartyControlGuestList.self, path: "/trpc/events.control.guests", input: ["partyId": partyID, "status": "all"]).guests }
     func pause(_ partyID: String, paused: Bool) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.setAdmissionPaused", method: "POST", input: ["partyId": partyID, "paused": paused]) }
+    func setMusic(_ partyID: String, music: NativePartyMusic?) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/events.control.setMusic", method: "POST", input: ["partyId": partyID, "music": music?.rpcInput ?? NSNull()])
+    }
     func setShowOnDiscover(_ partyID: String, show: Bool) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.setShowOnDiscover", method: "POST", input: ["partyId": partyID, "show": show]) }
     func setShareLinkExpiry(_ partyID: String, expiresAt: String?) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.setShareLinkExpiry", method: "POST", input: ["partyId": partyID, "expiresAt": expiresAt ?? NSNull()]) }
     func decide(_ partyID: String, guestID: String, approved: Bool) async throws { _ = try await client.trpcPayload(path: "/trpc/events.control.decide", method: "POST", input: ["partyId": partyID, "guestId": guestID, "decision": approved ? "approved" : "declined"]) }
@@ -229,6 +249,7 @@ struct NativePartyControlView: View {
     @State private var showingStage = false
     @State private var newRequests: Int?
     @State private var showOnDiscover: Bool?
+    @State private var editingMusic = false
 
     var body: some View {
         ZStack { BytspotNativeBackground(tier: .green).ignoresSafeArea(); ScrollView { VStack(alignment: .leading, spacing: 10) {
@@ -243,6 +264,8 @@ struct NativePartyControlView: View {
             }
 
             controlSection("Lineup & requests") { lineupCard }
+
+            if let summary { controlSection("Music") { musicCard(summary) } }
 
             if let summary, summary.retrievedShareURL != nil || showOnDiscover != nil {
                 controlSection("Share") {
@@ -277,6 +300,11 @@ struct NativePartyControlView: View {
         .onChange(of: sessionStore.token) { _ in forgetRecap(); Task { await loadRecap() } }
         .sheet(isPresented: $showingSessions) {
             NativePartySessionAuthoringView(partyID: partyID).environmentObject(sessionStore)
+        }
+        .sheet(isPresented: $editingMusic, onDismiss: { Task { await reload() } }) {
+            if let summary {
+                NativePartyMusicSheet(partyID: partyID, summary: summary).environmentObject(sessionStore)
+            }
         }
         .sheet(isPresented: $showingLineup) {
             NativePartyLineupHostSheet(partyID: partyID).environmentObject(sessionStore)
@@ -417,6 +445,21 @@ struct NativePartyControlView: View {
             content()
         }
         .padding(.top, 10)
+    }
+
+    private func musicCard(_ value: NativePartyControlSummary) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(value.partyMusic?.summaryLine ?? "No music listed")
+                .font(.system(size: 14, weight: .bold)).foregroundColor(.white)
+            Text(value.partyMusic == nil
+                 ? "Add music so guests nearby can find this Party under \u{201C}Music tonight near you\u{201D}."
+                 : "Guests see this, and the performers who accepted your lineup invite.")
+                .font(.system(size: 11, weight: .semibold)).foregroundColor(.white.opacity(0.62))
+                .fixedSize(horizontal: false, vertical: true)
+            Button(value.partyMusic == nil ? "Add music" : "Edit music") { editingMusic = true }
+                .controlButton(color: NativeTheme.purple)
+                .accessibilityIdentifier("native-party-control-music")
+        }.padding(14).partyControlSurface()
     }
 
     private var lineupCard: some View {
@@ -711,3 +754,62 @@ private struct NativePartyQRScanner: UIViewControllerRepresentable {
 }
 
 private extension View { func controlButton(color: Color) -> some View { font(.system(size: 12, weight: .black)).frame(maxWidth: .infinity).frame(height: 46).foregroundColor(.white).background(color).clipShape(RoundedRectangle(cornerRadius: 15)) }; func partyControlSurface() -> some View { background(Color.white.opacity(0.055)).overlay(RoundedRectangle(cornerRadius: 17).stroke(Color.white.opacity(0.08))).clipShape(RoundedRectangle(cornerRadius: 17)) }; func partyControlLabel() -> some View { font(.system(size: 9.5, weight: .black)).foregroundColor(.white.opacity(0.45)) } }
+/// Party Control's music editor for a published Party.
+struct NativePartyMusicSheet: View {
+    let partyID: String
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @State private var draft: NativePartyMusicDraft
+    @State private var saving = false
+    @State private var message = ""
+    private let startsAt: Date?
+    private let endsAt: Date?
+
+    init(partyID: String, summary: NativePartyControlSummary) {
+        self.partyID = partyID
+        let startsAt = summary.startsAt.flatMap(NativeAccountDeletionFormat.date(fromISO:))
+        self.startsAt = startsAt
+        self.endsAt = summary.endsAt.flatMap(NativeAccountDeletionFormat.date(fromISO:))
+        _draft = State(initialValue: NativePartyMusicDraft(music: summary.partyMusic, defaultSetStart: startsAt ?? Date()))
+    }
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    NativePartyMusicEditor(draft: $draft)
+                    if !message.isEmpty {
+                        Text(message).font(.footnote.weight(.semibold)).foregroundColor(NativeTheme.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }.padding(18)
+            }
+            .navigationTitle("Music")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(saving ? "Saving…" : "Save") { Task { await save() } }.disabled(saving)
+                }
+            }
+        }
+        .navigationViewStyle(.stack)
+        .preferredColorScheme(.dark)
+    }
+
+    @MainActor private func save() async {
+        let music = draft.music
+        if let music, let startsAt, let problem = music.validationMessage(startsAt: startsAt, endsAt: endsAt) { message = problem; return }
+        guard let token = sessionStore.token else { message = "Sign in again to change music."; return }
+        saving = true
+        defer { saving = false }
+        do {
+            try await NativePartyControlAPI(client: BytspotAPIClient(tokenProvider: { token })).setMusic(partyID, music: music)
+            dismiss()
+        } catch let BytspotAPIClient.APIError.server(status, body) where status == 400 && !NativeAuthDataAPI.serverMessage(in: body).isEmpty {
+            message = NativeAuthDataAPI.serverMessage(in: body)
+        } catch {
+            message = "Music could not be saved. Try again."
+        }
+    }
+}

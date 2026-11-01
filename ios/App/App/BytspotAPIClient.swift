@@ -4759,49 +4759,25 @@ final class NativeTabContentStore: ObservableObject {
 
         let client = BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })
         do {
-            async let bootstrap = try? fetchBootstrap(client: client)
             async let venues = fetchVenues(client: client)
             async let eventsRequest = fetchEvents(client: client, location: location)
-            async let vendorServices = fetchVendorServices(client: client)
             async let placeDiscoveryCards = fetchPlaceDiscoveryCards(client: client, location: location)
-            async let bestValue = fetchBestValue(client: client, location: location)
             async let nearbyParties = fetchNearbyParties(client: client, location: location)
-            if let bootstrapSnapshot = await bootstrap {
-                let valueOptions = Self.localValueOptions((try? await bestValue) ?? [])
-                let localized = Self.locationAwareSnapshot(bootstrapSnapshot, location: location)
-                let nearbyEvents = (try? await eventsRequest) ?? []
-                let events = nearbyEvents.isEmpty ? localized.trustworthyLiveEvents : nearbyEvents
-                let services = (try? await vendorServices) ?? []
-                let places = (try? await placeDiscoveryCards) ?? []
-                let parties = (try? await nearbyParties) ?? []
-                let trustedVenues = localized.trustworthyLiveVenues
-                let cards = Self.liveDiscoverCards(apiCards: localized.discoverCards, venues: trustedVenues, events: events, services: services, placeCards: places, parties: parties, valueOptions: valueOptions, location: location)
-                let hasLiveInputs = localized.source != .fallback || !events.isEmpty || !services.isEmpty || !places.isEmpty || !parties.isEmpty || !valueOptions.isEmpty
-                guard generation == refreshGeneration else { return }
-                snapshotOrigin = location
-                bestValueOrigin = valueOptions.isEmpty ? nil : location
-                snapshot = NativeTabContentSnapshot(venues: trustedVenues, discoverCards: cards, events: Self.visibleEvents(events, location: location), source: Self.source(forVisibleDeck: cards, hasLiveInputs: hasLiveInputs), lastUpdated: localized.lastUpdated, errorMessage: localized.errorMessage, bestValueOptions: valueOptions, hasLiveVenueInventory: !trustedVenues.isEmpty, hasLiveEventInventory: !events.isEmpty)
-                return
-            }
-
             let liveVenues = Self.locationAwareVenues(try await venues, location: location).filter { !NativeTabContentSnapshot.isFallbackVenueFixture($0) }
-            let liveServices = (try? await vendorServices) ?? []
             let livePlaceCards = (try? await placeDiscoveryCards) ?? []
             let liveEvents = (try? await eventsRequest) ?? []
             let liveParties = (try? await nearbyParties) ?? []
-            let valueOptions = Self.localValueOptions((try? await bestValue) ?? [])
-            let cards = Self.liveDiscoverCards(apiCards: [], venues: liveVenues, events: liveEvents, services: liveServices, placeCards: livePlaceCards, parties: liveParties, valueOptions: valueOptions, location: location)
+            let cards = Self.liveDiscoverCards(apiCards: [], venues: liveVenues, events: liveEvents, services: [], placeCards: livePlaceCards, parties: liveParties, valueOptions: [], location: location)
             guard generation == refreshGeneration else { return }
             snapshotOrigin = location
-            bestValueOrigin = valueOptions.isEmpty ? nil : location
+            bestValueOrigin = nil
             snapshot = NativeTabContentSnapshot(
                 venues: liveVenues,
                 discoverCards: cards,
                 events: Self.visibleEvents(liveEvents, location: location),
-                source: Self.source(forVisibleDeck: cards, hasLiveInputs: !liveVenues.isEmpty || !liveServices.isEmpty || !livePlaceCards.isEmpty || !liveEvents.isEmpty || !liveParties.isEmpty || !valueOptions.isEmpty),
+                source: Self.source(forVisibleDeck: cards, hasLiveInputs: !liveVenues.isEmpty || !livePlaceCards.isEmpty || !liveEvents.isEmpty || !liveParties.isEmpty),
                 lastUpdated: Date(),
                 errorMessage: nil,
-                bestValueOptions: valueOptions,
                 hasLiveVenueInventory: !liveVenues.isEmpty,
                 hasLiveEventInventory: !liveEvents.isEmpty
             )
@@ -4812,42 +4788,6 @@ final class NativeTabContentStore: ObservableObject {
             let fallback = Self.locationAwareSnapshot(.fallback, location: location)
             snapshot = NativeTabContentSnapshot(venues: [], discoverCards: fallback.discoverCards, events: Self.visibleEvents([], location: location), source: .fallback, lastUpdated: Date(), errorMessage: "Picks near you aren't available right now. Try again shortly.")
         }
-    }
-
-    private func fetchBootstrap(client: BytspotAPIClient) async throws -> NativeTabContentSnapshot? {
-        let payload = BytspotAPIClient.unwrapTRPCData(try await client.json(path: "/trpc/native.bootstrap"))
-        let root = payload as? [String: Any]
-        let content = root?["content"] as? [String: Any] ?? root ?? [:]
-        let venueRows: [Any] = Self.findArray(named: "venues", in: content) ?? []
-        let cardRows: [Any] = Self.findArray(named: "discoverCards", in: content) ?? []
-        let eventRows: [Any] = Self.findArray(named: "events", in: content) ?? []
-        let venues = venueRows.compactMap(Self.venue(from:))
-        let cards: [NativeDiscoverSummary] = cardRows.enumerated().compactMap { index, value in
-            guard let item = value as? [String: Any] else { return nil }
-            return Self.discoverCard(from: item, index: index)
-        }
-        let events: [NativeEventSummary] = eventRows.enumerated().compactMap(Self.event(from:))
-        guard !venues.isEmpty || !cards.isEmpty || !events.isEmpty else { return nil }
-
-        let freshness = root?["freshness"] as? [String: Any]
-        let sourceRaw = Self.string(content, ["source"]) ?? Self.string(freshness, ["publicContentSource"])
-        let source = NativeTabContentSnapshot.Source(rawValue: sourceRaw ?? "") ?? (venues.isEmpty && cards.isEmpty && events.isEmpty ? .fallback : .live)
-        let hasExplicitLiveVenueInventory = Self.bool(content, ["hasLiveVenueInventory"])
-            ?? Self.bool(freshness, ["hasLiveVenueInventory"])
-            ?? false
-        let hasExplicitLiveEventInventory = Self.bool(content, ["hasLiveEventInventory"])
-            ?? Self.bool(freshness, ["hasLiveEventInventory"])
-            ?? false
-        return NativeTabContentSnapshot(
-            venues: venues,
-            discoverCards: cards,
-            events: events,
-            source: source,
-            lastUpdated: Self.date(root, ["generatedAt"]) ?? Date(),
-            errorMessage: nil,
-            hasLiveVenueInventory: hasExplicitLiveVenueInventory && source != .fallback && !venues.isEmpty,
-            hasLiveEventInventory: hasExplicitLiveEventInventory && source != .fallback && !events.isEmpty
-        )
     }
 
     #if DEBUG
@@ -4902,18 +4842,6 @@ final class NativeTabContentStore: ObservableObject {
         return rows.compactMap { value -> NativeDiscoverSummary? in
             guard let item = value as? [String: Any] else { return nil }
             return Self.partyDiscoverCard(from: item)
-        }
-    }
-
-    private func fetchVendorServices(client: BytspotAPIClient) async throws -> [NativeDiscoverSummary] {
-        let input = try JSONSerialization.data(withJSONObject: ["limit": 20, "tier": "platinum"])
-        var components = URLComponents(string: "/trpc/vendors.search")!
-        components.queryItems = [URLQueryItem(name: "input", value: String(data: input, encoding: .utf8))]
-        let payload = try await client.json(path: components.string ?? "/trpc/vendors.search")
-        guard let rows = Self.findArray(named: "services", in: payload) ?? Self.findArray(named: "vendors", in: payload) else { return [] }
-        return rows.enumerated().compactMap { index, value in
-            guard let item = value as? [String: Any] else { return nil }
-            return Self.serviceCard(from: item, index: index)
         }
     }
 
@@ -5010,25 +4938,6 @@ final class NativeTabContentStore: ObservableObject {
             if let card = Self.discoverCard(fromPlace: pair, location: location, eta: eta) { cards.append(card) }
         }
         return cards
-    }
-
-    private func fetchBestValue(client: BytspotAPIClient, location: NativeLocationCoordinate = .midtown) async throws -> [NativeLiveValueOption] {
-        let payload = BytspotAPIClient.unwrapTRPCData(try await client.json(path: Self.bestValueQueryPath(input: Self.bestValueQueryInput(location: location))))
-        let root = payload as? [String: Any]
-        let rows = (root?["options"] as? [Any]) ?? Self.findArray(named: "options", in: payload) ?? []
-        return rows.compactMap(Self.liveValueOption(from:))
-    }
-
-    nonisolated static func bestValueQueryInput(location: NativeLocationCoordinate = .midtown) -> [String: Any] {
-        ["productType": "any", "lat": location.latitude, "lng": location.longitude, "durationHours": 2, "limit": 4, "strict": false]
-    }
-
-    nonisolated static func bestValueQueryPath(input: [String: Any] = bestValueQueryInput()) throws -> String {
-        let inputData = try JSONSerialization.data(withJSONObject: input)
-        var components = URLComponents()
-        components.path = "/trpc/live.bestValue"
-        components.queryItems = [URLQueryItem(name: "input", value: String(data: inputData, encoding: .utf8) ?? "")]
-        return components.string ?? "/trpc/live.bestValue"
     }
 
     static func discoverCards(from venues: [NativeVenueSummary], services: [NativeDiscoverSummary] = []) -> [NativeDiscoverSummary] {
@@ -5442,66 +5351,6 @@ final class NativeTabContentStore: ObservableObject {
         return NativeDiscoverSummary(id: "best-value-\(option.id)", type: type, title: option.title, subtitle: "\(option.providerName) · ranked by price parity", distance: distance, rating: "Value \(option.valueScore)", icon: icon(for: type), verified: option.eligible, entryType: option.estimatedTotalCents == 0 ? "free" : "paid", cta: cta(forProductType: option.productType), imageUrl: nil, categoryLabel: label(for: type), badgeText: "BEST VALUE", metadataLine: "\(price) · vs \(market) · score \(option.valueScore)", features: bestValueFeatures(option), vibeScore: max(1, min(10, Int(ceil(Double(option.valueScore) / 10.0)))), availability: option.availability, membershipRequired: option.estimatedTotalCents != 0)
     }
 
-    private static func serviceCard(from item: [String: Any], index: Int) -> NativeDiscoverSummary {
-        let vendor = item["vendor"] as? [String: Any]
-        let title = string(item, ["title", "name"]) ?? string(vendor, ["displayName", "name"]) ?? "Local Service"
-        let subtitle = string(item, ["serviceSubtitle", "subtitle", "description"]) ?? string(vendor, ["tagline"]) ?? "Trusted local service"
-        let priceCents = int(item, ["priceCents", "amountCents", "priceFromCents"]) ?? int(vendor, ["priceCents", "amountCents", "priceFromCents"])
-        let price = string(item, ["entryPrice", "price", "priceLabel"]) ?? priceCents.map { formatCurrency(cents: $0) } ?? "Member pricing"
-        let rawCategory = string(item, ["category", "serviceCategory"]) ?? string(vendor, ["category"]) ?? "service"
-        let rating = double(item, ["rating"]) ?? double(vendor, ["rating"])
-        let features = ((item["includedHighlights"] as? [String]) ?? (item["features"] as? [String]) ?? (vendor?["includedHighlights"] as? [String]) ?? [])
-        return NativeDiscoverSummary(
-            id: string(item, ["id", "vendorServiceId"]) ?? string(vendor, ["id"]) ?? "service-\(index)",
-            type: "service",
-            title: title,
-            subtitle: subtitle,
-            distance: string(item, ["distance"]) ?? "Service",
-            rating: rating.map { String(format: "%.1f", $0) } ?? "4.9",
-            icon: icon(for: "service"),
-            verified: true,
-            entryType: "paid",
-            cta: string(item, ["ctaText", "action"]) ?? "Request Service",
-            imageUrl: url(item, ["heroImageUrl", "heroImageURL", "imageUrl", "thumbnailUrl"]) ?? url(vendor, ["heroImageUrl", "heroImageURL", "imageUrl", "thumbnailUrl"]),
-            categoryLabel: "Services",
-            badgeText: "LIVE API",
-            metadataLine: "\(price) • \(string(item, ["availability", "availabilityWindow"]) ?? "Available now")",
-            features: Array((features.isEmpty ? [rawCategory.capitalized, "Trusted provider", "Member pricing"] : features).prefix(4)),
-            vibeScore: min(max(int(item, ["vibeScore", "vibe"]) ?? 8, 1), 10),
-            availability: string(item, ["availability"]) ?? "Available now",
-            membershipRequired: true,
-            control: NativeDiscoverCardControl.vendor,
-            latitude: double(item, ["lat", "latitude"]) ?? double(vendor, ["lat", "latitude"]),
-            longitude: double(item, ["lng", "longitude"]) ?? double(vendor, ["lng", "longitude"])
-        )
-    }
-
-    private static func discoverCard(from item: [String: Any], index: Int) -> NativeDiscoverSummary {
-        let type = NativeDiscoverCategoryNormalizer.type(for: string(item, ["type", "category", "serviceCategory"]) ?? "service")
-        return NativeDiscoverSummary(
-            id: string(item, ["id", "vendorServiceId"]) ?? "bootstrap-card-\(index)",
-            type: type,
-            title: string(item, ["title", "name"]) ?? "Bytspot Pick",
-            subtitle: string(item, ["subtitle", "description"]) ?? "Recommended around you",
-            distance: string(item, ["distance"]) ?? "Nearby",
-            rating: string(item, ["rating"]) ?? double(item, ["rating"]).map { String(format: "%.1f", $0) } ?? "4.8",
-            icon: string(item, ["icon", "iconName"]) ?? icon(for: type),
-            verified: bool(item, ["verified", "isVerified"]) ?? false,
-            entryType: string(item, ["entryType"]) ?? "free",
-            cta: string(item, ["cta", "ctaText", "action"]) ?? "Open details",
-            imageUrl: url(item, ["imageUrl", "image_url", "heroImage", "thumbnailUrl"]),
-            categoryLabel: string(item, ["categoryLabel", "label"]) ?? label(for: type),
-            badgeText: "LIVE API",
-            metadataLine: string(item, ["metadataLine", "meta", "priceLabel"]) ?? "Available now",
-            features: arrayOfStrings(item["features"]) ?? arrayOfStrings(item["includedHighlights"]) ?? [label(for: type), "Bytspot verified"],
-            vibeScore: min(max(int(item, ["vibeScore", "vibe"]) ?? 8, 1), 10),
-            availability: string(item, ["availability"]) ?? "Available now",
-            membershipRequired: bool(item, ["membershipRequired", "requiresMembership"]) ?? false,
-            latitude: double(item, ["lat", "latitude"]),
-            longitude: double(item, ["lng", "longitude"])
-        )
-    }
-
     private static func event(from pair: EnumeratedSequence<[Any]>.Element) -> NativeEventSummary? {
         let (index, value) = pair
         guard let item = value as? [String: Any] else { return nil }
@@ -5575,25 +5424,6 @@ final class NativeTabContentStore: ObservableObject {
     private static func formatCurrency(cents: Int) -> String {
         let dollars = Double(cents) / 100.0
         return dollars.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "$%.0f", dollars) : String(format: "$%.2f", dollars)
-    }
-
-    private static func liveValueOption(from value: Any) -> NativeLiveValueOption? {
-        guard let item = value as? [String: Any], let id = string(item, ["id"]), let title = string(item, ["title", "name"]) else { return nil }
-        return NativeLiveValueOption(
-            id: id,
-            productType: string(item, ["productType"]) ?? "parking",
-            title: title,
-            providerName: string(item, ["providerName", "provider"]) ?? "Bytspot",
-            source: string(item, ["source"]) ?? "curated",
-            estimatedTotalCents: int(item, ["estimatedTotalCents"]),
-            marketReferenceCents: int(item, ["marketReferenceCents"]),
-            distanceMeters: double(item, ["distanceMeters"]),
-            availability: string(item, ["availability"]) ?? "Availability pending",
-            priceParityScore: int(item, ["priceParityScore"]) ?? 0,
-            valueScore: int(item, ["valueScore"]) ?? 0,
-            eligible: bool(item, ["eligible"]) ?? true,
-            explanation: arrayOfStrings(item["explanation"]) ?? []
-        )
     }
 
     private static func discoverType(forProductType productType: String) -> String {

@@ -3283,15 +3283,6 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(atlantaCopy.localizedCaseInsensitiveContains("Midtown"))
     }
 
-    func testBestValueUsesTRPCQueryTransport() throws {
-        let path = try NativeTabContentStore.bestValueQueryPath()
-        let request = try BytspotAPIClient().makeRequest(path: path)
-
-        XCTAssertEqual(request.httpMethod, "GET")
-        XCTAssertNil(request.httpBody)
-        XCTAssertTrue(path.hasPrefix("/trpc/live.bestValue?input="))
-    }
-
     func testPlacesNearbyUsesTRPCQueryTransport() throws {
         let path = try BytspotAPIClient.trpcQueryPath(NativeLiveContentV2Contract.placesNearbySearchRoute, input: ["lat": 33.7866, "lng": -84.3833, "type": "parking", "maxResults": 8])
         let request = try BytspotAPIClient().makeRequest(path: path)
@@ -3412,30 +3403,6 @@ final class BytspotTrustEngineTests: XCTestCase {
 
         XCTAssertEqual(venue.discoverType, "nightlife")
         XCTAssertEqual(NativeTabContentStore.icon(for: venue.discoverType), "music.note")
-    }
-
-    func testBestValueQueryPathCarriesRawInputJSON() throws {
-        let path = try NativeTabContentStore.bestValueQueryPath(input: ["productType": "parking", "lat": 33.7, "lng": -84.3, "limit": 2, "strict": false])
-        let components = URLComponents(string: path)
-        let rawInput = try XCTUnwrap(components?.queryItems?.first(where: { $0.name == "input" })?.value)
-        let data = try XCTUnwrap(rawInput.data(using: .utf8))
-        let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-
-        XCTAssertEqual(decoded["productType"] as? String, "parking")
-        XCTAssertEqual(decoded["lat"] as? Double, 33.7)
-        XCTAssertEqual(decoded["lng"] as? Double, -84.3)
-        XCTAssertEqual(decoded["limit"] as? Int, 2)
-        XCTAssertEqual(decoded["strict"] as? Bool, false)
-    }
-
-    func testBestValueDefaultInputUsesLocationCoordinate() {
-        let coordinate = NativeLocationCoordinate(latitude: 34.1, longitude: -84.2, isFallback: false)
-        let input = NativeTabContentStore.bestValueQueryInput(location: coordinate)
-
-        XCTAssertEqual(input["lat"] as? Double, 34.1)
-        XCTAssertEqual(input["lng"] as? Double, -84.2)
-        XCTAssertEqual(input["productType"] as? String, "any")
-        XCTAssertEqual(input["strict"] as? Bool, false)
     }
 
     func testNativeLocationCoordinateFormatsNearbyDistances() {

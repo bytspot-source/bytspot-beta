@@ -1154,12 +1154,9 @@ final class NativeM5DetailTests: XCTestCase {
         let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("App/BytspotAPIClient.swift")
         let api = try String(contentsOf: path, encoding: .utf8)
-        let fetch = try region(in: api, from: "    private func fetchNearbyParties(", to: "    private func fetchVendorServices(")
+        let fetch = try region(in: api, from: "    private func fetchNearbyParties(", to: "    private func fetchVenues(")
         XCTAssertTrue(fetch.contains("NativeLiveContentV2Contract.partiesNearbyRoute"))
         XCTAssertTrue(fetch.contains("Self.partyDiscoverCard(from: item)"))
-        let bootstrapDecoder = try region(in: api, from: "    private static func discoverCard(from item:",
-                                          to: "    private static func event(from pair:")
-        XCTAssertFalse(bootstrapDecoder.contains("nearbyParty"), "Generic payloads cannot mint provenance")
         let reset = try region(in: api, from: "    func synchronizeAccount(", to: "    func snapshot(for location:")
         XCTAssertTrue(reset.contains("refreshGeneration += 1"), "Late reads cannot restore an old account's invitations")
         XCTAssertTrue(reset.contains("snapshot.discoverCards.filter { $0.nearbyParty == nil }"))

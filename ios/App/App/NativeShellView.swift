@@ -171,7 +171,23 @@ final class NativeLocationStore: NSObject, ObservableObject, CLLocationManagerDe
     func startIfAuthorized() {
         updateAuthorization(manager.authorizationStatus)
         guard authorizationState == .allowed else { return }
+        if lastLocation == nil, let cached = Self.recentSystemLocation(manager.location) { receive(cached) }
         manager.requestLocation()
+    }
+
+    nonisolated static let systemLocationMaximumAge: TimeInterval = 5 * 60
+    nonisolated static let systemLocationMaximumHorizontalAccuracy: CLLocationAccuracy = 500
+
+    /// The fix iOS already holds, so nearby content can load while a fresh one
+    /// is requested. Check-in and ride booking keep their own 60 s bar.
+    nonisolated static func recentSystemLocation(_ location: CLLocation?, now: Date = Date()) -> CLLocation? {
+        guard let location,
+              location.horizontalAccuracy >= 0,
+              location.horizontalAccuracy <= systemLocationMaximumHorizontalAccuracy else { return nil }
+        let age = now.timeIntervalSince(location.timestamp)
+        guard age >= 0, age <= systemLocationMaximumAge,
+              NativeVenueSummary.hasValidMapCoordinate(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude) else { return nil }
+        return location
     }
 
     /// Several visible venue cards share this store. Refresh at most once per

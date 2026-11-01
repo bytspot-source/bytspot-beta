@@ -816,6 +816,25 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertEqual(NativeLocationStore.requestAction(locationServicesEnabled: false, authorizationState: .notDetermined), .none)
     }
 
+    func testRecentSystemLocationSeedsNearbyContentButNotCheckIn() {
+        let now = Date()
+        func fix(age: TimeInterval, accuracy: CLLocationAccuracy) -> CLLocation {
+            CLLocation(coordinate: CLLocationCoordinate2D(latitude: 33.7816, longitude: -84.3830), altitude: 0,
+                       horizontalAccuracy: accuracy, verticalAccuracy: 10, timestamp: now.addingTimeInterval(-age))
+        }
+        let twoMinutesOld = fix(age: 120, accuracy: 65)
+        XCTAssertEqual(NativeLocationStore.recentSystemLocation(twoMinutesOld, now: now), twoMinutesOld)
+        XCTAssertNil(NativeLocationStore.coordinateForCheckIn(location: twoMinutesOld, now: now))
+        XCTAssertNil(NativeLocationStore.recentSystemLocation(nil, now: now))
+        XCTAssertNil(NativeLocationStore.recentSystemLocation(fix(age: 6 * 60, accuracy: 65), now: now))
+        XCTAssertNil(NativeLocationStore.recentSystemLocation(fix(age: 30, accuracy: 1_500), now: now))
+        XCTAssertNil(NativeLocationStore.recentSystemLocation(fix(age: 30, accuracy: -1), now: now))
+        XCTAssertNil(NativeLocationStore.recentSystemLocation(fix(age: -30, accuracy: 65), now: now))
+        let nullIsland = CLLocation(coordinate: CLLocationCoordinate2D(latitude: 0, longitude: 0), altitude: 0,
+                                    horizontalAccuracy: 65, verticalAccuracy: 10, timestamp: now.addingTimeInterval(-30))
+        XCTAssertNil(NativeLocationStore.recentSystemLocation(nullIsland, now: now))
+    }
+
     @MainActor
     func testNearbyTabsTriggerLocationResolution() {
         XCTAssertTrue(BytspotNativeShellView.requiresLocationForNearbyContent(.discover))

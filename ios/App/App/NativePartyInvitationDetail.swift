@@ -200,6 +200,17 @@ struct NativePartyInvitationDetail: View {
                     .accessibilityLabel("Open \(destination.kind.title): \(destination.label)")
                 }
             }
+            if let music = party.music {
+                section("Music") {
+                    Text(music.summaryLine).font(.headline)
+                    if let setStartsAt = music.setStartsAt {
+                        Text("Set starts \(setStartsAt.formatted(date: .omitted, time: .shortened))")
+                            .font(.subheadline.weight(.semibold)).foregroundColor(NativeTheme.cyan)
+                    }
+                    Text("Listed by the host").font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                }
+                .accessibilityIdentifier("native-party-invitation-music")
+            }
             if !party.runOfShow.isEmpty {
                 section("The plan for the night") {
                     Text("Scheduled by the host").font(.footnote).foregroundColor(NativeTheme.textSecondary)

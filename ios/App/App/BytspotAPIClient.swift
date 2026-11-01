@@ -1323,8 +1323,10 @@ struct NativePartyDraftInput: Equatable {
     let taxonomy: NativeHostTaxonomySelection?
     /// Approval doors only: list cover and title on Discover, address hidden.
     let showOnDiscover: Bool?
+    /// Nil means the host declares no music.
+    let music: NativePartyMusic?
 
-    init(templateID: NativePartyTemplateID, title: String, tagline: String, startsAt: Date, endsAt: Date? = nil, venueName: String, latitude: Double? = nil, longitude: Double? = nil, locationDisclosure: NativePartyLocationDisclosure = .public, capacity: Int, accessMode: NativePartyAccessMode, requiredMembershipTier: BytspotTier, hostDestinations: NativePartyHostDestinations = .empty, audienceCircleIDs: [String], itinerary: [NativePartyItineraryItem], ticketTiers: [NativePartyTicketTier], cohosts: [NativePartyHostAssignment], templateConfiguration: NativePartyTemplateConfiguration, taxonomy: NativeHostTaxonomySelection? = nil, showOnDiscover: Bool? = nil) {
+    init(templateID: NativePartyTemplateID, title: String, tagline: String, startsAt: Date, endsAt: Date? = nil, venueName: String, latitude: Double? = nil, longitude: Double? = nil, locationDisclosure: NativePartyLocationDisclosure = .public, capacity: Int, accessMode: NativePartyAccessMode, requiredMembershipTier: BytspotTier, hostDestinations: NativePartyHostDestinations = .empty, audienceCircleIDs: [String], itinerary: [NativePartyItineraryItem], ticketTiers: [NativePartyTicketTier], cohosts: [NativePartyHostAssignment], templateConfiguration: NativePartyTemplateConfiguration, taxonomy: NativeHostTaxonomySelection? = nil, showOnDiscover: Bool? = nil, music: NativePartyMusic? = nil) {
         self.templateID = templateID
         self.title = title
         self.tagline = tagline
@@ -1345,6 +1347,7 @@ struct NativePartyDraftInput: Equatable {
         self.templateConfiguration = templateConfiguration
         self.taxonomy = taxonomy
         self.showOnDiscover = showOnDiscover
+        self.music = music
     }
 
     var validationMessage: String? {
@@ -1366,6 +1369,7 @@ struct NativePartyDraftInput: Equatable {
         if accessMode == .paidTicket && !ticketTiers.contains(where: { $0.priceCents > 0 }) { return "Paid parties need a ticket price." }
         if accessMode != .paidTicket && ticketTiers.contains(where: { $0.priceCents > 0 }) { return "Only paid parties can include paid tickets." }
         if cohosts.contains(where: { $0.role == .owner || !$0.email.contains("@") }) { return "Add a valid teammate email and role." }
+        if let message = music?.validationMessage(startsAt: startsAt, endsAt: endsAt) { return message }
         return nil
     }
 
@@ -1398,6 +1402,7 @@ struct NativePartyDraftInput: Equatable {
         // rely on the publish-time Official Host identity snapshot.
         if !hostDestinations.isEmpty { input["hostDestinations"] = hostDestinations.rpcInput }
         if accessMode == .privateApproval, let showOnDiscover { input["showOnDiscover"] = showOnDiscover }
+        if let music { input["music"] = music.rpcInput }
         return input
     }
 
@@ -1585,6 +1590,8 @@ struct NativePartyPassRecord: Equatable {
     /// admission, never instead of it, so a free-entry Party may still have a
     /// priced floor here.
     let sessions: [NativePartySessionOffer]
+    /// Host-declared music; nil when the host listed none.
+    var music: NativePartyMusic? = nil
 
     var isLocationWithheld: Bool { locationDisclosure != "public" }
 }
@@ -1700,7 +1707,7 @@ struct NativePartyPassAPI {
         // offers a recap at all.
         let recapPhotoCount = max(0, int(row["recapPhotoCount"]) ?? 0)
         let recapAvailable = row["recapAvailable"] as? Bool == true && recapPhotoCount > 0
-        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL, hostDestinations: destinations(from: row), hostHandle: hostHandle(from: row), endsAt: isoDate(row["endsAt"]), runOfShow: beats(from: row), recapAvailable: recapAvailable, recapPhotoCount: recapPhotoCount, sessions: sessions(from: row))
+        return NativePartyPassRecord(id: id, title: title, tagline: clean(row["inviteNote"]), hostName: clean(row["hostName"]) ?? "Bytspot Host", scheduledDate: scheduledDate, locationLabel: safeLocationLabel, locationDisclosure: locationDisclosure, accessMode: accessMode, capacity: int(row["capacity"]) ?? 0, requiredTier: requiredTier, coverURL: coverURL, hostDestinations: destinations(from: row), hostHandle: hostHandle(from: row), endsAt: isoDate(row["endsAt"]), runOfShow: beats(from: row), recapAvailable: recapAvailable, recapPhotoCount: recapPhotoCount, sessions: sessions(from: row), music: NativePartyMusic.decode(row["music"]))
     }
 
     /// Fails closed per session: a malformed row drops that session rather
@@ -3758,6 +3765,280 @@ struct NativeNearbyParty: Equatable, Identifiable {
         self.hostCategory = hostCategory
         self.hostType = hostType
         self.requiresApproval = requiresApproval
+    }
+}
+
+// MARK: - Party music
+
+/// What kind of music a host declares. Absent means the host said nothing,
+/// and the Party reaches no music surface.
+enum NativeMusicKind: String, CaseIterable, Identifiable, Equatable {
+    case live, dj, both
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .live: return "Live performers"
+        case .dj: return "DJ"
+        case .both: return "Live + DJ"
+        }
+    }
+    var shortTitle: String {
+        switch self {
+        case .live: return "Live"
+        case .dj: return "DJ"
+        case .both: return "Live + DJ"
+        }
+    }
+}
+
+/// The API's fixed list, in the API's order. At most two per Party.
+enum NativeMusicGenre: String, CaseIterable, Identifiable, Equatable {
+    case afrobeats, amapiano
+    case hipHop = "hip-hop"
+    case rnb = "r-and-b"
+    case jazz
+    case reggaeDancehall = "reggae-dancehall"
+    case house, gospel, latin
+    case liveBand = "live-band"
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .afrobeats: return "Afrobeats"
+        case .amapiano: return "Amapiano"
+        case .hipHop: return "Hip-hop"
+        case .rnb: return "R&B"
+        case .jazz: return "Jazz"
+        case .reggaeDancehall: return "Reggae/Dancehall"
+        case .house: return "House"
+        case .gospel: return "Gospel"
+        case .latin: return "Latin"
+        case .liveBand: return "Live band"
+        }
+    }
+}
+
+struct NativePartyMusic: Equatable {
+    static let maxGenres = 2
+    let kind: NativeMusicKind
+    let genres: [NativeMusicGenre]
+    let setStartsAt: Date?
+
+    var summaryLine: String {
+        ([kind.shortTitle] + [genres.map(\.title).joined(separator: ", ")].filter { !$0.isEmpty }).joined(separator: " · ")
+    }
+
+    var rpcInput: [String: Any] {
+        var input: [String: Any] = ["kind": kind.rawValue, "genres": genres.map(\.rawValue)]
+        if let setStartsAt { input["setStartsAt"] = ISO8601DateFormatter().string(from: setStartsAt) }
+        return input
+    }
+
+    /// Nil when the set time fits the Party; the server re-checks against the
+    /// end it actually stores.
+    func validationMessage(startsAt: Date, endsAt: Date?) -> String? {
+        if genres.isEmpty { return "Pick at least one music genre, or set music to None." }
+        if genres.count > Self.maxGenres { return "Pick up to two music genres." }
+        if let setStartsAt {
+            if setStartsAt < startsAt { return "The set cannot start before the Party." }
+            if let endsAt, setStartsAt >= endsAt { return "The set has to start before the Party ends." }
+        }
+        return nil
+    }
+
+    /// Unknown kinds fail closed; unknown genres are dropped rather than shown.
+    static func decode(_ value: Any?) -> NativePartyMusic? {
+        guard let object = value as? [String: Any],
+              let kind = (object["kind"] as? String).flatMap(NativeMusicKind.init(rawValue:)) else { return nil }
+        var genres: [NativeMusicGenre] = []
+        for raw in object["genres"] as? [String] ?? [] {
+            if let genre = NativeMusicGenre(rawValue: raw), !genres.contains(genre) { genres.append(genre) }
+        }
+        guard !genres.isEmpty else { return nil }
+        let setStartsAt = (object["setStartsAt"] as? String).flatMap(NativeAccountDeletionFormat.date(fromISO:))
+        return NativePartyMusic(kind: kind, genres: Array(genres.prefix(maxGenres)), setStartsAt: setStartsAt)
+    }
+}
+
+/// A public Party that declared music, as `events.nearby` answers it for a
+/// music window. Only open doors with a known place qualify.
+struct NativeMusicListing: Identifiable, Equatable {
+    enum Entry: Equatable { case free, ticket(fromCents: Int?) }
+    struct Performer: Equatable { let displayName: String; let role: String }
+
+    var id: String { partyID }
+    let partyID: String
+    let title: String
+    let venueName: String
+    let startsAt: Date
+    let endsAt: Date?
+    let latitude: Double
+    let longitude: Double
+    let distanceMiles: Double?
+    let music: NativePartyMusic
+    let entry: Entry
+    let performers: [Performer]
+    let coverURL: URL?
+
+    /// The Home sheet only needs the identity; the detail re-reads everything.
+    var invitation: NativeNearbyParty { NativeNearbyParty(partyID: partyID, startsAt: startsAt, spacesRemaining: nil) }
+
+    var confirmationLine: String {
+        performers.isEmpty ? "Host-published" : "Host-published · Performer confirmed"
+    }
+
+    var performerLine: String? {
+        guard !performers.isEmpty else { return nil }
+        return "With " + performers.prefix(3).map(\.displayName).joined(separator: ", ")
+    }
+
+    var entryLine: String {
+        switch entry {
+        case .free: return "Free"
+        case .ticket(let cents?): return "Tickets from \(NativeMusicListing.dollars(cents))"
+        case .ticket(nil): return "Tickets"
+        }
+    }
+
+    var distanceLine: String? {
+        guard let distanceMiles, distanceMiles.isFinite, distanceMiles >= 0 else { return nil }
+        if distanceMiles < 0.12 { return "Here" }
+        return distanceMiles < 10 ? String(format: "%.1f mi", distanceMiles) : String(format: "%.0f mi", distanceMiles)
+    }
+
+    /// The set time when the host gave one, otherwise the Party's start.
+    /// Never "playing now": a schedule is not proof the music is on.
+    func timeLine(now: Date = Date(), calendar: Calendar = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "h:mm a"
+        let anchor = music.setStartsAt ?? startsAt
+        let started = anchor <= now
+        let noun = music.setStartsAt == nil ? "Starts" : "Set starts"
+        let pastNoun = music.setStartsAt == nil ? "Started" : "Set started"
+        let time = formatter.string(from: anchor)
+        guard !calendar.isDate(anchor, inSameDayAs: now) && !started else {
+            return "\(started ? pastNoun : noun) \(time)"
+        }
+        formatter.dateFormat = "EEE"
+        return "\(formatter.string(from: anchor)) · \(noun) \(time)"
+    }
+
+    var directionsURL: URL? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "maps.apple.com"
+        components.path = "/"
+        components.queryItems = [URLQueryItem(name: "daddr", value: "\(latitude),\(longitude)"), URLQueryItem(name: "dirflg", value: "d")]
+        return components.url
+    }
+
+    private static func dollars(_ cents: Int) -> String {
+        cents % 100 == 0 ? "$\(cents / 100)" : String(format: "$%.2f", Double(cents) / 100)
+    }
+
+    static func decode(_ item: [String: Any]) -> NativeMusicListing? {
+        let allowedID = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+        guard let id = item["id"] as? String, !id.isEmpty, id.unicodeScalars.allSatisfy({ allowedID.contains($0) }),
+              let title = (item["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty,
+              let venueName = (item["venueName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !venueName.isEmpty,
+              let startsAt = (item["startsAt"] as? String).flatMap(NativeAccountDeletionFormat.date(fromISO:)),
+              item["door"] as? String == "open", item["locationHidden"] as? Bool == false,
+              let latitude = item["latitude"] as? Double, let longitude = item["longitude"] as? Double,
+              NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude),
+              let music = NativePartyMusic.decode(item["music"]) else { return nil }
+        let entryObject = item["entry"] as? [String: Any]
+        let entry: Entry = entryObject?["kind"] as? String == "ticket"
+            ? .ticket(fromCents: (entryObject?["fromCents"] as? Int).flatMap { $0 > 0 ? $0 : nil })
+            : .free
+        let performers: [Performer] = (item["performers"] as? [[String: Any]] ?? []).compactMap { row in
+            guard let name = (row["displayName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty,
+                  let role = row["role"] as? String else { return nil }
+            return Performer(displayName: name, role: role)
+        }
+        let coverURL = (item["coverURL"] as? String).flatMap(URL.init(string:)).flatMap { $0.scheme?.lowercased() == "https" ? $0 : nil }
+        return NativeMusicListing(
+            partyID: id, title: title, venueName: venueName, startsAt: startsAt,
+            endsAt: (item["endsAt"] as? String).flatMap(NativeAccountDeletionFormat.date(fromISO:)),
+            latitude: latitude, longitude: longitude, distanceMiles: item["distanceMiles"] as? Double,
+            music: music, entry: entry, performers: performers, coverURL: coverURL
+        )
+    }
+}
+
+/// Guest-side filter chips. A Party with both kinds answers Live and DJ.
+struct NativeMusicFilter: Equatable {
+    var kind: NativeMusicKind? = nil
+    var genre: NativeMusicGenre? = nil
+
+    func apply(_ listings: [NativeMusicListing]) -> [NativeMusicListing] {
+        listings.filter { listing in
+            if let kind, listing.music.kind != .both, listing.music.kind != kind { return false }
+            if let genre, !listing.music.genres.contains(genre) { return false }
+            return true
+        }
+    }
+
+    /// Only genres something on screen actually carries, in the fixed order.
+    static func availableGenres(in listings: [NativeMusicListing]) -> [NativeMusicGenre] {
+        let present = Set(listings.flatMap(\.music.genres))
+        return NativeMusicGenre.allCases.filter(present.contains)
+    }
+}
+
+/// "Tonight" runs to 4 AM; "this weekend" is Friday 5 PM to Monday 4 AM.
+enum NativeMusicWindow: Equatable {
+    case tonight, weekend
+
+    var title: String {
+        switch self {
+        case .tonight: return "Music tonight near you"
+        case .weekend: return "Music this weekend near you"
+        }
+    }
+
+    func interval(now: Date = Date(), calendar: Calendar = .current) -> DateInterval {
+        switch self {
+        case .tonight:
+            let fourToday = calendar.date(bySettingHour: 4, minute: 0, second: 0, of: now) ?? now
+            let until = fourToday > now ? fourToday : (calendar.date(byAdding: .day, value: 1, to: fourToday) ?? now)
+            return DateInterval(start: now, end: until)
+        case .weekend:
+            let weekday = calendar.component(.weekday, from: now) // 1 = Sunday
+            let hour = calendar.component(.hour, from: now)
+            // Saturday, Sunday or early Monday: this weekend has already begun.
+            let daysToFriday: Int
+            switch weekday {
+            case 7: daysToFriday = -1
+            case 1: daysToFriday = -2
+            case 2 where hour < 4: daysToFriday = -3
+            default: daysToFriday = (6 - weekday + 7) % 7
+            }
+            let friday = calendar.date(byAdding: .day, value: daysToFriday, to: now) ?? now
+            let fridayStart = calendar.date(bySettingHour: 17, minute: 0, second: 0, of: friday) ?? friday
+            let mondayEnd = calendar.date(bySettingHour: 4, minute: 0, second: 0, of: calendar.date(byAdding: .day, value: 3, to: fridayStart) ?? fridayStart) ?? fridayStart
+            return DateInterval(start: max(now, fridayStart), end: max(mondayEnd, now.addingTimeInterval(60)))
+        }
+    }
+
+    /// Monday through Thursday, an empty tonight can fall back to the weekend.
+    static func offersWeekendFallback(now: Date = Date(), calendar: Calendar = .current) -> Bool {
+        (2...5).contains(calendar.component(.weekday, from: now))
+    }
+}
+
+struct NativeMusicTonightAPI {
+    let client: BytspotAPIClient
+
+    func listings(near location: NativeLocationCoordinate, during interval: DateInterval) async throws -> [NativeMusicListing] {
+        let formatter = ISO8601DateFormatter()
+        let payload = try await client.trpcQueryPayload(path: NativeLiveContentV2Contract.partiesNearbyRoute, input: [
+            "lat": location.latitude, "lng": location.longitude, "radiusMiles": 15, "limit": 30,
+            "music": ["from": formatter.string(from: interval.start), "until": formatter.string(from: interval.end)],
+        ])
+        let rows = (payload as? [String: Any])?["parties"] as? [[String: Any]] ?? []
+        return rows.compactMap(NativeMusicListing.decode)
     }
 }
 

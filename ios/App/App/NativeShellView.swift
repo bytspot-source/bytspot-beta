@@ -7299,6 +7299,8 @@ private struct NativeHomeDashboardView: View {
     @State private var aiPickDetailVenue: NativeVenueSummary?
     @State private var serverRecommendations: NativeRecommendations?
     @State private var homePartyInvitation: NativeNearbyParty?
+    @State private var musicListings: [NativeMusicListing] = []
+    @State private var musicWindow: NativeMusicWindow = .tonight
     @State private var showGuestSavePrompt = false
     @State private var guestHomePromptTitle = "Save your picks?"
     @State private var guestHomePromptSubtitle = "Sign in to keep favorites, routes, and parking preferences across devices."
@@ -7384,6 +7386,21 @@ private struct NativeHomeDashboardView: View {
         serverRecommendations = result
     }
 
+    private var musicRequestKey: String {
+        // The hour rides along so "tonight" is re-asked as the evening moves on.
+        NativeHomeMusicSection.requestKey(authenticated: sessionStore.isAuthenticated, userID: sessionStore.authenticatedUserID, point: locationStore.coordinate)
+            .map { "\($0)|\(Calendar.current.component(.hour, from: headerNow))" } ?? "off"
+    }
+
+    @MainActor private func refreshMusic() async {
+        let key = musicRequestKey
+        guard key != "off", let token = sessionStore.token else { musicListings = []; return }
+        let (window, listings) = await NativeHomeMusicSection.load(token: token, point: locationStore.coordinate)
+        guard key == musicRequestKey else { return }
+        musicWindow = window
+        musicListings = listings
+    }
+
     private func recommendedVenue(_ place: NativeRecommendedPlace) -> NativeVenueSummary {
         if place.isBytspotVenue, let known = NativeLocationAwareUIContent.venues(in: regionalSnapshot).first(where: { $0.id == place.id }) { return known }
         let distance = locationStore.coordinate.distanceLabel(toLatitude: place.latitude, longitude: place.longitude) ?? "Nearby"
@@ -7425,6 +7442,7 @@ private struct NativeHomeDashboardView: View {
             exploreAroundYouSection
             if shouldShowHomeEmptyState { noLocalRecommendationsSection }
             if hasTrustedLocalRecommendations || typicalHomePlan != nil { tonightPickCard }
+            NativeHomeMusicSection(listings: musicListings, window: musicWindow, open: { homePartyInvitation = $0 })
             quickActionsSection
             if showsFindFriendsCard { findFriendsCard }
             weatherSmartCard
@@ -7440,6 +7458,7 @@ private struct NativeHomeDashboardView: View {
         .task { await refreshLiveWeather() }
         .task { await refreshPresence() }
         .task(id: recommendationRequestKey) { await refreshRecommendations() }
+        .task(id: musicRequestKey) { await refreshMusic() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in Task { await refreshLiveWeather() } }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { headerNow = $0 }
         .sheet(item: $aiPickDetailVenue) { venue in
@@ -21080,6 +21099,196 @@ private struct NativeConciergePlaceCard: View {
             }
         }
         .accessibilityIdentifier("native-concierge-menu-evidence")
+    }
+}
+
+// MARK: - Home: Music tonight near you
+
+/// Confirmed music near the guest. Hidden when signed out, without a real
+/// location fix, or when nothing matches: never filler, never "playing now".
+private struct NativeHomeMusicSection: View {
+    static let homeLimit = 4
+    let listings: [NativeMusicListing]
+    let window: NativeMusicWindow
+    let open: (NativeNearbyParty) -> Void
+    @State private var filter = NativeMusicFilter()
+    @State private var showingAll = false
+
+    /// Rounded to ~1 km so small location jitter does not refetch.
+    static func requestKey(authenticated: Bool, userID: String?, point: NativeLocationCoordinate) -> String? {
+        guard authenticated, !point.isFallback else { return nil }
+        return String(format: "%@|%.2f|%.2f", userID ?? "", point.latitude, point.longitude)
+    }
+
+    /// Tonight first; Monday to Thursday an empty tonight falls back to the weekend.
+    static func load(token: String, point: NativeLocationCoordinate) async -> (NativeMusicWindow, [NativeMusicListing]) {
+        let api = NativeMusicTonightAPI(client: BytspotAPIClient(tokenProvider: { token }))
+        let tonight = (try? await api.listings(near: point, during: NativeMusicWindow.tonight.interval())) ?? []
+        guard tonight.isEmpty, NativeMusicWindow.offersWeekendFallback() else { return (.tonight, tonight) }
+        return (.weekend, (try? await api.listings(near: point, during: NativeMusicWindow.weekend.interval())) ?? [])
+    }
+
+    var body: some View {
+        if !listings.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(window.title).nativeTitle(21)
+                    Spacer()
+                    if listings.count > Self.homeLimit {
+                        Button("See all") { showingAll = true }
+                            .font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.cyan)
+                            .frame(minHeight: 44)
+                            .accessibilityIdentifier("native-home-music-see-all")
+                    }
+                }
+                NativeMusicFilterChips(listings: listings, filter: $filter)
+                let shown = filter.apply(listings)
+                if shown.isEmpty {
+                    Text("Nothing matches that filter \(window == .tonight ? "tonight" : "this weekend").")
+                        .font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: 12) {
+                            ForEach(Array(shown.prefix(Self.homeLimit))) { listing in
+                                NativeMusicListingCard(listing: listing, open: open).frame(width: 268)
+                            }
+                        }
+                    }
+                }
+            }
+            .accessibilityIdentifier("native-home-music")
+            .onChange(of: listings) { _ in filter = NativeMusicFilter() }
+            .sheet(isPresented: $showingAll) {
+                NativeMusicListSheet(title: window.title, listings: listings, filter: $filter) { party in
+                    showingAll = false
+                    open(party)
+                }
+            }
+        }
+    }
+}
+
+private struct NativeMusicFilterChips: View {
+    let listings: [NativeMusicListing]
+    @Binding var filter: NativeMusicFilter
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                chip("Live", selected: filter.kind == .live) { filter.kind = filter.kind == .live ? nil : .live }
+                chip("DJ", selected: filter.kind == .dj) { filter.kind = filter.kind == .dj ? nil : .dj }
+                ForEach(NativeMusicFilter.availableGenres(in: listings)) { genre in
+                    chip(genre.title, selected: filter.genre == genre) { filter.genre = filter.genre == genre ? nil : genre }
+                }
+            }
+        }
+        .accessibilityIdentifier("native-home-music-filters")
+    }
+
+    private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .black))
+                .foregroundColor(selected ? .black : NativeTheme.textPrimary)
+                .padding(.horizontal, 14).frame(minHeight: 36)
+                .background(selected ? NativeTheme.cyan : NativePolish.glassSurface)
+                .overlay(Capsule().stroke(NativeTheme.purple.opacity(selected ? 0 : 0.28), lineWidth: 1))
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .frame(minHeight: 44)
+        .accessibilityValue(selected ? "Selected" : "Not selected")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+private struct NativeMusicListingCard: View {
+    let listing: NativeMusicListing
+    let open: (NativeNearbyParty) -> Void
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: { open(listing.invitation) }) {
+                VStack(alignment: .leading, spacing: 6) {
+                    ZStack(alignment: .bottomLeading) {
+                        LinearGradient(colors: [NativeTheme.purple.opacity(0.45), NativeTheme.cyan.opacity(0.22), NativePolish.elevatedSurface], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        if let cover = listing.coverURL {
+                            AsyncImage(url: cover) { phase in
+                                if let image = phase.image { image.resizable().scaledToFill() } else { Color.clear }
+                            }
+                        } else {
+                            Image(systemName: "music.note").font(.system(size: 38, weight: .bold)).foregroundColor(.white.opacity(0.8))
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                        Text(listing.music.summaryLine)
+                            .font(.system(size: 11, weight: .black)).foregroundColor(.white)
+                            .padding(.horizontal, 9).padding(.vertical, 5)
+                            .background(Color.black.opacity(0.55)).clipShape(Capsule())
+                            .padding(10)
+                    }
+                    .frame(height: 118)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    Text(listing.title).font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
+                    Text([listing.venueName, listing.distanceLine].compactMap { $0 }.joined(separator: " · "))
+                        .font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineLimit(1)
+                    Text(listing.timeLine()).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.cyan)
+                    if let performers = listing.performerLine {
+                        Text(performers).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
+                    }
+                    Text("\(listing.confirmationLine) · \(listing.entryLine)")
+                        .font(.system(size: 11, weight: .bold)).foregroundColor(NativeTheme.textTertiary).lineLimit(2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityHint("Opens the Party, where you can RSVP or add it to a plan.")
+            HStack(spacing: 8) {
+                Button("Details") { open(listing.invitation) }
+                    .font(.system(size: 13, weight: .black)).foregroundColor(.black)
+                    .frame(maxWidth: .infinity, minHeight: 44).background(NativeTheme.cyan).clipShape(Capsule())
+                Button("Directions") { if let url = listing.directionsURL { openURL(url) } }
+                    .font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                    .frame(maxWidth: .infinity, minHeight: 44).background(NativePolish.glassSurface).clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(12)
+        .background(NativePolish.glassSurface)
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .accessibilityIdentifier("native-home-music-card-\(listing.partyID)")
+    }
+}
+
+private struct NativeMusicListSheet: View {
+    let title: String
+    let listings: [NativeMusicListing]
+    @Binding var filter: NativeMusicFilter
+    let open: (NativeNearbyParty) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    NativeMusicFilterChips(listings: listings, filter: $filter)
+                    let shown = filter.apply(listings)
+                    if shown.isEmpty {
+                        Text("Nothing matches that filter.").font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                    }
+                    ForEach(shown) { listing in NativeMusicListingCard(listing: listing, open: open) }
+                }
+                .padding(16)
+            }
+            .background(NativeTheme.background.ignoresSafeArea())
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() }.frame(minWidth: 44, minHeight: 44) } }
+        }
+        .navigationViewStyle(.stack)
     }
 }
 

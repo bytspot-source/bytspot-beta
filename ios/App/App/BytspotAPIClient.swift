@@ -4790,6 +4790,39 @@ final class NativeTabContentStore: ObservableObject {
         }
     }
 
+    #if DEBUG
+    static let partyFixtureEnvironmentKey = "BYT_NATIVE_DISCOVER_PARTY_FIXTURE"
+
+    /// One open and one approval party per host-category rail, shaped like events.nearby rows.
+    static func partyFixtureRows(near location: NativeLocationCoordinate) -> [[String: Any]] {
+        let types: [(String, String, String)] = [
+            ("nightlife", "club", "Rooftop DJ Night"), ("music", "live-set", "Backyard Jazz Set"),
+            ("outdoor", "hike", "Sunrise Ridge Hike"), ("food-drink", "dinner", "Supper Club"),
+            ("social", "meetup", "Board Game Night"), ("cars", "garage-meet", "Cars & Coffee"),
+            ("party", "house", "House Party"),
+        ]
+        let startsAt = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3 * 3600))
+        return types.enumerated().flatMap { index, entry -> [[String: Any]] in
+            let (category, type, title) = entry
+            let cover = "https://picsum.photos/seed/bytspot-\(category)/800/600"
+            let open: [String: Any] = [
+                "id": "fixture-open-\(index)", "title": title, "startsAt": startsAt, "status": "published",
+                "door": "open", "locationHidden": false, "accessMode": "free-rsvp", "capability": "rsvp",
+                "hostCategory": category, "hostType": type, "coverURL": cover, "venueName": "Ponce City Market",
+                "latitude": location.latitude + 0.002 * Double(index), "longitude": location.longitude,
+                "distanceMiles": 0.4 + 0.3 * Double(index), "spacesRemaining": 12,
+            ]
+            let approval: [String: Any] = [
+                "id": "fixture-approval-\(index)", "title": "\(title) (Invite)", "startsAt": startsAt, "status": "published",
+                "door": "approval", "locationHidden": true, "accessMode": NativePartyAccessMode.privateApproval.rawValue,
+                "capability": "request", "hostCategory": category, "hostType": type, "coverURL": cover,
+                "venueName": NSNull(), "latitude": NSNull(), "longitude": NSNull(), "distanceMiles": NSNull(),
+            ]
+            return [open, approval]
+        }
+    }
+    #endif
+
     /// Parties a guest can browse to. The endpoint is membership-gated and
     /// measures distance itself, so what comes back is already the set this
     /// caller may see; nothing here re-decides that.

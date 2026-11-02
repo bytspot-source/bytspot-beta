@@ -1953,11 +1953,11 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(plan.quickActions.isEmpty)
     }
 
-    func testServiceHereParkingSelectionPrioritizesParkingReservation() {
+    func testServiceHereParkingSelectionPrioritizesParkingRoute() {
         let plan = NativeServiceHerePlanner.plan(context: serviceHereContext(selectedKind: .parking, selectedTitle: "Deck A", selectedSubtitle: "18 spots · $8/hr"))
 
         XCTAssertEqual(plan.bestMove.action, .reserveParking)
-        XCTAssertEqual(plan.bestMove.title, "Reserve this parking")
+        XCTAssertEqual(plan.bestMove.title, "Route to this parking")
         XCTAssertTrue(plan.bestMove.subtitle.contains("Deck A"))
         XCTAssertEqual(plan.quickActions.first?.action, .route)
         XCTAssertFalse(plan.quickActions.contains { $0.action == .reserveParking })
@@ -1967,7 +1967,7 @@ final class BytspotTrustEngineTests: XCTestCase {
         let plan = NativeServiceHerePlanner.plan(context: serviceHereContext(selectedKind: .parking, selectedTitle: "Deck A", selectedSubtitle: "18 spots · $8/hr", bestValueTitle: "Midtown Smart Parking", bestValueSummary: "$6 · score 91"))
 
         XCTAssertEqual(plan.bestMove.action, .reserveParking)
-        XCTAssertEqual(plan.bestMove.title, "Reserve this parking")
+        XCTAssertEqual(plan.bestMove.title, "Route to this parking")
         XCTAssertTrue(plan.bestMove.subtitle.contains("Deck A"))
         XCTAssertFalse(plan.bestMove.subtitle.contains("Midtown Smart Parking"))
     }
@@ -5587,6 +5587,23 @@ final class NativeProfileDataAPITests: XCTestCase {
         // unresolvedVenue uses this path.
         let unresolved = NativeLocationAwareUIContent.unresolvedVenue(id: "x", name: "X", category: "dining", address: "Addr", distance: "0.5 mi", imageURL: nil)
         XCTAssertFalse(unresolved.parking.isKnown, "unresolvedVenue must mark parking unknown")
+    }
+
+    func testVenueParkingCountsOnlyWhenServerSaysLive() {
+        let spots: [[String: Any]] = [["name": "Deck A", "type": "garage", "available": 12, "total": 40, "pricePerHr": 6]]
+        let live = NativeParkingSummary.fromVenuePayload(["freshness": "live", "totalAvailable": 12, "spots": spots])
+        XCTAssertTrue(live.isKnown)
+        XCTAssertEqual(live.totalAvailable, 12)
+        XCTAssertEqual(live.priceLabel, "$6/hr")
+        XCTAssertEqual(NativeParkingSummary.fromVenuePayload(["freshness": "live", "totalAvailable": 3, "spots": [["pricePerHr": 2.5]]]).priceLabel, "$2.50/hr")
+
+        for payload: [String: Any]? in [nil, ["totalAvailable": 12, "spots": spots], ["freshness": "stale", "totalAvailable": 12, "spots": spots], ["freshness": "unknown", "totalAvailable": 0, "spots": []]] {
+            let parking = NativeParkingSummary.fromVenuePayload(payload)
+            XCTAssertFalse(parking.isKnown, "\(String(describing: payload))")
+            XCTAssertEqual(parking.totalAvailable, 0)
+            XCTAssertEqual(parking.priceLabel, "—")
+        }
+        XCTAssertEqual(NativeParkingSummary.fromVenuePayload(nil, fallbackPriceLabel: "$20").priceLabel, "$20")
     }
 
     private func decodeRecap(_ json: String) throws -> NativePartyRecap {

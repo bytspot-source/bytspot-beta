@@ -3372,6 +3372,21 @@ struct NativeParkingSummary: Equatable {
         self.priceLabel = priceLabel
         self.isKnown = isKnown
     }
+
+    /// Venue `parking` from the API. Counts and prices are used only when the
+    /// server labels them `live`; `stale` and `unknown` parking shows no count.
+    static func fromVenuePayload(_ parking: [String: Any]?, fallbackPriceLabel: String? = nil) -> Self {
+        guard let parking, (parking["freshness"] as? String) == "live" else {
+            return Self(totalAvailable: 0, priceLabel: fallbackPriceLabel ?? "—", isKnown: false)
+        }
+        let total = (parking["totalAvailable"] as? NSNumber)?.intValue ?? 0
+        let firstSpot = (parking["spots"] as? [[String: Any]])?.first
+        let price = (firstSpot?["pricePerHr"] as? NSNumber).map { rate -> String in
+            let value = rate.doubleValue
+            return value.rounded() == value ? "$\(Int(value))/hr" : String(format: "$%.2f/hr", value)
+        } ?? fallbackPriceLabel ?? "—"
+        return Self(totalAvailable: max(total, 0), priceLabel: price)
+    }
 }
 
 /// Google place types behind a Bytspot category. Kept in one place so the
@@ -5496,10 +5511,7 @@ final class NativeTabContentStore: ObservableObject {
               let longitude = double(item, ["lng", "longitude"]) ?? double(location, ["lng", "longitude"]),
               NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude) else { return nil }
         let id = string(item, ["id", "slug", "name"]) ?? UUID().uuidString
-        let parkingDict = item["parking"] as? [String: Any]
-        let spots = int(parkingDict, ["totalAvailable"]) ?? int(item, ["spots"]) ?? 0
-        let firstSpot = (parkingDict?["spots"] as? [[String: Any]])?.first
-        let price = int(firstSpot, ["pricePerHr"]).map { "$\($0)/hr" } ?? string(item, ["price", "entryPrice"]) ?? "—"
+        let parking = NativeParkingSummary.fromVenuePayload(item["parking"] as? [String: Any], fallbackPriceLabel: string(item, ["price", "entryPrice"]))
         let crowdDict = item["crowd"] as? [String: Any]
         let crowd = crowdDict.flatMap { value -> NativeCrowdSummary? in
             guard let rawLabel = string(value, ["label"]) else { return nil }
@@ -5518,7 +5530,7 @@ final class NativeTabContentStore: ObservableObject {
             latitude: latitude,
             longitude: longitude,
             crowd: crowd,
-            parking: NativeParkingSummary(totalAvailable: spots, priceLabel: price),
+            parking: parking,
             verifiedPatchId: patch,
             imageUrl: url(item, ["imageUrl", "image_url", "photoUrl", "image", "heroImage"]),
             googlePlaceID: NativeVenueDetailsDTO.exactGooglePlaceID(item["googlePlaceId"]),

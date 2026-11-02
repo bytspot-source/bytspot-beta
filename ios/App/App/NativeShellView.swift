@@ -2533,10 +2533,6 @@ private struct NativeArrivalLedgerItem: Identifiable {
     let actionTitle: String
     let createdAt: String
 
-    static func parking(_ reservation: NativeParkingReservationRecord) -> Self {
-        Self(id: "parking-\(reservation.id)", title: "Parking Reserved", venue: reservation.spotName, window: reservation.accessWindowLabel, payment: "\(reservation.paymentDisplayLabel) · \(reservation.totalLabel)", reservation: "Confirmed", statusBadge: "CONFIRMED", statusColor: NativeTransactionVisuals.confirmedAccent, actionTitle: "Open QR in My Access", createdAt: reservation.createdAt)
-    }
-
     static func stay(_ stay: NativeStayRequestRecord) -> Self {
         let confirmed = stay.status.localizedCaseInsensitiveContains("confirmed")
         return Self(id: "stay-\(stay.id)", title: confirmed ? "Boutique Stay Confirmed" : "Boutique Stay Request", venue: stay.venueName, window: stay.checkInLabel, payment: "\(stay.paymentMethodLabel) · \(stay.totalDueLabel)", reservation: confirmed ? "Reservation Confirmed" : NativeBoutiqueStayBookingContract.awaitingHostApproval, statusBadge: confirmed ? "CONFIRMED" : "HOST REVIEW", statusColor: confirmed ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent, actionTitle: "View stay in My Access", createdAt: stay.createdAt)
@@ -2586,12 +2582,11 @@ private struct NativeArrivalLedgerPanel: View {
     }
 
     private var localItems: [NativeArrivalLedgerItem] {
-        let parking = NativeParkingReservationStore.all().map(NativeArrivalLedgerItem.parking)
         let stays = NativeStayRequestStore.all().map(NativeArrivalLedgerItem.stay)
         let rides = NativeValetRideWalletStore.all().map(NativeArrivalLedgerItem.ride)
         let orders = NativeMenuOrderStore.all().map(NativeArrivalLedgerItem.order)
         let checkIns = NativeManualCheckInStore.all(scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)).map(NativeArrivalLedgerItem.checkIn)
-        return (checkIns + parking + stays + rides + orders).sorted { $0.createdAt > $1.createdAt }
+        return (checkIns + stays + rides + orders).sorted { $0.createdAt > $1.createdAt }
     }
 
     var body: some View {
@@ -6363,7 +6358,6 @@ private struct NativeWalletLedgerPreferenceSections: View {
             NativePerformerInboxEntry()
             NativeManualCheckInWalletSection()
             if walletLedgerStore.snapshot.items.isEmpty {
-                NativeParkingReservationWalletSection()
                 NativeValetRideWalletSection()
                 NativeBoutiqueStayWalletSection()
             } else {
@@ -6477,38 +6471,6 @@ private struct NativeValetRideWalletSection: View {
                 .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .accessibilityIdentifier("native-valet-ride-wallet-section")
-            }
-        }
-    }
-}
-
-private struct NativeParkingReservationWalletSection: View {
-    private var reservation: NativeParkingReservationRecord? { NativeParkingReservationStore.latest() }
-
-    var body: some View {
-        Group {
-            if let reservation {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .top, spacing: 10) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Parking Space Reserved").nativeTitle(16)
-                            Text("\(reservation.spotName) · \(reservation.accessWindowLabel) · \(reservation.totalLabel)").nativeBody(size: 12)
-                        }
-                        Spacer(minLength: 0)
-                        Text(reservation.reservationCode).font(.system(size: 10.5, weight: .black, design: .monospaced)).foregroundColor(NativeTheme.textPrimary)
-                    }
-                    NativeTransactionLedger(entries: [
-                        NativeTransactionLedgerEntry("Access window", reservation.accessWindowLabel),
-                        NativeTransactionLedgerEntry("Payment", "\(reservation.paymentDisplayLabel) · \(reservation.totalLabel)"),
-                        NativeTransactionLedgerEntry("Reservation", "Confirmed", valueColor: NativeTransactionVisuals.confirmedAccent)
-                    ])
-                    Text("Vehicle: \(reservation.vehicleLabel) · Scan QR at entry · \(reservation.address)").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2)
-                }
-                .padding(12)
-                .background(NativePolish.mapPanelSurface.opacity(0.92))
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .accessibilityIdentifier("native-parking-reservation-wallet-section")
             }
         }
     }
@@ -6872,7 +6834,7 @@ enum NativeSearchRouter {
     }
 
     static let categories: [CategorySpec] = [
-        CategorySpec(filter: "parking", title: "Parking near me", subtitle: "Reserve-ready lots and route context", icon: "parkingsign.circle.fill", keywords: ["parking", "park", "garage", "spot", "spots", "lot", "covered"]),
+        CategorySpec(filter: "parking", title: "Parking near me", subtitle: "Lots and garages with directions", icon: "parkingsign.circle.fill", keywords: ["parking", "park", "garage", "spot", "spots", "lot", "covered"]),
         CategorySpec(filter: "dining", title: "Food nearby", subtitle: "Restaurants, pickup, dinner, and vendors", icon: "fork.knife", keywords: ["food", "restaurant", "restaurants", "dining", "dinner", "lunch", "pickup", "delivery", "ghana", "jollof"]),
         CategorySpec(filter: "coffee", title: "Coffee nearby", subtitle: "Walkable cafés and quick stops", icon: "cup.and.saucer.fill", keywords: ["coffee", "cafe", "café", "brunch", "tea"]),
         CategorySpec(filter: "shopping", title: "Shopping nearby", subtitle: "Retail, malls, markets, and local stores", icon: "bag.fill", keywords: ["shopping", "shop", "shops", "mall", "malls", "store", "retail", "market"]),
@@ -9494,71 +9456,6 @@ enum NativeManualCheckInStore {
     }
 }
 
-private struct NativeParkingReservationRecord: Codable, Equatable, Identifiable {
-    let id: String
-    let reservationCode: String
-    let spotID: String
-    let spotName: String
-    let address: String
-    let durationHours: Int
-    let hourlyRateLabel: String
-    let totalLabel: String
-    let vehicleLabel: String
-    let paymentLabel: String
-    let qrPayload: String
-    let startTime: String
-    let endTime: String
-    let createdAt: String
-    let status: String
-
-    var accessWindowLabel: String { Self.windowLabel(startTime: startTime, endTime: endTime) }
-    var paymentDisplayLabel: String { NativePaymentDisplay.sanitized(paymentLabel) }
-
-    static func confirmed(venue: NativeVenueSummary, durationHours: Int, vehicleLabel: String, paymentLabel: String) -> Self {
-        let now = Date()
-        let id = "parking-\(Int(now.timeIntervalSince1970))"
-        let code = "BYP\(Int(now.timeIntervalSince1970) % 1_000_000)"
-        let hourly = venue.parking.priceLabel == "—" ? "$8/hr" : venue.parking.priceLabel
-        let total = Self.totalLabel(hourlyRateLabel: hourly, durationHours: durationHours)
-        let start = ISO8601DateFormatter().string(from: now)
-        let end = ISO8601DateFormatter().string(from: Calendar.current.date(byAdding: .hour, value: durationHours, to: now) ?? now)
-        let payload = "BYTSPOT:PARKING:\(code):\(venue.id):\(durationHours)H"
-        return Self(id: id, reservationCode: code, spotID: venue.id, spotName: venue.name, address: venue.address, durationHours: durationHours, hourlyRateLabel: hourly, totalLabel: total, vehicleLabel: vehicleLabel, paymentLabel: paymentLabel, qrPayload: payload, startTime: start, endTime: end, createdAt: start, status: "confirmed")
-    }
-
-    static func totalLabel(hourlyRateLabel: String, durationHours: Int) -> String {
-        let numeric = hourlyRateLabel.replacingOccurrences(of: ",", with: "").split { !(($0 >= "0" && $0 <= "9") || $0 == ".") }.first.flatMap { Double($0) } ?? 8
-        let total = numeric * Double(durationHours)
-        return total.rounded() == total ? "$\(Int(total))" : String(format: "$%.2f", total)
-    }
-
-    static func windowLabel(startTime: String, endTime: String) -> String {
-        let parser = ISO8601DateFormatter()
-        guard let start = parser.date(from: startTime), let end = parser.date(from: endTime) else { return "Active reservation window" }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        return "\(formatter.string(from: start))–\(formatter.string(from: end))"
-    }
-}
-
-private enum NativeParkingReservationStore {
-    static let storageKey = "bytspot_native_parking_reservations"
-    static let maxRecords = 12
-
-    static func all() -> [NativeParkingReservationRecord] {
-        guard let data = UserDefaults.standard.data(forKey: storageKey),
-              let records = try? JSONDecoder().decode([NativeParkingReservationRecord].self, from: data) else { return [] }
-        return records.sorted { $0.createdAt > $1.createdAt }
-    }
-
-    static func latest() -> NativeParkingReservationRecord? { all().first }
-
-    static func upsert(_ record: NativeParkingReservationRecord) {
-        let merged = ([record] + all().filter { $0.id != record.id }).prefix(maxRecords)
-        if let data = try? JSONEncoder().encode(Array(merged)) { UserDefaults.standard.set(data, forKey: storageKey) }
-    }
-}
-
 private struct NativeStayRequestRecord: Codable, Equatable, Identifiable {
     let id: String
     let requestCode: String
@@ -9626,14 +9523,6 @@ private enum NativeConciergeHandoffStore {
         UserDefaults.standard.removeObject(forKey: promptKey)
         UserDefaults.standard.removeObject(forKey: sourceKey)
     }
-}
-
-private enum NativeParkingBookingContract {
-    static let title = "Reserve Parking Space"
-    static let confirmedTitle = "Space Reserved"
-    static let primaryCTA = "Pay & Reserve"
-    static let storageKey = NativeParkingReservationStore.storageKey
-    static let paymentMethods = ["Apple Pay", "Credit / Debit Card"]
 }
 
 private enum NativeBoutiqueStayBookingContract {
@@ -15319,7 +15208,7 @@ enum NativeMenuCheckoutProbe {
     static var paymentMethods: [String] { NativeMenuCheckoutContract.paymentMethods }
 
     static var sharesNativeCheckoutPaymentMethods: Bool {
-        NativeMenuCheckoutContract.paymentMethods == NativeParkingBookingContract.paymentMethods
+        NativeMenuCheckoutContract.paymentMethods == NativeBoutiqueStayBookingContract.paymentMethods
     }
 
     static func placeOrder(menu: PartnerMenu, quantities: [String: Int], paymentLabel: String, authenticated: Bool) -> Placement {
@@ -15371,7 +15260,7 @@ enum NativeMenuParitySelfTests {
         let pendingOrder = NativeMenuOrderRecord.paymentPending(menu: menu, quantities: quantities, paymentLabel: NativeMenuCheckoutContract.paymentMethods[1])
         precondition(pendingOrder.status == "payment_pending" && pendingOrder.isPaymentPending, "NativeMenuParitySelfTests: Stripe-opened menu orders must persist as payment_pending.")
         precondition(NativeArrivalLedgerItem.order(pendingOrder).statusBadge == "AWAITING STRIPE", "NativeMenuParitySelfTests: payment-pending menu orders must not surface as confirmed in My Access.")
-        precondition(NativeMenuCheckoutContract.paymentMethods == NativeParkingBookingContract.paymentMethods, "NativeMenuParitySelfTests: menu checkout must offer the same payment methods as other native checkouts.")
+        precondition(NativeMenuCheckoutContract.paymentMethods == NativeBoutiqueStayBookingContract.paymentMethods, "NativeMenuParitySelfTests: menu checkout must offer the same payment methods as other native checkouts.")
     }
 }
 #endif
@@ -18169,7 +18058,7 @@ private struct NativeMapExploreView: View {
         let crowd = pin.crowdLevel.map { level in
             NativeCrowdSummary(level: level, label: labels[max(0, min(labels.count - 1, level - 1))], waitMins: nil)
         }
-        let parking = pin.kind == .parking ? parkingSummary(for: pin) : NativeParkingSummary(totalAvailable: 0, priceLabel: "—", isKnown: false)
+        let parking = pin.venue?.parking ?? NativeParkingSummary(totalAvailable: 0, priceLabel: "—", isKnown: false)
         return NativeVenueSummary(
             id: pin.id,
             name: pin.title,
@@ -18184,12 +18073,6 @@ private struct NativeMapExploreView: View {
             verifiedPatchId: nil,
             imageUrl: nil
         )
-    }
-
-    private func parkingSummary(for pin: NativeMapPin) -> NativeParkingSummary {
-        let price = pin.subtitle.components(separatedBy: "·").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.first(where: { $0.contains("$") }) ?? "Parking"
-        let spots = pin.subtitle.components(separatedBy: CharacterSet.decimalDigits.inverted).compactMap(Int.init).first ?? 0
-        return NativeParkingSummary(totalAvailable: spots, priceLabel: price)
     }
 
     private func partnerPeekCard(for pin: NativeMapPin) -> some View {
@@ -19081,7 +18964,7 @@ enum NativeServiceHerePlanner {
     }
 
     private static func recommendedOption(context: NativeServiceHereContext) -> NativeServiceHereOption {
-        if context.selectedKind == .parking { return parkingOption(context: context, titleOverride: "Reserve this parking") }
+        if context.selectedKind == .parking { return parkingOption(context: context, titleOverride: "Route to this parking") }
         if context.isWithinVerifiedZone && (context.selectedKind == .access || context.selectedKind == .partner) { return accessOption(context: context, titleOverride: "Check in here") }
         return routeOption(context: context)
     }
@@ -19097,7 +18980,7 @@ enum NativeServiceHerePlanner {
     }
 
     private static func parkingOption(context: NativeServiceHereContext, titleOverride: String? = nil) -> NativeServiceHereOption {
-        let title = titleOverride ?? "Reserve parking nearby"
+        let title = titleOverride ?? "Route to parking"
         let venue = context.selectedKind == .parking ? context.selectedTitle : context.parkingTitle
         let selectedParkingDetail = [context.selectedTitle, context.selectedSubtitle].compactMap { $0 }.joined(separator: " · ")
         let nearbyParkingDetail = [venue, context.parkingSubtitle].compactMap { $0 }.joined(separator: " · ")
@@ -19109,7 +18992,7 @@ enum NativeServiceHerePlanner {
         } else {
             detail = nearbyParkingDetail
         }
-        return NativeServiceHereOption(action: .reserveParking, title: title, subtitle: detail.isEmpty ? "Find nearby parking you can reserve." : detail, systemImage: "parkingsign.circle.fill", badge: "PARK")
+        return NativeServiceHereOption(action: .reserveParking, title: title, subtitle: detail.isEmpty ? "Get directions to parking nearby." : detail, systemImage: "parkingsign.circle.fill", badge: "PARK")
     }
 
     private static func bookOption(context: NativeServiceHereContext, titleOverride: String? = nil) -> NativeServiceHereOption {
@@ -22408,12 +22291,6 @@ private struct NativeMapPin: Identifiable {
     let id: String; let title: String; let subtitle: String; let distance: String; let coordinate: CLLocationCoordinate2D; let color: Color; let kind: NativeMapPinKind; let crowdLevel: Int?
     // Preserve source-bound photo provenance through direct/search handoffs.
     private(set) var venue: NativeVenueSummary?
-    static let samples = [
-        NativeMapPin(id: "partner-colony", title: "Colony Square", subtitle: "Verified Tap Zone · Dining + access", distance: "0.4 mi", coordinate: CLLocationCoordinate2D(latitude: 33.7878, longitude: -84.3832), color: NativeTheme.cyan, kind: .partner, crowdLevel: 2),
-        NativeMapPin(id: "parking-midtown", title: "Midtown Smart Parking", subtitle: "18 spots · covered · $8/hr", distance: "0.6 mi", coordinate: CLLocationCoordinate2D(latitude: 33.790, longitude: -84.389), color: NativeTheme.emerald, kind: .parking, crowdLevel: 1),
-        NativeMapPin(id: "access-arts", title: "Arts Center Access", subtitle: "Patch-ready entry and concierge help", distance: "0.8 mi", coordinate: CLLocationCoordinate2D(latitude: 33.779, longitude: -84.376), color: NativeTheme.pink, kind: .access, crowdLevel: 3)
-    ]
-
     init(id: String, title: String, subtitle: String, distance: String, coordinate: CLLocationCoordinate2D, color: Color, kind: NativeMapPinKind, crowdLevel: Int?) {
         self.id = id; self.title = title; self.subtitle = subtitle; self.distance = distance; self.coordinate = coordinate; self.color = color; self.kind = kind; self.crowdLevel = crowdLevel
     }
@@ -22684,11 +22561,6 @@ enum NativeMapParitySelfTests {
         precondition(BytspotMapFunctionCatalog.freeFunctions == ["smart-parking", "live-venue-data", "trending-hotspots", "ai-navigation", "spot-radar", "traffic-intelligence"], "NativeMapParitySelfTests: free Map Function tokens drifted from contract mapFunctions.free.")
         precondition(BytspotMapFunctionCatalog.gatedFunctionTokens.isEmpty, "NativeMapParitySelfTests: no map function may be gated — membership buys access, not intelligence.")
         precondition(BytspotMapIntelligenceFunction.allCases.allSatisfy { BytspotMapFunctionCatalog.freeFunctions.contains($0.rawValue) }, "NativeMapParitySelfTests: every intelligence function must be listed free.")
-        let pins = NativeMapPin.samples
-        precondition(pins.contains { $0.kind == .parking }, "NativeMapParitySelfTests: Smart Parking sample pin missing.")
-        precondition(pins.contains { $0.kind == .partner }, "NativeMapParitySelfTests: partnered tap-zone sample pin missing.")
-        precondition(pins.contains { $0.kind == .access }, "NativeMapParitySelfTests: access sample pin missing.")
-        precondition(!pins.contains { $0.id.hasPrefix("launch-") }, "NativeMapParitySelfTests: Map sample pins must not revive legacy hardcoded onboarding picks.")
         precondition(NativeMapExploreView.trafficIntelProximityMiles == 1.0, "NativeMapParitySelfTests: Traffic Intel Aware proximity radius drifted from 1.0 mi.")
         precondition(NativeMapExploreView.trafficIntelProximityFreshnessMinutes == 30, "NativeMapParitySelfTests: Traffic Intel Aware freshness window drifted from 30 minutes.")
         precondition(NativeMapExploreView.trafficIntelAutoEnvironmentKey == "BYT_NATIVE_TRAFFIC_AUTO", "NativeMapParitySelfTests: Traffic Intel auto-open env key drifted from BYT_NATIVE_TRAFFIC_AUTO.")
@@ -23042,9 +22914,6 @@ enum NativeDiscoverParitySelfTests {
         precondition(NativeValetMobilityContract.providerName == "Bytspot Mobility" && NativeValetMobilityContract.appClipMode == "api-proxy-no-sdk", "NativeDiscoverParitySelfTests: Valet must remain API-proxy/no-SDK for App Clip size.")
         precondition(NativeValetMobilityContract.backendRoutes == NativeMobilityRouteContract.routes, "NativeDiscoverParitySelfTests: Valet backend route contract must mirror NativeMobilityDataAPI.")
         precondition(NativeValetRideWalletStore.storageKey == "bytspot_native_valet_rides", "NativeDiscoverParitySelfTests: Valet ride wallet storage key drifted.")
-        precondition(NativeParkingBookingContract.title == "Reserve Parking Space" && NativeParkingBookingContract.confirmedTitle == "Space Reserved", "NativeDiscoverParitySelfTests: Smart Parking booking titles must state the concrete reservation outcome.")
-        precondition(NativeParkingBookingContract.primaryCTA == "Pay & Reserve" && NativeParkingBookingContract.paymentMethods == ["Apple Pay", "Credit / Debit Card"], "NativeDiscoverParitySelfTests: Smart Parking booking must use explicit payment authorization copy, not pay-at-lot placeholders.")
-        precondition(NativeParkingBookingContract.storageKey == "bytspot_native_parking_reservations", "NativeDiscoverParitySelfTests: Smart Parking reservation wallet storage key drifted.")
         precondition(NativePaymentDisplay.sanitized("Card •••• 4242") == "Credit / Debit Card" && NativePaymentDisplay.sanitized("Visa •••• 1234") == "Visa •••• 1234" && NativePaymentDisplay.sanitized("Apple Pay") == "Apple Pay", "NativeDiscoverParitySelfTests: legacy persisted payment labels must be sanitized without touching real instruments.")
         precondition(NativeBoutiqueStayBookingContract.title == "Check Dates" && NativeBoutiqueStayBookingContract.primaryCTA == "Pay & Request", "NativeDiscoverParitySelfTests: Boutique Stay checkout must make payment authorization explicit.")
         precondition(NativeBoutiqueStayBookingContract.authorizationTitle == "Payment authorization" && NativeBoutiqueStayBookingContract.hostConfirmOutcome == "Payment is captured" && NativeBoutiqueStayBookingContract.hostDeclineOutcome == "No charge is made", "NativeDiscoverParitySelfTests: Boutique Stay ledger outcome copy drifted.")

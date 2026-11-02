@@ -78,7 +78,7 @@ final class NativeDiscoverServerRankTests: XCTestCase {
     private let here = NativeLocationCoordinate(latitude: 33.7816, longitude: -84.3831, isFallback: false)
 
     func testServerOrderLeadsUnseenCardsFollowInLocalOrderAndHiddenCardsGo() {
-        let ranking = NativeDiscoverRanking(order: ["c", "a"], hidden: ["b"])
+        let ranking = NativeDiscoverServerRanking(order: ["c", "a"], hidden: ["b"])
         let ordered = NativeDiscoverBrowsePolicy.ordered(["a", "b", "c", "e", "d"], ranking: ranking, id: { $0 }, localPrecedes: <)
         XCTAssertEqual(ordered, ["c", "a", "d", "e"])
         XCTAssertEqual(NativeDiscoverBrowsePolicy.ordered(["b", "a"], ranking: nil, id: { $0 }, localPrecedes: <), ["a", "b"],
@@ -129,10 +129,10 @@ final class NativeDiscoverServerRankTests: XCTestCase {
     }
 
     func testDecodesTheServerAnswer() {
-        let ranking = NativeDiscoverRanking.decode(from: ["order": ["a", "b"], "hidden": [["id": "c", "hiddenBy": "bars"]]])
-        XCTAssertEqual(ranking, NativeDiscoverRanking(order: ["a", "b"], hidden: ["c"]))
+        let ranking = NativeDiscoverServerRanking.decode(from: ["order": ["a", "b"], "hidden": [["id": "c", "hiddenBy": "bars"]]])
+        XCTAssertEqual(ranking, NativeDiscoverServerRanking(order: ["a", "b"], hidden: ["c"]))
         XCTAssertEqual(ranking?.positions["b"], 1)
-        XCTAssertNil(NativeDiscoverRanking.decode(from: ["hidden": []]))
+        XCTAssertNil(NativeDiscoverServerRanking.decode(from: ["hidden": []]))
     }
 
     func testGoogleFactsAreDecodedFromNearbySearchRows() {

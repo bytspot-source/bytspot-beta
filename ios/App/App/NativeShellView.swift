@@ -11589,7 +11589,7 @@ enum NativeDiscoverBrowsePolicy {
 
     /// The server's order for cards it ranked, then any it has not seen yet in
     /// the local order. Cards it hides are left out.
-    static func ordered<Card>(_ cards: [Card], ranking: NativeDiscoverRanking?, id: (Card) -> String, localPrecedes: (Card, Card) -> Bool) -> [Card] {
+    static func ordered<Card>(_ cards: [Card], ranking: NativeDiscoverServerRanking?, id: (Card) -> String, localPrecedes: (Card, Card) -> Bool) -> [Card] {
         guard let ranking else { return cards.sorted(by: localPrecedes) }
         let positions = ranking.positions
         return cards.filter { !ranking.hidden.contains(id($0)) }.sorted { first, second in
@@ -11728,7 +11728,7 @@ private struct NativeDiscoverView: View {
     @State private var discoverStatusMessage: String?
     /// places.rankDiscover's order for the current deck. Nil until it answers,
     /// and on failure, so the deck keeps the local order.
-    @State private var discoverRanking: NativeDiscoverRanking?
+    @State private var discoverRanking: NativeDiscoverServerRanking?
     @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var rankVibe = ""
     @AppStorage(NativeLaunchPersonalizationStorage.walkKey) private var rankWalk = ""
     @AppStorage(NativeLaunchPersonalizationStorage.crewKey) private var rankCrew = ""

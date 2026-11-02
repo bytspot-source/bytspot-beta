@@ -4261,7 +4261,7 @@ struct NativeDiscoverRankCandidate: Equatable {
 
 /// The server's Discover order. `order` lists kept ids best first; `hidden`
 /// are cards the guest's avoid list or price ceiling leaves out.
-struct NativeDiscoverRanking: Equatable {
+struct NativeDiscoverServerRanking: Equatable {
     let order: [String]
     let hidden: Set<String>
 
@@ -4269,10 +4269,10 @@ struct NativeDiscoverRanking: Equatable {
         Dictionary(order.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
     }
 
-    static func decode(from payload: Any) -> NativeDiscoverRanking? {
+    static func decode(from payload: Any) -> NativeDiscoverServerRanking? {
         guard let object = payload as? [String: Any], let order = object["order"] as? [String] else { return nil }
         let hidden = (object["hidden"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
-        return NativeDiscoverRanking(order: order, hidden: Set(hidden))
+        return NativeDiscoverServerRanking(order: order, hidden: Set(hidden))
     }
 }
 
@@ -4295,10 +4295,10 @@ struct NativeDiscoverRankAPI {
         return input
     }
 
-    func rank(candidates: [NativeDiscoverRankCandidate], location: NativeLocationCoordinate, vibe: String, walk: String, crew: String, hour: Int, preferences: NativePreferenceFilter) async throws -> NativeDiscoverRanking? {
+    func rank(candidates: [NativeDiscoverRankCandidate], location: NativeLocationCoordinate, vibe: String, walk: String, crew: String, hour: Int, preferences: NativePreferenceFilter) async throws -> NativeDiscoverServerRanking? {
         guard let input = Self.input(candidates: candidates, location: location, vibe: vibe, walk: walk, crew: crew, hour: hour, preferences: preferences) else { return nil }
         let payload = try await client.trpcQueryPayload(path: Self.route, input: input)
-        return NativeDiscoverRanking.decode(from: payload)
+        return NativeDiscoverServerRanking.decode(from: payload)
     }
 }
 

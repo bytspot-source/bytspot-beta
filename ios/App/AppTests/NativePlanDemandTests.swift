@@ -1,4 +1,5 @@
 import XCTest
+import CoreLocation
 @testable import App
 
 /// Asking venues to fill a gap in a Plan.
@@ -613,5 +614,100 @@ final class NativeWindowAskTests: XCTestCase {
             expiresAt: "2026-09-24T23:30:00.000Z", offers: [legacy],
         )
         XCTAssertEqual(ask.status, "1 offer", "A legacy checkout state never reads as a payment in progress.")
+    }
+}
+
+@MainActor
+final class NativePlanTimelineTests: XCTestCase {
+    private let atlanta = TimeZone(identifier: "America/New_York")!
+
+    private func decode(_ json: String) throws -> NativePlanItinerary {
+        try JSONDecoder().decode(NativePlanItinerary.self, from: Data(json.utf8))
+    }
+
+    private let sample = """
+    {"status":"timed","skipped":[{"itemId":"g","title":"Garage"}],
+     "suggestedOrder":{"itemIds":["a","c","b"],"savesMeters":2414},
+     "stops":[
+      {"itemId":"a","title":"Dinner","needKind":"dining","arriveAt":"2026-10-02T22:00:00.000Z","leaveAt":"2026-10-02T23:30:00.000Z",
+       "time":"estimated","timeSource":null,"lengthMins":90,"length":"estimated","travel":null,"waitMins":0,"hours":"unknown","issues":[]},
+      {"itemId":"b","title":"Show","needKind":"events","arriveAt":"2026-10-03T00:00:00.000Z","leaveAt":"2026-10-03T01:00:00.000Z",
+       "time":"set","timeSource":"party","lengthMins":60,"length":"stated","travel":{"meters":6000,"atLeastMins":5},"waitMins":15,"hours":"unknown",
+       "issues":["Closes at 9:00 PM."]},
+      {"itemId":"c","title":"Bar","needKind":"nightlife","arriveAt":null,"leaveAt":null,
+       "time":null,"lengthMins":120,"length":"guess","travel":{"meters":300,"atLeastMins":1},"waitMins":0,"hours":"known"}
+     ]}
+    """
+
+    func testDecodesAndNeverUpgradesAnUnknownLengthToStated() throws {
+        let itinerary = try decode(sample)
+        XCTAssertEqual(itinerary.stops.count, 3)
+        XCTAssertEqual(itinerary.stops[2].length, "estimated")
+        XCTAssertEqual(itinerary.stops[2].issues, [])
+        XCTAssertEqual(itinerary.skipped.map(\.title), ["Garage"])
+        XCTAssertEqual(try decode("{}").status, "empty")
+    }
+
+    func testEstimatedTimesSayAboutAndSetTimesSayWhoSetThem() throws {
+        let stops = try decode(sample).stops
+        XCTAssertEqual(NativePlanTimelineDisplay.timeLabel(stops[0], timeZone: atlanta), "About 6:00 PM – 7:30 PM")
+        XCTAssertEqual(NativePlanTimelineDisplay.timeLabel(stops[1], timeZone: atlanta), "8:00 PM – 9:00 PM")
+        XCTAssertNil(NativePlanTimelineDisplay.timeLabel(stops[2], timeZone: atlanta))
+        XCTAssertNil(NativePlanTimelineDisplay.timeSourceLabel(stops[0]))
+        XCTAssertEqual(NativePlanTimelineDisplay.timeSourceLabel(stops[1]), "Party start time")
+        XCTAssertEqual(NativePlanTimelineDisplay.lengthLabel(stops[0]), "About 1 hr 30 min (estimated)")
+        XCTAssertEqual(NativePlanTimelineDisplay.lengthLabel(stops[1]), "1 hr")
+        XCTAssertEqual(NativePlanTimelineDisplay.waitLabel(stops[1]), "15 min wait before this")
+        XCTAssertNil(NativePlanTimelineDisplay.waitLabel(stops[0]))
+    }
+
+    func testTravelPrefersAppleMapsAndWarnsOnlyWhenItNeedsMoreThanTheGap() {
+        let travel = NativePlanItinerary.Travel(meters: 6000, atLeastMins: 5)
+        XCTAssertEqual(NativePlanTimelineDisplay.travelLabel(travel, apple: nil), "3.7 mi · at least 5 min")
+        let quick = NativePlanTimelineLeg(minutes: 14, mode: .driving)
+        XCTAssertEqual(NativePlanTimelineDisplay.travelLabel(travel, apple: quick), "14 min drive · Apple Maps")
+        XCTAssertNil(NativePlanTimelineDisplay.travelWarning(travel, apple: quick), "5 + 10 buffer covers 14")
+        let slow = NativePlanTimelineLeg(minutes: 25, mode: .driving)
+        XCTAssertEqual(NativePlanTimelineDisplay.travelWarning(travel, apple: slow),
+                       "Apple Maps expects 25 min, about 10 min more than this timeline allows.")
+        XCTAssertNil(NativePlanTimelineDisplay.travelLabel(nil, apple: nil))
+    }
+
+    func testSuggestedOrderNamesTheStopsAndTheSaving() throws {
+        XCTAssertEqual(NativePlanTimelineDisplay.suggestedOrderLabel(try decode(sample)),
+                       "Dinner → Bar → Show saves about 1.5 mi.")
+        XCTAssertEqual(NativePlanTimelineDisplay.skippedLabel(try decode(sample)), "Not on the timeline: Garage.")
+    }
+
+    func testAppleMapsIsAskedOnlyForLegsWithBothPlacesAndWalksShortOnes() async throws {
+        let itinerary = try decode(sample)
+        let points: [String: CLLocationCoordinate2D] = [
+            "a": CLLocationCoordinate2D(latitude: 33.781, longitude: -84.386),
+            "b": CLLocationCoordinate2D(latitude: 33.835, longitude: -84.38),
+            // "c" has no place.
+        ]
+        var asked: [(NativePlanTimelineLeg.Mode, Date?)] = []
+        let now = ISO8601DateFormatter().date(from: "2026-10-02T12:00:00Z")!
+        let legs = await NativePlanTimelineETA.legs(for: itinerary, points: points, now: now) { _, _, mode, departure in
+            asked.append((mode, departure))
+            return 13 * 60 + 5
+        }
+        XCTAssertEqual(asked.count, 1)
+        XCTAssertEqual(asked.first?.0, .driving)
+        XCTAssertEqual(asked.first?.1, ISO8601DateFormatter().date(from: "2026-10-02T23:30:00Z"), "leaves when dinner ends")
+        XCTAssertEqual(legs["b"], NativePlanTimelineLeg(minutes: 14, mode: .driving))
+        XCTAssertNil(legs["c"])
+        XCTAssertEqual(NativePlanTimelineDisplay.mode(forMeters: 300), .walking)
+    }
+
+    func testTimelinePointsComeOnlyFromSharedDestinations() throws {
+        let items = try JSONDecoder().decode([NativePlan.Item].self, from: Data("""
+        [{"id":"a","needKind":"dining","title":"Dinner","capability":"details","status":"available","reservation":null,"partyId":null,"coffeeReservationId":null,
+          "destination":{"name":"Dinner","address":null,"lat":33.78,"lng":-84.38}},
+         {"id":"b","needKind":"nightlife","title":"Room","capability":"details","status":"available","reservation":null,"partyId":null,"coffeeReservationId":null}]
+        """.utf8))
+        let points = NativePlanDisplay.timelinePoints(items)
+        XCTAssertEqual(points.keys.sorted(), ["a"])
+        XCTAssertEqual(points["a"]?.latitude, 33.78)
     }
 }

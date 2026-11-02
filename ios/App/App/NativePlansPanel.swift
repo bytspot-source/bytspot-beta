@@ -496,6 +496,11 @@ struct NativePlanAPI: NativeDiscoverPlanAdding {
         let payload = try await client.trpcQueryPayload(path: "/trpc/plans.feasibility", input: ["planId": planID])
         return try JSONDecoder().decode(NativePlanFeasibility.self, from: JSONSerialization.data(withJSONObject: payload))
     }
+
+    func itinerary(_ planID: String) async throws -> NativePlanItinerary {
+        let payload = try await client.trpcQueryPayload(path: "/trpc/plans.itinerary", input: ["planId": planID])
+        return try JSONDecoder().decode(NativePlanItinerary.self, from: JSONSerialization.data(withJSONObject: payload))
+    }
 }
 
 /// The wire shape of a Plan write, kept in its own namespace so a test can pin
@@ -728,6 +733,13 @@ enum NativePlanDisplay {
         guard item.booked != true, let raw = item.guestBooking?.bookedFor,
               let date = ISO8601DateFormatter.partyControlDate(from: raw) else { return nil }
         return "For " + date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    /// Where each item is, for Apple Maps times between timeline stops.
+    static func timelinePoints(_ items: [NativePlan.Item]) -> [String: CLLocationCoordinate2D] {
+        Dictionary(items.compactMap { item in
+            item.destination.map { (item.id, CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng)) }
+        }, uniquingKeysWith: { first, _ in first })
     }
 
     static func selectedSourceIDs(in items: [NativePlan.Item]) -> Set<String> {
@@ -1989,6 +2001,8 @@ struct NativePlanDetailSheet: View {
     /// again if it cannot be fetched — an unanswered question shows nothing
     /// rather than a reassuring blank.
     @State private var feasibility: NativePlanFeasibility?
+    /// The suggested timeline. Cleared on reload like the Quick check.
+    @State private var itinerary: NativePlanItinerary?
     /// Identifies the newest reload so an older one that finishes later is
     /// discarded instead of overwriting it.
     @State private var loadGeneration = UUID()
@@ -2301,6 +2315,11 @@ struct NativePlanDetailSheet: View {
         if let feasibility, !NativePlanFeasibilityDisplay.problems(feasibility.checks).isEmpty {
             sectionHeader("Quick check")
             NativePlanFeasibilityView(feasibility: feasibility)
+        }
+
+        if let itinerary, itinerary.status != "empty" {
+            sectionHeader("Timeline")
+            NativePlanTimelineView(itinerary: itinerary, points: NativePlanDisplay.timelinePoints(plan.items))
         }
 
         if !plan.openNeeds.isEmpty {
@@ -2810,6 +2829,7 @@ struct NativePlanDetailSheet: View {
         let token = UUID()
         loadGeneration = token
         feasibility = nil
+        itinerary = nil
         do {
             let fetched = try await api().get(planID)
             guard loadGeneration == token else { return }
@@ -2822,6 +2842,8 @@ struct NativePlanDetailSheet: View {
         await loadPrimePath()
         guard loadGeneration == token else { return }
         await loadFeasibility(token)
+        guard loadGeneration == token else { return }
+        await loadItinerary(token)
         guard loadGeneration == token else { return }
         await loadAsks()
     }
@@ -2839,6 +2861,18 @@ struct NativePlanDetailSheet: View {
         // current one and this reply describes a Plan already replaced.
         guard loadGeneration == token else { return }
         feasibility = fetched
+    }
+
+    /// Loaded after the Quick check. A failure hides the section.
+    private func loadItinerary(_ token: UUID) async {
+        guard sessionStore.canAttachBearerToken else { itinerary = nil; return }
+        guard let plan, plan.lifecycle != "cancelled", plan.state != "expired", plan.state != "completed" else {
+            itinerary = nil
+            return
+        }
+        let fetched = try? await api().itinerary(planID)
+        guard loadGeneration == token else { return }
+        itinerary = fetched
     }
 
     /// C3: Load Prime Path candidates after the Plan itself. A failure is

@@ -254,6 +254,80 @@ struct NativeConciergeMessage: Codable, Equatable {
     let content: String
 }
 
+/// Saved avoid list and price ceiling. Sent with places.recommend and
+/// concierge.discover; the server leaves out places that match an avoided
+/// tag, or whose listed price is above the ceiling.
+struct NativePreferenceFilter: Encodable, Equatable {
+    static let avoidKey = "bytspot_pref_avoid"
+    static let priceCeilingKey = "bytspot_pref_price_ceiling"
+    static let avoidTags: [(id: String, label: String, icon: String)] = [
+        ("nightclubs", "Night clubs", "music.note.house.fill"),
+        ("bars", "Bars", "wineglass.fill"),
+        ("live_music", "Live music", "music.mic"),
+        ("sports_bars", "Sports bars", "sportscourt.fill"),
+        ("fast_food", "Fast food", "takeoutbag.and.cup.and.straw.fill"),
+        ("busy", "Busy places", "person.3.fill"),
+    ]
+    static let empty = NativePreferenceFilter(avoid: [], priceCeiling: nil)
+
+    let avoid: [String]
+    let priceCeiling: Int?
+
+    init(avoid: [String], priceCeiling: Int?) {
+        let known = Set(Self.avoidTags.map { $0.id })
+        var seen = Set<String>()
+        self.avoid = avoid.filter { known.contains($0) && seen.insert($0).inserted }
+        self.priceCeiling = priceCeiling.flatMap { (1...4).contains($0) ? $0 : nil }
+    }
+
+    /// `avoid` is stored as comma-separated tags; a ceiling of 0 means none.
+    init(storedAvoid: String, storedPriceCeiling: Int) {
+        self.init(avoid: Self.avoidList(from: storedAvoid), priceCeiling: storedPriceCeiling)
+    }
+
+    static func saved(in defaults: UserDefaults = .standard) -> Self {
+        Self(storedAvoid: defaults.string(forKey: avoidKey) ?? "", storedPriceCeiling: defaults.integer(forKey: priceCeilingKey))
+    }
+
+    static func avoidList(from stored: String) -> [String] {
+        stored.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    static func storedAvoid(_ avoid: [String]) -> String {
+        Self(avoid: avoid, priceCeiling: nil).avoid.joined(separator: ",")
+    }
+
+    var isEmpty: Bool { avoid.isEmpty && priceCeiling == nil }
+
+    /// Words in a Bytspot venue's category, matching the server's
+    /// services/preferenceFit, for the on-device Home fallback. Price is not
+    /// known for these venues, so the ceiling never removes one.
+    private static let categoryWords: [String: [String]] = [
+        "nightclubs": ["nightclub", "night club", "club", "nightlife"],
+        "bars": ["bar", "pub", "lounge", "cocktail", "brewery"],
+        "live_music": ["live music", "concert", "karaoke"],
+        "sports_bars": ["sports bar"],
+        "fast_food": ["fast food"],
+    ]
+
+    func leavesOut(category: String, crowdLevel: Int?) -> Bool {
+        let text = category.lowercased().replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: "-", with: " ")
+        let words = " " + text.components(separatedBy: CharacterSet.letters.inverted).filter { !$0.isEmpty }.joined(separator: " ") + " "
+        return avoid.contains { tag in
+            if tag == "busy" { return (crowdLevel ?? 0) >= 3 }
+            return (Self.categoryWords[tag] ?? []).contains { words.contains(" \($0) ") }
+        }
+    }
+    var requestKey: String { "\(avoid.joined(separator: ","))|\(priceCeiling ?? 0)" }
+
+    /// Request body form. The ceiling is omitted when unset.
+    var input: [String: Any] {
+        var value: [String: Any] = ["avoid": avoid]
+        if let priceCeiling { value["priceCeiling"] = priceCeiling }
+        return value
+    }
+}
+
 struct NativeConciergeRequest: Encodable, Equatable {
     enum InputError: Error { case needsLocation, invalidMessages }
     struct Location: Encodable, Equatable { let lat: Double; let lng: Double }
@@ -282,8 +356,11 @@ struct NativeConciergeRequest: Encodable, Equatable {
     let messages: [NativeConciergeMessage]
     let location: Location
     let quizAnswers: QuizAnswers
+    /// Omitted when nothing is avoided and there is no ceiling.
+    let preferences: NativePreferenceFilter?
 
-    init(messages: [NativeConciergeMessage], location: NativeLocationCoordinate?, quizAnswers: QuizAnswers) throws {
+    init(messages: [NativeConciergeMessage], location: NativeLocationCoordinate?, quizAnswers: QuizAnswers,
+         preferences: NativePreferenceFilter = .empty) throws {
         guard let coordinate = NativeConciergeContract.realCoordinate(location) else { throw InputError.needsLocation }
         let bounded = messages.suffix(NativeConciergeContract.maximumMessages).map {
             NativeConciergeMessage(role: $0.role, content: NativeConciergeContract.boundedMessage($0.content))
@@ -292,6 +369,7 @@ struct NativeConciergeRequest: Encodable, Equatable {
         self.messages = bounded
         self.location = Location(lat: coordinate.latitude, lng: coordinate.longitude)
         self.quizAnswers = quizAnswers
+        self.preferences = preferences.isEmpty ? nil : preferences
     }
 }
 
@@ -2011,6 +2089,9 @@ struct NativeUserPreferencesRecord: Codable, Equatable {
     var vibes: [String]?
     var cuisines: [String]?
     var parking: Parking?
+    /// Nil from a server that predates the avoid list and price ceiling.
+    var avoid: [String]? = nil
+    var priceCeiling: Int? = nil
 }
 
 struct NativeMutationSuccess: Codable, Equatable { var success: Bool?; var ok: Bool? }
@@ -3144,11 +3225,11 @@ struct NativeProfileDataAPI {
         return try await client.trpcDecode(NativeUserPreferencesRecord.self, path: "/trpc/user.preferences.get")
     }
 
-    func updateUserPreferenceSummary(vibeToken: String? = nil, parking: NativeUserPreferencesRecord.Parking? = nil) async throws -> NativeUserPreferencesRecord {
+    func updateUserPreferenceSummary(vibeToken: String? = nil, parking: NativeUserPreferencesRecord.Parking? = nil, filter: NativePreferenceFilter? = nil) async throws -> NativeUserPreferencesRecord {
         #if DEBUG
-        if usesAuthenticatedFixtures { return NativeUserPreferencesRecord(interests: nil, vibes: vibeToken.map { [$0] } ?? Self.fixtureUserPreferences.vibes, cuisines: nil, parking: parking ?? Self.fixtureUserPreferences.parking) }
+        if usesAuthenticatedFixtures { return NativeUserPreferencesRecord(interests: nil, vibes: vibeToken.map { [$0] } ?? Self.fixtureUserPreferences.vibes, cuisines: nil, parking: parking ?? Self.fixtureUserPreferences.parking, avoid: filter?.avoid, priceCeiling: filter?.priceCeiling) }
         #endif
-        return try await client.trpcDecode(NativeUserPreferencesRecord.self, path: "/trpc/user.preferences.update", method: "POST", input: Self.userPreferencesInput(vibeToken: vibeToken, parking: parking))
+        return try await client.trpcDecode(NativeUserPreferencesRecord.self, path: "/trpc/user.preferences.update", method: "POST", input: Self.userPreferencesInput(vibeToken: vibeToken, parking: parking, filter: filter))
     }
 
     static func notificationInput(_ preferences: NativeNotificationPreferences) -> [String: Any] {
@@ -3159,9 +3240,14 @@ struct NativeProfileDataAPI {
         ]
     }
 
-    static func userPreferencesInput(vibeToken: String? = nil, parking: NativeUserPreferencesRecord.Parking? = nil) -> [String: Any] {
+    static func userPreferencesInput(vibeToken: String? = nil, parking: NativeUserPreferencesRecord.Parking? = nil, filter: NativePreferenceFilter? = nil) -> [String: Any] {
         var input: [String: Any] = [:]
         if let vibeToken, !vibeToken.isEmpty { input["vibes"] = [vibeToken] }
+        if let filter {
+            // A cleared ceiling is sent as null so the saved one is removed.
+            input["avoid"] = filter.avoid
+            input["priceCeiling"] = filter.priceCeiling.map { $0 as Any } ?? NSNull()
+        }
         if let parking {
             var parkingInput: [String: Any] = [:]
             if let covered = parking.covered { parkingInput["covered"] = covered }
@@ -4503,9 +4589,10 @@ struct NativeLiveDiscoveryAPI {
 
     /// Only a real fix is sent: recommendations for an assumed city would be
     /// someone else's neighbourhood.
-    func placesRecommend(location: NativeLocationCoordinate, vibe: String, walk: String, crew: String, hour: Int) async throws -> NativeRecommendations {
+    func placesRecommend(location: NativeLocationCoordinate, vibe: String, walk: String, crew: String, hour: Int, preferences: NativePreferenceFilter = .empty) async throws -> NativeRecommendations {
         guard !location.isFallback else { return .empty }
         var input: [String: Any] = ["lat": location.latitude, "lng": location.longitude, "hour": max(0, min(23, hour))]
+        if !preferences.isEmpty { input["preferences"] = preferences.input }
         for (key, value) in [("vibe", vibe), ("walk", walk), ("group", crew)] {
             let token = String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
             if !token.isEmpty { input[key] = token }

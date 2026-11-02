@@ -19703,6 +19703,114 @@ private struct NativeLayerToggle: View {
     }
 }
 
+/// The Plan writes a Proposed Plan reuses. NativePlanAPI is the production writer.
+protocol NativeConciergePlanWriting {
+    func create(_ request: NativePlanWriteRequest) async throws -> String
+    func attachReference(_ request: NativePlanWriteRequest) async throws
+    func feasibility(_ planID: String) async throws -> NativePlanFeasibility
+    func primePath(_ planID: String) async throws -> NativePrimePathResponse
+}
+
+extension NativePlanAPI: NativeConciergePlanWriting {}
+
+/// What the guest sets before saving. The create key is frozen, so Retry can never make a second Plan.
+struct NativeConciergePlanDraft: Equatable {
+    static let partySizes = 1...20
+    let plan: NativeConciergeProposedPlan
+    let idempotencyKey: String
+    var partySize: Int
+    var startsAt: Date?
+
+    /// Set by the first attempt; only a refusal that resending can never fix unfreezes it.
+    private(set) var isFrozen = false
+
+    init(plan: NativeConciergeProposedPlan, idempotencyKey: String = UUID().uuidString.lowercased()) {
+        self.plan = plan
+        self.idempotencyKey = idempotencyKey
+        partySize = plan.partySize ?? 2
+        startsAt = nil
+    }
+
+    func frozen() -> Self { var copy = self; copy.isFrozen = true; return copy }
+
+    /// Same choices under a new key, so the edited Plan is a new create.
+    func editable() -> Self {
+        var copy = Self(plan: plan)
+        copy.partySize = partySize
+        copy.startsAt = startsAt
+        return copy
+    }
+}
+
+/// A saved Proposed Plan and what the existing Plan checks said about it.
+struct NativeConciergeSavedPlan: Equatable {
+    let planID: String
+    let title: String
+    let added: [String]
+    /// Stops whose attach failed or whose answer was lost. Never retried automatically.
+    let notAdded: [String]
+    /// Needs with nothing attached; `demand.ask` can fill them.
+    let openNeeds: [String]
+    let feasibility: NativePlanFeasibility?
+    let primePath: NativePrimePathResponse?
+
+    var askableNeeds: [String] { openNeeds.filter { NativePlanDemandCategory.pairs[$0] != nil } }
+    var primePicks: [NativePrimePathNeed] { primePath?.needs.filter { $0.prime != nil } ?? [] }
+}
+
+enum NativeConciergePlanSave {
+    static let footnote = "Saved as a Plan with these places as references. Nothing is booked or paid for."
+
+    static func needLabel(_ need: String) -> String {
+        switch need {
+        case "dining": return "Food"
+        case "nightlife": return "Drinks"
+        case "coffee": return "Coffee"
+        case "events": return "A show"
+        default: return need.capitalized
+        }
+    }
+
+    /// plans.create with the Plan's own needs (not the create form's six), the group and the search point.
+    static func createRequest(_ draft: NativeConciergePlanDraft, origin: NativeLocationCoordinate) -> NativePlanWriteRequest {
+        let request = NativePlanContract.createRequest(
+            idempotencyKey: draft.idempotencyKey,
+            title: NativePlanDisplay.clamped(draft.plan.title, utf16Limit: 80),
+            intent: NativePlanDisplay.clamped(draft.plan.intent, utf16Limit: 280),
+            startsAt: draft.startsAt, partySize: draft.partySize, needs: [], bookableSelections: [],
+            place: NativePlanPlace(label: NativePlanPlace.fallbackLabel, latitude: origin.latitude, longitude: origin.longitude))
+        var input = request.input
+        input["needs"] = draft.plan.needs
+        return NativePlanWriteRequest(path: request.path, input: input)
+    }
+
+    /// plans.attach as the same details reference Add to Plan writes.
+    static func attachRequest(_ stop: NativeConciergeProposedPlan.Stop, card: NativeConciergeCard?, planID: String) -> NativePlanWriteRequest {
+        NativeDiscoverPlanSelection(title: stop.title, needKind: stop.needKind, placeID: card?.placeId).addRequest(planID: planID)
+    }
+
+    /// Create (idempotent), attach each stop once, then read the Plan checks. Only create can throw.
+    static func save(_ draft: NativeConciergePlanDraft, cards: [NativeConciergeCard], origin: NativeLocationCoordinate,
+                     writer: NativeConciergePlanWriting) async throws -> NativeConciergeSavedPlan {
+        let planID = try await writer.create(createRequest(draft, origin: origin))
+        var added: [String] = [], notAdded: [String] = [], filled = Set<String>()
+        for stop in draft.plan.stops {
+            do {
+                try await writer.attachReference(attachRequest(stop, card: draft.plan.card(for: stop, in: cards), planID: planID))
+                added.append(stop.title)
+                filled.insert(stop.needKind)
+            } catch {
+                notAdded.append(stop.title)
+            }
+        }
+        let feasibility = try? await writer.feasibility(planID)
+        let primePath = try? await writer.primePath(planID)
+        return NativeConciergeSavedPlan(planID: planID, title: draft.plan.title, added: added, notAdded: notAdded,
+                                        openNeeds: draft.plan.needs.filter { !filled.contains($0) },
+                                        feasibility: feasibility, primePath: primePath)
+    }
+}
+
 enum NativeConciergeRegionPresentation {
     enum Topic { case parking, stay, open, general }
 
@@ -19753,8 +19861,18 @@ final class NativeConciergeModel: ObservableObject {
     @Published var draft = ""
     @Published private(set) var turns: [Turn] = []
     @Published private(set) var result: NativeConciergeResponse? {
-        didSet { pendingAction = nil; proposalHandled = false; actionNotice = nil }
+        didSet {
+            pendingAction = nil; proposalHandled = false; actionNotice = nil
+            if !planSaving { planDraft = result?.proposedPlan.map { NativeConciergePlanDraft(plan: $0) }; planNotice = nil }
+        }
     }
+    /// The Proposed Plan the guest may save. Editing it writes nothing.
+    @Published var planDraft: NativeConciergePlanDraft?
+    @Published private(set) var planSaving = false
+    @Published private(set) var savedPlan: NativeConciergeSavedPlan?
+    @Published private(set) var planNotice: String?
+    @Published private(set) var askListings: [String: [NativeWindowListing]] = [:]
+    private var planSaveTask: Task<Void, Never>?
     /// A card action waiting for the guest's approval. Nothing runs before approve(_:).
     @Published var pendingAction: NativeConciergePendingAction?
     @Published private(set) var proposalHandled = false
@@ -19878,6 +19996,11 @@ final class NativeConciergeModel: ObservableObject {
 
     func clear() {
         stop()
+        planSaveTask?.cancel()
+        planSaveTask = nil
+        planSaving = false
+        savedPlan = nil
+        askListings = [:]
         draft = ""
         turns = []
         result = nil
@@ -20009,6 +20132,60 @@ final class NativeConciergeModel: ObservableObject {
                   self.session?.authenticatedUserID == request.accountID, self.session?.token == authorization else { return }
             self.arrival = NativeConciergeArrival.make(planID: planID, plan: plan, card: request.card, accountID: request.accountID)
         }
+    }
+
+    /// The Make it a Plan button. One tap runs one save; Retry resends the same create key.
+    func saveProposedPlan() {
+        guard let current = planDraft, !planSaving, let result, isSignedIn, let session,
+              let accountID = session.authenticatedUserID, let origin = realLocation,
+              result.proposedPlan == current.plan else { return }
+        let draft = current.frozen()
+        planDraft = draft
+        let authorization = session.token
+        let client = BytspotAPIClient(tokenProvider: { authorization })
+        let cards = result.cards
+        planSaving = true
+        planNotice = nil
+        planSaveTask = Task { @MainActor [weak self] in
+            let outcome: Result<NativeConciergeSavedPlan, Error>
+            do {
+                outcome = .success(try await NativeConciergePlanSave.save(draft, cards: cards, origin: origin, writer: NativePlanAPI(client: client)))
+            } catch {
+                outcome = .failure(error)
+            }
+            guard let self, !Task.isCancelled, self.session?.authenticatedUserID == accountID,
+                  self.session?.token =[redacted]] authorization else { return }
+            self.planSaving = false
+            self.planSaveTask = nil
+            switch outcome {
+            case .success(let saved):
+                self.planDraft = nil
+                self.savedPlan = saved
+                NotificationCenter.default.post(name: .nativePlanDidChange, object: nil)
+                await self.loadAskListings(for: saved, origin: origin, client: client)
+            case .failure(let error):
+                self.planNotice = NativePlanDisplay.createFailureMessage(for: error)
+                if NativePlanDisplay.createFailureIsFinal(error) { self.planDraft = draft.editable() }
+            }
+        }
+    }
+
+    /// Published business windows for each open need, so demand.ask can fill it. Absent on failure.
+    private func loadAskListings(for saved: NativeConciergeSavedPlan, origin: NativeLocationCoordinate, client: BytspotAPIClient) async {
+        let windows = NativeWindowAskAPI(client: client)
+        var found: [String: [NativeWindowListing]] = [:]
+        for need in saved.askableNeeds {
+            guard let rows = try? await windows.listings(near: origin, domain: need) else { continue }
+            let askable = Array(rows.filter(\.takesAsks).prefix(2))
+            if !askable.isEmpty { found[need] = askable }
+        }
+        guard savedPlan?.planID == saved.planID else { return }
+        askListings = found
+    }
+
+    func dismissSavedPlan() {
+        savedPlan = nil
+        askListings = [:]
     }
 
     func dismissArrival() {
@@ -20170,6 +20347,7 @@ private struct NativeConciergeView: View {
     @State private var showingCamera = false
     @State private var showingLibrary = false
     @State private var signInAfterPlan = false
+    @State private var askingListing: NativeWindowListing?
     @AppStorage(NativeConciergeHandoffStore.promptKey) private var handoffPrompt = ""
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var locationStore: NativeLocationStore
@@ -20221,6 +20399,11 @@ private struct NativeConciergeView: View {
             NativeDiscoverAddToPlanSheet(selection: selection, sessionStore: sessionStore,
                 onSignIn: { signInAfterPlan = true },
                 onAdded: { planID in model.planAdded(planID: planID, selectionID: selection.id) })
+        }
+        .sheet(item: $askingListing) { listing in
+            let client = BytspotAPIClient(tokenProvider: { [credential = sessionStore.token] in credential })
+            NativeWindowAskSheet(listing: listing, windows: NativeWindowAskAPI(client: client), demand: NativePlanDemandAPI(client: client),
+                                 fixedPlan: model.savedPlan.map { NativeWindowAskPlanChoice(id: $0.planID, title: $0.title) })
         }
         .accessibilityIdentifier("native-concierge-preview")
     }
@@ -20297,9 +20480,15 @@ private struct NativeConciergeView: View {
                             }
                             .id(NativeConciergeCardPresentation.anchor(card))
                         }
+                        if let draft = model.planDraft, result.proposedPlan == draft.plan {
+                            proposedPlanPanel(draft, cards: result.cards)
+                        }
                         if result.status == .needsLocation {
                             locationButton
                         }
+                    }
+                    if let saved = model.savedPlan {
+                        savedPlanPanel(saved)
                     }
                     if model.searchState == .empty {
                         statusRow(icon: "magnifyingglass",
@@ -20421,6 +20610,107 @@ private struct NativeConciergeView: View {
         .background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 22))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("native-concierge-proposal")
+    }
+
+    private func proposedPlanPanel(_ draft: NativeConciergePlanDraft, cards: [NativeConciergeCard]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Proposed Plan").font(.subheadline.weight(.semibold)).foregroundColor(NativeTheme.cyan)
+            Text(draft.plan.title).font(.headline).fixedSize(horizontal: false, vertical: true)
+            ForEach(Array(draft.plan.stops.enumerated()), id: \.element.cardId) { index, stop in
+                Text("\(index + 1). \(stop.title) · \(NativeConciergePlanSave.needLabel(stop.needKind))")
+                    .font(.body).fixedSize(horizontal: false, vertical: true)
+            }
+            if !draft.plan.openNeeds.isEmpty {
+                Text("No place found yet for \(draft.plan.openNeeds.map(NativeConciergePlanSave.needLabel).joined(separator: ", ")). You can ask local businesses after saving.")
+                    .font(.subheadline).foregroundColor(NativeTheme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Stepper(value: Binding(get: { model.planDraft?.partySize ?? draft.partySize },
+                                   set: { model.planDraft?.partySize = $0 }),
+                    in: NativeConciergePlanDraft.partySizes) {
+                Text("Group of \(model.planDraft?.partySize ?? draft.partySize)").font(.body)
+            }
+            .disabled(draft.isFrozen || model.planSaving)
+            .accessibilityIdentifier("native-concierge-plan-party-size")
+            Toggle("Set a time", isOn: Binding(get: { model.planDraft?.startsAt != nil },
+                                               set: { model.planDraft?.startsAt = $0 ? Date().addingTimeInterval(3600) : nil }))
+                .disabled(draft.isFrozen || model.planSaving)
+                .accessibilityIdentifier("native-concierge-plan-time-toggle")
+            if let startsAt = model.planDraft?.startsAt {
+                DatePicker("Starts", selection: Binding(get: { startsAt }, set: { model.planDraft?.startsAt = $0 }),
+                           in: Date().addingTimeInterval(300)...)
+                    .disabled(draft.isFrozen || model.planSaving)
+            }
+            if let notice = model.planNotice {
+                Text(notice).font(.subheadline).foregroundColor(NativeTheme.orange).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("native-concierge-plan-notice")
+            }
+            NativeConciergeActionGrid {
+                Button(Self.makePlanTitle(saving: model.planSaving, failed: model.planNotice != nil)) { model.saveProposedPlan() }
+                    .buttonStyle(NativeConciergeChipStyle(prominent: true))
+                    .disabled(model.planSaving)
+                    .accessibilityIdentifier("native-concierge-make-plan")
+            }
+            Text(NativeConciergePlanSave.footnote).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 22))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("native-concierge-proposed-plan")
+    }
+
+    nonisolated static func makePlanTitle(saving: Bool, failed: Bool) -> String {
+        saving ? "Saving…" : failed ? "Retry" : "Make it a Plan"
+    }
+
+    private func savedPlanPanel(_ saved: NativeConciergeSavedPlan) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Saved “\(saved.title)”").font(.headline).fixedSize(horizontal: false, vertical: true)
+            if !saved.notAdded.isEmpty {
+                Text("Couldn't add \(saved.notAdded.joined(separator: ", ")). Use Add to Plan on its card.")
+                    .font(.subheadline).foregroundColor(NativeTheme.orange).fixedSize(horizontal: false, vertical: true)
+            }
+            if let feasibility = saved.feasibility {
+                if feasibility.verdict == .breaks {
+                    NativePlanFeasibilityView(feasibility: feasibility)
+                } else {
+                    Label(NativePlanFeasibilityDisplay.headline(for: feasibility.verdict),
+                          systemImage: NativePlanFeasibilityDisplay.symbol(for: feasibility.verdict))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(NativePlanFeasibilityDisplay.tint(for: feasibility.verdict))
+                        .accessibilityIdentifier("native-concierge-plan-feasibility")
+                }
+            }
+            ForEach(saved.primePicks, id: \.needKind) { need in
+                if let prime = need.prime {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("★ Prime Path · \(NativeConciergePlanSave.needLabel(need.needKind)): \(prime.label)").font(.subheadline.weight(.semibold))
+                        if let reason = need.reason { Text(reason).font(.footnote).foregroundColor(NativeTheme.textSecondary) }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            ForEach(saved.askableNeeds, id: \.self) { need in
+                if let listings = model.askListings[need] {
+                    Text("Ask a local business · \(NativeConciergePlanSave.needLabel(need))").font(.subheadline.weight(.semibold)).foregroundColor(NativeTheme.cyan)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: 12) {
+                            ForEach(listings) { listing in
+                                NativeWindowListingCard(listing: listing) { askingListing = listing }
+                            }
+                        }
+                    }
+                }
+            }
+            NativeConciergeActionGrid {
+                Button("Open Plans") { openNativeTab(.plan) }.buttonStyle(NativeConciergeChipStyle(prominent: true))
+                Button("Done") { model.dismissSavedPlan() }.buttonStyle(NativeConciergeChipStyle())
+            }
+        }
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 22))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("native-concierge-saved-plan")
     }
 
     private func arrivalPanel(_ arrival: NativeConciergeArrival) -> some View {

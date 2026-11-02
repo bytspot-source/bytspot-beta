@@ -3659,13 +3659,13 @@ private enum NativeProfilePreferenceSourceContract {
     static let reactSources = ["VibePreferences.tsx", "ParkingPreferences.tsx", "NotificationSettings.tsx", "LocationSettings.tsx"]
     static let vibeStorageKeys = ["bytspot_vibe_preferences", "bytspot_preferences"]
     static let vibeAtmosphereLabels = ["Relaxed→Energetic", "Intimate→Social", "Classic→Trendy", "Quiet→Loud", "Spacious→Crowded"]
-    static let vibeDefaultAnchors = ["energyLevel=7", "socialSetting=6", "style=7", "noiseLevel=5", "crowdDensity=5", "maxDistance=5", "priceRange=60-250"]
+    static let vibeDefaultAnchors = ["energyLevel=7", "socialSetting=6", "style=7", "noiseLevel=5", "crowdDensity=5", "maxDistance=5"]
     static let vibeProfileTokens = ["coffee", "food", "drinks", "nightlife"]
     static let parkingDefaultAnchors = ["covered=true", "outdoor=false", "garage=true", "street=false", "evCharging=true", "security=true", "accessible=false", "valetAvailable=true", "autoReserve=false", "extendAutomatically=true", "notifyOnExpiry=true", "nearbyAlerts=false", "maxHourlyRate=20", "maxDailyRate=50", "maxWalkingDistance=0.5", "prioritizeClosest=true"]
     static let notificationChannels = ["push.reservations", "push.promotions", "push.reminders", "push.insider", "push.nearby", "email.reservations", "email.promotions", "email.newsletter", "email.receipts", "sms.reservations", "sms.reminders", "sms.emergencies"]
     static let notificationRoutes = ["user.notifications.getPrefs", "user.notifications.updatePrefs"]
     static let userPreferenceRoutes = ["user.preferences.get", "user.preferences.update"]
-    static let userPreferenceSyncScope = ["vibes", "parking.covered", "parking.evCharging", "parking.security"]
+    static let userPreferenceSyncScope = ["vibes", "parking.covered", "parking.evCharging", "parking.security", "avoid", "priceCeiling"]
     static let locationSourceKeys = ["bytspot_location_settings", "bytspot_venue_recommendations_enabled"]
     static let locationControls = ["Primary Location Permission", "Enhanced Indoor Accuracy", "Background Location", "Location for Offers & Promotions", "Venue Recommendations"]
 }
@@ -3783,6 +3783,13 @@ private struct NativeVibeFocusChoiceRow: View {
     }
 }
 
+enum NativePreferenceFilterControls {
+    static let priceChoices: [NativeVibeFocusCatalog.Choice] = [
+        ("0", "Any", "No limit"), ("1", "$", "Inexpensive"), ("2", "$$", "Moderate"), ("3", "$$$", "Pricey"),
+    ]
+    static let footnote = "Prices are Google's $ to $$$$ levels. A place with no listed price is still shown and marked. Leave out uses listing types and crowd estimates; Bytspot has no noise data."
+}
+
 private struct NativeVibePreferencesPanel: View {
     let sessionStore: BytspotSessionStore
     @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var launchIntent = ""
@@ -3793,8 +3800,8 @@ private struct NativeVibePreferencesPanel: View {
     @AppStorage("bytspot_vibe_style") private var style = 7.0
     @AppStorage("bytspot_vibe_noise_level") private var noiseLevel = 5.0
     @AppStorage("bytspot_vibe_crowd_density") private var crowdDensity = 5.0
-    @AppStorage("bytspot_vibe_price_min") private var priceMin = 60.0
-    @AppStorage("bytspot_vibe_price_max") private var priceMax = 250.0
+    @AppStorage(NativePreferenceFilter.avoidKey) private var avoidStored = ""
+    @AppStorage(NativePreferenceFilter.priceCeilingKey) private var priceCeiling = 0
     @AppStorage("bytspot_vibe_max_distance") private var maxDistance = 5.0
     @AppStorage("bytspot_vibe_time_morning") private var morning = false
     @AppStorage("bytspot_vibe_time_afternoon") private var afternoon = true
@@ -3834,7 +3841,10 @@ private struct NativeVibePreferencesPanel: View {
             NativePreferenceScaleRow(title: "Noise Level", value: $noiseLevel, range: 1...10, step: 1, leftLabel: "Quiet", rightLabel: "Loud", valueLabel: "\(Int(noiseLevel))/10", color: NativeTheme.purple)
             NativePreferenceScaleRow(title: "Crowd Density", value: $crowdDensity, range: 1...10, step: 1, leftLabel: "Spacious", rightLabel: "Crowded", valueLabel: "\(Int(crowdDensity))/10", color: NativeTheme.purple)
             NativePreferenceScaleRow(title: "Maximum Travel Distance", value: $maxDistance, range: 0.5...25, step: 0.5, leftLabel: "0.5 mi", rightLabel: "25 mi", valueLabel: String(format: "%.1f miles", maxDistance), color: NativeTheme.cyan)
-            NativePreferenceScaleRow(title: "Price Comfort", value: $priceMax, range: 60...2999, step: 10, leftLabel: "$60", rightLabel: "$2999", valueLabel: "$\(Int(priceMin))–$\(Int(priceMax))", color: NativeTheme.cyan)
+            NativeVibeFocusChoiceRow(title: "Highest price", choices: NativePreferenceFilterControls.priceChoices, selection: priceSelection, color: NativeTheme.cyan)
+            NativePreferenceChipSection(title: "Leave Out", options: NativePreferenceFilter.avoidTags.map { (title: $0.label, icon: $0.icon, selection: avoidBinding($0.id)) }, color: NativeTheme.orange)
+            Text(NativePreferenceFilterControls.footnote).font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeProfileStyle.muted)
+                .fixedSize(horizontal: false, vertical: true)
             NativePreferenceChipSection(title: "Preferred Time Slots", options: [("Morning", "sunrise.fill", $morning), ("Afternoon", "sun.max.fill", $afternoon), ("Evening", "moon.stars.fill", $evening)], color: NativeTheme.purple)
             NativePreferenceChipSection(title: "Group Size Preferences", options: [("Solo", "person.fill", $solo), ("Couple", "person.2.fill", $couple), ("Small Group", "person.3.fill", $smallGroup), ("Large Group", "person.3.sequence.fill", $largeGroup)], color: NativeTheme.emerald)
             NativePreferenceChipSection(title: "Dietary + Accessibility", options: [("Vegetarian", "leaf.fill", $vegetarian), ("Vegan", "leaf.circle.fill", $vegan), ("Wheelchair Access", "figure.roll", $wheelchair), ("Service Animals", "pawprint.fill", $serviceAnimal)], color: NativeTheme.orange)
@@ -3854,8 +3864,26 @@ private struct NativeVibePreferencesPanel: View {
     private var api: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
     private var statusTitle: String { statusMessage.isEmpty ? "Preferences ready" : statusMessage }
     private var statusSubtitle: String {
-        if sessionStore.isAuthenticated { return "Your focus shapes Home. Everything here is saved to your account." }
-        return "Your focus shapes Home. Choices stay on this iPhone until you sign in."
+        if sessionStore.isAuthenticated { return "Your focus, price and what you leave out shape Home picks and Concierge. Everything here is saved to your account." }
+        return "Your focus, price and what you leave out shape Home picks and Concierge. Choices stay on this iPhone until you sign in."
+    }
+
+    private var filter: NativePreferenceFilter {
+        NativePreferenceFilter(storedAvoid: avoidStored, storedPriceCeiling: priceCeiling)
+    }
+
+    private var priceSelection: Binding<String> {
+        Binding(get: { String(priceCeiling) }, set: { priceCeiling = Int($0) ?? 0 })
+    }
+
+    private func avoidBinding(_ tag: String) -> Binding<Bool> {
+        Binding(
+            get: { filter.avoid.contains(tag) },
+            set: { on in
+                let rest = filter.avoid.filter { $0 != tag }
+                avoidStored = NativePreferenceFilter.storedAvoid(on ? rest + [tag] : rest)
+            }
+        )
     }
 
     private var focusTitle: String {
@@ -3875,6 +3903,11 @@ private struct NativeVibePreferencesPanel: View {
         do {
             let preferences = try await api.loadUserPreferences()
             serverVibeToken = preferences.vibes?.first
+            if let avoid = preferences.avoid {
+                let saved = NativePreferenceFilter(avoid: avoid, priceCeiling: preferences.priceCeiling)
+                avoidStored = NativePreferenceFilter.storedAvoid(saved.avoid)
+                priceCeiling = saved.priceCeiling ?? 0
+            }
             if serverVibeToken != nil { statusMessage = "Vibe loaded" }
         } catch { statusMessage = "Vibe unavailable" }
     }
@@ -3885,7 +3918,7 @@ private struct NativeVibePreferencesPanel: View {
         isSaving = true
         Task {
             do {
-                let saved = try await api.updateUserPreferenceSummary(vibeToken: vibeProfile.token)
+                let saved = try await api.updateUserPreferenceSummary(vibeToken: vibeProfile.token, filter: filter)
                 serverVibeToken = saved.vibes?.first ?? vibeProfile.token
                 statusMessage = "Vibe saved"
             } catch { statusMessage = "Vibe save failed" }
@@ -7281,6 +7314,8 @@ private struct NativeHomeDashboardView: View {
     @AppStorage(NativeLaunchPersonalizationStorage.walkKey) private var launchWalkPreference = ""
     @AppStorage(NativeLaunchPersonalizationStorage.crewKey) private var launchCrewPreference = ""
     @AppStorage(NativeLaunchPersonalizationStorage.completedKey) private var launchPicksCompleted = false
+    @AppStorage(NativePreferenceFilter.avoidKey) private var avoidPreference = ""
+    @AppStorage(NativePreferenceFilter.priceCeilingKey) private var priceCeilingPreference = 0
     @State private var aiPickDetailVenue: NativeVenueSummary?
     @State private var serverRecommendations: NativeRecommendations?
     @State private var homePartyInvitation: NativeNearbyParty?
@@ -7342,7 +7377,7 @@ private struct NativeHomeDashboardView: View {
         if let picks = serverRecommendations?.forYou, !picks.isEmpty {
             return picks.prefix(3).map { LaunchRecommendationPick(recommended: $0, venue: recommendedVenue($0)) }
         }
-        return Self.rankedLaunchPicks(from: regionalSnapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
+        return Self.rankedLaunchPicks(from: regionalSnapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference, preferences: preferenceFilter)
     }
 
     private var usesServerRecommendations: Bool {
@@ -7357,7 +7392,11 @@ private struct NativeHomeDashboardView: View {
     private var recommendationRequestKey: String {
         let location = locationStore.coordinate
         guard !location.isFallback else { return "" }
-        return String(format: "%.3f,%.3f|", location.latitude, location.longitude) + [launchIntent, launchWalkPreference, launchCrewPreference].joined(separator: "|")
+        return String(format: "%.3f,%.3f|", location.latitude, location.longitude) + [launchIntent, launchWalkPreference, launchCrewPreference, preferenceFilter.requestKey].joined(separator: "|")
+    }
+
+    private var preferenceFilter: NativePreferenceFilter {
+        NativePreferenceFilter(storedAvoid: avoidPreference, storedPriceCeiling: priceCeilingPreference)
     }
 
     private func refreshRecommendations() async {
@@ -7365,7 +7404,7 @@ private struct NativeHomeDashboardView: View {
         guard !key.isEmpty else { serverRecommendations = nil; return }
         let result = try? await NativeLiveDiscoveryAPI(client: BytspotAPIClient()).placesRecommend(
             location: locationStore.coordinate, vibe: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference,
-            hour: Calendar.current.component(.hour, from: Date())
+            hour: Calendar.current.component(.hour, from: Date()), preferences: preferenceFilter
         )
         guard key == recommendationRequestKey else { return }
         serverRecommendations = result
@@ -8143,9 +8182,10 @@ private struct NativeHomeDashboardView: View {
         rankedLaunchPicks(from: snapshot, location: location, intent: intent, walk: walk, crew: crew, limit: 1).first?.venue
     }
 
-    static func rankedLaunchPicks(from snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String, limit: Int = 3) -> [LaunchRecommendationPick] {
+    static func rankedLaunchPicks(from snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String, limit: Int = 3, preferences: NativePreferenceFilter = .none) -> [LaunchRecommendationPick] {
         guard NativeHomeRegionPresentation.canPresentLaunchPicks(in: snapshot) else { return [] }
         let venues = NativeAuthLaunchContract.launchVenueCandidates(from: snapshot.trustworthyLiveVenues)
+            .filter { !preferences.leavesOut(category: $0.category, crowdLevel: $0.crowd?.level) }
         let ranked = venues.sorted { first, second in
             let firstScore = launchVenueScore(first, location: location, intent: intent, walk: walk, crew: crew)
             let secondScore = launchVenueScore(second, location: location, intent: intent, walk: walk, crew: crew)
@@ -20071,7 +20111,7 @@ final class NativeConciergeModel: ObservableObject {
             return
         }
         guard let request = try? NativeConciergeRequest(messages: turns.map(\.message), location: coordinate,
-                                                       quizAnswers: .saved()),
+                                                       quizAnswers: .saved(), preferences: .saved()),
               let ticket = requestGuard.begin(accountID: accountID, location: coordinate) else { return }
         let authorization = session.token
         let api = NativeConciergeAPI(client: BytspotAPIClient(tokenProvider: { authorization }))
@@ -22857,7 +22897,7 @@ enum NativeAccountParitySelfTests {
         precondition(NativeProfilePreferenceSourceContract.notificationChannels == ["push.reservations", "push.promotions", "push.reminders", "push.insider", "push.nearby", "email.reservations", "email.promotions", "email.newsletter", "email.receipts", "sms.reservations", "sms.reminders", "sms.emergencies"], "NativeAccountParitySelfTests: notification channels drifted from React.")
         precondition(NativeProfilePreferenceSourceContract.notificationRoutes == ["user.notifications.getPrefs", "user.notifications.updatePrefs"], "NativeAccountParitySelfTests: notification preference routes drifted.")
         precondition(NativeProfilePreferenceSourceContract.userPreferenceRoutes == ["user.preferences.get", "user.preferences.update"], "NativeAccountParitySelfTests: user preference routes drifted.")
-        precondition(NativeProfilePreferenceSourceContract.userPreferenceSyncScope == ["vibes", "parking.covered", "parking.evCharging", "parking.security"], "NativeAccountParitySelfTests: Vibe/Parking API sync scope drifted.")
+        precondition(NativeProfilePreferenceSourceContract.userPreferenceSyncScope == ["vibes", "parking.covered", "parking.evCharging", "parking.security", "avoid", "priceCeiling"], "NativeAccountParitySelfTests: Vibe/Parking API sync scope drifted.")
         precondition(NativeProfilePreferenceSourceContract.locationControls == ["Primary Location Permission", "Enhanced Indoor Accuracy", "Background Location", "Location for Offers & Promotions", "Venue Recommendations"], "NativeAccountParitySelfTests: Location Settings controls drifted from React.")
         precondition(NativeProfileP3Contract.notificationKeys == ["bytspot_notify_push_reservations", "bytspot_notify_push_promotions", "bytspot_notify_push_reminders", "bytspot_notify_push_insider", "bytspot_notify_push_nearby", "bytspot_notify_email_reservations", "bytspot_notify_email_promotions", "bytspot_notify_email_newsletter", "bytspot_notify_email_receipts", "bytspot_notify_sms_reservations", "bytspot_notify_sms_reminders", "bytspot_notify_sms_emergencies"], "NativeAccountParitySelfTests: notification storage keys drifted.")
         precondition(NativeProfileP3Contract.privacyKeys == ["bytspot_location_enhanced_indoor_accuracy", "bytspot_location_background", "bytspot_location_offers", "bytspot_venue_recommendations_enabled"], "NativeAccountParitySelfTests: privacy storage keys drifted.")

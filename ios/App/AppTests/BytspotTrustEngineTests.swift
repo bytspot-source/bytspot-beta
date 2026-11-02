@@ -4080,6 +4080,43 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(userInput["vibes"] as? [String], ["drinks"])
         XCTAssertEqual((userInput["parking"] as? [String: Any])?["covered"] as? Bool, true)
         XCTAssertEqual((userInput["parking"] as? [String: Any])?["security"] as? String, "premium")
+        XCTAssertNil(userInput["avoid"], "Vibe-only saves leave the saved filter alone")
+
+        let filterInput = NativeProfileDataAPI.userPreferencesInput(filter: NativePreferenceFilter(avoid: ["bars", "busy"], priceCeiling: 2))
+        XCTAssertEqual(filterInput["avoid"] as? [String], ["bars", "busy"])
+        XCTAssertEqual(filterInput["priceCeiling"] as? Int, 2)
+        let cleared = NativeProfileDataAPI.userPreferencesInput(filter: .none)
+        XCTAssertEqual(cleared["avoid"] as? [String], [])
+        XCTAssertTrue(cleared["priceCeiling"] is NSNull, "A cleared ceiling is sent as null so the saved one is removed")
+    }
+
+    func testPreferenceFilterKeepsKnownTagsAndAOneToFourCeiling() throws {
+        let filter = NativePreferenceFilter(storedAvoid: " bars,loud,,busy,bars ", storedPriceCeiling: 3)
+        XCTAssertEqual(filter.avoid, ["bars", "busy"])
+        XCTAssertEqual(filter.priceCeiling, 3)
+        XCTAssertEqual(NativePreferenceFilter.storedAvoid(filter.avoid), "bars,busy")
+        XCTAssertNil(NativePreferenceFilter(storedAvoid: "", storedPriceCeiling: 0).priceCeiling, "0 means no ceiling")
+        XCTAssertNil(NativePreferenceFilter(avoid: [], priceCeiling: 5).priceCeiling)
+        XCTAssertTrue(NativePreferenceFilter(storedAvoid: "loud", storedPriceCeiling: 0).isEmpty)
+        XCTAssertEqual(filter.input["avoid"] as? [String], ["bars", "busy"])
+        XCTAssertEqual(filter.input["priceCeiling"] as? Int, 3)
+        XCTAssertNil(NativePreferenceFilter(avoid: ["bars"], priceCeiling: nil).input["priceCeiling"])
+        XCTAssertNotEqual(filter.requestKey, NativePreferenceFilter.none.requestKey, "Changing the filter re-asks for Home picks")
+
+        let noClubs = NativePreferenceFilter(avoid: ["nightclubs", "busy"], priceCeiling: 1)
+        XCTAssertTrue(noClubs.leavesOut(category: "club", crowdLevel: nil))
+        XCTAssertTrue(noClubs.leavesOut(category: "Nightlife", crowdLevel: 1))
+        XCTAssertTrue(noClubs.leavesOut(category: "restaurant", crowdLevel: 3), "Busy uses the crowd reading")
+        XCTAssertFalse(noClubs.leavesOut(category: "restaurant", crowdLevel: 2))
+        XCTAssertFalse(NativePreferenceFilter(avoid: ["bars"], priceCeiling: nil).leavesOut(category: "barbecue", crowdLevel: nil), "Whole words only")
+        XCTAssertTrue(NativePreferenceFilter(avoid: ["bars"], priceCeiling: nil).leavesOut(category: "cocktail_lounge", crowdLevel: nil))
+        XCTAssertFalse(NativePreferenceFilter.none.leavesOut(category: "club", crowdLevel: 4))
+
+        let record = try decode(NativeUserPreferencesRecord.self, from: ["result": ["data": ["json": ["vibes": ["food"], "avoid": ["nightclubs"], "priceCeiling": 2]]]])
+        XCTAssertEqual(record.avoid, ["nightclubs"])
+        XCTAssertEqual(record.priceCeiling, 2)
+        let older = try decode(NativeUserPreferencesRecord.self, from: ["result": ["data": ["json": ["vibes": ["food"]]]]])
+        XCTAssertNil(older.avoid, "A server without the filter leaves the saved one on this iPhone alone")
     }
 
     func testNetworkUsesSocialCircleAndInvitationRoutes() throws {

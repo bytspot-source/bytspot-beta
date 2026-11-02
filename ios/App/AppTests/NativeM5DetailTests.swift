@@ -124,6 +124,8 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
             proposedPlan(["needs": ["dining", "nightlife"]]),
             proposedPlan(["partySize": 40]),
             proposedPlan(["stops": [["cardId": "gp:kitchen", "needKind": "dining", "title": "A"], ["cardId": "gp:kitchen", "needKind": "nightlife", "title": "B"]]]),
+            proposedPlan(["area": ["label": "Midtown", "lat": 0.0, "lng": 0.0] as [String: Any]]),
+            proposedPlan(["area": ["label": " ", "lat": 33.78, "lng": -84.38] as [String: Any]]),
         ]
         for plan in invalid {
             let outcome = try decode(response(cards: planCards(), changes: ["proposedPlan": plan]))
@@ -173,6 +175,7 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertEqual(create["latitude"] as? Double, seattle.latitude)
         XCTAssertEqual(create["areaLabel"] as? String, "Near me")
         XCTAssertNotNil(create["startsAt"] as? String)
+        XCTAssertNil(plan.area, "an older server's Plan without area still decodes")
         let attach = writer.requests[1].input
         XCTAssertEqual(attach["planId"] as? String, "plan-1")
         XCTAssertEqual(attach["needKind"] as? String, "dining")
@@ -185,6 +188,17 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertEqual(saved.askableNeeds, ["nightlife", "events"])
         XCTAssertEqual(saved.feasibility?.verdict, .breaks)
         XCTAssertNil(saved.primePath, "a Plan check that fails to load is hidden")
+    }
+
+    func testAnAreaPlanIsSavedAtTheAreaNotTheGuestsLocation() throws {
+        let area: [String: Any] = ["label": "Midtown", "lat": 33.78, "lng": -84.38]
+        let decoded = try decode(response(cards: planCards(), changes: ["proposedPlan": proposedPlan(["area": area])]))
+        let plan = try XCTUnwrap(decoded.proposedPlan)
+        XCTAssertEqual(plan.area, NativeConciergeProposedPlan.Area(label: "Midtown", lat: 33.78, lng: -84.38))
+        let create = NativeConciergePlanSave.createRequest(NativeConciergePlanDraft(plan: plan), origin: seattle).input
+        XCTAssertEqual(create["areaLabel"] as? String, "Midtown")
+        XCTAssertEqual(create["latitude"] as? Double, 33.78)
+        XCTAssertEqual(create["longitude"] as? Double, -84.38)
     }
 
     func testAFailedCreateAttachesNothingAndOnlyAFinalRefusalUnfreezesTheKey() async throws {

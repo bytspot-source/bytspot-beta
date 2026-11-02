@@ -723,6 +723,7 @@ enum ClipFlowStep: Equatable {
     case vendorPatchLoading(code: String)
     case vendorPatchFailed(code: String, message: String)
     case vendorPatch(ClipVendorPatch)
+    case linkNotInUse
     case vendors(service: ClipLocalService)
     case checkout(service: ClipLocalService, vendor: ClipVendor)
     case success(service: ClipLocalService, vendor: ClipVendor, bookingRef: String, amountCents: Int)
@@ -1006,13 +1007,11 @@ final class ClipInvocationModel: ObservableObject {
     @Published var lineItemQuantities: [String: Int] = [:]
     @Published private(set) var selectedPartyTicketTier: ClipPartyTicketTier?
 
-    private let api = ClipPatchVerifier()
     private let partyInviteLoader: @MainActor (String) async throws -> PartyPassInvite
     private let saleLoader: @MainActor (String) async throws -> ClipSaleListing
     private let vendorPatchLoader: @MainActor (String) async throws -> ClipVendorPatch
     private var invocationGeneration = UUID()
     private var loadTask: Task<Void, Never>?
-    private var vendorTasks: [String: Task<Void, Never>] = [:]
 
     init(partyInviteLoader: @escaping @MainActor (String) async throws -> PartyPassInvite = {
         try await ClipPatchVerifier().partyInvite(partyID: $0)
@@ -1047,8 +1046,6 @@ final class ClipInvocationModel: ObservableObject {
         let generation = invocationGeneration
         loadTask?.cancel()
         loadTask = nil
-        vendorTasks.values.forEach { $0.cancel() }
-        vendorTasks.removeAll()
         isLoadingContext = false
         isLoadingServices = false
         vendorsByService.removeAll()
@@ -1140,52 +1137,26 @@ final class ClipInvocationModel: ObservableObject {
         }
         // A band serial shows the band screen instead of the curated catalog.
         // Staff check bands at the door; there is no guest band lookup to run.
-        // Named special flows keep theirs.
-        if ClipLocalService.explicitService(for: url, tier: detectedTier) == nil,
-           let band = ClipBandTapScreen.resolve(url: url, patchId: patchId, token: token) {
+        if let band = ClipBandTapScreen.resolve(url: url, patchId: patchId, token: token) {
             services = []
             flow = .band(band)
             return
-        }
-        // Reset catalog/vendor caches when the tier changes so stale luxury
-        // entries never leak into a Green/Platinum invocation.
-        services = ClipLocalService.fallbacks(for: detectedTier)
-        vendorsByService.removeAll()
-        if let explicitService = ClipLocalService.explicitService(for: url, tier: detectedTier) {
-            if let existingIndex = services.firstIndex(where: { $0.id == explicitService.id }) {
-                services.remove(at: existingIndex)
-            }
-            services.insert(explicitService, at: 0)
-            let fallbackVendors = ClipVendor.fallbacks(for: explicitService, tier: detectedTier)
-            vendorsByService[explicitService.id] = fallbackVendors
-            if let explicitVendor = ClipVendor.explicitVendor(for: url, service: explicitService, tier: detectedTier) {
-                flow = .checkout(service: explicitService, vendor: explicitVendor)
-            }
         }
 
         #if DEBUG
         // Deep-link walkthrough hook used by scripts/clip-screencap-sweep.sh
         // to fast-forward the flow state machine for the TestFlight pre-flight
         // screenshot gallery. Stripped from Release builds entirely.
-        if let step = items.first(where: { $0.name == "step" })?.value,
-           applyDebugWalkthrough(step: step) {
-            return
+        if let step = items.first(where: { $0.name == "step" })?.value {
+            services = ClipLocalService.fallbacks(for: detectedTier)
+            if applyDebugWalkthrough(step: step) { return }
         }
         #endif
 
-        guard let patchId else {
-            // The bare home page names nothing to open; it must not land in
-            // the vendor catalog.
-            if pathParts.isEmpty {
-                services = []
-                flow = .awaitingInvocation
-            }
-            return
-        }
-        let token = token
-        loadTask = Task { [weak self] in
-            await self?.loadContextAndVerify(patchId: patchId, token: token)
-        }
+        // Old demo patch links (`/p/…`, `/t/…`, `?patch=…`) and any other path
+        // name nothing the server can open, so they never show the sample catalog.
+        services = []
+        flow = pathParts.isEmpty && patchId == nil ? .awaitingInvocation : .linkNotInUse
     }
 
     /// Universal Link used when the Clip hands off to the installed full app.
@@ -1203,6 +1174,8 @@ final class ClipInvocationModel: ObservableObject {
             return patch.appURL
         case .vendorPatchLoading(let code), .vendorPatchFailed(let code, _):
             return ClipVendorPatch.appURL(code: code)
+        case .linkNotInUse:
+            return URL(string: "https://bytspot.app/")
         default:
             break
         }
@@ -1260,9 +1233,7 @@ final class ClipInvocationModel: ObservableObject {
     #if DEBUG
     /// Synchronously advances `flow` to the requested step using the locally
     /// resolved tier fallback catalog + vendor pool. Returns `true` when the
-    /// hook handled the URL (so the live backend resolve is skipped, keeping
-    /// the screenshot deterministic). Returns `false` for `catalog` / unknown
-    /// values so the regular `loadContextAndVerify` path still runs.
+    /// hook handled the URL. Returns `false` for unknown values.
     private func applyDebugWalkthrough(step: String) -> Bool {
         switch step.lowercased() {
         case "catalog":
@@ -1439,35 +1410,13 @@ final class ClipInvocationModel: ObservableObject {
     }
 
     func prefetchVendors(for service: ClipLocalService, force: Bool = false) {
-        if vendorsByService[service.id] != nil && !force { return }
-        if vendorTasks[service.id] != nil { return }
         if vendorsByService[service.id] == nil || force {
             vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
-        }
-        loadingVendorsService = service.id
-        let patchId = self.patchId
-        let tier = self.tier
-        let generation = invocationGeneration
-        vendorTasks[service.id] = Task { [weak self] in
-            guard !Task.isCancelled else { return }
-            let live = (try? await self?.api.searchVendors(service: service, patchId: patchId, tier: tier)) ?? []
-            guard let self, !Task.isCancelled, generation == self.invocationGeneration else { return }
-            if !live.isEmpty {
-                self.vendorsByService[service.id] = live
-                self.refreshFlow(service: service, liveVendors: live)
-            }
-            if self.loadingVendorsService == service.id { self.loadingVendorsService = nil }
-            self.vendorTasks[service.id] = nil
         }
     }
 
     func vendors(for service: ClipLocalService) -> [ClipVendor] {
         vendorsByService[service.id] ?? ClipVendor.fallbacks(for: service, tier: tier)
-    }
-
-    func verifyCurrentToken() {
-        guard let token, !token.isEmpty else { return }
-        Task { await verify(token: token) }
     }
 
     func retryPartyInvite() {
@@ -1550,134 +1499,6 @@ final class ClipInvocationModel: ObservableObject {
             guard !Task.isCancelled, generation == invocationGeneration else { return }
             flow = .partyFailed(partyID: partyID, message: "This Party Pass could not be loaded.")
         }
-    }
-
-    /// Same lookup as `loadContextAndVerify`, without curated fallbacks: the
-    /// band screen stays unless the server names a real venue, and then only
-    /// live services are listed.
-    private func loadContextAndVerify(patchId: String, token: String?) async {
-        guard !Task.isCancelled else { return }
-        let generation = invocationGeneration
-        verificationState = .idle
-        contextError = nil
-        isLoadingContext = true
-        isLoadingServices = true
-        let activeTier = tier
-        services = ClipLocalService.fallbacks(for: activeTier)
-
-        let patchPayload = try? await api.getByPatch(patchId: patchId, tier: activeTier)
-        let resolvedContext: ClipPatchContext?
-        if let context = patchPayload?.context {
-            resolvedContext = context
-        } else {
-            resolvedContext = try? await api.resolvePatch(patchId: patchId, tier: activeTier)
-        }
-        let searchedServices = (try? await api.searchServices(patchId: patchId, tier: activeTier)) ?? []
-        var resolvedServices = searchedServices
-        if let service = patchPayload?.service {
-            resolvedServices.removeAll { $0.id == service.id }
-            resolvedServices.insert(service, at: 0)
-        }
-        guard !Task.isCancelled, generation == invocationGeneration else { return }
-
-        patchContext = resolvedContext
-        if let resolvedContext {
-            // Backend authority over the visual tier — re-skin if it differs
-            // from the URL-derived guess.
-            if resolvedContext.tier != tier {
-                tier = resolvedContext.tier
-            }
-            if venueSlug == nil {
-                venueSlug = resolvedContext.title
-            }
-        }
-        if !resolvedServices.isEmpty {
-            services = resolvedServices
-        } else if tier != activeTier {
-            // Tier changed during resolve; refresh the curated fallback set.
-            services = ClipLocalService.fallbacks(for: tier)
-        }
-        isLoadingContext = false
-        isLoadingServices = false
-
-        if resolvedContext == nil {
-            contextError = "Live venue context is unavailable. Showing curated local services."
-        }
-        if let first = services.first {
-            prefetchVendors(for: first)
-        }
-        await refreshPreselectedCheckout(patchPayload: patchPayload)
-        guard !Task.isCancelled, generation == invocationGeneration else { return }
-        if let token, !token.isEmpty {
-            await verify(token: token)
-        }
-    }
-
-    private func refreshPreselectedCheckout(patchPayload: ClipPatchVendorPayload?) async {
-        guard !Task.isCancelled, case .checkout(let currentService, let currentVendor) = flow else { return }
-        let generation = invocationGeneration
-        let liveService = patchPayload?.service ?? services.first(where: { $0.id == currentService.id }) ?? currentService
-        if let liveVendor = patchPayload?.vendor {
-            vendorsByService[liveService.id] = [liveVendor]
-            flow = .checkout(service: liveService, vendor: liveVendor)
-            return
-        }
-        let liveVendors = (try? await api.searchVendors(service: liveService, patchId: patchId, tier: tier)) ?? []
-        guard !Task.isCancelled, generation == invocationGeneration, !liveVendors.isEmpty else { return }
-        vendorsByService[liveService.id] = liveVendors
-        let selected = liveVendors.first(where: { $0.id == currentVendor.id })
-            ?? liveVendors.first(where: { $0.name.caseInsensitiveCompare(currentVendor.name) == .orderedSame })
-            ?? liveVendors.first
-        if let selected {
-            flow = .checkout(service: liveService, vendor: selected)
-        }
-    }
-
-    private func refreshFlow(service: ClipLocalService, liveVendors: [ClipVendor]) {
-        guard case .checkout(let currentService, let currentVendor) = flow,
-              currentService.id == service.id else { return }
-        let selected = liveVendors.first(where: { $0.id == currentVendor.id })
-            ?? liveVendors.first(where: { $0.name.caseInsensitiveCompare(currentVendor.name) == .orderedSame })
-            ?? liveVendors.first
-        if let selected {
-            flow = .checkout(service: service, vendor: selected)
-        }
-    }
-
-    private func verify(token: String) async {
-        guard !Task.isCancelled else { return }
-        let generation = invocationGeneration
-        verificationState = .verifying
-        do {
-            let result = try await api.verify(token: token)
-            guard !Task.isCancelled, generation == invocationGeneration else { return }
-            let label = patchContext?.title ?? result.patch.label ?? venueSlug ?? "Bytspot Access"
-            verificationState = Self.verificationState(for: result, label: label)
-        } catch {
-            guard !Task.isCancelled, generation == invocationGeneration else { return }
-            let msg: String
-            switch error {
-            case ClipPatchVerifier.VerifyError.missingToken: msg = "No secure token was included in this tap."
-            case ClipPatchVerifier.VerifyError.server(let m): msg = m
-            case ClipPatchVerifier.VerifyError.network(let m): msg = m
-            default: msg = "Could not verify this patch. Try again."
-            }
-            verificationState = .unavailable(message: msg)
-        }
-    }
-
-    nonisolated static func verificationState(for result: ClipPatchVerifier.VerifyResult, label: String) -> ClipVerifyState {
-        let status = result.patch.status.lowercased()
-        if !result.verified || ["denied", "revoked", "expired", "disabled", "inactive"].contains(status) {
-            return .denied(message: "This secure tap did not grant access.")
-        }
-        if ["pending", "provisioning", "review"].contains(status) {
-            return .pending(label: label, status: result.patch.status)
-        }
-        if ["active", "verified", "enabled"].contains(status) {
-            return .success(label: label, bindingType: result.binding?.type)
-        }
-        return .denied(message: "This pass returned an unsupported status and was not accepted.")
     }
 
     private static func isRideLogisticsService(_ service: ClipLocalService) -> Bool {

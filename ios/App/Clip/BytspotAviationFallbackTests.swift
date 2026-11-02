@@ -174,24 +174,22 @@ enum BytspotAviationFallbackTests {
         guard case .band(let campaign) = model.flow, campaign.title == "Bytspot band BYT424-0301" else { preconditionFailure("Band tap: a campaign-root serial query must show the band screen.") }
 
         model.handle(url: URL(string: "https://bytspot.app/BYT424-0017?t=ict-abc")!)
-        model.invocationTaskForTesting?.cancel()
-        precondition(model.flow == .catalog, "Band tap: a token-carrying band link keeps the patch verification flow.")
+        precondition(model.flow == .linkNotInUse && model.invocationTaskForTesting == nil && model.services.isEmpty, "Old links: a token-carrying band link runs no lookup and shows no catalog.")
 
         model.handle(url: URL(string: "https://bytspot.app/BYT424-0017?tier=platinum&venue=GH%20Akwaaba%20Pass")!)
-        model.invocationTaskForTesting?.cancel()
-        guard case .checkout = model.flow else { preconditionFailure("Band tap: a named special flow must keep its checkout.") }
+        guard case .band = model.flow else { preconditionFailure("Old links: an Akwaaba query no longer opens a sample checkout.") }
 
         model.handle(url: URL(string: "https://bytspot.app/party/party-17")!)
         model.invocationTaskForTesting?.cancel()
         precondition(model.flow == .partyLoading(partyID: "party-17"), "Band tap: a Party Pass link must keep the party flow.")
 
-        model.handle(url: URL(string: "https://bytspot.app/access/BYT-BRONI-P?tier=platinum")!)
-        model.invocationTaskForTesting?.cancel()
-        precondition(model.flow == .catalog && model.tier == .platinum && !model.services.isEmpty, "Band tap: a partner patch must keep its catalog.")
-
-        model.handle(url: URL(string: "https://bytspot.app/p/black-aviation-001?tier=black")!)
-        precondition(model.flow == .catalog && !model.services.isEmpty, "Band tap: a non-band patch must keep the catalog.")
-        model.invocationTaskForTesting?.cancel()
+        for old in ["https://bytspot.app/access/BYT-BRONI-P?tier=platinum", "https://bytspot.app/p/black-aviation-001?tier=black",
+                    "https://bytspot.app/t/black-0301", "https://bytspot.app/?patch=platinum-parking-001", "https://bytspot.app/venue/somewhere"] {
+            model.handle(url: URL(string: old)!)
+            precondition(model.flow == .linkNotInUse && model.services.isEmpty && model.vendorsByService.isEmpty, "Old links: '\(old)' must not show the sample catalog.")
+            precondition(model.invocationTaskForTesting == nil, "Old links: '\(old)' must not call the server.")
+            precondition(model.mainAppHandoffURL?.absoluteString == "https://bytspot.app/", "Old links: Get Bytspot opens the app's home.")
+        }
 
         model.handle(url: URL(string: "https://bytspot.app/")!)
         precondition(model.flow == .awaitingInvocation && model.services.isEmpty, "The bare home page must not open the vendor catalog.")
@@ -482,10 +480,9 @@ enum BytspotAviationFallbackTests {
         )
     }
 
-    /// The curated catalog exists so the Clip has something to render before a
-    /// backend answers. None of it is bookable: `vendors.getByPatch`,
-    /// `vendors.searchServices` and `booking.authorizeApplePayHold` do not exist
-    /// yet. So no fixture may report verified pricing, or the UI would print a
+    /// The curated catalog only backs DEBUG screenshot walkthroughs; no link
+    /// opens it. None of it is bookable: `booking.authorizeApplePayHold` does
+    /// not exist. So no fixture may report verified pricing, or the UI would print a
     /// price and a buy button for an offer that cannot settle.
     private static func assertCuratedFixturesNeverClaimVerifiedPricing() {
         for tier in [BytspotTier.green, .platinum, .black] {
@@ -770,20 +767,12 @@ enum BytspotAviationFallbackTests {
         precondition(ClipInvocationModel.partyRoute(from: ["party", "party-1"]) == .party(id: "party-1"), "Party Loop: /party/<id> must route to the Party Pass.")
         precondition(ClipInvocationModel.partyRoute(from: ["party"]) == .invalid, "Party Loop: a bare /party link must fail as a party, never fall through to the catalog.")
         precondition(ClipInvocationModel.partyRoute(from: ["party", "a", "b"]) == .invalid, "Party Loop: malformed party paths must fail as a party, never fall through to the catalog.")
-        precondition(ClipInvocationModel.partyRoute(from: ["p", "black-0301"]) == PartyPassInvite.Route.none, "Party Loop: patch routes stay on the catalog.")
+        precondition(ClipInvocationModel.partyRoute(from: ["p", "black-0301"]) == PartyPassInvite.Route.none, "Party Loop: patch routes are not party routes.")
         var missingSource = dto
         missingSource.removeValue(forKey: "source")
         precondition(PartyPassInvite.fromPayload(missingSource) == nil, "Party Loop: a Party DTO without Host Studio provenance must fail closed.")
         let join = ClipPatchVerifier.unwrapTRPCValue(["result": ["data": ["json": ["status": "joined"]]]]) as? [String: Any]
         precondition(join?["status"] as? String == "joined", "Party Loop: standard tRPC join envelopes must unwrap to status.")
-        let verifyEnvelope: [String: Any] = ["result": ["data": ["json": ["verified": true, "patch": ["id": "patch-1", "status": "active"]]]]]
-        let verify = try? ClipPatchVerifier.decodeVerifyResult(ClipPatchVerifier.unwrapTRPCValue(verifyEnvelope))
-        precondition(verify?.verified == true && verify?.patch.id == "patch-1", "Party Loop: patch verification must decode standard result.data.json envelopes.")
-        if let verify {
-            precondition(ClipInvocationModel.verificationState(for: verify, label: "Patch") == .success(label: "Patch", bindingType: nil), "Party Loop: active verified taps must succeed.")
-            let denied = ClipPatchVerifier.VerifyResult(verified: false, patch: verify.patch, binding: nil)
-            guard case .denied = ClipInvocationModel.verificationState(for: denied, label: "Patch") else { preconditionFailure("Party Loop: unverified taps must fail closed.") }
-        }
     }
 
     private static func assertPartyPassPreviewContract() {

@@ -182,6 +182,10 @@ struct ClipContentView: View {
                     ClipVendorPatchView(patch: patch, showOverlay: $showOverlay)
                         .id(patch.code)
                         .transition(.opacity)
+                case .linkNotInUse:
+                    ClipPartyInviteStateView(title: "Link not in use", message: "This link is no longer in use. Get Bytspot to see what's on nearby.", isLoading: false,
+                                             getApp: { impactLight(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) })
+                        .transition(.opacity)
                 case .vendors(let service):
                     ClipVendorListView(service: service)
                         .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
@@ -211,7 +215,7 @@ struct ClipContentView: View {
         switch invocation.flow {
         case .band(let screen): return screen.tier == nil
         case .saleLoading, .saleFailed, .sale: return true
-        case .vendorPatchLoading, .vendorPatchFailed, .vendorPatch: return true
+        case .vendorPatchLoading, .vendorPatchFailed, .vendorPatch, .linkNotInUse: return true
         default: return false
         }
     }
@@ -439,6 +443,7 @@ private struct ClipPartyInviteStateView: View {
     let message: String
     let isLoading: Bool
     var retry: (() -> Void)? = nil
+    var getApp: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 14) {
@@ -452,6 +457,12 @@ private struct ClipPartyInviteStateView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(ClipTheme.cyan)
                     .accessibilityIdentifier("party-invite-retry")
+            }
+            if let getApp {
+                Button("Get Bytspot", action: getApp)
+                    .buttonStyle(.borderedProminent)
+                    .tint(ClipTheme.cyan)
+                    .accessibilityIdentifier("clip-link-not-in-use-get-app")
             }
         }
         .padding(26).frame(maxWidth: 360)

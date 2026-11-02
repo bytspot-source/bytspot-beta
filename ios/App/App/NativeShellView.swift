@@ -19771,6 +19771,12 @@ enum NativeConciergePlanSave {
         }
     }
 
+    /// The named area the stops were searched around, else the guest's location.
+    static func place(_ plan: NativeConciergeProposedPlan, origin: NativeLocationCoordinate) -> NativePlanPlace? {
+        plan.area.flatMap { NativePlanPlace(label: $0.label, latitude: $0.lat, longitude: $0.lng) }
+            ?? NativePlanPlace(label: NativePlanPlace.fallbackLabel, latitude: origin.latitude, longitude: origin.longitude)
+    }
+
     /// plans.create with the Plan's own needs (not the create form's six), the group and the search point.
     static func createRequest(_ draft: NativeConciergePlanDraft, origin: NativeLocationCoordinate) -> NativePlanWriteRequest {
         let request = NativePlanContract.createRequest(
@@ -19778,7 +19784,7 @@ enum NativeConciergePlanSave {
             title: NativePlanDisplay.clamped(draft.plan.title, utf16Limit: 80),
             intent: NativePlanDisplay.clamped(draft.plan.intent, utf16Limit: 280),
             startsAt: draft.startsAt, partySize: draft.partySize, needs: [], bookableSelections: [],
-            place: NativePlanPlace(label: NativePlanPlace.fallbackLabel, latitude: origin.latitude, longitude: origin.longitude))
+            place: place(draft.plan, origin: origin))
         var input = request.input
         input["needs"] = draft.plan.needs
         return NativePlanWriteRequest(path: request.path, input: input)

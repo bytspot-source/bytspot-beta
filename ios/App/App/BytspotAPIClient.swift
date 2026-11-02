@@ -425,8 +425,15 @@ struct NativeConciergeProposedPlan: Decodable, Equatable {
     let intent: String
     let needs: [String]
     let partySize: Int?
+    struct Area: Decodable, Equatable {
+        let label: String
+        let lat: Double
+        let lng: Double
+    }
     let stops: [Stop]
     let openNeeds: [String]
+    /// The named area the stops were searched around. Older servers omit it.
+    let area: Area?
 
     /// Same rules as the server schema, checked against the cards this response shows.
     func isValid(for cards: [NativeConciergeCard]) -> Bool {
@@ -441,6 +448,7 @@ struct NativeConciergeProposedPlan: Decodable, Equatable {
             && Set(stops.map(\.cardId)).count == stops.count
             && stops.allSatisfy { stop in text(stop.title, 120) && cards.contains { $0.id == stop.cardId } }
             && partySize.map { (1...20).contains($0) } ?? true
+            && area.map { text($0.label, 80) && NativePlanPlace(label: $0.label, latitude: $0.lat, longitude: $0.lng) != nil } ?? true
     }
 
     func card(for stop: Stop, in cards: [NativeConciergeCard]) -> NativeConciergeCard? {

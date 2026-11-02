@@ -616,7 +616,7 @@ enum NativeWindowAskRules {
 
 protocol NativeWindowAsking {
     func listings(near coordinate: NativeLocationCoordinate, domain: String?) async throws -> [NativeWindowListing]
-    func ask(windowID: String, partySize: Int, startsAt: String, note: String, planID: String?) async throws -> NativePlanDemandRaised
+    func ask(windowID: String, partySize: Int, startsAt: String, note: String, planID: String?, viaPatch: String?) async throws -> NativePlanDemandRaised
 }
 
 struct NativeWindowAskAPI: NativeWindowAsking {
@@ -630,14 +630,171 @@ struct NativeWindowAskAPI: NativeWindowAsking {
         return try JSONDecoder().decode([NativeWindowListing].self, from: data)
     }
 
-    func ask(windowID: String, partySize: Int, startsAt: String, note: String, planID: String?) async throws -> NativePlanDemandRaised {
+    func ask(windowID: String, partySize: Int, startsAt: String, note: String, planID: String?, viaPatch: String?) async throws -> NativePlanDemandRaised {
+        let input = Self.askInput(windowID: windowID, partySize: partySize, startsAt: startsAt, note: note, planID: planID, viaPatch: viaPatch)
+        let payload = try await client.trpcPayload(path: "/trpc/demand.ask", method: "POST", input: input)
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return try JSONDecoder().decode(NativePlanDemandRaised.self, from: data)
+    }
+
+    static func askInput(windowID: String, partySize: Int, startsAt: String, note: String, planID: String?, viaPatch: String?) -> [String: Any] {
         var input: [String: Any] = ["windowId": windowID, "partySize": partySize, "startsAt": startsAt]
         let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { input["note"] = trimmed }
         if let planID { input["planId"] = planID }
-        let payload = try await client.trpcPayload(path: "/trpc/demand.ask", method: "POST", input: input)
+        if let viaPatch { input["viaPatch"] = viaPatch }
+        return input
+    }
+}
+
+/// What `inventory.openPatch` returns for a scanned QR / NFC patch: the place
+/// it names and its cards, the named service first.
+struct NativeOpenedPatch: Decodable, Equatable {
+    struct Place: Decodable, Equatable {
+        let label: String
+        let address: String?
+    }
+
+    let code: String
+    let sellerName: String
+    let place: Place
+    let cards: [NativeWindowListing]
+
+    var askable: [NativeWindowListing] { cards.filter(\.takesAsks) }
+}
+
+enum NativeVendorPatchOutcome: Equatable {
+    case loading
+    case opened(NativeOpenedPatch)
+    case notInUse
+    case failed
+
+    static let notInUseMessage = "This code is not in use."
+    static let failedMessage = "Couldn't open this code. Try again."
+
+    /// A retired or unknown code is a 404; anything else may work on retry.
+    static func failure(for error: Error) -> NativeVendorPatchOutcome {
+        if case let BytspotAPIClient.APIError.server(status, _) = error, status == 404 { return .notInUse }
+        return .failed
+    }
+}
+
+protocol NativeVendorPatchOpening {
+    func open(code: String) async throws -> NativeOpenedPatch
+}
+
+struct NativeVendorPatchAPI: NativeVendorPatchOpening {
+    let client: BytspotAPIClient
+
+    /// A mutation: the server counts every open on the patch.
+    func open(code: String) async throws -> NativeOpenedPatch {
+        let payload = try await client.trpcPayload(path: "/trpc/inventory.openPatch", method: "POST", input: ["code": code])
         let data = try JSONSerialization.data(withJSONObject: payload)
-        return try JSONDecoder().decode(NativePlanDemandRaised.self, from: data)
+        return try JSONDecoder().decode(NativeOpenedPatch.self, from: data)
+    }
+}
+
+/// A scanned business code: the place and the services it takes requests for.
+/// A request sent from here carries the code, so the business sees the scan
+/// that brought it.
+struct NativeVendorPatchView: View {
+    let code: String
+    let requestAuthentication: () -> Void
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @State private var outcome: NativeVendorPatchOutcome = .loading
+    @State private var asking: NativeWindowListing?
+
+    private var client: BytspotAPIClient {
+        let store = sessionStore
+        return BytspotAPIClient(tokenProvider: { store.canAttachBearerToken ? store.token : nil })
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                switch outcome {
+                case .loading:
+                    ProgressView("Opening code…")
+                        .tint(NativeTheme.cyan)
+                        .foregroundColor(NativeTheme.textSecondary)
+                        .frame(maxWidth: .infinity, minHeight: 200)
+                case .opened(let opened):
+                    header(opened)
+                    if opened.askable.isEmpty {
+                        Text("\(opened.sellerName) is not taking requests right now.")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(NativeTheme.textSecondary)
+                            .accessibilityIdentifier("native-vendor-patch-none")
+                    } else {
+                        ForEach(opened.askable) { listing in
+                            NativeWindowListingCard(listing: listing, showsDistance: false) {
+                                if sessionStore.canAttachBearerToken { asking = listing } else { requestAuthentication() }
+                            }
+                        }
+                    }
+                case .notInUse:
+                    message(NativeVendorPatchOutcome.notInUseMessage, retry: false)
+                case .failed:
+                    message(NativeVendorPatchOutcome.failedMessage, retry: true)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(NativeDeepSpaceGround().environment(\.nativeDeepSpaceGroundDrawn, false))
+        .task { if outcome == .loading { await load() } }
+        .sheet(item: $asking) { listing in
+            NativeWindowAskSheet(listing: listing, windows: NativeWindowAskAPI(client: client), demand: NativePlanDemandAPI(client: client), viaPatch: code)
+        }
+        .preferredColorScheme(.dark)
+        .accessibilityIdentifier("native-vendor-patch")
+    }
+
+    private func header(_ opened: NativeOpenedPatch) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(NativeVendorPatchRoute.eyebrow)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
+                .foregroundColor(NativeTheme.cyan)
+            Text(opened.place.label)
+                .font(.system(size: 26, weight: .bold))
+                .foregroundColor(NativeTheme.textPrimary)
+            Text(opened.sellerName)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(NativeTheme.textSecondary)
+            if let address = opened.place.address, !address.isEmpty {
+                Text(address)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(NativeTheme.textTertiary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("native-vendor-patch-header")
+    }
+
+    private func message(_ text: String, retry: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(text)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(NativeTheme.textPrimary)
+            if retry {
+                Button("Try again") { outcome = .loading; Task { await load() } }
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(NativeTheme.cyan)
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("native-vendor-patch-retry")
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 200, alignment: .leading)
+    }
+
+    private func load() async {
+        do {
+            outcome = .opened(try await NativeVendorPatchAPI(client: client).open(code: code))
+        } catch {
+            outcome = NativeVendorPatchOutcome.failure(for: error)
+        }
     }
 }
 
@@ -748,6 +905,7 @@ struct NativeWindowAskPlanChoice: Identifiable, Equatable {
 /// One published vendor window as a Discover-style card with an Ask.
 struct NativeWindowListingCard: View {
     let listing: NativeWindowListing
+    var showsDistance = true
     let onAsk: () -> Void
 
     var body: some View {
@@ -768,7 +926,7 @@ struct NativeWindowListingCard: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(NativeTheme.textSecondary)
                 .lineLimit(1)
-            Text("\(listing.price) · Next \(listing.nextSlot.when) · \(listing.distance)")
+            Text(showsDistance ? "\(listing.price) · Next \(listing.nextSlot.when) · \(listing.distance)" : "\(listing.price) · Next \(listing.nextSlot.when)")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(NativeTheme.textTertiary)
                 .lineLimit(1)
@@ -809,6 +967,8 @@ struct NativeWindowAskSheet: View {
     /// Plans the guest may file this ask in; `fixedPlan` is the Plan the sheet was opened from.
     var planChoices: [NativeWindowAskPlanChoice] = []
     var fixedPlan: NativeWindowAskPlanChoice? = nil
+    /// The scanned patch code that brought the guest here, credited by the server.
+    var viaPatch: String? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -1055,7 +1215,7 @@ struct NativeWindowAskSheet: View {
         sending = true
         problem = nil
         do {
-            let raised = try await windows.ask(windowID: listing.windowId, partySize: partySize, startsAt: slot.startsAt, note: note, planID: planID)
+            let raised = try await windows.ask(windowID: listing.windowId, partySize: partySize, startsAt: slot.startsAt, note: note, planID: planID, viaPatch: viaPatch)
             ask = NativePlanDemandAsk(
                 id: raised.id, state: raised.state, category: raised.category, partySize: partySize,
                 planId: planID, expiresAt: raised.expiresAt, offers: [], targetWindowId: listing.windowId,
@@ -1264,7 +1424,7 @@ enum NativeWindowAskPreview {
 
     struct Windows: NativeWindowAsking {
         func listings(near coordinate: NativeLocationCoordinate, domain: String?) async throws -> [NativeWindowListing] { NativeWindowAskPreview.listings }
-        func ask(windowID: String, partySize: Int, startsAt: String, note: String, planID: String?) async throws -> NativePlanDemandRaised {
+        func ask(windowID: String, partySize: Int, startsAt: String, note: String, planID: String?, viaPatch: String?) async throws -> NativePlanDemandRaised {
             NativePlanDemandRaised(id: "preview-demand-new", state: "OPEN", category: "dining", expiresAt: startsAt)
         }
     }

@@ -10,6 +10,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
     case booking(status: String, url: URL, ride: NativeMobilityRideRecord? = nil)
     case legal(title: String, url: URL)
     case sale(saleID: String)
+    case vendorPatch(code: String)
 
     var id: String {
         switch self {
@@ -21,6 +22,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         case .booking(let status, let url, let ride): return "booking-\(status)-\(ride?.id ?? url.absoluteString)"
         case .legal(let title, let url): return "legal-\(title)-\(url.absoluteString)"
         case .sale(let saleID): return "sale-\(saleID)"
+        case .vendorPatch(let code): return "vendor-patch-\(code)"
         }
     }
 
@@ -34,6 +36,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         case .booking(let status, _, _): return status == "success" ? "Booking Confirmed" : "Booking Update"
         case .legal(let title, _): return title
         case .sale: return "Private Sale"
+        case .vendorPatch: return NativeVendorPatchRoute.title
         }
     }
 
@@ -47,6 +50,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         case .booking(let status, _, _): return status == "success" ? "Your booking flow returned successfully." : "Review or retry this booking."
         case .legal(_, let url): return url.absoluteString
         case .sale: return "Ask the seller for the meet point."
+        case .vendorPatch: return NativeVendorPatchRoute.subtitle
         }
     }
 
@@ -55,6 +59,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         case .profile: return .profile
         case .accessWallet, .party, .patch, .booking: return .access
         case .plan, .legal, .sale: return .home
+        case .vendorPatch: return .discover
         }
     }
 
@@ -68,6 +73,7 @@ enum NativeContextualDestination: Identifiable, Equatable {
         case .booking(let status, _, _): return status == "success" ? "CONFIRMED" : "BOOKING"
         case .legal: return "LEGAL"
         case .sale: return "PRIVATE SALE"
+        case .vendorPatch: return NativeVendorPatchRoute.eyebrow
         }
     }
 }
@@ -251,6 +257,29 @@ struct NativePrivateSaleRoute: Equatable {
     }
 }
 
+/// A business's QR code or NFC sticker, `bytspot.app/at/<code>`. The server
+/// prints this link for every patch; `inventory.openPatch` says what it opens.
+struct NativeVendorPatchRoute: Equatable {
+    static let eyebrow = "SCANNED CODE"
+    static let title = "Ask this business"
+    static let subtitle = "Send a request from the code you scanned."
+
+    let code: String
+
+    init?(url: URL) {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let scheme = url.scheme?.lowercased()
+        let isCustomScheme = scheme == "bytspot"
+        let isUniversalLink = scheme == "https" && components.host?.lowercased() == "bytspot.app"
+        guard isCustomScheme || isUniversalLink else { return nil }
+        var parts = components.path.split(separator: "/").map(String.init)
+        if isCustomScheme, let host = components.host, !host.isEmpty { parts.insert(host, at: 0) }
+        guard parts.count == 2, parts[0].lowercased() == "at",
+              parts[1].range(of: "^[A-Za-z0-9-]{4,20}$", options: .regularExpression) != nil else { return nil }
+        code = parts[1].uppercased()
+    }
+}
+
 /// Identifies which surface produced a patch URL so the native coordinator can
 /// route through one funnel regardless of the entry path. Locked by
 /// `NativePatchRouteSelfTests.assertScanSourceContract`.
@@ -339,6 +368,11 @@ final class NativeNavigationCoordinator: ObservableObject {
         if ["privacy", "terms", "disclaimer"].contains(path) {
             requestedTab = .home
             requestedDestination = .legal(title: path.capitalized, url: url)
+            return true
+        }
+        if let vendorPatch = NativeVendorPatchRoute(url: url) {
+            requestedTab = .discover
+            requestedDestination = .vendorPatch(code: vendorPatch.code)
             return true
         }
         if let patchRoute = BytspotPatchRoute(url: url) {

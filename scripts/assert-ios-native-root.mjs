@@ -57,6 +57,7 @@ const expectedAasaComponents = [
   { '/': '/party/*', comment: 'Published Host Studio Party Pass' },
   { '/': '/plan/*', comment: 'Plan invite deep link; bearer join token carried in the t query' },
   { '/': '/sale/*', comment: 'Private Sale share link' },
+  { '/': '/at/*', comment: 'Business QR / NFC patch; opens inventory.openPatch' },
   { '/': '/access', comment: 'Native Access wallet' },
   { '/': '/access/*', comment: 'Full-app handoff path emitted by App Clip mainAppHandoffURL' },
   { '/': '/patch', comment: 'Compatibility path for older Smart App Banner defaults' },
@@ -81,7 +82,7 @@ const expectedAasaComponents = [
   { '/': '/', '?': { patch: '?*' }, comment: 'Legacy patch query parameter' },
 ];
 const requiredUniversalLinkPatterns = [
-  '/BYT424', '/BYT*', '/p/*', '/party/*', '/plan/*', '/sale/*', '/access', '/access/*', '/patch', '/patch/*', '/t/*', '/v/*', '/clip',
+  '/BYT424', '/BYT*', '/p/*', '/party/*', '/plan/*', '/sale/*', '/at/*', '/access', '/access/*', '/patch', '/patch/*', '/t/*', '/v/*', '/clip',
   '/profile', '/profile/*', '/map', '/map/*', '/discover', '/discover/*', '/venue/*', '/concierge', '/concierge/*',
   '/booking/*', '/privacy', '/terms', '/disclaimer', '/',
 ];

@@ -885,6 +885,13 @@ struct ClipPatchVerifier {
         return listing
     }
 
+    /// What a scanned business code names. A mutation: the server counts every open.
+    func openPatch(code: String) async throws -> ClipVendorPatch {
+        let payload = try await postTRPC("inventory.openPatch", input: ["code": code])
+        guard let patch = ClipVendorPatch.fromPayload(payload, expectedCode: code) else { throw VerifyError.decode }
+        return patch
+    }
+
     /// The Party resolver is the only client-action authority. The Clip may
     /// render its result but must never infer an RSVP, approval, or ticket CTA
     /// from the invite template or access mode.

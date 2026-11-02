@@ -5888,6 +5888,23 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertTrue(NativeAuthLaunchContract.bypassesLaunchFlow(for: .sale(saleID: "sale-1")))
     }
 
+    @MainActor
+    func testBusinessCodeLinkOpensTheScannedPatch() throws {
+        for raw in ["https://bytspot.app/at/k7m2qx9p", "bytspot://at/K7M2QX9P"] {
+            let coordinator = NativeNavigationCoordinator()
+            XCTAssertTrue(coordinator.handle(url: try XCTUnwrap(URL(string: raw))), raw)
+            XCTAssertEqual(coordinator.requestedTab, .discover, raw)
+            XCTAssertEqual(coordinator.requestedDestination, .vendorPatch(code: "K7M2QX9P"), raw)
+        }
+        for raw in ["https://bytspot.app/at", "https://bytspot.app/at/a/b", "https://example.com/at/K7M2QX9P",
+                    "https://bytspot.app/at/abc", "https://bytspot.app/at/" + String(repeating: "x", count: 21)] {
+            XCTAssertNil(NativeVendorPatchRoute(url: try XCTUnwrap(URL(string: raw))), raw)
+        }
+        XCTAssertNil(BytspotPatchRoute(url: try XCTUnwrap(URL(string: "https://bytspot.app/at/K7M2QX9P"))), "a business code is not a band")
+        XCTAssertTrue(BytspotNativeShellView.destinationBypassesLaunchSuppression(.vendorPatch(code: "K7M2QX9P")))
+        XCTAssertTrue(NativeAuthLaunchContract.bypassesLaunchFlow(for: .vendorPatch(code: "K7M2QX9P")))
+    }
+
     func testPrivateSaleBuyerSeesOnlyWhatTheServerSends() throws {
         let listing = try JSONDecoder().decode(NativeSaleListing.self, from: Data("""
         {"saleId":"s1","title":"Desk lamp","priceCents":2500,"sellerName":"Ada","windowStart":"2026-10-09T18:00:00.000Z",

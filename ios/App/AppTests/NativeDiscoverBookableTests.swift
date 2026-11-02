@@ -129,15 +129,15 @@ final class NativeDiscoverServerRankTests: XCTestCase {
     }
 
     func testDecodesTheServerAnswer() {
-        let ranking = NativeDiscoverServerRanking.decode(from: ["order": ["a", "b"], "hidden": [["id": "c", "hiddenBy": "bars"]]])
+        let ranking = NativeDiscoverServerRanking.decode(from: ["order": ["a", "b"], "hidden": [["id": "c", "hiddenBy": "bars"]]] as [String: Any])
         XCTAssertEqual(ranking, NativeDiscoverServerRanking(order: ["a", "b"], hidden: ["c"]))
         XCTAssertEqual(ranking?.positions["b"], 1)
-        XCTAssertNil(NativeDiscoverServerRanking.decode(from: ["hidden": []]))
+        XCTAssertNil(NativeDiscoverServerRanking.decode(from: ["hidden": [Any]()] as [String: Any]))
     }
 
     func testGoogleFactsAreDecodedFromNearbySearchRows() {
         let row: [Any] = [["placeId": "abc", "name": "Cafe", "address": "1 Main", "lat": 33.78, "lng": -84.38, "rating": 4.5,
-                           "ratingCount": 88, "priceLevel": "PRICE_LEVEL_MODERATE", "types": ["cafe", "coffee_shop"], "primaryType": "cafe", "isOpen": false]]
+                           "ratingCount": 88, "priceLevel": "PRICE_LEVEL_MODERATE", "types": ["cafe", "coffee_shop"], "primaryType": "cafe", "isOpen": false] as [String: Any]]
         let place = row.enumerated().compactMap(NativeLiveDiscoveryAPI.placeResult).first
         XCTAssertEqual(place?.facts, NativeDiscoverRankFacts(types: ["cafe", "coffee_shop"], primaryType: "cafe", priceLevel: "PRICE_LEVEL_MODERATE", ratingCount: 88, isOpen: false))
     }

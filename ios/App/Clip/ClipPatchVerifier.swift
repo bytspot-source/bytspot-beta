@@ -285,8 +285,8 @@ struct ClipLocalService: Identifiable, Equatable {
             ?? ClipLocalService(id: "platinum-entry", title: "Event Access", subtitle: "Premium event entry, digital credentials, and concierge arrival.", action: "Buy Pass", iconName: "ticket.fill", tintName: "violet", priceLabel: "From $50", amountCents: 5_000, currency: "USD", source: "curated", heroImageURL: nil, category: "events")
     }
 
-    /// Tier-specific service catalog rendered when the tRPC `vendors.search`
-    /// endpoint returns no rows. Black mirrors the legacy ultra-luxury list;
+    /// Tier-specific sample catalog used only by DEBUG screenshot walkthroughs.
+    /// Black mirrors the legacy ultra-luxury list;
     /// Platinum maps to mid-tier ($50+) parking, dining, and event services;
     /// Green showcases neighborhood cottage-industry offerings ($5+).
     static func fallbacks(for tier: BytspotTier) -> [ClipLocalService] {

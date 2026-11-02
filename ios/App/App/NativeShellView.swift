@@ -20154,7 +20154,7 @@ final class NativeConciergeModel: ObservableObject {
                 outcome = .failure(error)
             }
             guard let self, !Task.isCancelled, self.session?.authenticatedUserID == accountID,
-                  self.session?.token =[redacted]] authorization else { return }
+                  self.session?.token == authorization else { return }
             self.planSaving = false
             self.planSaveTask = nil
             switch outcome {

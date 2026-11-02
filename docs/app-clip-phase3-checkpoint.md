@@ -2,6 +2,8 @@
 
 Status: last-known-green checkpoint for preserving and hardening the native SwiftUI App Clip luxury flow.
 
+> Retired: the App Clip's sample catalog, vendor list, checkout and success screens, their DEBUG `?step=` walkthroughs, and `scripts/clip-screencap-sweep.sh` / `scripts/clip-platinum-pass-smoke.sh` have been removed. This page is kept as history only.
+
 ## Scope
 
 Phase 3 keeps the App Clip native and production-safe while the full app migrates incrementally to SwiftUI/Kotlin.
@@ -31,10 +33,6 @@ Phase 3 keeps the App Clip native and production-safe while the full app migrate
   - DEBUG runtime contract guard at Clip launch
 - `scripts/assert-ios-app-clip-packaging.mjs`
   - static packaging and contract assertions
-- `scripts/clip-screencap-sweep.sh`
-  - DEBUG visual sweep for catalog/vendors/checkout/success across tiers
-- `scripts/clip-platinum-pass-smoke.sh`
-  - GH Akwaaba digital pass smoke artifact
 
 ## Flow Contract
 
@@ -128,13 +126,6 @@ node scripts/assert-ios-capacitor-root.mjs
 node scripts/assert-ios-app-clip-packaging.mjs
 xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -destination "generic/platform=iOS Simulator" -derivedDataPath ios/App/build/Phase3AppClipApp CODE_SIGNING_ALLOWED=NO build
 xcodebuild -project ios/App/App.xcodeproj -scheme Clip -configuration Debug -sdk iphonesimulator -destination "generic/platform=iOS Simulator" -derivedDataPath ios/App/build/Phase3AppClipClip CODE_SIGNING_ALLOWED=NO build
-```
-
-Optional visual smokes when a simulator is available:
-
-```bash
-REBUILD=1 scripts/clip-screencap-sweep.sh
-REBUILD=1 scripts/clip-platinum-pass-smoke.sh
 ```
 
 Expected static guard output:

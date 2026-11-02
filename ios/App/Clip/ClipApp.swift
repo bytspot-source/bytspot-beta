@@ -299,7 +299,7 @@ struct PartyPassInvite: Equatable {
     }
 
     /// A `/party/…` link is always a Party Pass. Malformed party paths fail
-    /// as a party — never fall through to the patch/vendor catalog.
+    /// as a party — never fall through to another route.
     enum Route: Equatable {
         case none
         case party(id: String)
@@ -712,7 +712,6 @@ enum ClipPartyPassActionPolicy {
 
 enum ClipFlowStep: Equatable {
     case awaitingInvocation
-    case catalog
     case partyLoading(partyID: String)
     case partyFailed(partyID: String, message: String)
     case party(PartyPassInvite)
@@ -724,9 +723,6 @@ enum ClipFlowStep: Equatable {
     case vendorPatchFailed(code: String, message: String)
     case vendorPatch(ClipVendorPatch)
     case linkNotInUse
-    case vendors(service: ClipLocalService)
-    case checkout(service: ClipLocalService, vendor: ClipVendor)
-    case success(service: ClipLocalService, vendor: ClipVendor, bookingRef: String, amountCents: Int)
 }
 
 /// What a tapped Bytspot band or card shows. Built only from the tapped link:
@@ -753,8 +749,8 @@ struct ClipBandTapScreen: Equatable {
 
     var subtitle: String { tierLine ?? Self.bodyText }
 
-    /// The band screen replaces the curated catalog for a band serial link.
-    /// A token-carrying link keeps the patch verification flow.
+    /// The band screen for a band serial link. A token-carrying link is not
+    /// a band screen.
     static func resolve(url: URL?, patchId: String?, token: String?) -> ClipBandTapScreen? {
         guard let patchId, isBandSerial(patchId), (token ?? "").isEmpty else { return nil }
         return ClipBandTapScreen(url: url, patchId: patchId)
@@ -852,7 +848,7 @@ struct ClipVendorPatch: Equatable {
 
 /// What a shared Private Sale link shows in the Clip: the public listing from
 /// `sales.view` only. The meet point and payment handles stay in the app, for
-/// buyers the seller approves. Never a vendor catalog or a membership tier.
+/// buyers the seller approves. Never a membership tier.
 struct ClipSaleListing: Equatable {
     enum Route: Equatable { case sale(id: String), invalid, none }
 
@@ -975,36 +971,19 @@ enum ClipPartyPassPreview {
 }
 #endif
 
-enum ClipVendorFilter: String, CaseIterable, Identifiable {
-    case now = "Now"
-    case tonight = "Tonight"
-    case thisWeek = "This Week"
-    var id: String { rawValue }
-}
-
 @MainActor
 final class ClipInvocationModel: ObservableObject {
     @Published var venueSlug: String?
     @Published var patchId: String?
     @Published var token: String?
     @Published var invocationURL: URL?
-    /// Retained across checkout/success transitions so Party sharing never
-    /// falls back to a vendor or generic access URL.
+    /// The shared Party link, so Party sharing never falls back to a generic
+    /// access URL.
     @Published private(set) var partyShareURL: URL?
-    @Published var patchContext: ClipPatchContext?
     @Published var tier: BytspotTier = .black
-    @Published var services: [ClipLocalService] = ClipLocalService.fallbacks(for: .black)
     @Published var isLoadingContext = false
-    @Published var isLoadingServices = false
-    @Published var verificationState: ClipVerifyState = .idle
-    @Published var contextError: String?
 
     @Published var flow: ClipFlowStep = .awaitingInvocation
-    @Published var vendorsByService: [String: [ClipVendor]] = [:]
-    @Published var loadingVendorsService: String?
-    @Published var vendorFilter: ClipVendorFilter = .now
-    @Published var guestCount: Int = 1
-    @Published var lineItemQuantities: [String: Int] = [:]
     @Published private(set) var selectedPartyTicketTier: ClipPartyTicketTier?
 
     private let partyInviteLoader: @MainActor (String) async throws -> PartyPassInvite
@@ -1030,12 +1009,6 @@ final class ClipInvocationModel: ObservableObject {
     var invocationTaskForTesting: Task<Void, Never>? { loadTask }
     #endif
 
-    var hasPremiumMembershipAccess: Bool { tier == .black || tier == .platinum }
-
-    var membershipGateMessage: String {
-        hasPremiumMembershipAccess ? "Premium membership verified for service booking." : "Premium membership required to browse and book App Clip service vendors."
-    }
-
     func handle(activity: NSUserActivity) {
         guard let url = activity.webpageURL else { return }
         handle(url: url)
@@ -1047,20 +1020,11 @@ final class ClipInvocationModel: ObservableObject {
         loadTask?.cancel()
         loadTask = nil
         isLoadingContext = false
-        isLoadingServices = false
-        vendorsByService.removeAll()
 
         invocationURL = url
         partyShareURL = nil
-        flow = .catalog
-        vendorFilter = .now
-        guestCount = 1
-        resetLineItems()
+        flow = .awaitingInvocation
         selectedPartyTicketTier = nil
-        patchContext = nil
-        verificationState = .idle
-        contextError = nil
-        loadingVendorsService = nil
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
         let items = components.queryItems ?? []
         let pathParts = Self.pathParts(from: components)
@@ -1085,11 +1049,10 @@ final class ClipInvocationModel: ObservableObject {
 
         let detectedTier = BytspotTier.detect(url: url, patchId: patchId)
         tier = detectedTier
-        // A sale link is a listing, never a patch: it must not reach the
-        // vendor catalog or pick up the default Black tier.
+        // A sale link is a listing, never a patch: it must not pick up the
+        // default Black tier.
         switch ClipSaleListing.route(from: pathParts, queryItems: items, isDefaultAppClipLink: isDefaultAppClipLink) {
         case .sale(let saleID):
-            services = []
             flow = .saleLoading(saleID: saleID)
             isLoadingContext = true
             loadTask = Task { [weak self] in
@@ -1097,15 +1060,13 @@ final class ClipInvocationModel: ObservableObject {
             }
             return
         case .invalid:
-            services = []
             flow = .saleFailed(saleID: "", message: "This sale link is incomplete. Ask the seller to share it again.")
             return
         case .none:
             break
         }
-        // A business code opens what the server says it names, never the catalog.
+        // A business code opens what the server says it names.
         if !isDefaultAppClipLink, let code = ClipVendorPatch.code(from: pathParts) {
-            services = []
             flow = .vendorPatchLoading(code: code)
             isLoadingContext = true
             loadTask = Task { [weak self] in
@@ -1128,34 +1089,31 @@ final class ClipInvocationModel: ObservableObject {
             // A default App Clip link names a party and nothing else. If the
             // party is missing the invocation is incomplete - most often the
             // App Store Connect default experience is not passing parameters -
-            // and falling through would strand the guest in the vendor catalog
-            // instead of telling them the link did not carry their pass.
+            // and falling through would show "Link not in use" instead of
+            // telling them the link did not carry their pass.
             if isDefaultAppClipLink, patchId == nil {
                 flow = .partyFailed(partyID: "", message: "This link didn't carry a Party Pass. Ask the host for a fresh link.")
                 return
             }
         }
-        // A band serial shows the band screen instead of the curated catalog.
-        // Staff check bands at the door; there is no guest band lookup to run.
+        // A band serial shows the band screen. Staff check bands at the door;
+        // there is no guest band lookup to run.
         if let band = ClipBandTapScreen.resolve(url: url, patchId: patchId, token: token) {
-            services = []
             flow = .band(band)
             return
         }
 
         #if DEBUG
-        // Deep-link walkthrough hook used by scripts/clip-screencap-sweep.sh
-        // to fast-forward the flow state machine for the TestFlight pre-flight
-        // screenshot gallery. Stripped from Release builds entirely.
-        if let step = items.first(where: { $0.name == "step" })?.value {
-            services = ClipLocalService.fallbacks(for: detectedTier)
-            if applyDebugWalkthrough(step: step) { return }
+        // `?step=host_party` opens the sample Party Pass for previews.
+        // Stripped from Release builds entirely.
+        if let step = items.first(where: { $0.name == "step" })?.value,
+           applyDebugWalkthrough(step: step) {
+            return
         }
         #endif
 
         // Old demo patch links (`/p/…`, `/t/…`, `?patch=…`) and any other path
-        // name nothing the server can open, so they never show the sample catalog.
-        services = []
+        // name nothing the server can open.
         flow = pathParts.isEmpty && patchId == nil ? .awaitingInvocation : .linkNotInUse
     }
 
@@ -1199,12 +1157,11 @@ final class ClipInvocationModel: ObservableObject {
             components.queryItems = queryItems
             return components.url
         }
-        let resolvedPatchId = patchId ?? patchContext?.patchId
         var components = URLComponents()
         components.scheme = "https"
         components.host = "bytspot.app"
-        if let resolvedPatchId, !resolvedPatchId.isEmpty {
-            components.path = "/access/\(resolvedPatchId)"
+        if let patchId, !patchId.isEmpty {
+            components.path = "/access/\(patchId)"
         } else {
             components.path = "/"
         }
@@ -1223,7 +1180,7 @@ final class ClipInvocationModel: ObservableObject {
         if let token, !token.isEmpty {
             queryItems.append(URLQueryItem(name: "t", value: token))
         }
-        if let venue = venueSlug ?? patchContext?.title, !venue.isEmpty {
+        if let venue = venueSlug, !venue.isEmpty {
             queryItems.append(URLQueryItem(name: "venue", value: venue))
         }
         components.queryItems = queryItems
@@ -1231,14 +1188,10 @@ final class ClipInvocationModel: ObservableObject {
     }
 
     #if DEBUG
-    /// Synchronously advances `flow` to the requested step using the locally
-    /// resolved tier fallback catalog + vendor pool. Returns `true` when the
-    /// hook handled the URL. Returns `false` for unknown values.
+    /// Synchronously advances `flow` to the sample Party Pass. Returns `true`
+    /// when the hook handled the URL. Returns `false` for unknown values.
     private func applyDebugWalkthrough(step: String) -> Bool {
         switch step.lowercased() {
-        case "catalog":
-            flow = .catalog
-            return true
         case "party_loop", "host_party", "host_studio_party":
             var payload: [String: Any] = [
                 "id": "party-preview-1", "source": "host-studio-party", "title": "First Listen",
@@ -1259,164 +1212,17 @@ final class ClipInvocationModel: ObservableObject {
             tier = invite.tier
             flow = .party(invite)
             return true
-        case "vendors":
-            guard let service = services.first else { return false }
-            selectService(service)
-            return true
-        case "checkout":
-            guard let service = services.first else { return false }
-            let vendor = ClipVendor.fallbacks(for: service, tier: tier).first
-                ?? vendors(for: service).first
-            guard let vendor else { return false }
-            vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
-            flow = .checkout(service: service, vendor: vendor)
-            return true
-        case "checkout_broni", "broni_checkout", "broni_home_taste":
-            let catalog = services + ClipLocalService.fallbacks(for: .platinum)
-            guard let service = catalog.first(where: { service in
-                let text = [service.id, service.title, service.category ?? ""].joined(separator: " ").lowercased()
-                return text.contains("dining") || text.contains("food") || text.contains("table")
-            }) else { return false }
-            let fallbacks = ClipVendor.fallbacks(for: service, tier: .platinum)
-            guard let vendor = fallbacks.first(where: { $0.name.lowercased().contains("broni") }) else { return false }
-            vendorsByService[service.id] = fallbacks
-            flow = .checkout(service: service, vendor: vendor)
-            return true
-        case "success":
-            guard let service = services.first else { return false }
-            let vendor = ClipVendor.fallbacks(for: service, tier: tier).first
-                ?? vendors(for: service).first
-            guard let vendor else { return false }
-            vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
-            flow = .success(service: service, vendor: vendor, bookingRef: "BYT-PREVIEW-0001", amountCents: vendor.priceFromCents)
-            return true
-        case "success_marine", "marine_success":
-            guard let service = services.first(where: { service in
-                let text = [service.id, service.title, service.category ?? ""].joined(separator: " ").lowercased()
-                return text.contains("black-marine") || text.contains("marine") || text.contains("yacht") || text.contains("vessel")
-            }) else { return false }
-            let vendor = ClipVendor.fallbacks(for: service, tier: tier).first
-                ?? vendors(for: service).first
-            guard let vendor else { return false }
-            vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
-            flow = .success(service: service, vendor: vendor, bookingRef: "BYT-MARINE-0001", amountCents: vendor.priceFromCents)
-            return true
-        case "success_gh_akwaaba", "success_fifa_matchday", "success_platinum_fifa":
-            let service = ClipLocalService.platinumEventAccessService()
-            let fallbacks = ClipVendor.fallbacks(for: service, tier: tier)
-            guard let vendor = fallbacks.first(where: { $0.name.lowercased().contains("akwaaba") }) ?? fallbacks.first else { return false }
-            vendorsByService[service.id] = fallbacks
-            flow = .success(service: service, vendor: vendor, bookingRef: "GH-AKWAABA-0001", amountCents: vendor.priceFromCents)
-            return true
-        case "success_platinum_event", "platinum_event_success":
-            guard let service = services.first(where: { service in
-                let text = [service.id, service.title, service.category ?? ""].joined(separator: " ").lowercased()
-                return text.contains("platinum-entry") || text.contains("event") || text.contains("entry") || text.contains("ticket") || text.contains("pass") || text.contains("fifa") || text.contains("matchday") || text.contains("nightlife") || text.contains("bottle") || text.contains("akwaaba")
-            }) else { return false }
-            let vendor = ClipVendor.fallbacks(for: service, tier: tier).first
-                ?? vendors(for: service).first
-            guard let vendor else { return false }
-            vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
-            flow = .success(service: service, vendor: vendor, bookingRef: "PLATINUM-EVENT-0001", amountCents: vendor.priceFromCents)
-            return true
-        case "success_platinum_nightlife", "platinum_nightlife_success", "success_platinum_bottle":
-            guard let service = services.first(where: { service in
-                let text = [service.id, service.title, service.category ?? ""].joined(separator: " ").lowercased()
-                return text.contains("nightlife") || text.contains("bottle")
-            }) else { return false }
-            let fallbacks = ClipVendor.fallbacks(for: service, tier: tier)
-            let vendor = fallbacks.first ?? vendors(for: service).first
-            guard let vendor else { return false }
-            vendorsByService[service.id] = fallbacks
-            flow = .success(service: service, vendor: vendor, bookingRef: "PLATINUM-EVENT-0001", amountCents: vendor.priceFromCents)
-            return true
-        case "black_ride", "ride", "valet":
-            openValetBoutiqueServices()
-            return true
         default:
             return false
         }
     }
     #endif
 
-    func selectService(_ service: ClipLocalService) {
-        guard hasPremiumMembershipAccess else {
-            contextError = membershipGateMessage
-            return
-        }
-        flow = .vendors(service: service)
-        prefetchVendors(for: service)
-    }
-
-    func selectVendor(_ vendor: ClipVendor, service: ClipLocalService) {
-        guard hasPremiumMembershipAccess else {
-            contextError = membershipGateMessage
-            return
-        }
-        guestCount = max(guestCount, 1)
-        flow = .checkout(service: service, vendor: vendor)
-    }
-
     func selectPartyTicketTier(_ ticketTier: ClipPartyTicketTier, partyID: String) {
         guard case .party(let invite) = flow,
               invite.id == partyID,
               invite.ticketTiers.contains(ticketTier) else { return }
         selectedPartyTicketTier = ticketTier
-    }
-
-    func completeCheckout(service: ClipLocalService, vendor: ClipVendor, bookingRef: String, amountCents: Int) {
-        flow = .success(service: service, vendor: vendor, bookingRef: bookingRef, amountCents: amountCents)
-    }
-
-    func openValetBoutiqueServices() {
-        let catalog = services + ClipLocalService.fallbacks(for: tier)
-        guard let service = catalog.first(where: Self.isRideLogisticsService) else {
-            flow = .catalog
-            return
-        }
-        flow = .vendors(service: service)
-        prefetchVendors(for: service)
-    }
-
-    func backToCatalog() {
-        flow = .catalog
-    }
-
-    func backToVendors(service: ClipLocalService) {
-        flow = .vendors(service: service)
-    }
-
-    func incrementGuests() { guestCount = min(guestCount + 1, 12) }
-    func decrementGuests() { guestCount = max(guestCount - 1, 1) }
-
-    func quantity(for item: ClipLineItem) -> Int {
-        lineItemQuantities[item.id] ?? item.defaultQuantity
-    }
-
-    func adjustLineItem(_ item: ClipLineItem, delta: Int) {
-        let next = min(max(quantity(for: item) + delta, item.minQuantity), item.maxQuantity)
-        lineItemQuantities[item.id] = next
-        guestCount = max(totalLineItemQuantity(), 1)
-    }
-
-    func totalLineItemQuantity(_ items: [ClipLineItem]? = nil) -> Int {
-        let source = items ?? lineItemQuantities.map { ClipLineItem(id: $0.key, label: $0.key, amountCents: 0, defaultQuantity: $0.value, minQuantity: 0, maxQuantity: 999) }
-        return source.reduce(0) { $0 + quantity(for: $1) }
-    }
-
-    func resetLineItems() {
-        lineItemQuantities.removeAll()
-        guestCount = 1
-    }
-
-    func prefetchVendors(for service: ClipLocalService, force: Bool = false) {
-        if vendorsByService[service.id] == nil || force {
-            vendorsByService[service.id] = ClipVendor.fallbacks(for: service, tier: tier)
-        }
-    }
-
-    func vendors(for service: ClipLocalService) -> [ClipVendor] {
-        vendorsByService[service.id] ?? ClipVendor.fallbacks(for: service, tier: tier)
     }
 
     func retryPartyInvite() {
@@ -1501,17 +1307,6 @@ final class ClipInvocationModel: ObservableObject {
         }
     }
 
-    private static func isRideLogisticsService(_ service: ClipLocalService) -> Bool {
-        let text = [service.id, service.title, service.action, service.category ?? ""]
-            .joined(separator: " ")
-            .lowercased()
-        return text.contains("valet")
-            || text.contains("chauffeur")
-            || text.contains("rideshare")
-            || text.contains("ride")
-            || text.contains("transport")
-    }
-
     private static func patchId(from pathParts: [String]) -> String? {
         guard !pathParts.isEmpty else { return nil }
         let routeNames = Set(["access", "p", "patch", "t"])
@@ -1530,7 +1325,7 @@ final class ClipInvocationModel: ObservableObject {
     /// Suffix match, not equality: some in-app browsers normalize the URL
     /// during handoff (e.g. prepending www.), and missing the host here used to
     /// collapse both guards at once - `p` became a patch id and the partyId
-    /// query was ignored - landing the guest in the vendor catalog.
+    /// query was ignored - so the guest never reached their Party Pass.
     nonisolated static func isDefaultAppClipLinkHost(_ host: String?) -> Bool {
         guard let host = host?.lowercased() else { return false }
         return host == appClipDefaultLinkHost || host.hasSuffix("." + appClipDefaultLinkHost)

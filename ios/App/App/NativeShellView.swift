@@ -2538,10 +2538,6 @@ private struct NativeArrivalLedgerItem: Identifiable {
         return Self(id: "stay-\(stay.id)", title: confirmed ? "Boutique Stay Confirmed" : "Boutique Stay Request", venue: stay.venueName, window: stay.checkInLabel, payment: "\(stay.paymentMethodLabel) · \(stay.totalDueLabel)", reservation: confirmed ? "Reservation Confirmed" : NativeBoutiqueStayBookingContract.awaitingHostApproval, statusBadge: confirmed ? "CONFIRMED" : "HOST REVIEW", statusColor: confirmed ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent, actionTitle: "View stay in My Access", createdAt: stay.createdAt)
     }
 
-    static func ride(_ ride: NativeValetRideWalletRecord) -> Self {
-        return Self(id: "ride-\(ride.id)", title: "Airport Transfer", venue: "\(ride.pickup) → \(ride.dropoff)", window: ride.eta, payment: ride.price, reservation: ride.statusDisplayLabel, statusBadge: ride.isConfirmed ? "CONFIRMED" : "PENDING AUTH", statusColor: ride.isConfirmed ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent, actionTitle: "View in My Access", createdAt: ride.createdAt)
-    }
-
     static func order(_ order: NativeMenuOrderRecord) -> Self {
         let pending = order.isPaymentPending
         return Self(id: "order-\(order.id)", title: "Menu Order", venue: order.venueName, window: order.fulfillmentLabel, payment: "\(order.paymentDisplayLabel) · \(order.totalLabel)", reservation: pending ? "Awaiting Stripe" : "Confirmed", statusBadge: pending ? "AWAITING STRIPE" : "CONFIRMED", statusColor: pending ? NativeTransactionVisuals.pendingAccent : NativeTransactionVisuals.confirmedAccent, actionTitle: "View order in My Access", createdAt: order.createdAt)
@@ -2583,10 +2579,9 @@ private struct NativeArrivalLedgerPanel: View {
 
     private var localItems: [NativeArrivalLedgerItem] {
         let stays = NativeStayRequestStore.all().map(NativeArrivalLedgerItem.stay)
-        let rides = NativeValetRideWalletStore.all().map(NativeArrivalLedgerItem.ride)
         let orders = NativeMenuOrderStore.all().map(NativeArrivalLedgerItem.order)
         let checkIns = NativeManualCheckInStore.all(scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)).map(NativeArrivalLedgerItem.checkIn)
-        return (checkIns + stays + rides + orders).sorted { $0.createdAt > $1.createdAt }
+        return (checkIns + stays + orders).sorted { $0.createdAt > $1.createdAt }
     }
 
     var body: some View {
@@ -6358,7 +6353,6 @@ private struct NativeWalletLedgerPreferenceSections: View {
             NativePerformerInboxEntry()
             NativeManualCheckInWalletSection()
             if walletLedgerStore.snapshot.items.isEmpty {
-                NativeValetRideWalletSection()
                 NativeBoutiqueStayWalletSection()
             } else {
                 NativeServerWalletLedgerSection(entries: Array(walletLedgerStore.snapshot.items.prefix(4)), note: walletLedgerStore.snapshot.note)
@@ -6444,35 +6438,6 @@ private struct NativeServerWalletLedgerSection: View {
     private func walletStatusColor(_ entry: NativeWalletLedgerRecord) -> Color {
         let status = "\(entry.paymentState) \(entry.providerState)".lowercased()
         return status.contains("confirm") || status.contains("complete") || status.contains("approved") ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent
-    }
-}
-
-private struct NativeValetRideWalletSection: View {
-    private var ride: NativeValetRideWalletRecord? { NativeValetRideWalletStore.latest() }
-
-    var body: some View {
-        Group {
-            if let ride {
-                VStack(alignment: .leading, spacing: 12) {
-                    NativeWalletLine(title: "Private Airport Transfer", subtitle: "\(ride.serviceTitle) · \(ride.statusDisplayLabel) · \(ride.eta)", icon: "airplane.departure")
-                    NativeTransactionLedger(entries: [
-                        NativeTransactionLedgerEntry("Vehicle", ride.tier),
-                        NativeTransactionLedgerEntry("Fare", ride.price),
-                        NativeTransactionLedgerEntry("Provider", ride.provider),
-                        NativeTransactionLedgerEntry("Request", ride.statusDisplayLabel, valueColor: ride.isConfirmed ? NativeTransactionVisuals.confirmedAccent : NativeTransactionVisuals.pendingAccent)
-                    ])
-                    Text("Pickup: \(ride.pickup) → \(ride.dropoff)")
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .foregroundColor(NativeTheme.textSecondary)
-                        .lineLimit(2)
-                }
-                .padding(12)
-                .background(NativePolish.mapPanelSurface.opacity(0.92))
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .accessibilityIdentifier("native-valet-ride-wallet-section")
-            }
-        }
     }
 }
 
@@ -9249,58 +9214,6 @@ private struct NativeValetQuote: Identifiable, Equatable {
         let airport = anchor * 0.10
         let service = anchor - base - distance - airport
         return [("Base fare", money(base)), ("Distance & time", money(distance)), ("Airport & access fees", money(airport)), ("Bytspot service & support", money(service))]
-    }
-}
-
-private struct NativeValetRideWalletRecord: Codable, Equatable, Identifiable {
-    static let pendingAuthorizationStatus = "pending_authorization"
-    let id: String
-    let quoteID: String
-    let provider: String
-    let serviceTitle: String
-    let tier: String
-    let price: String
-    let eta: String
-    let pickup: String
-    let dropoff: String
-    let status: String
-    let createdAt: String
-
-    init(ride: NativeMobilityRideRecord, quote: NativeValetQuote, pickup: String, dropoff: String) {
-        id = ride.id
-        quoteID = ride.quoteId ?? quote.id
-        provider = ride.provider ?? NativeValetMobilityContract.providerName
-        serviceTitle = ride.serviceTitle ?? quote.service.title
-        tier = quote.service.bytspotTier.displayName
-        price = ride.priceLabel ?? quote.price
-        eta = ride.etaLabel ?? quote.eta
-        self.pickup = ride.pickupLabel ?? pickup
-        self.dropoff = ride.dropoffLabel ?? dropoff
-        status = ride.status ?? "confirmed"
-        createdAt = ride.createdAt ?? ISO8601DateFormatter().string(from: Date())
-    }
-
-    var isConfirmed: Bool { status.localizedCaseInsensitiveContains("confirmed") }
-    var isPendingAuthorization: Bool { normalizedStatus == Self.pendingAuthorizationStatus }
-    var normalizedStatus: String { status.lowercased().replacingOccurrences(of: " ", with: "_") }
-    var statusDisplayLabel: String { normalizedStatus == Self.pendingAuthorizationStatus ? "Pending Authorization" : status.replacingOccurrences(of: "_", with: " ").capitalized }
-}
-
-private enum NativeValetRideWalletStore {
-    static let storageKey = "bytspot_native_valet_rides"
-    static let maxRecords = 8
-
-    static func all() -> [NativeValetRideWalletRecord] {
-        guard let data = UserDefaults.standard.data(forKey: storageKey),
-              let records = try? JSONDecoder().decode([NativeValetRideWalletRecord].self, from: data) else { return [] }
-        return records.sorted { $0.createdAt > $1.createdAt }
-    }
-
-    static func latest() -> NativeValetRideWalletRecord? { all().first }
-
-    static func upsert(_ record: NativeValetRideWalletRecord) {
-        let merged = ([record] + all().filter { $0.id != record.id }).prefix(maxRecords)
-        if let data = try? JSONEncoder().encode(Array(merged)) { UserDefaults.standard.set(data, forKey: storageKey) }
     }
 }
 
@@ -22913,7 +22826,6 @@ enum NativeDiscoverParitySelfTests {
         if case .map(_, "Smart Parking") = parkingSearch.first?.route {} else { preconditionFailure("NativeDiscoverParitySelfTests: parking intent must route to Map before unrelated premium vendors.") }
         precondition(NativeValetMobilityContract.providerName == "Bytspot Mobility" && NativeValetMobilityContract.appClipMode == "api-proxy-no-sdk", "NativeDiscoverParitySelfTests: Valet must remain API-proxy/no-SDK for App Clip size.")
         precondition(NativeValetMobilityContract.backendRoutes == NativeMobilityRouteContract.routes, "NativeDiscoverParitySelfTests: Valet backend route contract must mirror NativeMobilityDataAPI.")
-        precondition(NativeValetRideWalletStore.storageKey == "bytspot_native_valet_rides", "NativeDiscoverParitySelfTests: Valet ride wallet storage key drifted.")
         precondition(NativePaymentDisplay.sanitized("Card •••• 4242") == "Credit / Debit Card" && NativePaymentDisplay.sanitized("Visa •••• 1234") == "Visa •••• 1234" && NativePaymentDisplay.sanitized("Apple Pay") == "Apple Pay", "NativeDiscoverParitySelfTests: legacy persisted payment labels must be sanitized without touching real instruments.")
         precondition(NativeBoutiqueStayBookingContract.title == "Check Dates" && NativeBoutiqueStayBookingContract.primaryCTA == "Pay & Request", "NativeDiscoverParitySelfTests: Boutique Stay checkout must make payment authorization explicit.")
         precondition(NativeBoutiqueStayBookingContract.authorizationTitle == "Payment authorization" && NativeBoutiqueStayBookingContract.hostConfirmOutcome == "Payment is captured" && NativeBoutiqueStayBookingContract.hostDeclineOutcome == "No charge is made", "NativeDiscoverParitySelfTests: Boutique Stay ledger outcome copy drifted.")

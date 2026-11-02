@@ -1,53 +1,9 @@
 import Foundation
 
 #if DEBUG
-/// DEBUG-only regression guard for the Bytspot Black aviation "Polished Version"
-/// fallback catalog. Runs at Clip launch via `BytspotClipApp` and crashes the
-/// debug build with a clear message if any future refactor drifts off the spec
-/// declared in `ClipPatchVerifier.fallbacks(for:tier:)`.
-///
-/// Locked spec (do not edit casually — both this file and the fallback table
-/// must move together; see the matching changelog entry):
-///   - Stratos Jet Charters · Ultra-Long-Range Global Fleet · $28,000
-///   - Solitaire Aviation   · Boutique Private Aviation    · $33,040
-///   - Vector Air           · On-Demand Global Charter     · $40,600
-/// ETA labels: "ETA 4 min", "ETA 7 min", "ETA 12 min" (data layer only —
-/// the view layer reframes aviation as "Departing in X min").
+/// DEBUG-only regression guard. Runs at Clip launch via `BytspotClipApp` and
+/// crashes the debug build with a clear message if a refactor drifts.
 enum BytspotAviationFallbackTests {
-    private struct Expected {
-        let name: String
-        let tagline: String
-        let priceFromCents: Int
-        let etaLabel: String
-        let highlights: [String]
-    }
-
-    private static let spec: [Expected] = [
-        Expected(
-            name: "Stratos Jet Charters",
-            tagline: "Ultra-Long-Range Global Fleet",
-            priceFromCents: 2_800_000,
-            etaLabel: "ETA 4 min",
-            highlights: ["Heavy-jet cabin", "Catering & champagne", "Ground transport", "Flexible departure"]
-        ),
-        Expected(
-            name: "Solitaire Aviation",
-            tagline: "Boutique Private Aviation",
-            priceFromCents: 3_304_000,
-            etaLabel: "ETA 7 min",
-            highlights: ["Heavy-jet cabin", "Catering & champagne included", "Ground transport on both ends", "Flexible departure ±2 hr"]
-        ),
-        Expected(
-            name: "Vector Air",
-            tagline: "On-Demand Global Charter",
-            priceFromCents: 4_060_000,
-            etaLabel: "ETA 12 min",
-            highlights: ["Mid-size to Heavy jets", "Instant dispatch", "Concierge handling", "Global reach"]
-        )
-    ]
-
-    /// Pulls the actual Black aviation service out of the production fallback
-    /// catalog and asserts the vendor pool matches the locked spec verbatim.
     static func run() {
         let greetingSuite = "com.bytspot.app.Clip.greeting-tests"
         let greetingDefaults = UserDefaults(suiteName: greetingSuite)!
@@ -65,56 +21,8 @@ enum BytspotAviationFallbackTests {
         precondition(BytspotTier.detect(url: URL(string: "https://bytspot.app/BYT424-0301?tier=platinum"), patchId: "BYT424-0301") == .platinum)
         precondition(BytspotTier.detect(url: URL(string: "https://bytspot.app/access/BYT-BRONI-P?tier=platinum"), patchId: "BYT-BRONI-P") == .platinum)
 
-        guard let service = ClipLocalService.fallbacks(for: .black).first(where: { $0.id == "black-aviation" }) else {
-            preconditionFailure(
-                "BytspotAviationFallbackTests: 'black-aviation' missing from ClipLocalService.fallbacks(for: .black). " +
-                "Restore the Black aviation entry in ClipPatchVerifier.swift."
-            )
-        }
-        let vendors = ClipVendor.fallbacks(for: service, tier: .black)
-
-        precondition(
-            vendors.count == spec.count,
-            "BytspotAviationFallbackTests: expected \(spec.count) vendors, got \(vendors.count). " +
-            "The Black aviation fallback table in ClipPatchVerifier.swift has drifted."
-        )
-
-        for (idx, expected) in spec.enumerated() {
-            let actual = vendors[idx]
-            precondition(
-                actual.name == expected.name,
-                "BytspotAviationFallbackTests[\(idx)]: expected name '\(expected.name)', got '\(actual.name)'."
-            )
-            precondition(
-                actual.tagline == expected.tagline,
-                "BytspotAviationFallbackTests[\(idx)] '\(expected.name)': expected tagline " +
-                "'\(expected.tagline)', got '\(actual.tagline)'."
-            )
-            precondition(
-                actual.priceFromCents == expected.priceFromCents,
-                "BytspotAviationFallbackTests[\(idx)] '\(expected.name)': expected priceFromCents " +
-                "\(expected.priceFromCents), got \(actual.priceFromCents). " +
-                "Verify the aviation `base` override (2,800,000) and multipliers (1.0/1.18/1.45) in fallbacks(for:tier:)."
-            )
-            precondition(
-                actual.etaLabel == expected.etaLabel,
-                "BytspotAviationFallbackTests[\(idx)] '\(expected.name)': expected etaLabel " +
-                "'\(expected.etaLabel)', got '\(actual.etaLabel ?? "nil")'. " +
-                "Check etaPool literal in fallbacks(for:tier:)."
-            )
-            precondition(
-                actual.includedHighlights == expected.highlights,
-                "BytspotAviationFallbackTests[\(idx)] '\(expected.name)': includedHighlights drifted. " +
-                "Expected \(expected.highlights), got \(actual.includedHighlights)."
-            )
-        }
-
-        runPhase3LuxuryFlowContract()
-        assertRichMediaContextContract()
         assertHostStudioPartyMappingContract()
         assertPartyPassPreviewContract()
-        assertPartnerCardParity()
-        assertCuratedFixturesNeverClaimVerifiedPricing()
         assertDefaultAppClipLinkRoutesToParty()
         assertBandTapScreenContract()
     }
@@ -137,9 +45,9 @@ enum BytspotAviationFallbackTests {
         precondition(platinum?.tierLine == "Platinum tier", "Band tap: a tier query must code the tier line.")
         precondition(ClipBandTapScreen.resolve(url: URL(string: "https://bytspot.app/BYT424-0017-G"), patchId: "BYT424-0017-G", token: nil)?.tierLine == "Green tier", "Band tap: -G must show \"Green tier\".")
 
-        precondition(ClipBandTapScreen.resolve(url: plainURL, patchId: "BYT424-0017", token: "ict-abc") == nil, "Band tap: a token-carrying link keeps the patch verification flow.")
+        precondition(ClipBandTapScreen.resolve(url: plainURL, patchId: "BYT424-0017", token: "ict-abc") == nil, "Band tap: a token-carrying link is not a band screen.")
         for patch in ["black-aviation-001", "platinum-parking-001", "BYT-BRONI-P", "BYT424-0017-X", "VENUE-1234"] {
-            precondition(ClipBandTapScreen.resolve(url: URL(string: "https://bytspot.app/p/\(patch)"), patchId: patch, token: nil) == nil, "Band tap: '\(patch)' is not a band serial and must keep its flow.")
+            precondition(ClipBandTapScreen.resolve(url: URL(string: "https://bytspot.app/p/\(patch)"), patchId: patch, token: nil) == nil, "Band tap: '\(patch)' is not a band serial.")
         }
 
         for screen in [plain, black!, platinum!] {
@@ -157,9 +65,8 @@ enum BytspotAviationFallbackTests {
     @MainActor static func runBandInvocationRegressions() {
         let model = ClipInvocationModel(partyInviteLoader: { _ in preconditionFailure("Band tap: a band link must never load a party.") })
         model.handle(url: URL(string: "https://bytspot.app/BYT424-0017")!)
-        guard case .band(let plain) = model.flow else { preconditionFailure("Band tap: an uncoded band link must show the band screen, not the catalog.") }
-        precondition(plain.tier == nil && model.services.isEmpty && model.vendorsByService.isEmpty, "Band tap: no curated services or vendors may back the band screen.")
-        precondition(!model.isLoadingContext && model.contextError == nil && model.patchContext == nil, "Band tap: the band screen must not show a loading or curated-fallback message.")
+        guard case .band(let plain) = model.flow else { preconditionFailure("Band tap: an uncoded band link must show the band screen.") }
+        precondition(plain.tier == nil && !model.isLoadingContext, "Band tap: the band screen must not show a loading message.")
         precondition(model.invocationTaskForTesting == nil, "Band tap: staff check bands at the door; no guest band lookup may run.")
         let plainHandoff = model.mainAppHandoffURL.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         precondition(plainHandoff?.path == "/access/BYT424-0017" && plainHandoff?.queryItems?.contains(where: { $0.name == "tier" }) == false, "Band tap: an uncoded band must not hand off as a Black link.")
@@ -174,7 +81,7 @@ enum BytspotAviationFallbackTests {
         guard case .band(let campaign) = model.flow, campaign.title == "Bytspot band BYT424-0301" else { preconditionFailure("Band tap: a campaign-root serial query must show the band screen.") }
 
         model.handle(url: URL(string: "https://bytspot.app/BYT424-0017?t=ict-abc")!)
-        precondition(model.flow == .linkNotInUse && model.invocationTaskForTesting == nil && model.services.isEmpty, "Old links: a token-carrying band link runs no lookup and shows no catalog.")
+        precondition(model.flow == .linkNotInUse && model.invocationTaskForTesting == nil, "Old links: a token-carrying band link runs no lookup.")
 
         model.handle(url: URL(string: "https://bytspot.app/BYT424-0017?tier=platinum&venue=GH%20Akwaaba%20Pass")!)
         guard case .band = model.flow else { preconditionFailure("Old links: an Akwaaba query no longer opens a sample checkout.") }
@@ -186,18 +93,18 @@ enum BytspotAviationFallbackTests {
         for old in ["https://bytspot.app/access/BYT-BRONI-P?tier=platinum", "https://bytspot.app/p/black-aviation-001?tier=black",
                     "https://bytspot.app/t/black-0301", "https://bytspot.app/?patch=platinum-parking-001", "https://bytspot.app/venue/somewhere"] {
             model.handle(url: URL(string: old)!)
-            precondition(model.flow == .linkNotInUse && model.services.isEmpty && model.vendorsByService.isEmpty, "Old links: '\(old)' must not show the sample catalog.")
+            precondition(model.flow == .linkNotInUse, "Old links: '\(old)' must show Link not in use.")
             precondition(model.invocationTaskForTesting == nil, "Old links: '\(old)' must not call the server.")
             precondition(model.mainAppHandoffURL?.absoluteString == "https://bytspot.app/", "Old links: Get Bytspot opens the app's home.")
         }
 
         model.handle(url: URL(string: "https://bytspot.app/")!)
-        precondition(model.flow == .awaitingInvocation && model.services.isEmpty, "The bare home page must not open the vendor catalog.")
+        precondition(model.flow == .awaitingInvocation, "The bare home page waits for an invocation.")
         print("BAND_INVOCATION_REGRESSIONS_PASSED")
     }
 
     /// Explicit DEBUG launch test (`--test-party-invocation`). A business code
-    /// shows what `inventory.openPatch` names, never the vendor catalog.
+    /// shows what `inventory.openPatch` names.
     @MainActor static func runVendorPatchInvocationRegressions() async {
         let payload: [String: Any] = [
             "code": "K7M2QX9P", "sellerName": "Broni's Kitchen",
@@ -221,7 +128,7 @@ enum BytspotAviationFallbackTests {
                 return patch
             })
         model.handle(url: URL(string: "https://bytspot.app/at/k7m2qx9p")!)
-        precondition(model.flow == .vendorPatchLoading(code: "K7M2QX9P") && model.services.isEmpty && model.vendorsByService.isEmpty, "Vendor patch: a business code must not show the vendor catalog.")
+        precondition(model.flow == .vendorPatchLoading(code: "K7M2QX9P"), "Vendor patch: a business code must load what the server names.")
         precondition(model.mainAppHandoffURL?.absoluteString == "https://bytspot.app/at/K7M2QX9P", "Vendor patch: Get Bytspot must open this code in the app.")
         await model.invocationTaskForTesting!.value
         precondition(model.flow == .vendorPatch(patch) && !model.isLoadingContext)
@@ -237,7 +144,7 @@ enum BytspotAviationFallbackTests {
     }
 
     /// Explicit DEBUG launch test (`--test-party-invocation`). A shared sale
-    /// link shows its listing, never the vendor catalog or a Black tier.
+    /// link shows its listing, never a Black tier.
     @MainActor static func runSaleInvocationRegressions() async {
         let payload: [String: Any] = [
             "saleId": "sale-17", "title": " Jordan 4 Retro ", "priceCents": 22_000, "sellerName": "Kojo",
@@ -263,7 +170,7 @@ enum BytspotAviationFallbackTests {
                 return listing
             })
         model.handle(url: URL(string: "https://bytspot.app/sale/sale-17")!)
-        precondition(model.flow == .saleLoading(saleID: "sale-17") && model.services.isEmpty && model.vendorsByService.isEmpty, "Sale: a sale link must not show the vendor catalog.")
+        precondition(model.flow == .saleLoading(saleID: "sale-17"), "Sale: a sale link must load its listing.")
         precondition(model.mainAppHandoffURL?.absoluteString == "https://bytspot.app/sale/sale-17", "Sale: Get Bytspot must open this sale in the app.")
         let loaded = model.invocationTaskForTesting!
         await loaded.value
@@ -272,7 +179,7 @@ enum BytspotAviationFallbackTests {
         model.handle(url: URL(string: "https://bytspot.app/sale/gone")!)
         let failed = model.invocationTaskForTesting!
         await failed.value
-        guard case .saleFailed(let failedID, _) = model.flow, failedID == "gone" else { preconditionFailure("Sale: an ended sale must say so, never fall back to the catalog.") }
+        guard case .saleFailed(let failedID, _) = model.flow, failedID == "gone" else { preconditionFailure("Sale: an ended sale must say so.") }
 
         model.handle(url: URL(string: "https://bytspot.app/sale/")!)
         guard case .saleFailed(let emptyID, _) = model.flow, emptyID.isEmpty else { preconditionFailure("Sale: an incomplete sale link must fail explicitly.") }
@@ -293,7 +200,7 @@ enum BytspotAviationFallbackTests {
 
         let requests = PartyInvocationRequests()
         let model = ClipInvocationModel(partyInviteLoader: { try await requests.load($0) })
-        precondition(model.flow == .awaitingInvocation, "A cold Clip must wait for context, not show the vendor catalog.")
+        precondition(model.flow == .awaitingInvocation, "A cold Clip must wait for context.")
         model.handle(url: URL(string: "https://appclip.apple.com/id?p=com.bytspot.app.Clip")!)
         guard case .partyFailed(let missingID, _) = model.flow, missingID.isEmpty else {
             preconditionFailure("A missing party ID must fail explicitly, never become a patch.")
@@ -349,7 +256,7 @@ enum BytspotAviationFallbackTests {
         model.handle(url: URL(string: "https://bytspot.app/")!)
         requests.finish("old-party", .success(invite("old-party")))
         await abandonedTask.value
-        precondition(model.flow == .awaitingInvocation && !model.isLoadingContext && !model.isLoadingServices)
+        precondition(model.flow == .awaitingInvocation && !model.isLoadingContext)
         precondition(model.partyShareURL == nil)
 
         // A genuine current failure remains recoverable without reopening iOS.
@@ -427,7 +334,7 @@ enum BytspotAviationFallbackTests {
             "Party Loop: a default App Clip link without a party must not be treated as one."
         )
         // In-app browsers can normalize the handoff URL (www., case changes).
-        // Missing the host used to send party guests to the vendor catalog.
+        // Missing the host used to keep party guests from their Party Pass.
         precondition(
             ClipInvocationModel.isDefaultAppClipLinkHost("APPCLIP.Apple.com")
                 && ClipInvocationModel.isDefaultAppClipLinkHost("www.appclip.apple.com")
@@ -478,107 +385,6 @@ enum BytspotAviationFallbackTests {
             ) == .party(id: "party-1"),
             "Party Loop: an empty party parameter must not shadow the real party id."
         )
-    }
-
-    /// The curated catalog only backs DEBUG screenshot walkthroughs; no link
-    /// opens it. None of it is bookable: `booking.authorizeApplePayHold` does
-    /// not exist. So no fixture may report verified pricing, or the UI would print a
-    /// price and a buy button for an offer that cannot settle.
-    private static func assertCuratedFixturesNeverClaimVerifiedPricing() {
-        for tier in [BytspotTier.green, .platinum, .black] {
-            for service in ClipLocalService.fallbacks(for: tier) {
-                precondition(
-                    !service.hasVerifiedPricing,
-                    "BytspotAviationFallbackTests: curated service '\(service.id)' claims verified pricing; a fixture price would render as a real offer."
-                )
-                for vendor in ClipVendor.fallbacks(for: service, tier: tier) {
-                    precondition(
-                        !vendor.hasVerifiedPricing,
-                        "BytspotAviationFallbackTests: curated vendor '\(vendor.id)' claims verified pricing. `control` is not an origin signal — GH Akwaaba and Broni hardcode control: \"vendor\"."
-                    )
-                }
-            }
-        }
-    }
-
-    private static func runPhase3LuxuryFlowContract() {
-        assertTierCatalogIsolation()
-        assertGhAkwaabaContract()
-        assertBroniHomeTasteContract()
-    }
-
-    /// Locks the cross-target partner-card vocabulary so the Clip catalog mirrors
-    /// the App's partner peek card chrome. The literals here MUST match the
-    /// `NativeMapExploreView.partnerCard*` static constants under the App target
-    /// (locked by `NativeMapParitySelfTests`).
-    private static func assertPartnerCardParity() {
-        precondition(ClipCatalogView.partnerCardVerifiedLabel == "Verified Partner", "BytspotAviationFallbackTests: Clip partner-card verified label drifted from App parity contract.")
-        precondition(ClipCatalogView.partnerCardServiceSectionLabel == "Book at this venue", "BytspotAviationFallbackTests: Clip partner-card service section label drifted from App parity contract.")
-        precondition(ClipCatalogView.partnerCardPatchPairedLabel == "Patch paired", "BytspotAviationFallbackTests: Clip 'Patch paired' literal drifted from physidigital vocabulary contract.")
-        precondition(ClipCatalogView.partnerCardInstallNudgeLabel == "Open full Bytspot app with this patch", "BytspotAviationFallbackTests: Clip install-nudge copy drifted from upsell parity contract.")
-    }
-
-    private static func assertTierCatalogIsolation() {
-        let black = ClipLocalService.fallbacks(for: .black).map { $0.id }
-        let platinum = ClipLocalService.fallbacks(for: .platinum).map { $0.id }
-        let green = ClipLocalService.fallbacks(for: .green).map { $0.id }
-
-        precondition(black.contains("black-aviation") && black.contains("black-marine"), "Phase3 App Clip: Black aviation/marine catalog drifted.")
-        precondition(platinum.contains("platinum-entry") && platinum.contains("platinum-dining"), "Phase3 App Clip: Platinum event/dining catalog drifted.")
-        precondition(platinum.allSatisfy { !$0.hasPrefix("black-") }, "Phase3 App Clip: Black service leaked into Platinum catalog.")
-        precondition(green.allSatisfy { $0.hasPrefix("green-") }, "Phase3 App Clip: Green catalog contains non-Green service ids.")
-    }
-
-    private static func assertGhAkwaabaContract() {
-        guard let url = URL(string: "https://bytspot.app/p/gh-akwaaba-fifa-ghana?tier=platinum&service=gh-akwaaba-fifa&venue=GH%20Akwaaba%20Pass") else {
-            preconditionFailure("Phase3 App Clip: GH Akwaaba URL fixture is invalid.")
-        }
-        precondition(ClipLocalService.isGhAkwaabaFifaURL(url, tier: .platinum), "Phase3 App Clip: GH Akwaaba short-link detection drifted.")
-        guard let service = ClipLocalService.explicitService(for: url, tier: .platinum) else {
-            preconditionFailure("Phase3 App Clip: GH Akwaaba must resolve to explicit Platinum Event Access service.")
-        }
-        precondition(service.id == "platinum-entry", "Phase3 App Clip: GH Akwaaba must stay under platinum-entry, got \(service.id).")
-        guard let vendor = ClipVendor.explicitVendor(for: url, service: service, tier: .platinum) else {
-            preconditionFailure("Phase3 App Clip: GH Akwaaba explicit vendor missing from Platinum Event Access fallbacks.")
-        }
-        precondition(vendor.name == "GH Akwaaba Pass", "Phase3 App Clip: expected GH Akwaaba Pass vendor, got \(vendor.name).")
-        precondition(vendor.heroImageURL == ClipLocalService.ghAkwaabaFifaThumbnailURL, "Phase3 App Clip: GH Akwaaba product hero thumbnail drifted.")
-        let itemIds = vendor.items?.map { $0.id } ?? []
-        precondition(itemIds == ["tickets", "souvenirs", "jerseys"], "Phase3 App Clip: GH Akwaaba line items drifted: \(itemIds).")
-    }
-
-    private static func assertBroniHomeTasteContract() {
-        guard let service = ClipLocalService.fallbacks(for: .platinum).first(where: { $0.id == "platinum-dining" }) else {
-            preconditionFailure("Phase3 App Clip: Platinum dining service missing.")
-        }
-        let vendors = ClipVendor.fallbacks(for: service, tier: .platinum)
-        guard let broni = vendors.first(where: { $0.name == "Broni Home Taste" }) else {
-            preconditionFailure("Phase3 App Clip: Broni Home Taste vendor missing from Platinum dining fallbacks.")
-        }
-        guard let items = broni.items else {
-            preconditionFailure("Phase3 App Clip: Broni Home Taste must expose curated dining line items.")
-        }
-        precondition(items == ClipLineItem.broniHomeTasteFavorites, "Phase3 App Clip: Broni Home Taste line item table drifted.")
-        precondition(items.first?.label == "Jollof Rice with Chicken", "Phase3 App Clip: Broni first favorite must stay Jollof Rice with Chicken.")
-        precondition(items.contains { $0.label == "Banku and Fried Fish/Tilapia" }, "Phase3 App Clip: Broni fish/tilapia favorite missing.")
-    }
-
-    private static func assertRichMediaContextContract() {
-        guard let black = ClipLocalService.fallbacks(for: .black).first,
-              let platinum = ClipLocalService.fallbacks(for: .platinum).first(where: { $0.id == "platinum-entry" }),
-              let green = ClipLocalService.fallbacks(for: .green).first else {
-            preconditionFailure("Phase4E App Clip: tier fallback catalogs missing rich-media fixtures.")
-        }
-        precondition(black.theme == "Elite Guarantee", "Phase4E App Clip: Black service must expose Elite Guarantee theme.")
-        precondition(black.videoURL != nil, "Phase4E App Clip: Black service must expose DEBUG HLS preview loop.")
-        precondition(platinum.hostName == "Platinum Host Team", "Phase4E App Clip: Platinum service must expose host metadata.")
-        precondition(platinum.guestSummary == "Up to 12 guests", "Phase4E App Clip: Platinum guest summary drifted.")
-        precondition(green.theme == "Local community", "Phase4E App Clip: Green service must keep Local theme.")
-        precondition(green.videoURL == nil, "Phase4E App Clip: Green catalog should use photo-first local thumbnails, not autoplay video.")
-
-        let vendors = ClipVendor.fallbacks(for: platinum, tier: .platinum)
-        precondition(vendors.first?.hasPlayableVideo == true, "Phase4E App Clip: Platinum first vendor must expose playable HLS metadata.")
-        precondition(vendors.first?.locationLabel == "Premium entry gate", "Phase4E App Clip: Platinum event vendor location context drifted.")
     }
 
 #if false // Legacy Group self-test retained for future project extraction.
@@ -672,14 +478,7 @@ enum BytspotAviationFallbackTests {
         let blackAviation = ClipBookingContext.make(categoryText: "private aviation charter", amountCents: 2_500, tier: .black)
         let blackMarine = ClipBookingContext.make(categoryText: "marine yacht", amountCents: 2_500, tier: .black)
         let blackHighValue = ClipBookingContext.make(categoryText: "private event", amountCents: 85_000, tier: .black)
-        guard let regularBlackService = ClipLocalService.fallbacks(for: .black).first(where: { service in
-            let category = [service.id, service.title, service.category ?? ""].joined(separator: " ").lowercased()
-            return !["aviation", "jet", "charter", "marine", "yacht", "vessel"].contains(where: category.contains)
-        }), let regularBlackVendor = ClipVendor.fallbacks(for: regularBlackService, tier: .black).first else {
-            preconditionFailure("Party Loop: expected a non-aviation/non-marine Black vendor fixture.")
-        }
-        let blackExpandedBooking = ClipBookingContext.make(service: regularBlackService, vendor: regularBlackVendor, tier: .black, amountCents: 85_000)
-        precondition(blackAviation.isHighTicket && blackMarine.isHighTicket && blackHighValue.isHighTicket && blackExpandedBooking.isHighTicket && blackAviation.logisticsMode == .outboundToVenue, "Party Loop: Black aviation, marine, and expanded high-value bookings must use secure-hold arrival context.")
+        precondition(blackAviation.isHighTicket && blackMarine.isHighTicket && blackHighValue.isHighTicket && blackAviation.logisticsMode == .outboundToVenue, "Party Loop: Black aviation, marine, and expanded high-value bookings must use secure-hold arrival context.")
         precondition(ClipPatchVerifier.appleSignInSource == "native_ios", "Party Loop: App Clip Apple sign-in must use the established native iOS source contract.")
         let doorPassFixture = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde"
         precondition(doorPassFixture.count == 43, "Party Loop: attendee-pass fixture must model a 32-byte Base64URL value.")

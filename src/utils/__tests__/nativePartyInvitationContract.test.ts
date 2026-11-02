@@ -106,7 +106,7 @@ test('Clip waits for invocation and renders a recoverable party error instead of
   assert.match(view, /case \.awaitingInvocation:/);
   assert.match(view, /invocation\.retryPartyInvite\(\)/);
   assert.match(view, /PartyPassClipView\(invite: invite, showOverlay: \$showOverlay\)\s*\.id\(invite.id\)/);
-  const load = section(model, 'private func loadPartyInvite(', 'private func loadContextAndVerify(');
+  const load = section(model, 'private func loadPartyInvite(', 'private static func patchId(');
   assert.match(load, /if generation == invocationGeneration/);
   assert.match(load, /guard !Task.isCancelled, generation == invocationGeneration else/);
   assert.match(load, /guard invite.id == partyID else/);

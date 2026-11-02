@@ -4169,6 +4169,8 @@ struct NativeDiscoverSummary: Identifiable, Equatable {
     /// A source-provided address, never inferred from marketing subtitle text.
     let address: String?
     fileprivate(set) var nearbyParty: NativeNearbyParty? = nil
+    /// Facts sent to places.rankDiscover. Nil for cards with none to send.
+    var rankFacts: NativeDiscoverRankFacts? = nil
 
     init(id: String, type: String, title: String, subtitle: String, distance: String, rating: String, icon: String, verified: Bool, entryType: String, cta: String, imageUrl: URL?, categoryLabel: String, badgeText: String, metadataLine: String, features: [String], vibeScore: Int, availability: String, membershipRequired: Bool, control: String = NativeDiscoverCardControl.local, latitude: Double? = nil, longitude: Double? = nil, address: String? = nil) {
         self.id = id
@@ -4198,6 +4200,105 @@ struct NativeDiscoverSummary: Identifiable, Equatable {
     var hasKnownCoordinates: Bool {
         guard let latitude, let longitude else { return false }
         return NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude)
+    }
+}
+
+extension NativeDiscoverSummary {
+    func withRankFacts(_ facts: NativeDiscoverRankFacts?) -> NativeDiscoverSummary {
+        var card = self
+        card.rankFacts = facts
+        return card
+    }
+}
+
+/// What places.rankDiscover is told about a card. Only facts a source
+/// supplied; anything unknown is left out rather than guessed.
+struct NativeDiscoverRankFacts: Equatable {
+    var category: String? = nil
+    var types: [String] = []
+    var primaryType: String? = nil
+    var priceLevel: String? = nil
+    var ratingCount: Int? = nil
+    var isOpen: Bool? = nil
+    var crowdLevel: Int? = nil
+}
+
+/// One Discover card as places.rankDiscover takes it.
+struct NativeDiscoverRankCandidate: Equatable {
+    enum Kind: String { case place, venue, event, party, offering }
+    let id: String
+    let kind: Kind
+    let rail: String
+    var rating: Double? = nil
+    var latitude: Double? = nil
+    var longitude: Double? = nil
+    var actionable = false
+    var facts = NativeDiscoverRankFacts()
+
+    var input: [String: Any] {
+        var row: [String: Any] = ["id": String(id.prefix(200)), "kind": kind.rawValue]
+        func put(_ key: String, _ value: String?, max: Int) {
+            if let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty { row[key] = String(value.prefix(max)) }
+        }
+        put("rail", rail, max: 40)
+        put("category", facts.category, max: 80)
+        put("primaryType", facts.primaryType, max: 60)
+        put("priceLevel", facts.priceLevel, max: 40)
+        let types = facts.types.filter { !$0.isEmpty && $0.count <= 60 }.prefix(20)
+        if !types.isEmpty { row["types"] = Array(types) }
+        if let rating, rating.isFinite, (0...5).contains(rating) { row["rating"] = rating }
+        if let count = facts.ratingCount, count >= 0 { row["ratingCount"] = count }
+        if let isOpen = facts.isOpen { row["isOpen"] = isOpen }
+        if let latitude, let longitude, NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude) {
+            row["lat"] = latitude
+            row["lng"] = longitude
+        }
+        if let level = facts.crowdLevel, (0...5).contains(level) { row["crowdLevel"] = level }
+        if actionable { row["actionable"] = true }
+        return row
+    }
+}
+
+/// The server's Discover order. `order` lists kept ids best first; `hidden`
+/// are cards the guest's avoid list or price ceiling leaves out.
+struct NativeDiscoverServerRanking: Equatable {
+    let order: [String]
+    let hidden: Set<String>
+
+    var positions: [String: Int] {
+        Dictionary(order.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    static func decode(from payload: Any) -> NativeDiscoverServerRanking? {
+        guard let object = payload as? [String: Any], let order = object["order"] as? [String] else { return nil }
+        let hidden = (object["hidden"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
+        return NativeDiscoverServerRanking(order: order, hidden: Set(hidden))
+    }
+}
+
+struct NativeDiscoverRankAPI {
+    static let route = "/trpc/places.rankDiscover"
+    static let maxCandidates = 150
+    let client: BytspotAPIClient
+
+    static func input(candidates: [NativeDiscoverRankCandidate], location: NativeLocationCoordinate, vibe: String, walk: String, crew: String, hour: Int, preferences: NativePreferenceFilter) -> [String: Any]? {
+        guard !location.isFallback, !candidates.isEmpty else { return nil }
+        var input: [String: Any] = [
+            "lat": location.latitude, "lng": location.longitude, "hour": max(0, min(23, hour)),
+            "candidates": candidates.prefix(maxCandidates).map(\.input),
+        ]
+        if !preferences.isEmpty { input["preferences"] = preferences.input }
+        for (key, value) in [("vibe", vibe), ("walk", walk), ("group", crew)] {
+            let token = String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
+            if !token.isEmpty { input[key] = token }
+        }
+        return input
+    }
+
+    func rank(candidates: [NativeDiscoverRankCandidate], location: NativeLocationCoordinate, vibe: String, walk: String, crew: String, hour: Int, preferences: NativePreferenceFilter) async throws -> NativeDiscoverServerRanking? {
+        guard let input = Self.input(candidates: candidates, location: location, vibe: vibe, walk: walk, crew: crew, hour: hour, preferences: preferences) else { return nil }
+        let payload = try await client.trpcQueryPayload(path: Self.route, input: input)
+        return NativeDiscoverServerRanking.decode(from: payload)
     }
 }
 
@@ -4328,6 +4429,8 @@ struct NativePlaceSearchResult: Identifiable, Equatable {
     let rating: Double?
     let photoUrl: URL?
     let provider: String
+    /// Google's own facts, used only to order and filter the Discover deck.
+    var facts = NativeDiscoverRankFacts()
 }
 
 /// A place `places.recommend` picked for the guest from their answers and
@@ -4671,7 +4774,14 @@ struct NativeLiveDiscoveryAPI {
             longitude: double(item["lng"]) ?? double(item["longitude"]) ?? double(location?["lng"]) ?? double(geoLocation?["lng"]),
             rating: double(item["rating"]),
             photoUrl: string(item["photoUrl"]).flatMap(URL.init(string:)) ?? string(item["imageUrl"]).flatMap(URL.init(string:)),
-            provider: string(item["provider"]) ?? "google_places"
+            provider: string(item["provider"]) ?? "google_places",
+            facts: NativeDiscoverRankFacts(
+                types: (item["types"] as? [Any])?.compactMap { string($0) } ?? [],
+                primaryType: string(item["primaryType"]),
+                priceLevel: string(item["priceLevel"]),
+                ratingCount: item["ratingCount"] as? Int,
+                isOpen: item["isOpen"] as? Bool
+            )
         )
     }
 
@@ -5280,7 +5390,7 @@ final class NativeTabContentStore: ObservableObject {
                 latitude: venue.latitude,
                 longitude: venue.longitude,
                 address: venue.address
-            )
+            ).withRankFacts(NativeDiscoverRankFacts(category: venue.sourceCategory ?? venue.category, crowdLevel: venue.crowd?.level))
         }
     }
 
@@ -5396,7 +5506,7 @@ final class NativeTabContentStore: ObservableObject {
             }
             if !isAtlantaRegion, venue == nil, !isLocalPlaceCard, !isLocationQueriedValueCard { return nil }
             guard let venue, let distance = location.distanceLabel(toLatitude: venue.latitude, longitude: venue.longitude) else { return card }
-            return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, control: card.control, latitude: card.latitude, longitude: card.longitude, address: card.address)
+            return NativeDiscoverSummary(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, control: card.control, latitude: card.latitude, longitude: card.longitude, address: card.address).withRankFacts(card.rankFacts)
         }
     }
 
@@ -5442,7 +5552,7 @@ final class NativeTabContentStore: ObservableObject {
             latitude: place.latitude,
             longitude: place.longitude,
             address: place.address
-        )
+        ).withRankFacts(place.facts)
     }
 
     private static func bestValueCard(from option: NativeLiveValueOption) -> NativeDiscoverSummary {

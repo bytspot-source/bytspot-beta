@@ -11587,6 +11587,31 @@ enum NativeDiscoverBrowsePolicy {
         return id < otherID
     }
 
+    /// The server's order for cards it ranked, then any it has not seen yet in
+    /// the local order. Cards it hides are left out.
+    static func ordered<Card>(_ cards: [Card], ranking: NativeDiscoverServerRanking?, id: (Card) -> String, localPrecedes: (Card, Card) -> Bool) -> [Card] {
+        guard let ranking else { return cards.sorted(by: localPrecedes) }
+        let positions = ranking.positions
+        return cards.filter { !ranking.hidden.contains(id($0)) }.sorted { first, second in
+            let a = positions[id(first)] ?? Int.max
+            let b = positions[id(second)] ?? Int.max
+            return a != b ? a < b : localPrecedes(first, second)
+        }
+    }
+
+    static func rankCandidate(browseID: String, cardID: String, isParty: Bool, isOffering: Bool, rail: String, rating: String,
+                              latitude: Double?, longitude: Double?, actionable: Bool, facts: NativeDiscoverRankFacts?) -> NativeDiscoverRankCandidate {
+        let kind: NativeDiscoverRankCandidate.Kind
+        if isParty { kind = .party }
+        else if isOffering { kind = .offering }
+        else if cardID.hasPrefix("venue-") { kind = .venue }
+        else if cardID.hasPrefix("place-") { kind = .place }
+        else if cardID.contains("event-") { kind = .event }
+        else { kind = .place }
+        return NativeDiscoverRankCandidate(id: browseID, kind: kind, rail: rail, rating: Double(rating.trimmingCharacters(in: .whitespaces)),
+                                           latitude: latitude, longitude: longitude, actionable: actionable, facts: facts ?? NativeDiscoverRankFacts())
+    }
+
     static func partyRoute(offering: NativePlanBookableOffering) -> NativePartyPassRoute? {
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-:")
         guard offering.sourceKind == .party, !offering.sourceId.isEmpty,
@@ -11701,6 +11726,14 @@ private struct NativeDiscoverView: View {
     @State private var showRideHandoff = false
     @State private var routeVenue: NativeVenueSummary?
     @State private var discoverStatusMessage: String?
+    /// places.rankDiscover's order for the current deck. Nil until it answers,
+    /// and on failure, so the deck keeps the local order.
+    @State private var discoverRanking: NativeDiscoverServerRanking?
+    @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var rankVibe = ""
+    @AppStorage(NativeLaunchPersonalizationStorage.walkKey) private var rankWalk = ""
+    @AppStorage(NativeLaunchPersonalizationStorage.crewKey) private var rankCrew = ""
+    @AppStorage(NativePreferenceFilter.avoidKey) private var rankAvoid = ""
+    @AppStorage(NativePreferenceFilter.priceCeilingKey) private var rankPriceCeiling = 0
     @ObservedObject private var transactions = NativeDiscoverTransactionStore.shared
     @State private var transactionPlan: NativeDiscoverPlanDestination?
     @EnvironmentObject private var sessionStore: BytspotSessionStore
@@ -11738,6 +11771,7 @@ private struct NativeDiscoverView: View {
         var address: String? = nil
         var offering: NativePlanBookableOffering? = nil
         var nearbyParty: NativeNearbyParty? = nil
+        var rankFacts: NativeDiscoverRankFacts? = nil
         var isParty: Bool { nearbyParty != nil || offering?.sourceKind == .party }
         var presentation: NativeDiscoverBookablePresentation { NativeDiscoverBrowsePolicy.presentation(offering: offering) }
         var executableActionTitle: String? {
@@ -11778,6 +11812,7 @@ private struct NativeDiscoverView: View {
         .task { await refreshDiscoverFeedOnOpen() }
         .task(id: scenePhase) { await refreshLocationWhileOpen() }
         .task(id: catalogTaskID) { await loadBookables() }
+        .task(id: rankTaskID) { await loadRanking() }
         .task(id: transactions.accountRevision) { await refreshTransactions() }
         .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidChange)) { _ in
             Task { await refreshTransactions() }
@@ -12220,28 +12255,66 @@ private struct NativeDiscoverView: View {
     }
 
     private var rankedCards: [DiscoverCardSpec] {
+        NativeDiscoverBrowsePolicy.ordered(browseCards(matching: selectedFilter), ranking: discoverRanking, id: \.browseID) { first, second in
+            NativeDiscoverBrowsePolicy.precedes(
+                supported: first.presentation.primaryActionTitle != nil, relevance: searchScore(for: first), id: first.browseID,
+                otherSupported: second.presentation.primaryActionTitle != nil, otherRelevance: searchScore(for: second), otherID: second.browseID,
+                isParty: first.isParty, otherIsParty: second.isParty)
+        }
+    }
+
+    private func browseCards(matching filter: String?) -> [DiscoverCardSpec] {
         // Preserve the existing location/safety visibility filter. A reference
         // never acquires supply identity by sharing a title with an offering.
         let references = NativeLocationAwareUIContent.discoverCards(in: regionalSnapshot, matching: nil)
             .filter {
                 NativeVendorExperience.isDiscoveryReference(id: $0.id) &&
                 NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: $0.type, sourceCategory: $0.categoryLabel) &&
-                NativeDiscoverBookablePresentation.matchesCategory($0.type, filter: selectedFilter, sourceCategory: $0.categoryLabel)
+                NativeDiscoverBookablePresentation.matchesCategory($0.type, filter: filter, sourceCategory: $0.categoryLabel)
             }
             .map(Self.spec(from:))
         let catalogRows = catalog.rows(for: catalogUserID)
         let offerings = catalogRows.filter {
-            NativeDiscoverBrowsePolicy.matchesCategory($0, filter: selectedFilter)
+            NativeDiscoverBrowsePolicy.matchesCategory($0, filter: filter)
         }.map(Self.spec(offering:))
         let invitations = NativeDiscoverBrowsePolicy.nearbyInvitations(in: regionalSnapshot, catalog: catalogRows)
-            .filter { NativeDiscoverBrowsePolicy.matchesInvitation($0, filter: selectedFilter) }
+            .filter { NativeDiscoverBrowsePolicy.matchesInvitation($0, filter: filter) }
             .map(Self.spec(from:))
-        return (invitations + references + offerings).sorted { first, second in
-            NativeDiscoverBrowsePolicy.precedes(
-                supported: first.presentation.primaryActionTitle != nil, relevance: searchScore(for: first), id: first.browseID,
-                otherSupported: second.presentation.primaryActionTitle != nil, otherRelevance: searchScore(for: second), otherID: second.browseID,
-                isParty: first.isParty, otherIsParty: second.isParty)
+        return invitations + references + offerings
+    }
+
+    /// The whole deck is ranked once, so switching category keeps the order
+    /// without another call.
+    private var rankCandidates: [NativeDiscoverRankCandidate] {
+        browseCards(matching: nil).map { card in
+            NativeDiscoverBrowsePolicy.rankCandidate(
+                browseID: card.browseID, cardID: card.id, isParty: card.isParty, isOffering: card.offering != nil,
+                rail: card.type, rating: card.rating, latitude: card.latitude, longitude: card.longitude,
+                actionable: card.presentation.primaryActionTitle != nil, facts: card.rankFacts)
         }
+    }
+
+    private var rankPreferences: NativePreferenceFilter {
+        NativePreferenceFilter(storedAvoid: rankAvoid, storedPriceCeiling: rankPriceCeiling)
+    }
+
+    private var rankTaskID: String {
+        let location = locationStore.coordinate
+        let place = location.isFallback ? "none" : String(format: "%.3f,%.3f", location.latitude, location.longitude)
+        let answers = [rankVibe, rankWalk, rankCrew, rankPreferences.avoid.joined(separator: ","), String(rankPreferences.priceCeiling ?? 0)]
+        return ([place] + answers + rankCandidates.map(\.id).sorted()).joined(separator: "|")
+    }
+
+    @MainActor private func loadRanking() async {
+        let candidates = rankCandidates
+        let location = locationStore.coordinate
+        guard !candidates.isEmpty, !location.isFallback else { discoverRanking = nil; return }
+        let api = NativeDiscoverRankAPI(client: BytspotAPIClient())
+        let ranking = try? await api.rank(
+            candidates: candidates, location: location, vibe: rankVibe, walk: rankWalk, crew: rankCrew,
+            hour: Calendar.current.component(.hour, from: Date()), preferences: rankPreferences)
+        guard !Task.isCancelled else { return }
+        discoverRanking = ranking
     }
 
     private func searchScore(for card: DiscoverCardSpec) -> Int {
@@ -12292,7 +12365,7 @@ private struct NativeDiscoverView: View {
     fileprivate static func spec(from card: NativeDiscoverSummary) -> DiscoverCardSpec {
         // Summary control/verified/CTA fields are legacy display inputs, never
         // canonical supply. In particular, do not match a catalog row by title.
-        DiscoverCardSpec(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: card.distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, control: card.control, latitude: card.latitude, longitude: card.longitude, address: card.address, nearbyParty: card.nearbyParty)
+        DiscoverCardSpec(id: card.id, type: card.type, title: card.title, subtitle: card.subtitle, distance: card.distance, rating: card.rating, icon: card.icon, verified: card.verified, entryType: card.entryType, cta: card.cta, imageUrl: card.imageUrl, categoryLabel: card.categoryLabel, badgeText: card.badgeText, metadataLine: card.metadataLine, features: card.features, vibeScore: card.vibeScore, availability: card.availability, membershipRequired: card.membershipRequired, control: card.control, latitude: card.latitude, longitude: card.longitude, address: card.address, nearbyParty: card.nearbyParty, rankFacts: card.rankFacts)
     }
 
     private func venueForDetail(_ card: DiscoverCardSpec) -> NativeVenueSummary {

@@ -509,6 +509,35 @@ final class NativeWindowAskTests: XCTestCase {
         XCTAssertNil(try listing(extra: ["videoUrl": NSNull()]).videoURL)
     }
 
+    func testAScannedPatchListsOnlyTheServicesThatTakeRequests() throws {
+        func card(_ id: String, intent: String) -> [String: Any] {
+            ["windowId": id, "sellerName": "Peach Table", "title": "Chef's counter", "priceCents": 4500, "maxGuests": 4,
+             "durationMins": 90, "intent": intent, "distanceMiles": 0, "coverUrl": NSNull(), "galleryUrls": [], "menus": [],
+             "place": ["label": "Midtown", "address": NSNull(), "lat": 33.78, "lng": -84.38, "phone": NSNull(), "website": NSNull()],
+             "nextSlot": ["startsAt": "2026-09-24T23:00:00.000Z", "remaining": 3], "upcomingSlots": []]
+        }
+        let json: [String: Any] = ["code": "K7M2QX9P", "sellerName": "Peach Table",
+                                   "place": ["label": "Midtown", "address": "1 Peachtree St", "lat": 33.78, "lng": -84.38],
+                                   "cards": [card("w1", intent: "request"), card("w2", intent: "none")]]
+        let opened = try JSONDecoder().decode(NativeOpenedPatch.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(opened.place.address, "1 Peachtree St")
+        XCTAssertEqual(opened.cards.count, 2)
+        XCTAssertEqual(opened.askable.map(\.windowId), ["w1"])
+    }
+
+    func testAnAskFromAScannedPatchCarriesItsCode() {
+        let input = NativeWindowAskAPI.askInput(windowID: "w1", partySize: 2, startsAt: "2026-09-24T23:00:00.000Z", note: " ", planID: nil, viaPatch: "K7M2QX9P")
+        XCTAssertEqual(input["viaPatch"] as? String, "K7M2QX9P")
+        XCTAssertNil(input["note"], "a blank note is not sent")
+        XCTAssertNil(NativeWindowAskAPI.askInput(windowID: "w1", partySize: 2, startsAt: "x", note: "", planID: "p1", viaPatch: nil)["viaPatch"])
+    }
+
+    func testARetiredPatchCodeIsToldApartFromANetworkFailure() {
+        XCTAssertEqual(NativeVendorPatchOutcome.failure(for: BytspotAPIClient.APIError.server(status: 404, body: "")), .notInUse)
+        XCTAssertEqual(NativeVendorPatchOutcome.failure(for: BytspotAPIClient.APIError.server(status: 429, body: "")), .failed)
+        XCTAssertEqual(NativeVendorPatchOutcome.failure(for: URLError(.notConnectedToInternet)), .failed)
+    }
+
     func testAnOlderServerWithoutUpcomingSlotsStillOffersTheNextOne() throws {
         let card = try listing()
         XCTAssertEqual(card.slots.map(\.startsAt), ["2026-09-24T23:00:00.000Z"])

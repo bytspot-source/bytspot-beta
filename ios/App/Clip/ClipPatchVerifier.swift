@@ -255,7 +255,7 @@ struct ClipLocalService: Identifiable, Equatable {
 
     var displayPosterURL: URL? { thumbnailURL ?? heroImageURL }
     var hasPlayableVideo: Bool { videoURL != nil }
-    /// Only `normalizeService` stamps "live"; every curated fixture is "curated".
+    /// Every service in the Clip is a curated fixture ("curated"); none is live.
     /// A curated price is a number we cannot honour, so it must never be shown
     /// as an offer — the same rule that keeps Typical from being labelled Live.
     var hasVerifiedPricing: Bool { source == "live" }
@@ -285,8 +285,8 @@ struct ClipLocalService: Identifiable, Equatable {
             ?? ClipLocalService(id: "platinum-entry", title: "Event Access", subtitle: "Premium event entry, digital credentials, and concierge arrival.", action: "Buy Pass", iconName: "ticket.fill", tintName: "violet", priceLabel: "From $50", amountCents: 5_000, currency: "USD", source: "curated", heroImageURL: nil, category: "events")
     }
 
-    /// Tier-specific service catalog rendered when the tRPC `vendors.search`
-    /// endpoint returns no rows. Black mirrors the legacy ultra-luxury list;
+    /// Tier-specific sample catalog used only by DEBUG screenshot walkthroughs.
+    /// Black mirrors the legacy ultra-luxury list;
     /// Platinum maps to mid-tier ($50+) parking, dining, and event services;
     /// Green showcases neighborhood cottage-industry offerings ($5+).
     static func fallbacks(for tier: BytspotTier) -> [ClipLocalService] {
@@ -706,12 +706,6 @@ struct ClipVendor: Identifiable, Equatable {
     }
 }
 
-struct ClipPatchVendorPayload: Equatable {
-    let context: ClipPatchContext?
-    let service: ClipLocalService?
-    let vendor: ClipVendor?
-}
-
 struct ClipPaymentSecureResult: Equatable {
     let bookingId: String?
     let status: String
@@ -727,25 +721,6 @@ struct ClipPatchVerifier {
         case network(String)
         case server(String)
         case decode
-    }
-
-    struct VerifiedPatch: Decodable {
-        let id: String
-        let label: String?
-        let status: String
-        let bindingType: String?
-        let bindingId: String?
-    }
-
-    struct VerifiedBinding: Decodable {
-        let type: String
-        let id: String
-    }
-
-    struct VerifyResult: Decodable {
-        let verified: Bool
-        let patch: VerifiedPatch
-        let binding: VerifiedBinding?
     }
 
     #if DEBUG
@@ -767,80 +742,6 @@ struct ClipPatchVerifier {
             return url
         }
         return URL(string: "https://bytspot-api.onrender.com")!
-    }
-
-    func resolvePatch(patchId: String, tier: BytspotTier = .black) async throws -> ClipPatchContext {
-        let payload = try await getTRPC("patch.resolve", input: ["patchId": patchId, "tier": tier.rawValue])
-        guard let root = payload as? [String: Any] else { throw VerifyError.decode }
-        let patch = root["patch"] as? [String: Any]
-        let vendor = root["vendor"] as? [String: Any]
-        let service = root["service"] as? [String: Any]
-
-        let resolvedId = string(patch?["id"]) ?? string(patch?["uid"]) ?? patchId
-        let venue = (root["venue"] as? [String: Any]) ?? (root["location"] as? [String: Any])
-        let venueName = string(venue?["displayName"]) ?? string(venue?["venueName"]) ?? string(venue?["name"]) ?? string(venue?["label"]) ?? string(venue?["address"])
-        let vendorName = string(vendor?["displayName"]) ?? string(vendor?["name"])
-        let serviceName = string(service?["title"]) ?? string(service?["name"])
-        let label = string(patch?["displayName"]) ?? string(patch?["label"]) ?? string(patch?["name"])
-        let patchIDValues = Set([patchId, resolvedId, string(patch?["id"]), string(patch?["uid"])].compactMap { $0 })
-        let title = [venueName, vendorName, label].compactMap { $0 }.first { !patchIDValues.contains($0) } ?? "Bytspot Access"
-        let subtitle = serviceName ?? string(root["type"])?.replacingOccurrences(of: "_", with: " ").capitalized ?? tier.defaultSubtitle
-        let coords = (vendor?["coordinates"] as? [String: Any]) ?? (patch?["coordinates"] as? [String: Any]) ?? (root["coordinates"] as? [String: Any])
-        let lat = Self.double(coords?["lat"]) ?? Self.double(coords?["latitude"]) ?? Self.double(vendor?["lat"]) ?? Self.double(vendor?["latitude"])
-        let lon = Self.double(coords?["lng"]) ?? Self.double(coords?["lon"]) ?? Self.double(coords?["longitude"]) ?? Self.double(vendor?["lng"]) ?? Self.double(vendor?["longitude"])
-        // Server tier (if surfaced) wins over the URL-derived tier so a
-        // re-tiered patch reflects backend authority on the next resolve.
-        let serverTierRaw = string(root["tier"]) ?? string(root["serviceTier"])
-            ?? string(patch?["tier"]) ?? string(patch?["serviceTier"])
-            ?? string(service?["tier"]) ?? string(service?["serviceTier"])
-            ?? string(vendor?["tier"]) ?? string(vendor?["serviceTier"])
-        let serverTier = serverTierRaw.flatMap { BytspotTier(rawValue: $0.lowercased()) }
-        return ClipPatchContext(
-            patchId: resolvedId,
-            title: title,
-            subtitle: subtitle,
-            status: string(patch?["status"]) ?? "active",
-            venueId: string(vendor?["id"]) ?? string(root["venueId"]),
-            serviceId: string(service?["id"]),
-            tier: serverTier ?? tier,
-            latitude: lat,
-            longitude: lon
-        )
-    }
-
-    func searchServices(patchId: String, tier: BytspotTier = .black, limit: Int = 24) async throws -> [ClipLocalService] {
-        let payload = try await getTRPC("vendors.search", input: ["patchId": patchId, "tier": tier.rawValue, "limit": limit])
-        guard let root = payload as? [String: Any] else { return [] }
-        let rows = (root["services"] as? [[String: Any]]) ?? (root["vendors"] as? [[String: Any]]) ?? []
-        let mapped = rows.prefix(8).enumerated().map { index, row in
-            normalizeService(row, index: index)
-        }
-        return mapped.filter { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    }
-
-    func searchVendors(service: ClipLocalService, patchId: String?, tier: BytspotTier = .black, limit: Int = 6) async throws -> [ClipVendor] {
-        var input: [String: Any] = ["serviceId": service.id, "tier": tier.rawValue, "limit": limit]
-        if let patchId { input["patchId"] = patchId }
-        let payload = try await getTRPC("vendors.search", input: input)
-        guard let root = payload as? [String: Any] else { return [] }
-        let rows = (root["vendors"] as? [[String: Any]]) ?? (root["services"] as? [[String: Any]]) ?? []
-        let mapped = rows.prefix(limit).enumerated().compactMap { index, row in
-            normalizeVendor(row, service: service, index: index)
-        }
-        return mapped.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    }
-
-    func getByPatch(patchId: String, tier: BytspotTier = .black) async throws -> ClipPatchVendorPayload? {
-        let payload = try await getTRPC("vendors.getByPatch", input: ["patchId": patchId, "tier": tier.rawValue])
-        guard let root = payload as? [String: Any] else { return nil }
-        let serviceRow = Self.firstObject(root, names: ["service", "vendorService", "listing"])
-        let vendorRow = Self.firstObject(root, names: ["vendor", "provider", "merchant"])
-        let patchRow = Self.firstObject(root, names: ["patch", "virtualPatch"])
-        let mergedVendorRow = Self.mergeDictionaries(vendorRow, Self.firstObject(root, names: ["bookingOption", "offer"]))
-        let service = serviceRow.map { normalizeService($0, index: 0) }
-        let context = makeContext(root: root, patch: patchRow, vendor: vendorRow, service: serviceRow, patchId: patchId, tier: tier)
-        let vendor = service.flatMap { normalizeVendor(mergedVendorRow ?? root, service: $0, index: 0) }
-        return ClipPatchVendorPayload(context: context, service: service, vendor: vendor)
     }
 
     /// Exchange an Apple identity token for a Bytspot session (`auth.appleSignIn`).
@@ -883,6 +784,13 @@ struct ClipPatchVerifier {
         let payload = try await getTRPC("sales.view", input: ["saleId": saleID])
         guard let listing = ClipSaleListing.fromPayload(payload, expectedID: saleID) else { throw VerifyError.decode }
         return listing
+    }
+
+    /// What a scanned business code names. A mutation: the server counts every open.
+    func openPatch(code: String) async throws -> ClipVendorPatch {
+        let payload = try await postTRPC("inventory.openPatch", input: ["code": code])
+        guard let patch = ClipVendorPatch.fromPayload(payload, expectedCode: code) else { throw VerifyError.decode }
+        return patch
     }
 
     /// The Party resolver is the only client-action authority. The Clip may
@@ -1063,41 +971,6 @@ struct ClipPatchVerifier {
     }
 #endif
 
-    func verify(token: String?) async throws -> VerifyResult {
-        guard let token, !token.isEmpty else { throw VerifyError.missingToken }
-
-        var req = URLRequest(url: Self.baseURL.appendingPathComponent("trpc/patch.verifyTap"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.timeoutInterval = 8
-        req.httpBody = try JSONSerialization.data(withJSONObject: [
-            "token": token
-        ])
-
-        let (data, response) = try await URLSession.shared.data(for: req)
-        guard let http = response as? HTTPURLResponse else {
-            throw VerifyError.network("No response")
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            let msg = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
-                .flatMap { ($0["error"] as? [String: Any])?["message"] as? String }
-                ?? "HTTP \(http.statusCode)"
-            throw VerifyError.server(msg)
-        }
-
-        let payload = try unwrapTRPCPayload(data)
-        return try Self.decodeVerifyResult(payload)
-    }
-
-    static func decodeVerifyResult(_ payload: Any) throws -> VerifyResult {
-        let payloadData = try JSONSerialization.data(withJSONObject: payload)
-        do {
-            return try JSONDecoder().decode(VerifyResult.self, from: payloadData)
-        } catch {
-            throw VerifyError.decode
-        }
-    }
-
     func authorizeApplePaySecure(
         service: ClipLocalService,
         patchId: String?,
@@ -1186,219 +1059,10 @@ struct ClipPatchVerifier {
         return value
     }
 
-    private func normalizeService(_ row: [String: Any], index: Int) -> ClipLocalService {
-        let vendor = row["vendor"] as? [String: Any]
-        let rawCategory = Self.string(row["category"]) ?? Self.string(row["serviceCategory"]) ?? Self.string(vendor?["category"])
-        let title = Self.string(row["title"]) ?? Self.string(row["name"]) ?? Self.string(vendor?["displayName"]) ?? "Local Service"
-        let desc = Self.string(row["description"]) ?? Self.string(row["serviceSubtitle"]) ?? rawCategory ?? "Available near this verified patch."
-        let action = Self.string(row["ctaText"]) ?? Self.string(row["action"]) ?? "Book Apple Pay Secure"
-        let rawAmount = Self.int(row["priceCents"]) ?? Self.int(row["amountCents"])
-        let currency = Self.string(row["currency"])?.uppercased() ?? "USD"
-        let price = Self.string(row["entryPrice"]) ?? Self.string(row["price"]) ?? rawAmount.map { Self.formatCurrency(cents: $0, currency: currency) }
-        let category = (rawCategory ?? title).lowercased()
-        let icon: String
-        let tint: String
-        if category.contains("park") || category.contains("car") {
-            icon = "car.side.lock.fill"; tint = "cyan"
-        } else if category.contains("vip") || category.contains("access") || category.contains("entry") {
-            icon = "crown.fill"; tint = "gold"
-        } else if category.contains("pay") || category.contains("book") {
-            icon = "creditcard.and.123"; tint = "emerald"
-        } else if category.contains("concierge") || category.contains("help") {
-            icon = "sparkles"; tint = "violet"
-        } else {
-            icon = "checkmark.seal.fill"; tint = "emerald"
-        }
-        let heroURL = Self.url(row["heroImageUrl"]) ?? Self.url(row["heroImageURL"]) ?? Self.url(row["heroBannerUrl"]) ?? Self.url(row["imageUrl"]) ?? Self.url(vendor?["heroImageUrl"]) ?? Self.url(vendor?["heroImageURL"]) ?? Self.url(vendor?["heroBannerUrl"]) ?? Self.url(vendor?["imageUrl"])
-        var service = ClipLocalService(
-            id: Self.string(row["id"]) ?? Self.string(row["vendorServiceId"]) ?? "service-\(index)",
-            title: title,
-            subtitle: desc,
-            action: action,
-            iconName: icon,
-            tintName: tint,
-            priceLabel: price,
-            amountCents: rawAmount,
-            currency: currency,
-            source: "live",
-            heroImageURL: heroURL,
-            category: rawCategory
-        )
-        service.videoURL = Self.url(row["videoUrl"]) ?? Self.url(row["videoURL"]) ?? Self.url(row["hlsUrl"]) ?? Self.url(vendor?["videoUrl"]) ?? Self.url(vendor?["videoURL"]) ?? Self.url(vendor?["hlsUrl"])
-        service.thumbnailURL = Self.url(row["thumbnailUrl"]) ?? Self.url(row["posterUrl"]) ?? Self.url(vendor?["thumbnailUrl"]) ?? Self.url(vendor?["posterUrl"])
-        service.scheduledDate = Self.string(row["scheduledDate"]) ?? Self.string(row["startTime"]) ?? Self.string(row["startDate"]) ?? Self.string(vendor?["scheduledDate"]) ?? Self.string(vendor?["startTime"])
-        service.hostName = Self.string(row["hostName"]) ?? Self.string(row["host"]) ?? Self.string(vendor?["hostName"]) ?? Self.string(vendor?["host"])
-        service.locationLabel = Self.string(row["locationLabel"]) ?? Self.string(row["location"]) ?? Self.string(row["address"]) ?? Self.string(vendor?["locationLabel"]) ?? Self.string(vendor?["address"])
-        service.theme = Self.string(row["theme"]) ?? Self.string(row["eventTheme"]) ?? Self.string(vendor?["theme"]) ?? Self.string(vendor?["eventTheme"])
-        service.guestSummary = Self.string(row["guestSummary"]) ?? Self.string(row["guestListSummary"]) ?? Self.string(vendor?["guestSummary"]) ?? Self.string(vendor?["guestListSummary"])
-        service.activityHighlights = Self.stringArray(row["activityHighlights"]) ?? Self.stringArray(row["activities"]) ?? Self.stringArray(row["highlights"]) ?? []
-        return service
-    }
-
-    private func normalizeVendor(_ row: [String: Any], service: ClipLocalService, index: Int) -> ClipVendor? {
-        let vendor = (row["vendor"] as? [String: Any]) ?? row
-        let name = Self.string(vendor["displayName"]) ?? Self.string(vendor["name"]) ?? Self.string(row["title"])
-        guard let resolvedName = name, !resolvedName.isEmpty else { return nil }
-        let tagline = Self.string(vendor["tagline"]) ?? Self.string(row["description"]) ?? Self.string(row["serviceSubtitle"]) ?? service.subtitle
-        let priceCents = Self.int(row["priceCents"]) ?? Self.int(row["amountCents"]) ?? Self.int(row["priceFromCents"]) ?? Self.int(vendor["priceCents"]) ?? Self.int(vendor["amountCents"]) ?? Self.int(vendor["priceFromCents"]) ?? service.amountCents ?? 5000
-        let currency = Self.string(row["currency"])?.uppercased() ?? service.currency
-        let rating = Self.double(vendor["rating"]) ?? Self.double(row["rating"])
-        let eta = Self.string(row["etaLabel"]) ?? Self.string(vendor["etaLabel"])
-        let rowHero = Self.url(row["heroImageUrl"])
-            ?? Self.url(row["heroImageURL"])
-            ?? Self.url(row["heroBannerUrl"])
-            ?? Self.url(row["imageUrl"])
-            ?? Self.url(row["thumbnailUrl"])
-        let vendorHero = Self.url(vendor["heroImageUrl"])
-            ?? Self.url(vendor["heroImageURL"])
-            ?? Self.url(vendor["heroBannerUrl"])
-            ?? Self.url(vendor["imageUrl"])
-            ?? Self.url(vendor["thumbnailUrl"])
-        let hero = rowHero ?? vendorHero
-        let availability = Self.string(row["availability"]) ?? Self.string(vendor["availability"]) ?? "Available now"
-        let highlights = (row["includedHighlights"] as? [String]) ?? (row["highlights"] as? [String]) ?? (vendor["includedHighlights"] as? [String]) ?? (vendor["highlights"] as? [String]) ?? []
-        let media = Self.parseMedia(primary: row["media"], fallback: vendor["media"], posterFallback: hero ?? service.heroImageURL)
-        let parsedItems = Self.parseLineItems(primary: row["items"], fallbacks: [row["lineItems"], row["checkoutItems"], row["products"], vendor["items"], vendor["lineItems"], vendor["checkoutItems"]])
-        let resolvedItems = parsedItems ?? []
-        let isGhAkwaaba = resolvedName.lowercased().contains("akwaaba") || service.title.lowercased().contains("akwaaba")
-        var vendorModel = ClipVendor(
-            id: Self.string(vendor["id"]) ?? Self.string(row["id"]) ?? "\(service.id)-vendor-\(index)",
-            name: resolvedName,
-            tagline: tagline,
-            priceFromCents: priceCents,
-            currency: currency,
-            rating: rating,
-            etaLabel: eta,
-            heroImageURL: hero,
-            availability: availability,
-            includedHighlights: highlights,
-            serviceId: service.id,
-            media: media,
-            items: resolvedItems.isEmpty && isGhAkwaaba ? ClipLineItem.ghAkwaabaDefaults(ticketCents: priceCents) : parsedItems,
-            control: "vendor"
-        )
-        vendorModel.origin = "live"
-        let rowVideo = Self.url(row["videoUrl"])
-            ?? Self.url(row["videoURL"])
-            ?? Self.url(row["hlsUrl"])
-        let vendorVideo = Self.url(vendor["videoUrl"])
-            ?? Self.url(vendor["videoURL"])
-            ?? Self.url(vendor["hlsUrl"])
-        vendorModel.videoURL = rowVideo ?? vendorVideo
-        vendorModel.thumbnailURL = Self.url(row["thumbnailUrl"]) ?? Self.url(row["posterUrl"]) ?? Self.url(vendor["thumbnailUrl"]) ?? Self.url(vendor["posterUrl"])
-        vendorModel.heroBannerURL = Self.url(row["heroBannerUrl"]) ?? Self.url(row["heroBannerURL"]) ?? Self.url(vendor["heroBannerUrl"]) ?? Self.url(vendor["heroBannerURL"])
-        vendorModel.scheduledDate = Self.string(row["scheduledDate"]) ?? Self.string(row["startTime"]) ?? Self.string(row["startDate"]) ?? Self.string(vendor["scheduledDate"]) ?? Self.string(vendor["startTime"])
-        vendorModel.hostName = Self.string(row["hostName"]) ?? Self.string(row["host"]) ?? Self.string(vendor["hostName"]) ?? Self.string(vendor["host"])
-        vendorModel.locationLabel = Self.string(row["locationLabel"]) ?? Self.string(row["location"]) ?? Self.string(row["address"]) ?? Self.string(vendor["locationLabel"]) ?? Self.string(vendor["address"])
-        vendorModel.theme = Self.string(row["theme"]) ?? Self.string(row["eventTheme"]) ?? Self.string(vendor["theme"]) ?? Self.string(vendor["eventTheme"])
-        vendorModel.guestSummary = Self.string(row["guestSummary"]) ?? Self.string(row["guestListSummary"]) ?? Self.string(vendor["guestSummary"]) ?? Self.string(vendor["guestListSummary"])
-        vendorModel.activityHighlights = Self.stringArray(row["activityHighlights"]) ?? Self.stringArray(row["activities"]) ?? Self.stringArray(row["highlights"]) ?? highlights
-        return vendorModel
-    }
-
-    private static func parseLineItems(primary: Any?, fallbacks: [Any?]) -> [ClipLineItem]? {
-        let source = ([primary] + fallbacks).compactMap { $0 as? [[String: Any]] }.first
-        guard let source else { return nil }
-        let items = source.enumerated().compactMap { index, row -> ClipLineItem? in
-            let id = string(row["id"]) ?? string(row["sku"]) ?? string(row["key"]) ?? "item-\(index)"
-            guard let label = string(row["label"]) ?? string(row["title"]) ?? string(row["name"]),
-                  let amount = int(row["amountCents"]) ?? int(row["priceCents"]) ?? int(row["unitAmountCents"]) else { return nil }
-            return ClipLineItem(
-                id: id,
-                label: label,
-                amountCents: max(amount, 0),
-                defaultQuantity: max(int(row["defaultQuantity"]) ?? int(row["quantity"]) ?? 0, 0),
-                minQuantity: max(int(row["minQuantity"]) ?? 0, 0),
-                maxQuantity: max(int(row["maxQuantity"]) ?? 20, 1)
-            )
-        }
-        return items.isEmpty ? nil : items
-    }
-
-    private func makeContext(root: [String: Any], patch: [String: Any]?, vendor: [String: Any]?, service: [String: Any]?, patchId: String, tier: BytspotTier) -> ClipPatchContext {
-        let resolvedId = Self.string(patch?["id"]) ?? Self.string(patch?["uid"]) ?? patchId
-        let venue = Self.firstObject(root, names: ["venue", "location"]) ?? Self.firstObject(vendor ?? [:], names: ["venue", "location"])
-        // Location copy must come from the venue/patch record, never from the
-        // opaque patch ID. Vendor/service names remain useful fallbacks.
-        let venueName = Self.string(venue?["displayName"])
-            ?? Self.string(venue?["venueName"])
-            ?? Self.string(venue?["name"])
-            ?? Self.string(venue?["label"])
-            ?? Self.string(venue?["address"])
-        let vendorName = Self.string(vendor?["displayName"]) ?? Self.string(vendor?["name"])
-        let serviceName = Self.string(service?["title"]) ?? Self.string(service?["name"])
-        let label = Self.string(patch?["displayName"]) ?? Self.string(patch?["label"]) ?? Self.string(patch?["name"])
-        let opaqueIDs = Set([patchId, resolvedId, Self.string(patch?["id"]), Self.string(patch?["uid"])].compactMap { $0 })
-        let humanTitle = [venueName, vendorName, label, Self.string(root["venueName"])].compactMap { $0 }.first { !opaqueIDs.contains($0) } ?? "Bytspot Access"
-        let coords = (venue?["coordinates"] as? [String: Any]) ?? (vendor?["coordinates"] as? [String: Any]) ?? (patch?["coordinates"] as? [String: Any]) ?? (root["coordinates"] as? [String: Any])
-        let serverTierRaw = Self.string(root["tier"]) ?? Self.string(root["serviceTier"])
-            ?? Self.string(patch?["tier"]) ?? Self.string(patch?["serviceTier"])
-            ?? Self.string(service?["tier"]) ?? Self.string(service?["serviceTier"])
-            ?? Self.string(vendor?["tier"]) ?? Self.string(vendor?["serviceTier"])
-        return ClipPatchContext(
-            patchId: resolvedId,
-            title: humanTitle,
-            subtitle: serviceName ?? Self.string(root["type"])?.replacingOccurrences(of: "_", with: " ").capitalized ?? tier.defaultSubtitle,
-            status: Self.string(patch?["status"]) ?? "active",
-            venueId: Self.string(vendor?["id"]) ?? Self.string(root["venueId"]),
-            serviceId: Self.string(service?["id"]),
-            tier: serverTierRaw.flatMap { BytspotTier(rawValue: $0.lowercased()) } ?? tier,
-            latitude: Self.double(coords?["lat"]) ?? Self.double(coords?["latitude"]),
-            longitude: Self.double(coords?["lng"]) ?? Self.double(coords?["lon"]) ?? Self.double(coords?["longitude"])
-        )
-    }
-
-    private static func firstObject(_ root: [String: Any], names: [String]) -> [String: Any]? {
-        for name in names {
-            if let value = root[name] as? [String: Any] { return value }
-        }
-        return nil
-    }
-
-    private static func mergeDictionaries(_ first: [String: Any]?, _ second: [String: Any]?) -> [String: Any]? {
-        guard first != nil || second != nil else { return nil }
-        var result = first ?? [:]
-        for (key, value) in second ?? [:] where result[key] == nil { result[key] = value }
-        return result
-    }
-
-    /// Parse a `media` block off a tRPC `vendors.search` row. Shape mirrors the
-    /// planned `vendor_media` table: { kind, posterUrl, videoPlaybackUrl|playbackUrl, durationMs, width, height }.
-    /// Returns nil when neither a video playback URL nor a usable poster is available.
-    private static func parseMedia(primary: Any?, fallback: Any?, posterFallback: URL?) -> ClipVendorMedia? {
-        let block = (primary as? [String: Any]) ?? (fallback as? [String: Any])
-        guard let block else { return nil }
-        let rawKind = string(block["kind"])?.lowercased() ?? "image"
-        let kind: ClipVendorMedia.Kind = rawKind == "video" ? .video : .image
-        let video = url(block["videoPlaybackUrl"]) ?? url(block["playbackUrl"]) ?? url(block["hlsUrl"])
-        let poster = url(block["posterUrl"]) ?? url(block["thumbnailUrl"]) ?? url(block["imageUrl"]) ?? posterFallback
-        guard video != nil || poster != nil else { return nil }
-        return ClipVendorMedia(
-            kind: video != nil ? .video : kind,
-            posterURL: poster,
-            videoPlaybackURL: video,
-            durationMs: int(block["durationMs"]),
-            width: int(block["width"]),
-            height: int(block["height"])
-        )
-    }
-
     private static func string(_ value: Any?) -> String? {
         guard let value else { return nil }
         if let value = value as? String, !value.isEmpty { return value }
         if let value = value as? NSNumber { return value.stringValue }
-        return nil
-    }
-
-    private static func stringArray(_ value: Any?) -> [String]? {
-        if let values = value as? [String] {
-            let cleaned = values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-            return cleaned.isEmpty ? nil : cleaned
-        }
-        if let raw = string(value) {
-            let cleaned = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-            return cleaned.isEmpty ? nil : cleaned
-        }
         return nil
     }
 
@@ -1409,24 +1073,9 @@ struct ClipPatchVerifier {
         return nil
     }
 
-    private static func double(_ value: Any?) -> Double? {
-        if let value = value as? Double { return value }
-        if let value = value as? NSNumber { return value.doubleValue }
-        if let value = value as? String { return Double(value) }
-        return nil
-    }
-
     private static func url(_ value: Any?) -> URL? {
         guard let raw = string(value) else { return nil }
         return URL(string: raw)
-    }
-
-    private static func formatCurrency(cents: Int, currency: String) -> String {
-        let dollars = Double(cents) / 100.0
-        if currency.uppercased() == "USD" {
-            return String(format: "$%.0f secure", dollars)
-        }
-        return "\(currency.uppercased()) \(String(format: "%.2f", dollars)) secure"
     }
 
     private func string(_ value: Any?) -> String? { Self.string(value) }

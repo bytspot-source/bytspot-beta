@@ -149,30 +149,18 @@ enum BytspotAviationFallbackTests {
             }
         }
         precondition(ClipBandTapScreen.eyebrow == "BYTSPOT BAND" && ClipBandTapScreen.bodyText == "This band is checked at the door. Show it to staff when you arrive.", "Band tap: wording drifted from the app's NativeBandTapScreen.")
-
-        func context(_ title: String, _ subtitle: String) -> ClipPatchContext {
-            ClipPatchContext(patchId: "BYT424-0017-B", title: title, subtitle: subtitle, status: "active", venueId: nil, serviceId: nil, tier: .black)
-        }
-        for placeholder in ["Bytspot Access", "  ", "BYT424-0017-B", "byt424-0017"] {
-            precondition(ClipBandTapScreen.realVenueContext(context(placeholder, "Rooftop"), patchId: "BYT424-0017-B") == nil, "Band tap: '\(placeholder)' is not a venue and must keep the band screen.")
-        }
-        precondition(ClipBandTapScreen.realVenueContext(nil, patchId: "BYT424-0017") == nil, "Band tap: a failed lookup keeps the band screen.")
-        let venue = ClipBandTapScreen.realVenueContext(context("The Velvet Room", BytspotTier.black.defaultSubtitle), patchId: "BYT424-0017-B")
-        precondition(venue?.title == "The Velvet Room" && venue?.subtitle == ClipBandTapScreen.bodyText, "Band tap: a real venue replaces the band screen, without tier marketing copy.")
-        precondition(ClipBandTapScreen.realVenueContext(context("The Velvet Room", "Bottle service"), patchId: "BYT424-0017-B")?.subtitle == "Bottle service", "Band tap: a server-provided subtitle is kept.")
     }
 
     /// Explicit DEBUG launch test (`--test-party-invocation`). Drives the
-    /// invocation model with band links; every lookup is cancelled before it
-    /// runs, so no request leaves the device.
+    /// invocation model with band links; a band runs no lookup, and any other
+    /// link's lookup is cancelled before it runs, so no request leaves the device.
     @MainActor static func runBandInvocationRegressions() {
         let model = ClipInvocationModel(partyInviteLoader: { _ in preconditionFailure("Band tap: a band link must never load a party.") })
         model.handle(url: URL(string: "https://bytspot.app/BYT424-0017")!)
         guard case .band(let plain) = model.flow else { preconditionFailure("Band tap: an uncoded band link must show the band screen, not the catalog.") }
         precondition(plain.tier == nil && model.services.isEmpty && model.vendorsByService.isEmpty, "Band tap: no curated services or vendors may back the band screen.")
         precondition(!model.isLoadingContext && model.contextError == nil && model.patchContext == nil, "Band tap: the band screen must not show a loading or curated-fallback message.")
-        precondition(model.invocationTaskForTesting != nil, "Band tap: the existing patch lookup must still run so a real venue can replace the band screen.")
-        model.invocationTaskForTesting?.cancel()
+        precondition(model.invocationTaskForTesting == nil, "Band tap: staff check bands at the door; no guest band lookup may run.")
         let plainHandoff = model.mainAppHandoffURL.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         precondition(plainHandoff?.path == "/access/BYT424-0017" && plainHandoff?.queryItems?.contains(where: { $0.name == "tier" }) == false, "Band tap: an uncoded band must not hand off as a Black link.")
 
@@ -186,28 +174,66 @@ enum BytspotAviationFallbackTests {
         guard case .band(let campaign) = model.flow, campaign.title == "Bytspot band BYT424-0301" else { preconditionFailure("Band tap: a campaign-root serial query must show the band screen.") }
 
         model.handle(url: URL(string: "https://bytspot.app/BYT424-0017?t=ict-abc")!)
-        model.invocationTaskForTesting?.cancel()
-        precondition(model.flow == .catalog, "Band tap: a token-carrying band link keeps the patch verification flow.")
+        precondition(model.flow == .linkNotInUse && model.invocationTaskForTesting == nil && model.services.isEmpty, "Old links: a token-carrying band link runs no lookup and shows no catalog.")
 
         model.handle(url: URL(string: "https://bytspot.app/BYT424-0017?tier=platinum&venue=GH%20Akwaaba%20Pass")!)
-        model.invocationTaskForTesting?.cancel()
-        guard case .checkout = model.flow else { preconditionFailure("Band tap: a named special flow must keep its checkout.") }
+        guard case .band = model.flow else { preconditionFailure("Old links: an Akwaaba query no longer opens a sample checkout.") }
 
         model.handle(url: URL(string: "https://bytspot.app/party/party-17")!)
         model.invocationTaskForTesting?.cancel()
         precondition(model.flow == .partyLoading(partyID: "party-17"), "Band tap: a Party Pass link must keep the party flow.")
 
-        model.handle(url: URL(string: "https://bytspot.app/access/BYT-BRONI-P?tier=platinum")!)
-        model.invocationTaskForTesting?.cancel()
-        precondition(model.flow == .catalog && model.tier == .platinum && !model.services.isEmpty, "Band tap: a partner patch must keep its catalog.")
-
-        model.handle(url: URL(string: "https://bytspot.app/p/black-aviation-001?tier=black")!)
-        precondition(model.flow == .catalog && !model.services.isEmpty, "Band tap: a non-band patch must keep the catalog.")
-        model.invocationTaskForTesting?.cancel()
+        for old in ["https://bytspot.app/access/BYT-BRONI-P?tier=platinum", "https://bytspot.app/p/black-aviation-001?tier=black",
+                    "https://bytspot.app/t/black-0301", "https://bytspot.app/?patch=platinum-parking-001", "https://bytspot.app/venue/somewhere"] {
+            model.handle(url: URL(string: old)!)
+            precondition(model.flow == .linkNotInUse && model.services.isEmpty && model.vendorsByService.isEmpty, "Old links: '\(old)' must not show the sample catalog.")
+            precondition(model.invocationTaskForTesting == nil, "Old links: '\(old)' must not call the server.")
+            precondition(model.mainAppHandoffURL?.absoluteString == "https://bytspot.app/", "Old links: Get Bytspot opens the app's home.")
+        }
 
         model.handle(url: URL(string: "https://bytspot.app/")!)
         precondition(model.flow == .awaitingInvocation && model.services.isEmpty, "The bare home page must not open the vendor catalog.")
         print("BAND_INVOCATION_REGRESSIONS_PASSED")
+    }
+
+    /// Explicit DEBUG launch test (`--test-party-invocation`). A business code
+    /// shows what `inventory.openPatch` names, never the vendor catalog.
+    @MainActor static func runVendorPatchInvocationRegressions() async {
+        let payload: [String: Any] = [
+            "code": "K7M2QX9P", "sellerName": "Broni's Kitchen",
+            "place": ["label": "Broni's Midtown", "address": "", "lat": 33.78, "lng": -84.38],
+            "cards": [
+                ["windowId": "w1", "title": "Chef's table", "priceCents": 4500, "intent": "request", "nextSlot": ["startsAt": "2026-11-03T23:00:00.000Z", "remaining": 4]],
+                ["windowId": "w2", "title": "Walk-in", "priceCents": 0, "intent": "browse", "nextSlot": ["startsAt": "2026-11-03T23:00:00.000Z", "remaining": 4]],
+            ],
+        ]
+        guard let patch = ClipVendorPatch.fromPayload(payload, expectedCode: "K7M2QX9P") else { preconditionFailure("Vendor patch: an opened patch must parse.") }
+        precondition(patch.placeLabel == "Broni's Midtown" && patch.address == nil && patch.services.map(\.id) == ["w1"], "Vendor patch: only request services are listed, and an empty address is hidden.")
+        precondition(patch.services.first?.nextSlot != nil && ClipVendorPatch.priceLabel(4500) == "$45", "Vendor patch: price and next time drifted.")
+        precondition(ClipVendorPatch.fromPayload(payload, expectedCode: "OTHER123") == nil, "Vendor patch: a response for another code must never render.")
+        precondition(ClipVendorPatch.code(from: ["at", "k7m2qx9p"]) == "K7M2QX9P" && ClipVendorPatch.code(from: ["at"]) == nil && ClipVendorPatch.code(from: ["at", "a/b"]) == nil && ClipVendorPatch.code(from: ["p", "K7M2QX9P"]) == nil)
+
+        let model = ClipInvocationModel(
+            partyInviteLoader: { _ in preconditionFailure("Vendor patch: a business code must never load a party.") },
+            vendorPatchLoader: { code in
+                if code == "GONE1234" { throw ClipPatchVerifier.VerifyError.server(ClipVendorPatch.notInUseMessage) }
+                guard code == "K7M2QX9P" else { throw URLError(.notConnectedToInternet) }
+                return patch
+            })
+        model.handle(url: URL(string: "https://bytspot.app/at/k7m2qx9p")!)
+        precondition(model.flow == .vendorPatchLoading(code: "K7M2QX9P") && model.services.isEmpty && model.vendorsByService.isEmpty, "Vendor patch: a business code must not show the vendor catalog.")
+        precondition(model.mainAppHandoffURL?.absoluteString == "https://bytspot.app/at/K7M2QX9P", "Vendor patch: Get Bytspot must open this code in the app.")
+        await model.invocationTaskForTesting!.value
+        precondition(model.flow == .vendorPatch(patch) && !model.isLoadingContext)
+
+        model.handle(url: URL(string: "https://bytspot.app/at/GONE1234")!)
+        await model.invocationTaskForTesting!.value
+        precondition(model.flow == .vendorPatchFailed(code: "GONE1234", message: ClipVendorPatch.notInUseMessage), "Vendor patch: a retired code says so.")
+
+        model.handle(url: URL(string: "https://bytspot.app/at/OFFLINE1")!)
+        await model.invocationTaskForTesting!.value
+        precondition(model.flow == .vendorPatchFailed(code: "OFFLINE1", message: ClipVendorPatch.failedMessage), "Vendor patch: a network failure offers a retry, not 'not in use'.")
+        print("VENDOR_PATCH_INVOCATION_REGRESSIONS_PASSED")
     }
 
     /// Explicit DEBUG launch test (`--test-party-invocation`). A shared sale
@@ -454,10 +480,9 @@ enum BytspotAviationFallbackTests {
         )
     }
 
-    /// The curated catalog exists so the Clip has something to render before a
-    /// backend answers. None of it is bookable: `vendors.getByPatch`,
-    /// `vendors.searchServices` and `booking.authorizeApplePayHold` do not exist
-    /// yet. So no fixture may report verified pricing, or the UI would print a
+    /// The curated catalog only backs DEBUG screenshot walkthroughs; no link
+    /// opens it. None of it is bookable: `booking.authorizeApplePayHold` does
+    /// not exist. So no fixture may report verified pricing, or the UI would print a
     /// price and a buy button for an offer that cannot settle.
     private static func assertCuratedFixturesNeverClaimVerifiedPricing() {
         for tier in [BytspotTier.green, .platinum, .black] {
@@ -742,20 +767,12 @@ enum BytspotAviationFallbackTests {
         precondition(ClipInvocationModel.partyRoute(from: ["party", "party-1"]) == .party(id: "party-1"), "Party Loop: /party/<id> must route to the Party Pass.")
         precondition(ClipInvocationModel.partyRoute(from: ["party"]) == .invalid, "Party Loop: a bare /party link must fail as a party, never fall through to the catalog.")
         precondition(ClipInvocationModel.partyRoute(from: ["party", "a", "b"]) == .invalid, "Party Loop: malformed party paths must fail as a party, never fall through to the catalog.")
-        precondition(ClipInvocationModel.partyRoute(from: ["p", "black-0301"]) == PartyPassInvite.Route.none, "Party Loop: patch routes stay on the catalog.")
+        precondition(ClipInvocationModel.partyRoute(from: ["p", "black-0301"]) == PartyPassInvite.Route.none, "Party Loop: patch routes are not party routes.")
         var missingSource = dto
         missingSource.removeValue(forKey: "source")
         precondition(PartyPassInvite.fromPayload(missingSource) == nil, "Party Loop: a Party DTO without Host Studio provenance must fail closed.")
         let join = ClipPatchVerifier.unwrapTRPCValue(["result": ["data": ["json": ["status": "joined"]]]]) as? [String: Any]
         precondition(join?["status"] as? String == "joined", "Party Loop: standard tRPC join envelopes must unwrap to status.")
-        let verifyEnvelope: [String: Any] = ["result": ["data": ["json": ["verified": true, "patch": ["id": "patch-1", "status": "active"]]]]]
-        let verify = try? ClipPatchVerifier.decodeVerifyResult(ClipPatchVerifier.unwrapTRPCValue(verifyEnvelope))
-        precondition(verify?.verified == true && verify?.patch.id == "patch-1", "Party Loop: patch verification must decode standard result.data.json envelopes.")
-        if let verify {
-            precondition(ClipInvocationModel.verificationState(for: verify, label: "Patch") == .success(label: "Patch", bindingType: nil), "Party Loop: active verified taps must succeed.")
-            let denied = ClipPatchVerifier.VerifyResult(verified: false, patch: verify.patch, binding: nil)
-            guard case .denied = ClipInvocationModel.verificationState(for: denied, label: "Patch") else { preconditionFailure("Party Loop: unverified taps must fail closed.") }
-        }
     }
 
     private static func assertPartyPassPreviewContract() {

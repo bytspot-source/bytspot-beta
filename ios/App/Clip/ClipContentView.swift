@@ -171,6 +171,21 @@ struct ClipContentView: View {
                 case .band(let screen):
                     ClipBandTapView(screen: screen, showOverlay: $showOverlay)
                         .transition(.opacity)
+                case .vendorPatchLoading:
+                    ClipPartyInviteStateView(title: "Opening code…", message: "Getting what this business offers.", isLoading: true)
+                        .transition(.opacity)
+                case .vendorPatchFailed(_, let message):
+                    ClipPartyInviteStateView(title: "Code unavailable", message: message, isLoading: false,
+                                             retry: message == ClipVendorPatch.failedMessage ? { invocation.retryVendorPatch() } : nil)
+                        .transition(.opacity)
+                case .vendorPatch(let patch):
+                    ClipVendorPatchView(patch: patch, showOverlay: $showOverlay)
+                        .id(patch.code)
+                        .transition(.opacity)
+                case .linkNotInUse:
+                    ClipPartyInviteStateView(title: "Link not in use", message: "This link is no longer in use. Get Bytspot to see what's on nearby.", isLoading: false,
+                                             getApp: { impactLight(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) })
+                        .transition(.opacity)
                 case .vendors(let service):
                     ClipVendorListView(service: service)
                         .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
@@ -200,6 +215,7 @@ struct ClipContentView: View {
         switch invocation.flow {
         case .band(let screen): return screen.tier == nil
         case .saleLoading, .saleFailed, .sale: return true
+        case .vendorPatchLoading, .vendorPatchFailed, .vendorPatch, .linkNotInUse: return true
         default: return false
         }
     }
@@ -285,6 +301,85 @@ private struct ClipSaleView: View {
     }
 }
 
+private struct ClipVendorPatchView: View {
+    @EnvironmentObject var invocation: ClipInvocationModel
+    let patch: ClipVendorPatch
+    @Binding var showOverlay: Bool
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(ClipVendorPatch.eyebrow)
+                        .font(.system(size: 11, weight: .black))
+                        .foregroundColor(ClipTheme.cyan)
+                        .tracking(1.4)
+                    Text(patch.placeLabel)
+                        .font(.system(size: 28, weight: .heavy))
+                        .foregroundColor(.white)
+                        .lineLimit(3)
+                        .minimumScaleFactor(0.8)
+                    Text(patch.sellerName)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.74))
+                    if let address = patch.address {
+                        Label(address, systemImage: "mappin.and.ellipse")
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.82))
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("clip-vendor-patch-header")
+                VStack(alignment: .leading, spacing: 12) {
+                    if patch.services.isEmpty {
+                        Text(patch.emptyMessage)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.74))
+                    } else {
+                        ForEach(patch.services) { service in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(service.title)
+                                    .font(.system(size: 15.5, weight: .bold))
+                                    .foregroundColor(.white)
+                                Text([ClipVendorPatch.priceLabel(service.priceCents), service.nextSlot.map { "Next \($0.formatted(date: .abbreviated, time: .shortened))" }].compactMap { $0 }.joined(separator: " · "))
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.66))
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityElement(children: .combine)
+                        }
+                        Text(ClipVendorPatch.askNote)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.62))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Button(action: { impactLight(); openFullApp(url: invocation.mainAppHandoffURL, showOverlay: $showOverlay) }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.down.app.fill")
+                            Text(ClipVendorPatch.getAppTitle)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                        }
+                        .font(.system(size: 14, weight: .black))
+                        .foregroundColor(.black)
+                        .padding(.vertical, 14).padding(.horizontal, 14)
+                        .background(ClipTheme.cyan)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("clip-vendor-patch-get-app")
+                }
+                .padding(16)
+                .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(ClipTheme.panelElevated))
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 22)
+            .padding(.bottom, 28)
+        }
+        .accessibilityIdentifier("clip-vendor-patch")
+    }
+}
+
 private struct ClipBandTapView: View {
     @EnvironmentObject var invocation: ClipInvocationModel
     let screen: ClipBandTapScreen
@@ -348,6 +443,7 @@ private struct ClipPartyInviteStateView: View {
     let message: String
     let isLoading: Bool
     var retry: (() -> Void)? = nil
+    var getApp: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 14) {
@@ -361,6 +457,12 @@ private struct ClipPartyInviteStateView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(ClipTheme.cyan)
                     .accessibilityIdentifier("party-invite-retry")
+            }
+            if let getApp {
+                Button("Get Bytspot", action: getApp)
+                    .buttonStyle(.borderedProminent)
+                    .tint(ClipTheme.cyan)
+                    .accessibilityIdentifier("clip-link-not-in-use-get-app")
             }
         }
         .padding(26).frame(maxWidth: 360)

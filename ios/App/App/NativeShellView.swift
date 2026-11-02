@@ -612,8 +612,8 @@ struct BytspotNativeShellView: View {
                 .preferredColorScheme(.dark)
         }
         .sheet(item: $contextualDestination) { destination in
-            NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }, openNativeProfilePanel: { panel in openNativeProfile(panel: panel) }, requestNetworkAuthentication: { openNativeAuth(mode: .login, pendingIntent: .network) }, openAccess: { openNativeEquivalent(for: .access) }, requestSaleAuthentication: { saleID in pendingSaleAuthID = saleID; openNativeAuth(mode: .login) }, showSaleOnMap: showSaleOnMap, requestPlanAuthentication: { pendingPlanAuthDestination = destination; openNativeAuth(mode: .login) }, openPlanNeed: openPlanNeed)
-            .preferredColorScheme(NativeContextualDestinationView.isSale(destination) ? .dark : effectivePreferredColorScheme)
+            NativeContextualDestinationView(destination: destination, initialProfilePanel: pendingProfilePanel, consumeInitialProfilePanel: { pendingProfilePanel = nil }, openNativeProfilePanel: { panel in openNativeProfile(panel: panel) }, requestNetworkAuthentication: { openNativeAuth(mode: .login, pendingIntent: .network) }, openAccess: { openNativeEquivalent(for: .access) }, requestSaleAuthentication: { saleID in pendingSaleAuthID = saleID; openNativeAuth(mode: .login) }, showSaleOnMap: showSaleOnMap, requestPlanAuthentication: { pendingPlanAuthDestination = destination; openNativeAuth(mode: .login) }, openPlanNeed: openPlanNeed, requestVendorPatchAuthentication: { pendingPlanAuthDestination = destination; openNativeAuth(mode: .login) })
+            .preferredColorScheme(NativeContextualDestinationView.forcesDarkAppearance(destination) ? .dark : effectivePreferredColorScheme)
         }
         .sheet(isPresented: $showValetPreviewSheet) {
             NativeValetPremiumRideSheet(openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) })
@@ -930,7 +930,7 @@ struct BytspotNativeShellView: View {
     /// dropped by the launch/post-auth suppression window.
     static func destinationBypassesLaunchSuppression(_ destination: NativeContextualDestination) -> Bool {
         switch destination {
-        case .party, .patch, .plan, .sale: return true
+        case .party, .patch, .plan, .sale, .vendorPatch: return true
         case .profile, .accessWallet, .booking, .legal: return false
         }
     }
@@ -1278,6 +1278,7 @@ private struct NativeContextualDestinationView: View {
     var showSaleOnMap: (NativeSaleBuyerCard) -> Void = { _ in }
     var requestPlanAuthentication: () -> Void = {}
     var openPlanNeed: (String) -> Void = { _ in }
+    var requestVendorPatchAuthentication: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var authCoordinator: NativeAuthCoordinator
@@ -1324,6 +1325,10 @@ private struct NativeContextualDestinationView: View {
                 } else if case .sale(let saleID) = destination {
                     NativePrivateSaleBuyerView(saleID: saleID, requestAuthentication: { requestSaleAuthentication(saleID) }, showOnMap: showSaleOnMap)
                         .environmentObject(sessionStore)
+                } else if case .vendorPatch(let code) = destination {
+                    NativeVendorPatchView(code: code, requestAuthentication: requestVendorPatchAuthentication)
+                        .environmentObject(sessionStore)
+                        .navigationBarHidden(true)
                 } else if case .booking(_, _, let ride) = destination, let ride {
                     NativeMobilityHandoffConfirmationCard(ride: ride, openAccess: openAccess)
                 } else if case .patch(let route) = destination {
@@ -1356,9 +1361,11 @@ private struct NativeContextualDestinationView: View {
         }
     }
 
-    static func isSale(_ destination: NativeContextualDestination) -> Bool {
-        if case .sale = destination { return true }
-        return false
+    static func forcesDarkAppearance(_ destination: NativeContextualDestination) -> Bool {
+        switch destination {
+        case .sale, .vendorPatch: return true
+        default: return false
+        }
     }
 }
 

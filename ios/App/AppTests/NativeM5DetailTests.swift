@@ -98,6 +98,112 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertNil(try decode(response(cards: [shown])).proposal)
     }
 
+    private func proposedPlan(_ changes: [String: Any] = [:]) -> [String: Any] {
+        var value: [String: Any] = [
+            "title": "Dinner and drinks", "intent": "dinner and drinks for 4", "needs": ["dining", "nightlife", "events"],
+            "partySize": 4, "openNeeds": ["events"],
+            "stops": [["cardId": "gp:kitchen", "needKind": "dining", "title": "Real Kitchen"],
+                      ["cardId": "gp:bar", "needKind": "nightlife", "title": "Real Bar"]],
+        ]
+        value.merge(changes) { _, new in new }
+        return value
+    }
+
+    private func planCards() -> [[String: Any]] {
+        [card(["id": "gp:kitchen", "placeId": "kitchen", "name": "Real Kitchen", "category": "restaurant"]),
+         card(["id": "gp:bar", "placeId": "bar", "name": "Real Bar", "category": "bar"])]
+    }
+
+    func testProposedPlanDecodesOnlyWhenItsStopsAreShownCards() throws {
+        let decoded = try decode(response(cards: planCards(), changes: ["proposedPlan": proposedPlan()]))
+        XCTAssertEqual(decoded.proposedPlan?.title, "Dinner and drinks")
+        XCTAssertEqual(decoded.proposedPlan?.stops.map(\.cardId), ["gp:kitchen", "gp:bar"])
+        XCTAssertEqual(decoded.proposedPlan?.partySize, 4)
+        let invalid: [[String: Any]] = [
+            proposedPlan(["stops": [["cardId": "gp:other", "needKind": "dining", "title": "Other"]], "needs": ["dining"], "openNeeds": []]),
+            proposedPlan(["needs": ["dining", "nightlife"]]),
+            proposedPlan(["partySize": 40]),
+            proposedPlan(["stops": [["cardId": "gp:kitchen", "needKind": "dining", "title": "A"], ["cardId": "gp:kitchen", "needKind": "nightlife", "title": "B"]]]),
+        ]
+        for plan in invalid {
+            let outcome = try decode(response(cards: planCards(), changes: ["proposedPlan": plan]))
+            XCTAssertNil(outcome.proposedPlan)
+            XCTAssertEqual(outcome.cards.count, 2, "a bad proposed Plan is dropped, never fatal")
+        }
+        XCTAssertNil(try decode(response(cards: planCards())).proposedPlan)
+        let withProposal = try decode(response(cards: planCards(), changes: [
+            "proposedPlan": proposedPlan(), "proposal": ["type": "directions", "cardId": "gp:kitchen"]]))
+        XCTAssertNil(withProposal.proposedPlan)
+    }
+
+    private final class PlanWriter: NativeConciergePlanWriting {
+        var requests: [NativePlanWriteRequest] = []
+        var failAttachTitles: Set<String> = []
+        var failCreate = false
+        func create(_ request: NativePlanWriteRequest) async throws -> String {
+            requests.append(request)
+            if failCreate { throw URLError(.timedOut) }
+            return "plan-1"
+        }
+        func attachReference(_ request: NativePlanWriteRequest) async throws {
+            requests.append(request)
+            if failAttachTitles.contains(request.input["title"] as? String ?? "") { throw BytspotAPIClient.APIError.invalidResponse }
+        }
+        func feasibility(_ planID: String) async throws -> NativePlanFeasibility {
+            NativePlanFeasibility(verdict: .breaks, checks: [NativePlanFeasibilityCheck(check: "window", verdict: .breaks, detail: "Too late.", itemIds: [])])
+        }
+        func primePath(_ planID: String) async throws -> NativePrimePathResponse { throw URLError(.timedOut) }
+    }
+
+    func testMakeItAPlanCreatesOnceAttachesEachStopAndReadsThePlanChecks() async throws {
+        let decoded = try decode(response(cards: planCards(), changes: ["proposedPlan": proposedPlan()]))
+        let plan = try XCTUnwrap(decoded.proposedPlan)
+        var draft = NativeConciergePlanDraft(plan: plan, idempotencyKey: "11111111-1111-4111-8111-111111111111")
+        XCTAssertEqual(draft.partySize, 4)
+        draft.startsAt = Date(timeIntervalSince1970: 1_900_000_000)
+        let writer = PlanWriter()
+        writer.failAttachTitles = ["Real Bar"]
+        let saved = try await NativeConciergePlanSave.save(draft, cards: decoded.cards, origin: seattle, writer: writer)
+
+        XCTAssertEqual(writer.requests.map(\.path), ["/trpc/plans.create", "/trpc/plans.attach", "/trpc/plans.attach"])
+        let create = writer.requests[0].input
+        XCTAssertEqual(create["idempotencyKey"] as? String, "11111111-1111-4111-8111-111111111111")
+        XCTAssertEqual(create["needs"] as? [String], ["dining", "nightlife", "events"], "events is kept, not filtered to the form's six")
+        XCTAssertEqual(create["partySize"] as? Int, 4)
+        XCTAssertEqual(create["latitude"] as? Double, seattle.latitude)
+        XCTAssertEqual(create["areaLabel"] as? String, "Near me")
+        XCTAssertNotNil(create["startsAt"] as? String)
+        let attach = writer.requests[1].input
+        XCTAssertEqual(attach["planId"] as? String, "plan-1")
+        XCTAssertEqual(attach["needKind"] as? String, "dining")
+        XCTAssertEqual(attach["placeId"] as? String, "kitchen")
+        XCTAssertNil(attach["supplyRef"])
+
+        XCTAssertEqual(saved.added, ["Real Kitchen"])
+        XCTAssertEqual(saved.notAdded, ["Real Bar"], "a failed reference attach is reported, never retried")
+        XCTAssertEqual(saved.openNeeds, ["nightlife", "events"])
+        XCTAssertEqual(saved.askableNeeds, ["nightlife", "events"])
+        XCTAssertEqual(saved.feasibility?.verdict, .breaks)
+        XCTAssertNil(saved.primePath, "a Plan check that fails to load is hidden")
+    }
+
+    func testAFailedCreateAttachesNothingAndOnlyAFinalRefusalUnfreezesTheKey() async throws {
+        let decoded = try decode(response(cards: planCards(), changes: ["proposedPlan": proposedPlan()]))
+        let draft = NativeConciergePlanDraft(plan: try XCTUnwrap(decoded.proposedPlan)).frozen()
+        let writer = PlanWriter()
+        writer.failCreate = true
+        do {
+            _ = try await NativeConciergePlanSave.save(draft, cards: decoded.cards, origin: seattle, writer: writer)
+            XCTFail("create failure must throw")
+        } catch {}
+        XCTAssertEqual(writer.requests.map(\.path), ["/trpc/plans.create"])
+        XCTAssertTrue(draft.isFrozen)
+        let edited = draft.editable()
+        XCTAssertFalse(edited.isFrozen)
+        XCTAssertNotEqual(edited.idempotencyKey, draft.idempotencyKey)
+        XCTAssertEqual(edited.partySize, draft.partySize)
+    }
+
     func testApprovalTextNamesThePlaceAndNeverClaimsABooking() throws {
         let coffee = try decode(response(cards: [card(["websiteUrl": "https://coffee.example.com"])])).cards[0]
         let booking = NativeConciergeAction.bookTable(url: URL(string: "https://resy.com/cities/x")!, label: "Resy")

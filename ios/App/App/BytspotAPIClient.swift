@@ -413,6 +413,41 @@ struct NativeConciergeProposal: Equatable {
     let cardId: String
 }
 
+/// A Plan Concierge proposes from shown cards. Nothing is saved until the guest
+/// chooses Make it a Plan; the app then uses plans.create and plans.attach.
+struct NativeConciergeProposedPlan: Decodable, Equatable {
+    struct Stop: Decodable, Equatable {
+        let cardId: String
+        let needKind: String
+        let title: String
+    }
+    let title: String
+    let intent: String
+    let needs: [String]
+    let partySize: Int?
+    let stops: [Stop]
+    let openNeeds: [String]
+
+    /// Same rules as the server schema, checked against the cards this response shows.
+    func isValid(for cards: [NativeConciergeCard]) -> Bool {
+        let stated = stops.map(\.needKind) + openNeeds
+        let text = { (value: String, limit: Int) in
+            !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && value.utf16.count <= limit
+        }
+        return text(title, 80) && text(intent, 280)
+            && (1...3).contains(needs.count) && (1...3).contains(stops.count) && openNeeds.count <= 3
+            && needs.allSatisfy { text($0, 40) } && Set(needs).count == needs.count
+            && Set(stated).count == stated.count && Set(stated) == Set(needs)
+            && Set(stops.map(\.cardId)).count == stops.count
+            && stops.allSatisfy { stop in text(stop.title, 120) && cards.contains { $0.id == stop.cardId } }
+            && partySize.map { (1...20).contains($0) } ?? true
+    }
+
+    func card(for stop: Stop, in cards: [NativeConciergeCard]) -> NativeConciergeCard? {
+        cards.first { $0.id == stop.cardId }
+    }
+}
+
 struct NativeConciergeCard: Decodable, Identifiable, Equatable {
     enum Kind: String, Decodable { case venue, place }
     enum Source: String, Decodable { case bytspot, google, googleStale = "google-stale" }
@@ -650,7 +685,9 @@ struct NativeConciergeResponse: Decodable, Equatable {
     let refinements: [String]
     /// Only a suggestion for one shown card action. The guest must still approve it.
     let proposal: NativeConciergeProposal?
-    private enum CodingKeys: String, CodingKey { case version, reply, status, cards, refinements, proposal }
+    /// A Plan built from the shown cards. Dropped, not fatal, when it does not match them.
+    let proposedPlan: NativeConciergeProposedPlan?
+    private enum CodingKeys: String, CodingKey { case version, reply, status, cards, refinements, proposal, proposedPlan }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -668,6 +705,8 @@ struct NativeConciergeResponse: Decodable, Equatable {
         } else {
             proposal = nil
         }
+        let rawPlan = (try? values.decodeIfPresent(NativeConciergeProposedPlan.self, forKey: .proposedPlan)) ?? nil
+        proposedPlan = status == .ready && proposal == nil && rawPlan?.isValid(for: decodedCards) == true ? rawPlan : nil
         guard version == 1, !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               reply.utf16.count <= 8_000, cards.count <= 3,
               Set(cards.map(\.id)).count == cards.count,

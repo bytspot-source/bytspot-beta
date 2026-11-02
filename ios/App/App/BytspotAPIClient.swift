@@ -268,7 +268,7 @@ struct NativePreferenceFilter: Encodable, Equatable {
         ("fast_food", "Fast food", "takeoutbag.and.cup.and.straw.fill"),
         ("busy", "Busy places", "person.3.fill"),
     ]
-    static let none = NativePreferenceFilter(avoid: [], priceCeiling: nil)
+    static let empty = NativePreferenceFilter(avoid: [], priceCeiling: nil)
 
     let avoid: [String]
     let priceCeiling: Int?
@@ -360,7 +360,7 @@ struct NativeConciergeRequest: Encodable, Equatable {
     let preferences: NativePreferenceFilter?
 
     init(messages: [NativeConciergeMessage], location: NativeLocationCoordinate?, quizAnswers: QuizAnswers,
-         preferences: NativePreferenceFilter = .none) throws {
+         preferences: NativePreferenceFilter = .empty) throws {
         guard let coordinate = NativeConciergeContract.realCoordinate(location) else { throw InputError.needsLocation }
         let bounded = messages.suffix(NativeConciergeContract.maximumMessages).map {
             NativeConciergeMessage(role: $0.role, content: NativeConciergeContract.boundedMessage($0.content))
@@ -4589,7 +4589,7 @@ struct NativeLiveDiscoveryAPI {
 
     /// Only a real fix is sent: recommendations for an assumed city would be
     /// someone else's neighbourhood.
-    func placesRecommend(location: NativeLocationCoordinate, vibe: String, walk: String, crew: String, hour: Int, preferences: NativePreferenceFilter = .none) async throws -> NativeRecommendations {
+    func placesRecommend(location: NativeLocationCoordinate, vibe: String, walk: String, crew: String, hour: Int, preferences: NativePreferenceFilter = .empty) async throws -> NativeRecommendations {
         guard !location.isFallback else { return .empty }
         var input: [String: Any] = ["lat": location.latitude, "lng": location.longitude, "hour": max(0, min(23, hour))]
         if !preferences.isEmpty { input["preferences"] = preferences.input }

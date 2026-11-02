@@ -4085,7 +4085,7 @@ final class NativeProfileDataAPITests: XCTestCase {
         let filterInput = NativeProfileDataAPI.userPreferencesInput(filter: NativePreferenceFilter(avoid: ["bars", "busy"], priceCeiling: 2))
         XCTAssertEqual(filterInput["avoid"] as? [String], ["bars", "busy"])
         XCTAssertEqual(filterInput["priceCeiling"] as? Int, 2)
-        let cleared = NativeProfileDataAPI.userPreferencesInput(filter: .none)
+        let cleared = NativeProfileDataAPI.userPreferencesInput(filter: .empty)
         XCTAssertEqual(cleared["avoid"] as? [String], [])
         XCTAssertTrue(cleared["priceCeiling"] is NSNull, "A cleared ceiling is sent as null so the saved one is removed")
     }
@@ -4101,7 +4101,7 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(filter.input["avoid"] as? [String], ["bars", "busy"])
         XCTAssertEqual(filter.input["priceCeiling"] as? Int, 3)
         XCTAssertNil(NativePreferenceFilter(avoid: ["bars"], priceCeiling: nil).input["priceCeiling"])
-        XCTAssertNotEqual(filter.requestKey, NativePreferenceFilter.none.requestKey, "Changing the filter re-asks for Home picks")
+        XCTAssertNotEqual(filter.requestKey, NativePreferenceFilter.empty.requestKey, "Changing the filter re-asks for Home picks")
 
         let noClubs = NativePreferenceFilter(avoid: ["nightclubs", "busy"], priceCeiling: 1)
         XCTAssertTrue(noClubs.leavesOut(category: "club", crowdLevel: nil))
@@ -4110,7 +4110,7 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertFalse(noClubs.leavesOut(category: "restaurant", crowdLevel: 2))
         XCTAssertFalse(NativePreferenceFilter(avoid: ["bars"], priceCeiling: nil).leavesOut(category: "barbecue", crowdLevel: nil), "Whole words only")
         XCTAssertTrue(NativePreferenceFilter(avoid: ["bars"], priceCeiling: nil).leavesOut(category: "cocktail_lounge", crowdLevel: nil))
-        XCTAssertFalse(NativePreferenceFilter.none.leavesOut(category: "club", crowdLevel: 4))
+        XCTAssertFalse(NativePreferenceFilter.empty.leavesOut(category: "club", crowdLevel: 4))
 
         let record = try decode(NativeUserPreferencesRecord.self, from: ["result": ["data": ["json": ["vibes": ["food"], "avoid": ["nightclubs"], "priceCeiling": 2]]]])
         XCTAssertEqual(record.avoid, ["nightclubs"])

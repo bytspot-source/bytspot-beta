@@ -8182,7 +8182,7 @@ private struct NativeHomeDashboardView: View {
         rankedLaunchPicks(from: snapshot, location: location, intent: intent, walk: walk, crew: crew, limit: 1).first?.venue
     }
 
-    static func rankedLaunchPicks(from snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String, limit: Int = 3, preferences: NativePreferenceFilter = .none) -> [LaunchRecommendationPick] {
+    static func rankedLaunchPicks(from snapshot: NativeTabContentSnapshot, location: NativeLocationCoordinate, intent: String, walk: String, crew: String, limit: Int = 3, preferences: NativePreferenceFilter = .empty) -> [LaunchRecommendationPick] {
         guard NativeHomeRegionPresentation.canPresentLaunchPicks(in: snapshot) else { return [] }
         let venues = NativeAuthLaunchContract.launchVenueCandidates(from: snapshot.trustworthyLiveVenues)
             .filter { !preferences.leavesOut(category: $0.category, crowdLevel: $0.crowd?.level) }

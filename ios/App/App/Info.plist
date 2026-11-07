@@ -86,7 +86,7 @@
     <false />
     <!-- â”€â”€ Privacy Usage Descriptions (required by App Store Review) â”€â”€ -->
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>Bytspot needs your location to show nearby venues, typical occupancy, and available parking so you can find the best spots around you.</string>
+    <string>Bytspot needs your location to show nearby venues, typical occupancy, and available parking so you can find the best spots around you, and to remind you when you arrive at a stop on your Plan.</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>When you turn on Share reports nearby in the Map, Bytspot passes Map reports to phones near you so they reach Bytspot even when you have no signal.</string>
     <key>NSBonjourServices</key>

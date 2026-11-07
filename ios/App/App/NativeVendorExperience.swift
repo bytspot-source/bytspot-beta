@@ -683,6 +683,8 @@ final class NativeVenueVisitStore: ObservableObject {
         await submit(context: context, venueID: venueID, coordinate: coordinate) { input in
             try await api.checkIn(input: input)
         }
+        guard activeContext == context, state(userID: context.userID, venueID: venueID).isConfirmed else { return }
+        await NativePushService.shared.offerReminderPrompt(signedIn: true, moment: .checkIn)
     }
 
     /// venueID must be venue.checkInVenueID, never a title, Places ID, or catalog

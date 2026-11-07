@@ -16,6 +16,8 @@ struct NativeRelayedReport: Codable, Equatable, Identifiable {
         let kind: String
         let lat: Double
         let lng: Double
+        /// Set for a report about a Bytspot venue; omitted from the signed JSON otherwise.
+        var venueId: String? = nil
         let reportedAt: String
     }
 
@@ -31,10 +33,10 @@ struct NativeRelayedReport: Codable, Equatable, Identifiable {
     var decoded: Payload? { try? JSONDecoder().decode(Payload.self, from: Data(payload.utf8)) }
     var reportedDate: Date? { decoded.flatMap { NativeMapReport.date($0.reportedAt) } }
 
-    static func make(kind: String, latitude: Double, longitude: Double, clientReportID: String,
+    static func make(kind: String, latitude: Double, longitude: Double, clientReportID: String, venueID: String? = nil,
                      keyID: String, privateKey: P256.Signing.PrivateKey, at date: Date = Date()) throws -> NativeRelayedReport {
         let payload = Payload(v: 1, keyId: keyID, clientReportId: clientReportID, kind: kind, lat: latitude, lng: longitude,
-                              reportedAt: ISO8601DateFormatter().string(from: date))
+                              venueId: venueID, reportedAt: ISO8601DateFormatter().string(from: date))
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         let text = String(decoding: try encoder.encode(payload), as: UTF8.self)

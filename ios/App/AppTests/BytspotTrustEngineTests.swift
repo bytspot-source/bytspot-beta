@@ -9428,6 +9428,42 @@ final class NativeMapReportsTests: XCTestCase {
         XCTAssertNil(try JSONDecoder().decode(NativeMapReportStanding.self, from: Data(#"{"confirmedThisWeek":0,"badge":null}"#.utf8)).badge)
     }
 
+    func testVenueCrowdReportsAreAboutTheVenueAndAskOnlyOnce() throws {
+        func venueReport(_ id: String, kind: String, venueId: String?, minutesAgo: Double, mine: Bool? = nil, myVote: String? = nil,
+                         status: String = "unconfirmed", expires: Date = Date().addingTimeInterval(20 * 60)) -> NativeMapReport {
+            NativeMapReport(id: id, kind: kind, lat: 33.78, lng: -84.38, venueId: venueId, venueName: "Real Bar", status: status,
+                            agreeCount: 2, goneCount: 0, createdAt: iso(Date().addingTimeInterval(-minutesAgo * 60)), expiresAt: iso(expires),
+                            mine: mine, myVote: myVote)
+        }
+        let listed = [
+            venueReport("old", kind: "long_line", venueId: "v1", minutesAgo: 20),
+            venueReport("new", kind: "packed", venueId: "v1", minutesAgo: 3, status: "confirmed"),
+            venueReport("other", kind: "packed", venueId: "v2", minutesAgo: 1),
+            venueReport("road", kind: "police", venueId: nil, minutesAgo: 1),
+            venueReport("ended", kind: "packed", venueId: "v1", minutesAgo: 1, expires: Date().addingTimeInterval(-1)),
+        ]
+        XCTAssertEqual(NativeVenueCrowdReports.active(listed, venueID: "v1").map(\.id), ["new", "old"])
+        let shown = try XCTUnwrap(NativeVenueCrowdReports.active(listed, venueID: "v1").first)
+        XCTAssertEqual(NativeVenueCrowdReports.status(shown), "Confirmed by 2 guests · 3m ago")
+        XCTAssertEqual(NativeVenueCrowdReportKind(rawValue: shown.kind)?.question, "Still packed?")
+        XCTAssertTrue(NativeVenueCrowdReports.shouldAsk(shown))
+        XCTAssertFalse(NativeVenueCrowdReports.shouldAsk(venueReport("m", kind: "packed", venueId: "v1", minutesAgo: 1, mine: true)), "never about my own report")
+        XCTAssertFalse(NativeVenueCrowdReports.shouldAsk(venueReport("a", kind: "packed", venueId: "v1", minutesAgo: 1, myVote: "gone")), "never twice")
+        XCTAssertEqual(NativeVenueCrowdReportKind.allCases.map(\.rawValue), ["packed", "long_line"])
+
+        let submit = NativeMapReportsAPI.submitInput(kind: "packed", latitude: 33.78, longitude: -84.38, clientReportID: "ABCDEF12-3456", venueID: "v1")
+        XCTAssertEqual(submit["venueId"] as? String, "v1")
+        XCTAssertNil(NativeMapReportsAPI.submitInput(kind: "police", latitude: 33.78, longitude: -84.38, clientReportID: "ABCDEF12-3456")["venueId"])
+
+        let key = P256.Signing.PrivateKey()
+        let held = try NativeRelayedReport.make(kind: "packed", latitude: 33.78, longitude: -84.38, clientReportID: "relay-venue-1",
+                                                venueID: "v1", keyID: "k1", privateKey: key)
+        XCTAssertTrue(held.isValid(at: Date()))
+        XCTAssertEqual(held.decoded?.venueId, "v1", "the venue is part of what is signed")
+        XCTAssertTrue(held.payload.contains(#""venueId":"v1""#))
+        XCTAssertFalse(try carried(key: key).payload.contains("venueId"), "a road report signs the same JSON as before")
+    }
+
     private func carried(_ id: String = "relay-0001", key: P256.Signing.PrivateKey = P256.Signing.PrivateKey(), at date: Date = Date()) throws -> NativeRelayedReport {
         try NativeRelayedReport.make(kind: "police", latitude: 33.78, longitude: -84.38, clientReportID: id, keyID: "k1", privateKey: key, at: date)
     }

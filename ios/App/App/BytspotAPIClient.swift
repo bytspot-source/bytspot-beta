@@ -6006,8 +6006,11 @@ struct NativeMapReportsAPI {
         ["lat": latitude, "lng": longitude, "radiusMiles": radiusMiles]
     }
 
-    static func submitInput(kind: String, latitude: Double, longitude: Double, clientReportID: String) -> [String: Any] {
-        ["kind": kind, "lat": latitude, "lng": longitude, "clientReportId": clientReportID]
+    /// `venueID` is required for `packed` and `long_line`: those are about a Bytspot venue.
+    static func submitInput(kind: String, latitude: Double, longitude: Double, clientReportID: String, venueID: String? = nil) -> [String: Any] {
+        var input: [String: Any] = ["kind": kind, "lat": latitude, "lng": longitude, "clientReportId": clientReportID]
+        if let venueID { input["venueId"] = venueID }
+        return input
     }
 
     static func voteInput(reportID: String, stillThere: Bool) -> [String: Any] {
@@ -6031,9 +6034,9 @@ struct NativeMapReportsAPI {
         return try JSONDecoder().decode(List.self, from: JSONSerialization.data(withJSONObject: payload)).reports
     }
 
-    func submit(kind: String, latitude: Double, longitude: Double, clientReportID: String) async throws -> NativeMapReportResult {
+    func submit(kind: String, latitude: Double, longitude: Double, clientReportID: String, venueID: String? = nil) async throws -> NativeMapReportResult {
         try await client.trpcDecode(NativeMapReportResult.self, path: Self.submitPath, method: "POST",
-                                    input: Self.submitInput(kind: kind, latitude: latitude, longitude: longitude, clientReportID: clientReportID))
+                                    input: Self.submitInput(kind: kind, latitude: latitude, longitude: longitude, clientReportID: clientReportID, venueID: venueID))
     }
 
     func vote(reportID: String, stillThere: Bool) async throws -> NativeMapReportResult {

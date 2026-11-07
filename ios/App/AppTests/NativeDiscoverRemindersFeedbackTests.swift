@@ -257,4 +257,29 @@ final class NativeDiscoverRemindersFeedbackTests: XCTestCase {
         NativeReminderPermissionPolicy.recordDecline(at: sixDays, in: defaults)
         XCTAssertEqual(NativeReminderPermissionPolicy.declinedAt(in: defaults), sixDays)
     }
+
+    func testSignInCardIsOfferedOncePerDeviceWhileOtherMomentsKeepTheCooldownOnly() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let sixDays = now.addingTimeInterval(-6 * 24 * 3600)
+        XCTAssertTrue(NativeReminderPermissionPolicy.shouldOffer(.signIn, status: .notDetermined, signedIn: true, declinedAt: nil, signInOffered: false, now: now))
+        XCTAssertFalse(NativeReminderPermissionPolicy.shouldOffer(.signIn, status: .notDetermined, signedIn: true, declinedAt: nil, signInOffered: true, now: now))
+        XCTAssertFalse(NativeReminderPermissionPolicy.shouldOffer(.signIn, status: .notDetermined, signedIn: false, declinedAt: nil, signInOffered: false, now: now))
+        for moment in [NativeReminderPromptMoment.commitment, .hostPublished, .checkIn] {
+            XCTAssertTrue(NativeReminderPermissionPolicy.shouldOffer(moment, status: .notDetermined, signedIn: true, declinedAt: nil, signInOffered: true, now: now))
+            XCTAssertFalse(NativeReminderPermissionPolicy.shouldOffer(moment, status: .notDetermined, signedIn: true, declinedAt: sixDays, signInOffered: false, now: now))
+            XCTAssertFalse(NativeReminderPermissionPolicy.shouldOffer(moment, status: .denied, signedIn: true, declinedAt: nil, signInOffered: false, now: now))
+        }
+
+        let defaults = UserDefaults(suiteName: "reminder-sign-in-\(UUID().uuidString)")!
+        XCTAssertFalse(NativeReminderPermissionPolicy.signInOffered(in: defaults))
+        NativeReminderPermissionPolicy.recordSignInOffered(in: defaults)
+        XCTAssertTrue(NativeReminderPermissionPolicy.signInOffered(in: defaults))
+    }
+
+    func testEachMomentSaysWhatTheAlertsAreFor() {
+        XCTAssertEqual(NativeReminderPromptMoment.commitment.title, "Get a reminder before it starts?")
+        XCTAssertEqual(NativeReminderPromptMoment.hostPublished.title, "Get told when guests RSVP or request?")
+        XCTAssertEqual(NativeReminderPromptMoment.checkIn.title, "Hear when your saved spots get packed or open up?")
+        XCTAssertEqual(NativeReminderPromptMoment.signIn.title, "Turn on alerts for your Plans and Parties?")
+    }
 }

@@ -647,6 +647,11 @@ struct BytspotNativeShellView: View {
         .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidChange)) { _ in
             Task { await pushService.offerReminderPrompt(signedIn: sessionStore.isAuthenticated) }
         }
+        .task(id: sessionStore.isAuthenticated && selectedTab == .home) {
+            guard sessionStore.isAuthenticated, selectedTab == .home else { return }
+            do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
+            await pushService.offerReminderPrompt(signedIn: sessionStore.isAuthenticated, moment: .signIn)
+        }
         .sheet(isPresented: $showGuestRequests) {
             NativeGuestRequestsView(demand: NativePlanDemandAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in
                 guard let sessionStore, sessionStore.canAttachBearerToken else { return nil }
@@ -13324,6 +13329,7 @@ private struct NativeVenueDetailView: View {
     @State private var heroPhotoIndex = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var transactions = NativeDiscoverTransactionStore.shared
+    @ObservedObject private var pushService = NativePushService.shared
     @State private var transactionPlan: NativeDiscoverPlanDestination?
     @State private var isSaved = false
     @State private var didCheckIn = false
@@ -13361,6 +13367,15 @@ private struct NativeVenueDetailView: View {
             if usesBytspotDisplay { bytspotContent } else { listedContent }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { placeBottomActions }
+        // This sheet covers the shell's copy of the card.
+        .overlay(alignment: .bottom) {
+            if pushService.reminderPromptVisible {
+                NativeReminderPermissionCard(pushService: pushService)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
         .foregroundColor(.white)
         .background(NativeDeepSpaceGround())
         .preferredColorScheme(.dark)

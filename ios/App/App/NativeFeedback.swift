@@ -364,10 +364,26 @@ struct NativeFeedbackHomeCard: View {
     }
 }
 
-/// Offered after a signed-in member commits to something, never at launch.
+/// What the member just did, so the card says what the alerts are for.
+enum NativeReminderPromptMoment: Equatable {
+    case commitment, hostPublished, checkIn, signIn
+
+    var title: String {
+        switch self {
+        case .commitment: return NativeReminderPermissionPolicy.title
+        case .hostPublished: return "Get told when guests RSVP or request?"
+        case .checkIn: return "Hear when your saved spots get packed or open up?"
+        case .signIn: return "Turn on alerts for your Plans and Parties?"
+        }
+    }
+}
+
+/// Offered after a signed-in member commits to something, never as the iOS
+/// prompt at launch. The sign-in card is shown once per device.
 enum NativeReminderPermissionPolicy {
     static let cooldown: TimeInterval = 7 * 24 * 60 * 60
     static let declinedAtKey = "bytspot_reminder_prompt_declined_at"
+    static let signInOfferedKey = "bytspot_reminder_prompt_sign_in_offered"
     static let title = "Get a reminder before it starts?"
     static let allowTitle = "Allow"
     static let notNowTitle = "Not now"
@@ -376,6 +392,20 @@ enum NativeReminderPermissionPolicy {
         guard signedIn, status == .notDetermined else { return false }
         guard let declinedAt else { return true }
         return now.timeIntervalSince(declinedAt) >= cooldown
+    }
+
+    static func shouldOffer(_ moment: NativeReminderPromptMoment, status: NativePushSystemAlertStatus, signedIn: Bool,
+                            declinedAt: Date?, signInOffered: Bool, now: Date = Date()) -> Bool {
+        if moment == .signIn, signInOffered { return false }
+        return shouldOffer(status: status, signedIn: signedIn, declinedAt: declinedAt, now: now)
+    }
+
+    static func signInOffered(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: signInOfferedKey)
+    }
+
+    static func recordSignInOffered(in defaults: UserDefaults = .standard) {
+        defaults.set(true, forKey: signInOfferedKey)
     }
 
     static func declinedAt(in defaults: UserDefaults = .standard) -> Date? {
@@ -394,7 +424,7 @@ struct NativeReminderPermissionCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Image(systemName: "bell.badge.fill").foregroundColor(NativeTheme.cyan).accessibilityHidden(true)
-                Text(NativeReminderPermissionPolicy.title).font(.headline).foregroundColor(.white)
+                Text(pushService.reminderPromptMoment.title).font(.headline).foregroundColor(.white)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 10) {

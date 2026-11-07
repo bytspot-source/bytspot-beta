@@ -245,6 +245,7 @@ final class NativePushService: NSObject, ObservableObject {
     @Published private(set) var systemAlertStatus: NativePushSystemAlertStatus = .notDetermined
     @Published private(set) var isRequestingAuthorization = false
     @Published private(set) var reminderPromptVisible = false
+    @Published private(set) var reminderPromptMoment: NativeReminderPromptMoment = .commitment
     private var lastSyncedRegistrationKey: String?
 
     func configure(delegate: UNUserNotificationCenterDelegate) {
@@ -286,13 +287,19 @@ final class NativePushService: NSObject, ObservableObject {
         NotificationCenter.default.post(name: Self.tokenDidChangeNotification, object: nil)
     }
 
-    /// The contextual reminder card. Called after a signed-in Plan add, RSVP or
-    /// ticket checkout; the policy keeps it to undecided devices and a 7-day cooldown.
-    func offerReminderPrompt(signedIn: Bool) async {
+    /// The contextual reminder card. Called after a signed-in Plan add, RSVP,
+    /// ticket checkout, party publish, confirmed check-in, or once after sign-in;
+    /// the policy keeps it to undecided devices and a 7-day cooldown.
+    func offerReminderPrompt(signedIn: Bool, moment: NativeReminderPromptMoment = .commitment) async {
         guard signedIn, !reminderPromptVisible else { return }
         systemAlertStatus = Self.status(from: await UNUserNotificationCenter.current().notificationSettings().authorizationStatus)
-        reminderPromptVisible = NativeReminderPermissionPolicy.shouldOffer(
-            status: systemAlertStatus, signedIn: signedIn, declinedAt: NativeReminderPermissionPolicy.declinedAt())
+        guard !reminderPromptVisible,
+              NativeReminderPermissionPolicy.shouldOffer(moment, status: systemAlertStatus, signedIn: signedIn,
+                  declinedAt: NativeReminderPermissionPolicy.declinedAt(),
+                  signInOffered: NativeReminderPermissionPolicy.signInOffered()) else { return }
+        if moment == .signIn { NativeReminderPermissionPolicy.recordSignInOffered() }
+        reminderPromptMoment = moment
+        reminderPromptVisible = true
     }
 
     func acceptReminderPrompt() async {

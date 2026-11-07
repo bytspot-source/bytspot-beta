@@ -12831,6 +12831,174 @@ private struct NativeVenueCheckInChip: View {
     }
 }
 
+/// What guests can say about how busy a Bytspot venue is right now.
+enum NativeVenueCrowdReportKind: String, CaseIterable, Identifiable {
+    case packed
+    case longLine = "long_line"
+
+    var id: String { rawValue }
+    var title: String { self == .packed ? "Packed" : "Long line" }
+    var symbol: String { self == .packed ? "person.3.fill" : "person.line.dotted.person.fill" }
+    var reportedTitle: String { self == .packed ? "Guests say it's packed" : "Guests report a long line" }
+    var question: String { self == .packed ? "Still packed?" : "Still a long line?" }
+}
+
+enum NativeVenueCrowdReports {
+    static let prompt = "Is it packed, or is there a long line?"
+    static let reach = "Only guests nearby can report. A report shows on this place once another guest agrees."
+    static let locationNeeded = "Turn on location to report how busy it is."
+
+    /// Active packed and long-line reports about this venue, newest first.
+    static func active(_ reports: [NativeMapReport], venueID: String, now: Date = Date()) -> [NativeMapReport] {
+        reports.filter { $0.venueId == venueID && NativeVenueCrowdReportKind(rawValue: $0.kind) != nil && $0.isActive(at: now) }
+            .sorted { ($0.createdDate ?? .distantPast) > ($1.createdDate ?? .distantPast) }
+    }
+
+    /// Asked once: never about the member's own report, nor after they answered.
+    static func shouldAsk(_ report: NativeMapReport) -> Bool {
+        report.mine != true && report.myVote == nil
+    }
+
+    static func status(_ report: NativeMapReport, now: Date = Date()) -> String {
+        let minutes = report.createdDate.map { max(0, Int(now.timeIntervalSince($0) / 60)) } ?? 0
+        let age = minutes == 0 ? "just now" : minutes < 60 ? "\(minutes)m ago" : "\(minutes / 60)h ago"
+        let guests = report.agreeCount == 1 ? "1 guest" : "\(report.agreeCount) guests"
+        let mine = report.mine == true ? " · Your report" : report.myVote == "still" ? " · You agreed" : ""
+        return "\(report.isConfirmed ? "Confirmed by \(guests)" : "Unconfirmed") · \(age)\(mine)"
+    }
+
+    static func votedMessage(stillThere: Bool, removed: Bool) -> String {
+        stillThere ? "Thanks. You confirmed it." : removed ? "Thanks. The report was cleared." : "Thanks. It clears once others agree."
+    }
+}
+
+/// Guests at a Bytspot venue report it packed or with a long line, and confirm
+/// or clear what others said. Venues Bytspot does not list have no reports.
+private struct NativeVenueCrowdReportRow: View {
+    let venue: NativeVenueSummary
+    let openAuth: () -> Void
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @EnvironmentObject private var locationStore: NativeLocationStore
+    @EnvironmentObject private var reportRelay: NativeReportRelay
+    @ObservedObject private var visits = NativeVenueVisitStore.shared
+    @State private var reports: [NativeMapReport] = []
+    @State private var message: String?
+    @State private var sending = false
+
+    private var userID: String? { sessionStore.canAttachBearerToken ? sessionStore.authenticatedUserID : nil }
+    private var isCheckedIn: Bool { visits.state(userID: userID, venueID: venue.checkInVenueID).isConfirmed }
+
+    var body: some View {
+        if let venueID = venue.checkInVenueID, venue.hasKnownCoordinates {
+            let current = NativeVenueCrowdReports.active(reports, venueID: venueID).first
+            VStack(alignment: .leading, spacing: 8) {
+                if let current, let kind = NativeVenueCrowdReportKind(rawValue: current.kind) {
+                    Label(kind.reportedTitle, systemImage: kind.symbol).font(.subheadline.weight(.semibold))
+                    Text(NativeVenueCrowdReports.status(current)).font(.footnote).foregroundColor(.white.opacity(0.75))
+                    if NativeVenueCrowdReports.shouldAsk(current) {
+                        Text(isCheckedIn ? "You're here. \(kind.question)" : kind.question).font(.footnote.weight(.semibold))
+                        HStack(spacing: 8) {
+                            choice("Yes", symbol: "checkmark", id: "still") { vote(current, stillThere: true) }
+                            choice("No", symbol: "xmark", id: "gone") { vote(current, stillThere: false) }
+                        }
+                    }
+                } else {
+                    Text(NativeVenueCrowdReports.prompt).font(.subheadline.weight(.semibold))
+                    HStack(spacing: 8) {
+                        ForEach(NativeVenueCrowdReportKind.allCases) { kind in
+                            choice(kind.title, symbol: kind.symbol, id: kind.rawValue) { submit(kind, venueID: venueID) }
+                        }
+                    }
+                    Text(NativeVenueCrowdReports.reach).font(.footnote).foregroundColor(.white.opacity(0.70))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let message {
+                    Text(message).font(.footnote.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("native-venue-crowd-report-message")
+                }
+            }
+            .foregroundColor(.white)
+            .accessibilityIdentifier("native-venue-crowd-report-\(venue.id)")
+            .task(id: venueID) { await load() }
+            .onChange(of: isCheckedIn) { if $0 { Task { await load() } } }
+        }
+    }
+
+    private func choice(_ title: String, symbol: String, id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol).font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 12).frame(minHeight: 44)
+                .background(Color.white.opacity(0.10)).clipShape(Capsule())
+        }
+        .buttonStyle(.plain).disabled(sending)
+        .accessibilityIdentifier("native-venue-crowd-report-\(id)")
+    }
+
+    private func load() async {
+        let api = sessionStore.mapReportsAPI
+        if let listed = try? await api.list(latitude: venue.latitude, longitude: venue.longitude) { reports = listed }
+    }
+
+    private func apply(_ result: NativeMapReportResult, mine: Bool, vote: String?) {
+        if result.removed { reports = NativeMapReportChange.remove(result.report.id).applied(to: reports); return }
+        var report = result.report
+        if mine { report.mine = true }
+        if let vote { report.myVote = vote }
+        reports = NativeMapReportChange.upsert(report).applied(to: reports)
+    }
+
+    private func submit(_ kind: NativeVenueCrowdReportKind, venueID: String) {
+        guard userID != nil else { openAuth(); return }
+        guard let here = locationStore.lastLocation?.coordinate else { message = NativeVenueCrowdReports.locationNeeded; return }
+        nativeImpactLight()
+        message = nil
+        sending = true
+        let api = sessionStore.mapReportsAPI
+        let clientReportID = UUID().uuidString
+        Task {
+            defer { sending = false }
+            do {
+                let result = try await api.submit(kind: kind.rawValue, latitude: here.latitude, longitude: here.longitude,
+                                                  clientReportID: clientReportID, venueID: venueID)
+                let merged = result.merged == true
+                apply(result, mine: !merged, vote: merged ? "still" : nil)
+                message = merged ? NativeCommunityReport.agreedMessage : NativeCommunityReport.reportedMessage
+            } catch {
+                if NativeMapReportsAPI.isNoSignal(error), let held = signed(kind, venueID: venueID, at: here, clientReportID: clientReportID) {
+                    reportRelay.hold(held, isMine: true)
+                    message = NativeCommunityReport.heldMessage
+                } else {
+                    message = NativeMapReportsAPI.message(for: error)
+                }
+            }
+        }
+    }
+
+    private func vote(_ report: NativeMapReport, stillThere: Bool) {
+        guard userID != nil else { openAuth(); return }
+        nativeImpactLight()
+        sending = true
+        let api = sessionStore.mapReportsAPI
+        Task {
+            defer { sending = false }
+            do {
+                let result = try await api.vote(reportID: report.id, stillThere: stillThere)
+                apply(result, mine: false, vote: stillThere ? "still" : "gone")
+                message = NativeVenueCrowdReports.votedMessage(stillThere: stillThere, removed: result.removed)
+            } catch {
+                message = NativeMapReportsAPI.message(for: error)
+            }
+        }
+    }
+
+    /// Signed so it can wait on this phone or travel through a nearby one. Nil until this phone's key is registered.
+    private func signed(_ kind: NativeVenueCrowdReportKind, venueID: String, at here: CLLocationCoordinate2D, clientReportID: String) -> NativeRelayedReport? {
+        guard let userID, let key = NativeRelayKey.load(userID: userID), let keyID = key.keyID, let signingKey = key.signingKey else { return nil }
+        return try? NativeRelayedReport.make(kind: kind.rawValue, latitude: here.latitude, longitude: here.longitude,
+                                             clientReportID: clientReportID, venueID: venueID, keyID: keyID, privateKey: signingKey)
+    }
+}
+
 private struct NativeVenueVibeSheet: View {
     let url: URL
     @Environment(\.dismiss) private var dismiss
@@ -12922,6 +13090,8 @@ private struct NativeDiscoverFeatureCard: View {
             }
             if card.offering == nil, NativeM5DetailPolicy.canValidateVisit(venue) {
                 NativeVenueCheckInChip(venue: venue, openAuth: openAuth)
+                    .padding(.horizontal, 16).padding(.bottom, 12)
+                NativeVenueCrowdReportRow(venue: venue, openAuth: openAuth)
                     .padding(.horizontal, 16).padding(.bottom, 12)
             }
             Group {
@@ -13306,6 +13476,7 @@ private struct NativeVenueDetailView: View {
             }
             if offering == nil, NativeM5DetailPolicy.canValidateVisit(venue) {
                 NativeVenueCheckInChip(venue: venue, openAuth: { openNativeAuth?() })
+                NativeVenueCrowdReportRow(venue: venue, openAuth: { openNativeAuth?() })
             }
             if detailsLoading { ProgressView("Loading place details…").tint(.white) }
             if detailsFailed {
@@ -13798,6 +13969,7 @@ private struct NativeVenueDetailView: View {
             }
             if NativeM5DetailPolicy.canValidateVisit(venue) {
                 NativeVenueCheckInChip(venue: venue, openAuth: { openNativeAuth?() })
+                NativeVenueCrowdReportRow(venue: venue, openAuth: { openNativeAuth?() })
             }
             listedLinks
             if detailsLoading { ProgressView("Loading place details…").tint(.white) }

@@ -647,11 +647,6 @@ struct BytspotNativeShellView: View {
         .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidChange)) { _ in
             Task { await pushService.offerReminderPrompt(signedIn: sessionStore.isAuthenticated) }
         }
-        .task(id: sessionStore.isAuthenticated && selectedTab == .home) {
-            guard sessionStore.isAuthenticated, selectedTab == .home else { return }
-            do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
-            await pushService.offerReminderPrompt(signedIn: sessionStore.isAuthenticated, moment: .signIn)
-        }
         .sheet(isPresented: $showGuestRequests) {
             NativeGuestRequestsView(demand: NativePlanDemandAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in
                 guard let sessionStore, sessionStore.canAttachBearerToken else { return nil }
@@ -664,10 +659,17 @@ struct BytspotNativeShellView: View {
     private var shellBody: some View {
         shellContent
             .task(id: sessionStore.authenticatedUserID ?? "") { await syncSignedInDisplayName() }
+            .task(id: sessionStore.isAuthenticated && selectedTab == .home) { await offerSignInReminderPrompt() }
             .sheet(isPresented: $showDisplayNamePrompt) {
                 NativeDisplayNamePrompt(sessionStore: sessionStore) { showDisplayNamePrompt = false }
                     .preferredColorScheme(.dark)
             }
+    }
+
+    private func offerSignInReminderPrompt() async {
+        guard sessionStore.isAuthenticated, selectedTab == .home else { return }
+        do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
+        await pushService.offerReminderPrompt(signedIn: sessionStore.isAuthenticated, moment: .signIn)
     }
 
     private static var previewBoutiqueStayVenue: NativeVenueSummary {

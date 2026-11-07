@@ -345,6 +345,7 @@ struct BytspotNativeShellView: View {
     @ObservedObject var navigation: NativeNavigationCoordinator
     var preferHomeAfterLaunch: Bool = false
     @State private var selectedTab: BytspotNativeTab = Self.previewInitialTab
+    @State private var arrivalRefresh = 0
     @State private var activeTier: BytspotTier = BytspotTheme.defaultTier
     @State private var showNativeAuth = false
     @State private var nativeAuthMode: NativeAuthMode = .login
@@ -660,6 +661,9 @@ struct BytspotNativeShellView: View {
         shellContent
             .task(id: sessionStore.authenticatedUserID ?? "") { await syncSignedInDisplayName() }
             .task(id: sessionStore.isAuthenticated && selectedTab == .home) { await offerSignInReminderPrompt() }
+            .task(id: "\(sessionStore.authenticatedUserID ?? ""):\(locationStore.authorizationState == .allowed):\(arrivalRefresh)") { await refreshArrivalNotifications() }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in arrivalRefresh += 1 }
+            .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidChange)) { _ in arrivalRefresh += 1 }
             .sheet(isPresented: $showDisplayNamePrompt) {
                 NativeDisplayNamePrompt(sessionStore: sessionStore) { showDisplayNamePrompt = false }
                     .preferredColorScheme(.dark)
@@ -670,6 +674,24 @@ struct BytspotNativeShellView: View {
         guard sessionStore.isAuthenticated, selectedTab == .home else { return }
         do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
         await pushService.offerReminderPrompt(signedIn: sessionStore.isAuthenticated, moment: .signIn)
+    }
+
+    /// Arrival reminders follow the member's own Reminders switch and need the
+    /// location permission they already gave; nothing new is asked for.
+    private func refreshArrivalNotifications() async {
+        guard sessionStore.canAttachBearerToken, let token = sessionStore.token,
+              locationStore.authorizationState == .allowed else {
+            await NativeArrivalNotifications.replace(with: [])
+            return
+        }
+        let client = BytspotAPIClient(tokenProvider: { token })
+        guard let preferences = try? await NativeProfileDataAPI(client: client).loadNotificationPreferences() else { return }
+        guard preferences.push.reminders else {
+            await NativeArrivalNotifications.replace(with: [])
+            return
+        }
+        guard let plans = try? await NativePlanAPI(client: client).list(), !Task.isCancelled else { return }
+        await NativeArrivalNotifications.replace(with: NativeArrivalNotificationPolicy.arrivals(plans: plans, now: Date()))
     }
 
     private static var previewBoutiqueStayVenue: NativeVenueSummary {

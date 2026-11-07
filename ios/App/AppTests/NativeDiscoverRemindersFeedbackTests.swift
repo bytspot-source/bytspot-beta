@@ -1,4 +1,5 @@
 import XCTest
+import UserNotifications
 @testable import App
 
 final class NativeDiscoverRemindersFeedbackTests: XCTestCase {
@@ -281,5 +282,77 @@ final class NativeDiscoverRemindersFeedbackTests: XCTestCase {
         XCTAssertEqual(NativeReminderPromptMoment.hostPublished.title, "Get told when guests RSVP or request?")
         XCTAssertEqual(NativeReminderPromptMoment.checkIn.title, "Hear when your saved spots get packed or open up?")
         XCTAssertEqual(NativeReminderPromptMoment.signIn.title, "Turn on alerts for your Plans and Parties?")
+    }
+
+    // MARK: - Arrival reminders and action buttons
+
+    private func stop(_ id: String, name: String, lat: Double = 33.78, lng: Double = -84.38,
+                      partyId: String? = nil, status: String = "planned") -> NativePlan.Item {
+        NativePlan.Item(id: id, needKind: "dining", title: name, partyId: partyId, coffeeReservationId: nil,
+                        capability: "reference", status: status, reservation: nil,
+                        destination: .init(name: name, address: nil, lat: lat, lng: lng))
+    }
+
+    private func arrivalPlan(_ id: String, startsAt: String?, endsAt: String? = nil, lifecycle: String = "confirmed",
+                             state: String = "booked", items: [NativePlan.Item]) -> NativePlan {
+        NativePlan(id: id, title: "Friday out", intent: "Together", creatorUserId: "creator", startsAt: startsAt,
+                   endsAt: endsAt, areaLabel: nil, partySize: nil, needs: [], lifecycle: lifecycle, state: state,
+                   readiness: .init(going: 1, maybe: 0, pending: 0, declined: 0, total: 1), openNeeds: [],
+                   participants: [], items: items, joinToken: nil)
+    }
+
+    func testArrivalRemindersCoverOnlyStopsOfPlansHappeningNowOrSoon() {
+        let now = ISO8601DateFormatter().date(from: "2026-11-07T20:00:00Z")!
+        let plans = [
+            arrivalPlan("later", startsAt: "2026-11-08T10:00:00Z", items: [stop("a", name: "Too far out")]),
+            arrivalPlan("over", startsAt: "2026-11-07T10:00:00Z", items: [stop("b", name: "Already over")]),
+            arrivalPlan("off", startsAt: "2026-11-07T21:00:00Z", lifecycle: "cancelled", items: [stop("c", name: "Cancelled")]),
+            arrivalPlan("tonight", startsAt: "2026-11-07T23:00:00.000Z", items: [
+                stop("d", name: "Ponce City Market"),
+                stop("e", name: "Dropped", status: "cancelled"),
+                stop("f", name: "Nowhere", lat: 0, lng: 0),
+                stop("g", name: "Rooftop", partyId: "party 1")
+            ]),
+            arrivalPlan("now", startsAt: "2026-11-07T19:00:00Z", endsAt: "2026-11-07T22:00:00Z", items: [stop("h", name: "The Optimist")])
+        ]
+        let arrivals = NativeArrivalNotificationPolicy.arrivals(plans: plans, now: now)
+        XCTAssertEqual(arrivals.map(\.identifier), ["arrival.now.h", "arrival.tonight.d", "arrival.tonight.g"])
+        XCTAssertEqual(arrivals[1].title, "You're at Ponce City Market")
+        XCTAssertEqual(arrivals[1].body, "Friday out: open it for what's next.")
+        XCTAssertEqual(arrivals[1].url, "https://bytspot.app/plan/tonight")
+        XCTAssertEqual(arrivals[2].url, "https://bytspot.app/party/party%201")
+        XCTAssertEqual(arrivals[2].body, "Your pass for Rooftop is in Bytspot.")
+        XCTAssertEqual(arrivals[2].threadIdentifier, "plan:tonight")
+        for arrival in arrivals { XCTAssertNotNil(NativePushURLPolicy.allowedURL(arrival.url)) }
+    }
+
+    func testArrivalRemindersStayWithinTheRegionsIOSWatches() {
+        let now = ISO8601DateFormatter().date(from: "2026-11-07T20:00:00Z")!
+        let items = (0..<15).map { stop("s\($0)", name: "Stop \($0)") }
+        let arrivals = NativeArrivalNotificationPolicy.arrivals(plans: [arrivalPlan("p", startsAt: "2026-11-07T21:00:00Z", items: items)], now: now)
+        XCTAssertEqual(arrivals.count, NativeArrivalNotificationPolicy.limit)
+    }
+
+    func testActionButtonsOpenTheirOwnRouteAndFallBackToTheTap() {
+        let payload: [AnyHashable: Any] = [
+            "url": "https://bytspot.app/party/p1",
+            "actions": ["directions": "https://bytspot.app/party/p1?intent=arrival", "pass": "https://evil.example/p1"]
+        ]
+        XCTAssertEqual(NativePushActions.routeURL(from: payload, actionIdentifier: NativePushActions.directions)?.absoluteString,
+                       "https://bytspot.app/party/p1?intent=arrival")
+        XCTAssertEqual(NativePushActions.routeURL(from: payload, actionIdentifier: NativePushActions.pass)?.absoluteString,
+                       "https://bytspot.app/party/p1")
+        XCTAssertEqual(NativePushActions.routeURL(from: payload, actionIdentifier: UNNotificationDefaultActionIdentifier)?.absoluteString,
+                       "https://bytspot.app/party/p1")
+        let category = NativePushActions.categories.first { $0.identifier == NativePushActions.partyReminder }
+        XCTAssertEqual(category?.actions.map(\.identifier), [NativePushActions.directions, NativePushActions.pass])
+        XCTAssertTrue(NativePushService.authorizationOptions.contains(.providesAppNotificationSettings))
+    }
+
+    @MainActor
+    func testNotificationSettingsLinkOpensProfileNotifications() {
+        let navigation = NativeNavigationCoordinator()
+        XCTAssertTrue(navigation.handle(url: NativePushActions.settingsURL))
+        XCTAssertEqual(navigation.requestedProfilePanel, .notifications)
     }
 }

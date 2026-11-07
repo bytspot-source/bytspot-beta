@@ -326,6 +326,7 @@ final class NativeNavigationCoordinator: ObservableObject {
         if path == "map" || path.hasPrefix("map/") { requestedTab = .map; return true }
         if path == "discover" || path.hasPrefix("venue/") || path.hasPrefix("v/") || path.hasPrefix("discover/") { requestedTab = .discover; return true }
         if path == "concierge" || path.hasPrefix("concierge/") { requestedTab = .concierge; return true }
+        if path == "profile/notifications" { requestedTab = .home; requestedProfilePanel = .notifications; return true }
         if path == "profile" || path.hasPrefix("profile/") { requestedTab = .home; requestedDestination = .profile; return true }
         if path == "access" { requestedTab = .home; requestedDestination = .accessWallet; return true }
         if path == "payouts/host" { requestedProfilePanel = .getPaid; return true }

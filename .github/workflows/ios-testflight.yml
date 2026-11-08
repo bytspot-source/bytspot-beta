@@ -10,6 +10,11 @@ on:
       - 'package.json'
       - '.github/workflows/ios-testflight.yml'
   workflow_dispatch:
+    inputs:
+      preflight_only:
+        description: 'Check signing profiles only; do not build or upload'
+        type: boolean
+        default: false
 
 concurrency:
   group: ios-build
@@ -183,6 +188,7 @@ jobs:
 
       # ── 7. Build + Upload to TestFlight ─────────────────────────
       - name: Fastlane → TestFlight
+        if: ${{ !inputs.preflight_only }}
         working-directory: ios/App
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
@@ -201,7 +207,7 @@ jobs:
       # ── 8. Upload IPA artifact ──────────────────────────────────
       - name: Upload IPA
         uses: actions/upload-artifact@v4
-        if: success()
+        if: ${{ success() && !inputs.preflight_only }}
         with:
           name: Bytspot-${{ github.run_number }}.ipa
           path: ios/App/build/Bytspot.ipa

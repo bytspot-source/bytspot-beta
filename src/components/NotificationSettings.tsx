@@ -234,7 +234,7 @@ export function NotificationSettings({ isDarkMode, onBack }: NotificationSetting
                   Reminders
                 </p>
                 <p className="text-[13px] text-white/60" style={{ fontWeight: 400 }}>
-                  Parking session expiration alerts
+                  Party and Plan reminders, Plan changes, and busy next stops
                 </p>
               </div>
               <ToggleSwitch

@@ -2286,6 +2286,38 @@ enum NativeProfilePanel: String, Identifiable, CaseIterable {
     }
 }
 
+/// What the open Profile panel has changed but not saved to the account, so
+/// closing it can offer to save or discard instead of losing the edit.
+@MainActor
+final class NativeProfileUnsavedChanges: ObservableObject {
+    @Published private(set) var hasChanges = false
+    private var save: (() async -> Bool)?
+    private var discard: (() -> Void)?
+
+    func track(_ hasChanges: Bool, save: @escaping () async -> Bool, discard: @escaping () -> Void) {
+        self.hasChanges = hasChanges
+        self.save = save
+        self.discard = discard
+    }
+
+    func saveChanges() async -> Bool {
+        guard hasChanges, let save else { return true }
+        return await save()
+    }
+
+    func discardChanges() {
+        discard?()
+        hasChanges = false
+    }
+
+    /// Unsaved only once the account's values are known; a guest's choices
+    /// live on the iPhone and have nothing to save.
+    static func differs<Value: Equatable>(_ current: Value, from saved: Value?, signedIn: Bool) -> Bool {
+        guard signedIn, let saved else { return false }
+        return current != saved
+    }
+}
+
 private struct NativeProfilePanelSheet: View {
     let panel: NativeProfilePanel
     var openPanel: ((NativeProfilePanel) -> Void)? = nil
@@ -2295,6 +2327,8 @@ private struct NativeProfilePanelSheet: View {
     @EnvironmentObject private var locationStore: NativeLocationStore
     @EnvironmentObject private var appearanceRuntimeStore: NativeAppearanceRuntimeStore
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
+    @StateObject private var unsaved = NativeProfileUnsavedChanges()
+    @State private var confirmLeaving = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2313,7 +2347,7 @@ private struct NativeProfilePanelSheet: View {
                     .padding(.bottom, 8)
                 }
             }
-            Button(action: { nativeImpactLight(); dismiss() }) { NativeCTA(title: doneTitle, color: doneColor, foreground: doneForeground) }
+            Button(action: { nativeImpactLight(); close() }) { NativeCTA(title: doneTitle, color: doneColor, foreground: doneForeground) }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("native-profile-panel-done-\(panel.rawValue)")
                 .padding(.horizontal, 20)
@@ -2323,6 +2357,18 @@ private struct NativeProfilePanelSheet: View {
         }
         .background(NativeDeepSpaceGround())
         .accessibilityIdentifier("native-profile-panel-\(panel.rawValue)")
+        .interactiveDismissDisabled(unsaved.hasChanges)
+        .confirmationDialog("Save your changes?", isPresented: $confirmLeaving, titleVisibility: .visible) {
+            Button("Save") { Task { if await unsaved.saveChanges() { dismiss() } } }
+            Button("Discard Changes", role: .destructive) { unsaved.discardChanges(); dismiss() }
+            Button("Keep Editing", role: .cancel) {}
+        } message: {
+            Text("You changed settings that aren't saved to your account yet.")
+        }
+    }
+
+    private func close() {
+        if unsaved.hasChanges { confirmLeaving = true } else { dismiss() }
     }
 
     private var panelHeading: some View {
@@ -2334,7 +2380,7 @@ private struct NativeProfilePanelSheet: View {
                     Text(panel.title).nativeTitle(22)
                 }
                 Spacer()
-                Button(action: { dismiss() }) {
+                Button(action: close) {
                     Image(systemName: "xmark.circle.fill").font(.system(size: 24, weight: .bold)).foregroundColor(NativeProfileStyle.body)
                 }
             }
@@ -2347,7 +2393,7 @@ private struct NativeProfilePanelSheet: View {
         case .reservations:
             NativeArrivalLedgerPanel(openAccess: openPanel.map { open in { open(.access) } })
         case .personalInformation:
-            NativePersonalInformationPanel(sessionStore: sessionStore)
+            NativePersonalInformationPanel(sessionStore: sessionStore, unsaved: unsaved)
         case .vehicles:
             NativeVehicleInteractionPanel(sessionStore: sessionStore)
         case .paymentMethods:
@@ -2373,11 +2419,11 @@ private struct NativeProfilePanelSheet: View {
         case .appearance:
             NativeAppearancePanel(selection: appearanceSelection)
         case .vibePreferences:
-            NativeVibePreferencesPanel(sessionStore: sessionStore)
+            NativeVibePreferencesPanel(sessionStore: sessionStore, unsaved: unsaved)
         case .parkingPreferences:
-            NativeParkingPreferencesPanel(sessionStore: sessionStore)
+            NativeParkingPreferencesPanel(sessionStore: sessionStore, unsaved: unsaved)
         case .notifications:
-            NativeNotificationSettingsPanel(sessionStore: sessionStore)
+            NativeNotificationSettingsPanel(sessionStore: sessionStore, unsaved: unsaved)
         case .locationPrivacy:
             NativeLocationPrivacyPanel()
         case .generalSettings:
@@ -3190,6 +3236,7 @@ private struct NativeSignInMethodsSection: View {
 
 private struct NativePersonalInformationPanel: View {
     let sessionStore: BytspotSessionStore
+    var unsaved: NativeProfileUnsavedChanges? = nil
     @AppStorage("bytspot_profile_display_name") private var displayName = ""
     @AppStorage("bytspot_profile_email") private var email = ""
     @AppStorage("bytspot_profile_phone") private var phone = ""
@@ -3198,6 +3245,9 @@ private struct NativePersonalInformationPanel: View {
     @State private var isLoading = false
     @State private var isSaving = false
     @State private var statusMessage = ""
+    @State private var savedFields: Fields?
+
+    private struct Fields: Equatable { var name: String; var phone: String; var city: String; var birthday: String }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -3211,7 +3261,7 @@ private struct NativePersonalInformationPanel: View {
             NativeProfileFormField(title: "Phone", placeholder: "Optional", text: $phone, keyboard: .phonePad, capitalization: .never)
             NativeProfileFormField(title: "Address / city", placeholder: NativeProfileRegionalPresentation.cityPlaceholder, text: $city, capitalization: .words)
             NativeProfileFormField(title: "Birthday", placeholder: "YYYY-MM-DD", text: $birthday, capitalization: .never)
-            Button(action: saveProfile) { NativeCTA(title: isSaving ? "Saving…" : sessionStore.isAuthenticated ? "Save Profile" : "Save on This iPhone", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
+            Button(action: { Task { await saveProfile() } }) { NativeCTA(title: isSaving ? "Saving…" : sessionStore.isAuthenticated ? "Save Profile" : "Save on This iPhone", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
                 .buttonStyle(.plain)
                 .disabled(isSaving)
             NativeProfilePanelNotice(title: isLoading ? "Loading profile…" : statusTitle, subtitle: statusSubtitle, icon: "checkmark.shield.fill", color: NativeTheme.emerald)
@@ -3221,10 +3271,26 @@ private struct NativePersonalInformationPanel: View {
             }
         }
         .task { await loadProfileIfNeeded() }
+        .onAppear(perform: reportUnsaved)
+        .onChange(of: hasUnsavedChanges) { _ in reportUnsaved() }
     }
 
+    private var fields: Fields {
+        Fields(name: trimmed(displayName), phone: trimmed(phone), city: trimmed(city), birthday: trimmed(birthday))
+    }
+    private var hasUnsavedChanges: Bool { NativeProfileUnsavedChanges.differs(fields, from: savedFields, signedIn: sessionStore.isAuthenticated) }
+
+    private func reportUnsaved() {
+        unsaved?.track(hasUnsavedChanges, save: { await saveProfile() }, discard: {
+            guard let savedFields else { return }
+            displayName = savedFields.name; phone = savedFields.phone; city = savedFields.city; birthday = savedFields.birthday
+        })
+    }
+
+    private func trimmed(_ value: String) -> String { value.trimmingCharacters(in: .whitespacesAndNewlines) }
+
     private var completedCount: String { "\([displayName, email, phone, city, birthday].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count)/5" }
-    private var statusTitle: String { statusMessage.isEmpty ? "Ready to save" : statusMessage }
+    private var statusTitle: String { hasUnsavedChanges ? "Unsaved changes" : statusMessage.isEmpty ? "Ready to save" : statusMessage }
     private var statusSubtitle: String { sessionStore.isAuthenticated ? "Your email is your account identity. Name, phone, address, and birthday can be saved here." : "Guest details stay on this iPhone until you sign in." }
     private var api: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
 
@@ -3235,40 +3301,41 @@ private struct NativePersonalInformationPanel: View {
         do {
             let profile = try await api.loadProfile()
             NativeSignedInIdentity.refresh(displayName: profile.name)
-            displayName = profile.name ?? displayName
+            apply(profile)
             email = profile.email ?? email
-            phone = profile.phone ?? phone
-            city = profile.address ?? city
-            birthday = profile.birthday ?? birthday
             statusMessage = "Profile loaded"
         } catch {
             statusMessage = "Profile sync unavailable"
         }
     }
 
-    private func saveProfile() {
+    @discardableResult
+    private func saveProfile() async -> Bool {
         nativeImpactLight()
-        guard sessionStore.isAuthenticated else { statusMessage = "Local draft saved"; return }
+        guard sessionStore.isAuthenticated else { statusMessage = "Local draft saved"; return true }
         isSaving = true
-        Task {
-            do {
-                let profile = try await api.updateProfile(name: clean(displayName), phone: clean(phone), address: clean(city), birthday: clean(birthday))
-                NativeSignedInIdentity.refresh(displayName: profile.name)
-                displayName = profile.name ?? displayName
-                phone = profile.phone ?? phone
-                city = profile.address ?? city
-                birthday = profile.birthday ?? birthday
-                statusMessage = "Profile saved"
-            } catch {
-                statusMessage = "Save failed"
-            }
-            isSaving = false
+        defer { isSaving = false }
+        let draft = fields
+        do {
+            let profile = try await api.updateProfile(name: draft.name.isEmpty ? nil : draft.name, phone: draft.phone, address: draft.city, birthday: draft.birthday)
+            NativeSignedInIdentity.refresh(displayName: profile.name)
+            apply(profile)
+            statusMessage = "Profile saved"
+            return true
+        } catch {
+            statusMessage = "Save failed"
+            return false
         }
     }
 
-    private func clean(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+    /// The account's values replace what is on the iPhone, so an empty field
+    /// stays empty and another account's details never show here.
+    private func apply(_ profile: NativeUserProfileRecord) {
+        displayName = profile.name ?? displayName
+        phone = profile.phone ?? ""
+        city = profile.address ?? ""
+        birthday = profile.birthday ?? ""
+        savedFields = fields
     }
 }
 
@@ -3807,6 +3874,20 @@ private struct NativeVibeFocusChoiceRow: View {
     }
 }
 
+enum NativePreferenceFilterSync {
+    /// The account's choices replace the iPhone's, except when the account has
+    /// none and the iPhone does (picked before signing in): those stay and
+    /// show as unsaved until the member saves or discards them.
+    static func loaded(account: NativePreferenceFilter, iPhone: NativePreferenceFilter) -> NativePreferenceFilter {
+        account.isEmpty && !iPhone.isEmpty ? iPhone : account
+    }
+
+    /// The order chips were tapped in is not a change.
+    static func comparable(_ filter: NativePreferenceFilter) -> NativePreferenceFilter {
+        NativePreferenceFilter(avoid: filter.avoid.sorted(), priceCeiling: filter.priceCeiling)
+    }
+}
+
 enum NativePreferenceFilterControls {
     static let priceChoices: [NativeVibeFocusCatalog.Choice] = [
         ("0", "Any", "No limit"), ("1", "$", "Inexpensive"), ("2", "$$", "Moderate"), ("3", "$$$", "Pricey"),
@@ -3816,6 +3897,7 @@ enum NativePreferenceFilterControls {
 
 private struct NativeVibePreferencesPanel: View {
     let sessionStore: BytspotSessionStore
+    var unsaved: NativeProfileUnsavedChanges? = nil
     @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var launchIntent = ""
     @AppStorage(NativeLaunchPersonalizationStorage.walkKey) private var launchWalk = ""
     @AppStorage(NativeLaunchPersonalizationStorage.crewKey) private var launchCrew = ""
@@ -3847,6 +3929,7 @@ private struct NativeVibePreferencesPanel: View {
     @State private var isSaving = false
     @State private var statusMessage = ""
     @State private var serverVibeToken: String?
+    @State private var savedFilter: NativePreferenceFilter?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -3877,19 +3960,33 @@ private struct NativeVibePreferencesPanel: View {
             NativePreferenceToggleRow(title: "AI Learning", subtitle: "Use your choices to improve future recommendations.", icon: "brain.head.profile", color: NativeTheme.purple, isOn: $learningEnabled)
             NativePreferenceToggleRow(title: "Seasonal Adjustments", subtitle: "Default on; tune recommendations by season and context.", icon: "sparkles", color: NativeTheme.emerald, isOn: $seasonalAdjustments)
             NativePreferenceToggleRow(title: "Social Influence", subtitle: "Default off; opt in before friend activity affects suggestions.", icon: "person.2.fill", color: NativeTheme.pink, isOn: $socialInfluence)
-            Button(action: saveVibePreferences) { NativeCTA(title: isSaving ? "Saving Vibe…" : sessionStore.isAuthenticated ? "Save Vibe" : "Save on This iPhone", color: NativeTheme.purple, foreground: NativeProfileStyle.onVibrant) }
+            Button(action: { Task { await saveVibePreferences() } }) { NativeCTA(title: isSaving ? "Saving Vibe…" : sessionStore.isAuthenticated ? "Save Vibe" : "Save on This iPhone", color: NativeTheme.purple, foreground: NativeProfileStyle.onVibrant) }
                 .buttonStyle(.plain)
                 .disabled(isSaving)
             NativeWalletLine(title: statusTitle, subtitle: statusSubtitle, icon: "checkmark.shield.fill")
         }
         .task { await loadVibePreferenceIfNeeded() }
+        .onAppear(perform: reportUnsaved)
+        .onChange(of: hasUnsavedChanges) { _ in reportUnsaved() }
+    }
+
+    private var hasUnsavedChanges: Bool {
+        NativeProfileUnsavedChanges.differs(NativePreferenceFilterSync.comparable(filter), from: savedFilter.map(NativePreferenceFilterSync.comparable), signedIn: sessionStore.isAuthenticated)
+    }
+
+    private func reportUnsaved() {
+        unsaved?.track(hasUnsavedChanges, save: { await saveVibePreferences() }, discard: {
+            guard let savedFilter else { return }
+            avoidStored = NativePreferenceFilter.storedAvoid(savedFilter.avoid)
+            priceCeiling = savedFilter.priceCeiling ?? 0
+        })
     }
 
     private var api: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
-    private var statusTitle: String { statusMessage.isEmpty ? "Preferences ready" : statusMessage }
+    private var statusTitle: String { hasUnsavedChanges ? "Unsaved changes" : statusMessage.isEmpty ? "Preferences ready" : statusMessage }
     private var statusSubtitle: String {
-        if sessionStore.isAuthenticated { return "Your focus, price and what you leave out shape Home picks and Concierge. Everything here is saved to your account." }
-        return "Your focus, price and what you leave out shape Home picks and Concierge. Choices stay on this iPhone until you sign in."
+        if sessionStore.isAuthenticated { return "Your focus, price and what you leave out shape Home picks and Concierge. Highest price and Leave Out are saved to your account; everything else stays on this iPhone." }
+        return "Your focus, price and what you leave out shape Home picks and Concierge. Choices stay on this iPhone; sign in to save Highest price and Leave Out to your account."
     }
 
     private var filter: NativePreferenceFilter {
@@ -3929,24 +4026,31 @@ private struct NativeVibePreferencesPanel: View {
             serverVibeToken = preferences.vibes?.first
             if let avoid = preferences.avoid {
                 let saved = NativePreferenceFilter(avoid: avoid, priceCeiling: preferences.priceCeiling)
-                avoidStored = NativePreferenceFilter.storedAvoid(saved.avoid)
-                priceCeiling = saved.priceCeiling ?? 0
+                let shown = NativePreferenceFilterSync.loaded(account: saved, iPhone: filter)
+                avoidStored = NativePreferenceFilter.storedAvoid(shown.avoid)
+                priceCeiling = shown.priceCeiling ?? 0
+                savedFilter = saved
             }
             if serverVibeToken != nil { statusMessage = "Vibe loaded" }
         } catch { statusMessage = "Vibe unavailable" }
     }
 
-    private func saveVibePreferences() {
+    @discardableResult
+    private func saveVibePreferences() async -> Bool {
         nativeImpactLight()
-        guard sessionStore.isAuthenticated else { statusMessage = "Local Vibe saved"; return }
+        guard sessionStore.isAuthenticated else { statusMessage = "Local Vibe saved"; return true }
         isSaving = true
-        Task {
-            do {
-                let saved = try await api.updateUserPreferenceSummary(vibeToken: vibeProfile.token, filter: filter)
-                serverVibeToken = saved.vibes?.first ?? vibeProfile.token
-                statusMessage = "Vibe saved"
-            } catch { statusMessage = "Vibe save failed" }
-            isSaving = false
+        defer { isSaving = false }
+        let sent = filter
+        do {
+            let saved = try await api.updateUserPreferenceSummary(vibeToken: vibeProfile.token, filter: sent)
+            serverVibeToken = saved.vibes?.first ?? vibeProfile.token
+            savedFilter = sent
+            statusMessage = "Vibe saved"
+            return true
+        } catch {
+            statusMessage = "Vibe save failed"
+            return false
         }
     }
 
@@ -3963,8 +4067,13 @@ private struct NativeVibePreferencesPanel: View {
     }
 }
 
+enum NativeParkingPreferenceCopy {
+    static let notice = "Bytspot's parking results don't use these choices yet. Covered parking, EV charging and security are saved to your account; the rest stay on this iPhone."
+}
+
 private struct NativeParkingPreferencesPanel: View {
     let sessionStore: BytspotSessionStore
+    var unsaved: NativeProfileUnsavedChanges? = nil
     @AppStorage("bytspot_parking_covered") private var covered = true
     @AppStorage("bytspot_parking_outdoor") private var outdoor = false
     @AppStorage("bytspot_parking_garage") private var garage = true
@@ -3986,6 +4095,7 @@ private struct NativeParkingPreferencesPanel: View {
     @State private var isLoading = false
     @State private var isSaving = false
     @State private var statusMessage = ""
+    @State private var savedParking: NativeUserPreferencesRecord.Parking?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -3993,6 +4103,7 @@ private struct NativeParkingPreferencesPanel: View {
                 NativeProfilePanelStat(value: "\([covered, outdoor, garage, street].filter { $0 }.count)/4", label: "Type", color: NativeTheme.emerald)
                 NativeProfilePanelStat(value: "$\(Int(maxHourlyRate))/hr", label: "Budget", color: NativeTheme.cyan)
             }
+            NativeProfilePanelNotice(title: "Not used for results yet", subtitle: NativeParkingPreferenceCopy.notice, icon: "info.circle.fill", color: NativeTheme.emerald)
             NativePreferenceChipSection(title: "Parking Type", options: [("Covered Parking", "cloud.rain.fill", $covered), ("Outdoor Lots", "sun.max.fill", $outdoor), ("Parking Garages", "building.2.fill", $garage), ("Street Parking", "road.lanes", $street)], color: NativeTheme.emerald)
             NativePreferenceChipSection(title: "Required Features", options: [("EV Charging", "bolt.car.fill", $evCharging), ("24/7 Security", "shield.fill", $security), ("Accessible Parking", "figure.roll", $accessible), ("Valet Service", "key.fill", $valetAvailable)], color: NativeTheme.cyan)
             NativePreferenceChipSection(title: "Smart Features", options: [("Auto-Reserve", "sparkles", $autoReserve), ("Auto-Extend", "clock.arrow.circlepath", $extendAutomatically), ("Expiry Notifications", "bell.badge.fill", $notifyOnExpiry), ("Nearby Alerts", "location.fill", $nearbyAlerts)], color: NativeTheme.orange)
@@ -4001,19 +4112,39 @@ private struct NativeParkingPreferencesPanel: View {
             NativePreferenceToggleRow(title: "Prioritize Cheapest", subtitle: "Show lowest price options first.", icon: "dollarsign.circle.fill", color: NativeTheme.emerald, isOn: $prioritizeCheapest)
             NativePreferenceScaleRow(title: "Max Walking Distance", value: $maxWalkingDistance, range: 0.1...2, step: 0.1, leftLabel: "0.1 mi", rightLabel: "2 mi", valueLabel: String(format: "%.1f mi", maxWalkingDistance), color: NativeTheme.cyan)
             NativePreferenceToggleRow(title: "Prioritize Closest", subtitle: "Show nearest options first.", icon: "location.circle.fill", color: NativeTheme.cyan, isOn: $prioritizeClosest)
-            Button(action: saveParkingPreferences) { NativeCTA(title: isSaving ? "Saving Parking…" : sessionStore.isAuthenticated ? "Save Parking Preferences" : "Save on This iPhone", color: NativeTheme.emerald, foreground: NativeProfileStyle.onVibrant) }
+            Button(action: { Task { await saveParkingPreferences() } }) { NativeCTA(title: isSaving ? "Saving Parking…" : sessionStore.isAuthenticated ? "Save Parking Preferences" : "Save on This iPhone", color: NativeTheme.emerald, foreground: NativeProfileStyle.onVibrant) }
                 .buttonStyle(.plain)
                 .disabled(isSaving)
             NativeWalletLine(title: statusTitle, subtitle: statusSubtitle, icon: "checkmark.shield.fill")
         }
         .task { await loadParkingPreferenceIfNeeded() }
+        .onAppear(perform: reportUnsaved)
+        .onChange(of: hasUnsavedChanges) { _ in reportUnsaved() }
+    }
+
+    private var hasUnsavedChanges: Bool { NativeProfileUnsavedChanges.differs(parkingSummary, from: savedParking, signedIn: sessionStore.isAuthenticated) }
+
+    private func reportUnsaved() {
+        unsaved?.track(hasUnsavedChanges, save: { await saveParkingPreferences() }, discard: {
+            guard let savedParking else { return }
+            apply(savedParking)
+        })
+    }
+
+    private func apply(_ parking: NativeUserPreferencesRecord.Parking) {
+        covered = parking.covered ?? covered
+        evCharging = parking.evCharging ?? evCharging
+        if let securityValue = parking.security {
+            security = securityValue != "basic"
+            if security { securedLevel = securityValue }
+        }
     }
 
     private var api: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
     private var parkingSummary: NativeUserPreferencesRecord.Parking { NativeUserPreferencesRecord.Parking(covered: covered, evCharging: evCharging, security: security ? securedLevel : "basic") }
-    private var statusTitle: String { statusMessage.isEmpty ? "Parking preferences ready" : statusMessage }
+    private var statusTitle: String { hasUnsavedChanges ? "Unsaved changes" : statusMessage.isEmpty ? "Parking preferences ready" : statusMessage }
     private var statusSubtitle: String {
-        if sessionStore.isAuthenticated { return "These choices help Bytspot surface better parking options." }
+        if sessionStore.isAuthenticated { return "Covered parking, EV charging and security are saved to your account." }
         return "Guest choices stay on this iPhone until you sign in."
     }
 
@@ -4024,33 +4155,41 @@ private struct NativeParkingPreferencesPanel: View {
         do {
             let preferences = try await api.loadUserPreferences()
             if let parking = preferences.parking {
-                covered = parking.covered ?? covered
-                evCharging = parking.evCharging ?? evCharging
-                if let securityValue = parking.security {
-                    security = securityValue != "basic"
-                    if security { securedLevel = securityValue }
-                }
+                apply(parking)
                 statusMessage = "Parking preferences loaded"
             }
+            savedParking = parkingSummary
         } catch { statusMessage = "Parking preferences unavailable" }
     }
 
-    private func saveParkingPreferences() {
+    @discardableResult
+    private func saveParkingPreferences() async -> Bool {
         nativeImpactLight()
-        guard sessionStore.isAuthenticated else { statusMessage = "Local Parking saved"; return }
+        guard sessionStore.isAuthenticated else { statusMessage = "Local Parking saved"; return true }
         isSaving = true
-        Task {
-            do {
-                _ = try await api.updateUserPreferenceSummary(parking: parkingSummary)
-                statusMessage = "Parking saved"
-            } catch { statusMessage = "Parking save failed" }
-            isSaving = false
+        defer { isSaving = false }
+        let sent = parkingSummary
+        do {
+            _ = try await api.updateUserPreferenceSummary(parking: sent)
+            savedParking = sent
+            statusMessage = "Parking saved"
+            return true
+        } catch {
+            statusMessage = "Parking save failed"
+            return false
         }
     }
 }
 
+enum NativeNotificationCopy {
+    /// The Reminders switch is the server's `reminders` category: Party and
+    /// Plan reminders, Plan changes, a busy next stop, and arrival reminders.
+    static let reminders = "Party and Plan reminders, Plan changes, and a heads-up when you arrive or your next stop gets busy."
+}
+
 private struct NativeNotificationSettingsPanel: View {
     let sessionStore: BytspotSessionStore
+    var unsaved: NativeProfileUnsavedChanges? = nil
     @AppStorage("bytspot_notify_push_reservations") private var pushReservations = true
     @AppStorage("bytspot_notify_push_promotions") private var pushPromotions = true
     @AppStorage("bytspot_notify_push_reminders") private var pushReminders = true
@@ -4066,6 +4205,7 @@ private struct NativeNotificationSettingsPanel: View {
     @State private var isLoading = false
     @State private var isSaving = false
     @State private var statusMessage = ""
+    @State private var savedPreferences: NativeNotificationPreferences?
     @ObservedObject private var pushService = NativePushService.shared
 
     var body: some View {
@@ -4089,7 +4229,7 @@ private struct NativeNotificationSettingsPanel: View {
             }
             NativePreferenceToggleRow(title: "Reservation Updates", subtitle: "Confirmations, changes, and cancellations.", icon: "calendar.badge.checkmark", color: NativeTheme.purple, isOn: $pushReservations)
             NativePreferenceToggleRow(title: "Promotions & Deals", subtitle: "Special offers and discounts.", icon: "tag.fill", color: NativeTheme.pink, isOn: $pushPromotions)
-            NativePreferenceToggleRow(title: "Reminders", subtitle: "Parking session expiration alerts.", icon: "clock.badge.exclamationmark.fill", color: NativeTheme.orange, isOn: $pushReminders)
+            NativePreferenceToggleRow(title: "Reminders", subtitle: NativeNotificationCopy.reminders, icon: "clock.badge.exclamationmark.fill", color: NativeTheme.orange, isOn: $pushReminders)
             NativePreferenceToggleRow(title: "Profile Updates", subtitle: "New posts and venue information.", icon: "newspaper.fill", color: NativeTheme.cyan, isOn: $pushInsider)
             NativePreferenceToggleRow(title: "Nearby Spots", subtitle: "Available parking near your location.", icon: "mappin.and.ellipse", color: NativeTheme.emerald, isOn: $pushNearby)
             NativeWalletLine(title: "Email Notifications", subtitle: "Email can include confirmations, promos, newsletters, and receipts.", icon: "envelope.fill")
@@ -4101,7 +4241,7 @@ private struct NativeNotificationSettingsPanel: View {
             NativePreferenceToggleRow(title: "Reservation Alerts", subtitle: "Booking confirmations via SMS.", icon: "message.badge.fill", color: NativeTheme.cyan, isOn: $smsReservations)
             NativePreferenceToggleRow(title: "Time Reminders", subtitle: "30-min expiration warnings.", icon: "timer", color: NativeTheme.orange, isOn: $smsReminders)
             NativePreferenceToggleRow(title: "Emergency Alerts", subtitle: "Critical notifications only.", icon: "exclamationmark.triangle.fill", color: NativeProfileStyle.danger, isOn: $smsEmergencies)
-            Button(action: saveNotificationPreferences) { NativeCTA(title: isSaving ? "Saving Notifications…" : sessionStore.isAuthenticated ? "Save Notification Preferences" : "Save Local Notifications", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
+            Button(action: { Task { await saveNotificationPreferences() } }) { NativeCTA(title: isSaving ? "Saving Notifications…" : sessionStore.isAuthenticated ? "Save Notification Preferences" : "Save Local Notifications", color: NativeTheme.cyan, foreground: NativeProfileStyle.onVibrant) }
                 .buttonStyle(.plain)
                 .disabled(isSaving)
             NativeWalletLine(title: statusTitle, subtitle: statusSubtitle, icon: "checkmark.shield.fill")
@@ -4110,6 +4250,17 @@ private struct NativeNotificationSettingsPanel: View {
             await pushService.refreshAuthorizationStatus()
             await loadNotificationPreferencesIfNeeded()
         }
+        .onAppear(perform: reportUnsaved)
+        .onChange(of: hasUnsavedChanges) { _ in reportUnsaved() }
+    }
+
+    private var hasUnsavedChanges: Bool { NativeProfileUnsavedChanges.differs(currentPreferences, from: savedPreferences, signedIn: sessionStore.isAuthenticated) }
+
+    private func reportUnsaved() {
+        unsaved?.track(hasUnsavedChanges, save: { await saveNotificationPreferences() }, discard: {
+            guard let savedPreferences else { return }
+            apply(savedPreferences)
+        })
     }
 
     private var enabledCount: String {
@@ -4117,7 +4268,7 @@ private struct NativeNotificationSettingsPanel: View {
     }
 
     private var api: NativeProfileDataAPI { NativeProfileDataAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil })) }
-    private var statusTitle: String { statusMessage.isEmpty ? "Notifications ready" : statusMessage }
+    private var statusTitle: String { hasUnsavedChanges ? "Unsaved changes" : statusMessage.isEmpty ? "Notifications ready" : statusMessage }
     private var statusSubtitle: String {
         if sessionStore.isAuthenticated { return "Your notification choices can sync across signed-in devices." }
         return "Guest notification choices stay on this iPhone until sign-in."
@@ -4142,16 +4293,29 @@ private struct NativeNotificationSettingsPanel: View {
         guard sessionStore.isAuthenticated else { return }
         isLoading = true
         defer { isLoading = false }
-        do { apply(try await api.loadNotificationPreferences()); statusMessage = "Notification preferences loaded" } catch { statusMessage = "Notification settings unavailable" }
+        do {
+            let loaded = try await api.loadNotificationPreferences()
+            apply(loaded)
+            savedPreferences = loaded
+            statusMessage = "Notification preferences loaded"
+        } catch { statusMessage = "Notification settings unavailable" }
     }
 
-    private func saveNotificationPreferences() {
+    @discardableResult
+    private func saveNotificationPreferences() async -> Bool {
         nativeImpactLight()
-        guard sessionStore.isAuthenticated else { statusMessage = "Local Notifications saved"; return }
+        guard sessionStore.isAuthenticated else { statusMessage = "Local Notifications saved"; return true }
         isSaving = true
-        Task {
-            do { try await api.updateNotificationPreferences(currentPreferences); statusMessage = "Notification preferences saved" } catch { statusMessage = "Notification save failed" }
-            isSaving = false
+        defer { isSaving = false }
+        let sent = currentPreferences
+        do {
+            try await api.updateNotificationPreferences(sent)
+            savedPreferences = sent
+            statusMessage = "Notification preferences saved"
+            return true
+        } catch {
+            statusMessage = "Notification save failed"
+            return false
         }
     }
 

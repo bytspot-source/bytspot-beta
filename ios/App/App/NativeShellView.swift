@@ -2312,7 +2312,7 @@ final class NativeProfileUnsavedChanges: ObservableObject {
 
     /// Unsaved only once the account's values are known; a guest's choices
     /// live on the iPhone and have nothing to save.
-    static func differs<Value: Equatable>(_ current: Value, from saved: Value?, signedIn: Bool) -> Bool {
+    nonisolated static func differs<Value: Equatable>(_ current: Value, from saved: Value?, signedIn: Bool) -> Bool {
         guard signedIn, let saved else { return false }
         return current != saved
     }

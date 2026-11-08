@@ -2,7 +2,7 @@
 """Tests for iOS production signing asset validation helpers."""
 import unittest
 
-from validate_ios_signing_assets import associated_domains_allowed
+from validate_ios_signing_assets import associated_domains_allowed, missing_capabilities
 
 
 class AssociatedDomainsAllowedTests(unittest.TestCase):
@@ -25,6 +25,16 @@ class AssociatedDomainsAllowedTests(unittest.TestCase):
                 {"applinks:other.example"},
             )
         )
+
+
+class MissingCapabilitiesTests(unittest.TestCase):
+    KEY = "com.apple.developer.usernotifications.time-sensitive"
+
+    def test_reports_capability_the_profile_predates(self) -> None:
+        self.assertEqual(missing_capabilities({self.KEY: True}, {"aps-environment": "production"}), [self.KEY])
+
+    def test_accepts_granted_capability_and_ignores_non_boolean_entitlements(self) -> None:
+        self.assertEqual(missing_capabilities({self.KEY: True, "aps-environment": "production"}, {self.KEY: True}), [])
 
 
 if __name__ == "__main__":

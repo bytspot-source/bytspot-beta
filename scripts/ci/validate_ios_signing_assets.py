@@ -62,6 +62,14 @@ def associated_domains_allowed(required_domains: set[str], profile_domains: set[
     return "*" in profile_domains or required_domains.issubset(profile_domains)
 
 
+def missing_capabilities(app_entitlements: dict, profile_entitlements: dict) -> list[str]:
+    """Capabilities the app turns on (true) that the profile does not grant."""
+    return sorted(
+        key for key, value in app_entitlements.items()
+        if value is True and profile_entitlements.get(key) is not True
+    )
+
+
 def check_profile(spec: dict, team_id: str) -> None:
     label = spec["label"]
     bundle_id = spec["bundle_id"]
@@ -89,6 +97,13 @@ def check_profile(spec: dict, team_id: str) -> None:
     required_groups = set(app_entitlements.get("com.apple.security.application-groups", []))
     profile_groups = set(profile_entitlements.get("com.apple.security.application-groups", []))
     require(required_groups.issubset(profile_groups), f"{label} profile is missing application-group entitlements")
+
+    missing = missing_capabilities(app_entitlements, profile_entitlements)
+    require(
+        not missing,
+        f"{label} profile does not grant {', '.join(missing)}. The profile predates the capability: "
+        "regenerate it in the Apple Developer portal and replace the profile secret.",
+    )
 
     if spec["app_clip"]:
         require(profile_entitlements.get("com.apple.developer.on-demand-install-capable") is True, "App Clip profile is missing on-demand-install-capable")

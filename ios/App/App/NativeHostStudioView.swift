@@ -1005,6 +1005,7 @@ struct NativeHostStudioView: View {
             try Task.checkCancellation()
             guard sessionStore.token == publishingToken else { throw NativePartyStudioError.sessionChanged }
             publishPresentation.completePublish(with: result)
+            await NativePushService.shared.offerReminderPrompt(signedIn: true, moment: .hostPublished)
             await loadArrivalVenueCandidates(for: result, token: publishingToken)
         }
         catch is CancellationError { if publishPresentation.message.isEmpty { publishPresentation.message = NativePartyStudioError.sessionChanged.localizedDescription } }

@@ -345,6 +345,7 @@ struct BytspotNativeShellView: View {
     @ObservedObject var navigation: NativeNavigationCoordinator
     var preferHomeAfterLaunch: Bool = false
     @State private var selectedTab: BytspotNativeTab = Self.previewInitialTab
+    @State private var arrivalRefresh = 0
     @State private var activeTier: BytspotTier = BytspotTheme.defaultTier
     @State private var showNativeAuth = false
     @State private var nativeAuthMode: NativeAuthMode = .login
@@ -659,10 +660,38 @@ struct BytspotNativeShellView: View {
     private var shellBody: some View {
         shellContent
             .task(id: sessionStore.authenticatedUserID ?? "") { await syncSignedInDisplayName() }
+            .task(id: sessionStore.isAuthenticated && selectedTab == .home) { await offerSignInReminderPrompt() }
+            .task(id: "\(sessionStore.authenticatedUserID ?? ""):\(locationStore.authorizationState == .allowed):\(arrivalRefresh)") { await refreshArrivalNotifications() }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in arrivalRefresh += 1 }
+            .onReceive(NotificationCenter.default.publisher(for: .nativePlanDidChange)) { _ in arrivalRefresh += 1 }
             .sheet(isPresented: $showDisplayNamePrompt) {
                 NativeDisplayNamePrompt(sessionStore: sessionStore) { showDisplayNamePrompt = false }
                     .preferredColorScheme(.dark)
             }
+    }
+
+    private func offerSignInReminderPrompt() async {
+        guard sessionStore.isAuthenticated, selectedTab == .home else { return }
+        do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
+        await pushService.offerReminderPrompt(signedIn: sessionStore.isAuthenticated, moment: .signIn)
+    }
+
+    /// Arrival reminders follow the member's own Reminders switch and need the
+    /// location permission they already gave; nothing new is asked for.
+    private func refreshArrivalNotifications() async {
+        guard sessionStore.canAttachBearerToken, let token = sessionStore.token,
+              locationStore.authorizationState == .allowed else {
+            await NativeArrivalNotifications.replace(with: [])
+            return
+        }
+        let client = BytspotAPIClient(tokenProvider: { token })
+        guard let preferences = try? await NativeProfileDataAPI(client: client).loadNotificationPreferences() else { return }
+        guard preferences.push.reminders else {
+            await NativeArrivalNotifications.replace(with: [])
+            return
+        }
+        guard let plans = try? await NativePlanAPI(client: client).list(), !Task.isCancelled else { return }
+        await NativeArrivalNotifications.replace(with: NativeArrivalNotificationPolicy.arrivals(plans: plans, now: Date()))
     }
 
     private static var previewBoutiqueStayVenue: NativeVenueSummary {
@@ -13324,6 +13353,7 @@ private struct NativeVenueDetailView: View {
     @State private var heroPhotoIndex = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var transactions = NativeDiscoverTransactionStore.shared
+    @ObservedObject private var pushService = NativePushService.shared
     @State private var transactionPlan: NativeDiscoverPlanDestination?
     @State private var isSaved = false
     @State private var didCheckIn = false
@@ -13361,6 +13391,15 @@ private struct NativeVenueDetailView: View {
             if usesBytspotDisplay { bytspotContent } else { listedContent }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { placeBottomActions }
+        // This sheet covers the shell's copy of the card.
+        .overlay(alignment: .bottom) {
+            if pushService.reminderPromptVisible {
+                NativeReminderPermissionCard(pushService: pushService)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
         .foregroundColor(.white)
         .background(NativeDeepSpaceGround())
         .preferredColorScheme(.dark)

@@ -4091,6 +4091,61 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertTrue(cleared["priceCeiling"] is NSNull, "A cleared ceiling is sent as null so the saved one is removed")
     }
 
+    func testProfileSaveSendsClearedFieldsButNeverABlankName() {
+        let input = NativeProfileDataAPI.profileInput(name: nil, phone: "", address: "Midtown", birthday: "")
+        XCTAssertNil(input["name"])
+        XCTAssertEqual(input["phone"] as? String, "")
+        XCTAssertEqual(input["address"] as? String, "Midtown")
+        XCTAssertEqual(input["birthday"] as? String, "")
+        XCTAssertTrue(NativeProfileDataAPI.profileInput(name: nil, phone: nil, address: nil, birthday: nil).isEmpty,
+                      "The name prompt saves the name alone")
+    }
+
+    func testAccountFilterWinsUnlessItIsEmptyAndTheIPhoneHasChoices() {
+        let account = NativePreferenceFilter(avoid: ["bars"], priceCeiling: 2)
+        let iPhone = NativePreferenceFilter(avoid: ["busy"], priceCeiling: 1)
+        XCTAssertEqual(NativePreferenceFilterSync.loaded(account: account, iPhone: iPhone), account)
+        XCTAssertEqual(NativePreferenceFilterSync.loaded(account: .empty, iPhone: iPhone), iPhone, "Choices made before signing in survive it")
+        XCTAssertEqual(NativePreferenceFilterSync.loaded(account: .empty, iPhone: .empty), .empty)
+        XCTAssertEqual(NativePreferenceFilterSync.comparable(NativePreferenceFilter(avoid: ["busy", "bars"], priceCeiling: 2)),
+                       NativePreferenceFilterSync.comparable(NativePreferenceFilter(avoid: ["bars", "busy"], priceCeiling: 2)))
+    }
+
+    func testOnlyASignedInEditAgainstLoadedAccountValuesIsUnsaved() {
+        XCTAssertFalse(NativeProfileUnsavedChanges.differs(2, from: 1, signedIn: false), "A guest's choices live on the iPhone")
+        XCTAssertFalse(NativeProfileUnsavedChanges.differs(2, from: nil, signedIn: true), "Nothing to compare before the account loads")
+        XCTAssertFalse(NativeProfileUnsavedChanges.differs(1, from: 1, signedIn: true))
+        XCTAssertTrue(NativeProfileUnsavedChanges.differs(2, from: 1, signedIn: true))
+    }
+
+    @MainActor
+    func testClosingWithUnsavedChangesSavesOrDiscardsThem() async {
+        let unsaved = NativeProfileUnsavedChanges()
+        var saves = 0
+        var discards = 0
+        var saveSucceeds = false
+        unsaved.track(true, save: { saves += 1; return saveSucceeds }, discard: { discards += 1 })
+        XCTAssertTrue(unsaved.hasChanges)
+        let failed = await unsaved.saveChanges()
+        XCTAssertFalse(failed, "A failed save keeps the panel open")
+        saveSucceeds = true
+        let saved = await unsaved.saveChanges()
+        XCTAssertTrue(saved)
+        XCTAssertEqual(saves, 2)
+        unsaved.discardChanges()
+        XCTAssertEqual(discards, 1)
+        XCTAssertFalse(unsaved.hasChanges)
+        let nothingToSave = await unsaved.saveChanges()
+        XCTAssertTrue(nothingToSave)
+        XCTAssertEqual(saves, 2)
+    }
+
+    func testRemindersAndParkingCopyDescribeWhatTheyDo() {
+        XCTAssertFalse(NativeNotificationCopy.reminders.lowercased().contains("parking"))
+        XCTAssertTrue(NativeNotificationCopy.reminders.contains("Plan"))
+        XCTAssertTrue(NativeParkingPreferenceCopy.notice.contains("don't use these choices yet"))
+    }
+
     func testPreferenceFilterKeepsKnownTagsAndAOneToFourCeiling() throws {
         let filter = NativePreferenceFilter(storedAvoid: " bars,loud,,busy,bars ", storedPriceCeiling: 3)
         XCTAssertEqual(filter.avoid, ["bars", "busy"])

@@ -3105,12 +3105,18 @@ struct NativeProfileDataAPI {
             return NativeUserProfileRecord(id: Self.fixtureProfile.id, email: Self.fixtureProfile.email, name: name ?? Self.fixtureProfile.name, phone: phone ?? Self.fixtureProfile.phone, profileImage: nil, address: address ?? Self.fixtureProfile.address, birthday: birthday ?? Self.fixtureProfile.birthday)
         }
         #endif
+        return try await client.trpcDecode(NativeUserProfileRecord.self, path: "/trpc/user.profile.update", method: "POST", input: Self.profileInput(name: name, phone: phone, address: address, birthday: birthday))
+    }
+
+    /// An empty phone, address or birthday is sent so the saved one is cleared;
+    /// an empty name is never sent.
+    static func profileInput(name: String?, phone: String?, address: String?, birthday: String?) -> [String: Any] {
         var input: [String: Any] = [:]
         if let name, !name.isEmpty { input["name"] = name }
-        if let phone, !phone.isEmpty { input["phone"] = phone }
-        if let address, !address.isEmpty { input["address"] = address }
-        if let birthday, !birthday.isEmpty { input["birthday"] = birthday }
-        return try await client.trpcDecode(NativeUserProfileRecord.self, path: "/trpc/user.profile.update", method: "POST", input: input)
+        if let phone { input["phone"] = phone }
+        if let address { input["address"] = address }
+        if let birthday { input["birthday"] = birthday }
+        return input
     }
 
     func listVehicles() async throws -> [NativeVehicleRecord] {

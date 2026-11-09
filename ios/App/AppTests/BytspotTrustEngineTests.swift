@@ -1733,6 +1733,32 @@ final class BytspotTrustEngineTests: XCTestCase {
         XCTAssertTrue(verifiedAtlantaCards.contains { $0.badgeText.localizedCaseInsensitiveContains("BEST VALUE") })
     }
 
+    func testLoadedContentIsReusedOnlyForTheSameAccountAreaAndTwoMinutes() {
+        let loadedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let here = NativeLocationCoordinate.verifiedMidtown
+        let nearby = NativeLocationCoordinate(latitude: here.latitude + 0.005, longitude: here.longitude, isFallback: false)
+        let acrossTown = NativeLocationCoordinate(latitude: here.latitude + 0.1, longitude: here.longitude, isFallback: false)
+        func reuse(loadedAt: Date? = loadedAt, origin: NativeLocationCoordinate? = here, loadedUser: String? = "u1", user: String? = "u1", hasError: Bool = false, at location: NativeLocationCoordinate = here, after seconds: TimeInterval = 30) -> Bool {
+            NativeTabContentStore.canReuseSnapshot(loadedAt: loadedAt, origin: origin, loadedUserID: loadedUser, currentUserID: user, hasError: hasError, location: location, now: loadedAt.map { $0.addingTimeInterval(seconds) } ?? Date())
+        }
+        XCTAssertTrue(reuse())
+        XCTAssertTrue(reuse(at: nearby), "A few hundred feet is the same area")
+        XCTAssertFalse(reuse(at: acrossTown))
+        XCTAssertFalse(reuse(after: NativeTabContentStore.freshnessInterval))
+        XCTAssertFalse(reuse(after: -5), "A clock moved backwards is not proof of freshness")
+        XCTAssertFalse(reuse(user: "u2"))
+        XCTAssertFalse(reuse(user: nil), "Signing out reloads")
+        XCTAssertFalse(reuse(hasError: true), "A failed load is retried, not kept")
+        XCTAssertFalse(reuse(loadedAt: nil))
+        XCTAssertFalse(reuse(origin: nil))
+        XCTAssertFalse(reuse(at: .midtown), "No real location fix, nothing reused")
+    }
+
+    @MainActor
+    func testOnlyHomeAndDiscoverAreKeptAliveBetweenTabs() {
+        XCTAssertEqual(BytspotNativeShellView.keptAliveTabKinds, [.home, .discover])
+    }
+
     @MainActor
     func testNearbyPartyProjectsIntoADiscoverCardWithTheServersOwnCapability() {
         let startsAt = Date().addingTimeInterval(3 * 60 * 60)

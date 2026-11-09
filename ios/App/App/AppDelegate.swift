@@ -12,7 +12,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     /// scene lifecycle iOS routes cold-start URLs, activities and notification
     /// taps through `UIScene.ConnectionOptions`, not `launchOptions`, so
     /// nothing here may publish a route or the arrival fires twice.
+    /// Room for a night of venue photos, which the photo host marks cacheable
+    /// for a day. The system default keeps about two in memory.
+    static let imageCacheMemoryBytes = 32 * 1024 * 1024
+    static let imageCacheDiskBytes = 200 * 1024 * 1024
+
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        URLCache.shared = URLCache(memoryCapacity: Self.imageCacheMemoryBytes, diskCapacity: Self.imageCacheDiskBytes, directory: nil)
         NativePushService.shared.configure(delegate: self)
         BytspotDiagnostics.shared.start()
         UserDefaults.standard.removeObject(forKey: NativeHomeVibeCard.dismissedKey)

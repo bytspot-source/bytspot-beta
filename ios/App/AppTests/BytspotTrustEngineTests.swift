@@ -7091,10 +7091,17 @@ final class NativeAuthLaunchInputTests: XCTestCase {
         XCTAssertEqual(NativeHomeVibeCard.progressLabel(for: .crew), "3 of 3")
     }
 
-    func testHomeVibePicksShowOnEveryVisitWhileAVibeIsStored() {
-        XCTAssertTrue(NativeHomeVibeCard.showsPicks(vibe: "drinks", pickCount: 2))
-        XCTAssertFalse(NativeHomeVibeCard.showsPicks(vibe: "drinks", pickCount: 0))
-        XCTAssertFalse(NativeHomeVibeCard.showsPicks(vibe: " ", pickCount: 3))
+    func testTodaysPickReasonPrefersSpecificServerReasons() {
+        func place(_ reasons: [String]) -> NativeRecommendedPlace {
+            NativeRecommendedPlace(id: "p1", isBytspotVenue: false, googlePlaceID: nil, name: "Spot", address: "1 Peachtree St", latitude: 33.78, longitude: -84.38, category: "bar", rating: nil, isOpen: nil, photoURL: nil, crowd: nil, reasons: reasons)
+        }
+        XCTAssertEqual(NativeHomeRegionPresentation.serverPickReason(place(["Fits drinks", "Open now", "0.3 mi"])), "Open now · 0.3 mi")
+        XCTAssertEqual(NativeHomeRegionPresentation.serverPickReason(place(["Fits drinks"])), "Fits drinks")
+        XCTAssertEqual(NativeHomeRegionPresentation.serverPickReason(place([])), NativeHomeRegionPresentation.serverRecommendationsWhy)
+    }
+
+    func testHomeVibeIsStoredOnlyWhenNotBlank() {
+        XCTAssertFalse(NativeHomeVibeCard.hasVibe(" "))
         XCTAssertTrue(NativeHomeVibeCard.hasVibe("coffee"))
         XCTAssertFalse(NativeHomeVibeCard.hasVibe(""))
     }

@@ -58,6 +58,7 @@ export function OnboardingView({
       <section className="vendor-card">
         <h2 className="vendor-section-title">{copy?.title ?? 'Set up'}</h2>
         <p className="vendor-muted vendor-question">{copy?.body}</p>
+        {seller.state === 'SUSPENDED' && seller.pausedReason ? <p className="vendor-muted">Reason from Bytspot: {seller.pausedReason}</p> : null}
         <p className="vendor-muted">
           {progress.done} of {progress.total} done
         </p>

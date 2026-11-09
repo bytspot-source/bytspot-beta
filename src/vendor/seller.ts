@@ -39,6 +39,8 @@ export interface Seller {
   satisfied: string[];
   /** When the platform first found every requirement met. */
   verifiedAt?: Date;
+  /** Bytspot's reason for pausing the business, when it gave one. */
+  pausedReason?: string | null;
 }
 
 /**

@@ -101,6 +101,10 @@ test('steps are ordered by the lifecycle rather than authored', () => {
   );
 });
 
+test('a paused business always sees the gate, even with setup complete', () => {
+  assert.equal(shouldShowOnboarding(seller({ state: 'SUSPENDED', satisfied: ALL })), true);
+});
+
 test('setup is derived, so a requirement that stops being met comes back', () => {
   const complete = seller({ state: 'ACTIVE', satisfied: ALL });
   assert.equal(shouldShowOnboarding(complete), false);

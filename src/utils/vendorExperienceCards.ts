@@ -60,6 +60,8 @@ export type VendorInventoryCard = {
   videoUrl?: string | null;
   nextSlot: { startsAt: string; remaining: number };
   upcomingSlots?: { startsAt: string; remaining: number }[];
+  /** The listed place a Bytspot admin attached this business to. Older servers leave it out. */
+  venueId?: string | null;
 };
 
 const CARD_TYPES: readonly CardType[] = [
@@ -256,6 +258,37 @@ export function vendorInventoryToCard(
         }
       : {}),
   };
+}
+
+/** How to ask `inventory.atVenue` for a listed place, or null for a card that is not one. */
+export function placeOffersQuery(venue: { discoverSource?: string; slug?: string; placeId?: string }): { slug: string } | { googlePlaceId: string } | null {
+  if (venue.discoverSource === 'bytspot_vendor') return null;
+  if (typeof venue.slug === 'string' && venue.slug) return { slug: venue.slug };
+  if (typeof venue.placeId === 'string' && venue.placeId) return { googlePlaceId: venue.placeId };
+  return null;
+}
+
+export type PlaceOffer = {
+  windowId: string;
+  title: string;
+  sellerName: string;
+  price: string;
+  when: string;
+  ask?: { windowId: string; sellerName: string; maxGuests: number; slots: { startsAt: string; remaining: number }[] };
+};
+
+/** What the businesses attached to a place offer, for its detail page. */
+export function placeOffersFrom(items: VendorInventoryCard[], now: Date = new Date()): PlaceOffer[] {
+  return items.map((item) => ({
+    windowId: item.windowId,
+    title: item.title,
+    sellerName: item.sellerName,
+    price: formatPrice(item.priceCents),
+    when: formatNextSlot(item.nextSlot.startsAt, now),
+    ...(item.intent === 'request'
+      ? { ask: { windowId: item.windowId, sellerName: item.sellerName, maxGuests: item.maxGuests, slots: item.upcomingSlots?.length ? item.upcomingSlots : [item.nextSlot] } }
+      : {}),
+  }));
 }
 
 /** What `inventory.openPatch` returns for a scanned QR / NFC patch. */

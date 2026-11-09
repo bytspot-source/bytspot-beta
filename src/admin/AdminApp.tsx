@@ -35,9 +35,14 @@ type Draft = { placeId: string; name: string; address: string; provider: Provide
 type Vendor = {
   sellerId: string; legalName: string; contactEmail: string | null; businessKind: string | null; state: string;
   awaitingApproval: boolean; approvedAt: string | null; createdAt: string; missing: string[];
-  locations: { label: string; address: string | null; state: string }[];
+  locations: VendorLocationRow[];
   videoHostingAt: string | null;
+  pausedAt?: string | null; pausedReason?: string | null; ownerInvitePending?: boolean;
   bands?: { total: number; active: number; lost: number; ranges: string[] };
+};
+type VendorLocationRow = {
+  id?: string; label: string; address: string | null; state: string;
+  venueId?: string | null; venueName?: string | null; venueAddress?: string | null;
 };
 type VenueMediaItem = { id: string; kind: 'cover' | 'gallery' | 'video'; position: number; mimeType: string; url: string };
 type VenueMediaList = { media: VenueMediaItem[]; videoAvailable: boolean; galleryCap: number };
@@ -766,6 +771,188 @@ function VendorBands({ vendor, onChanged }: { vendor: Vendor; onChanged: () => P
   );
 }
 
+/** A business created here starts as a draft; its owner finishes setup from the emailed invite. */
+function NewVendorForm({ onCreated }: { onCreated: () => Promise<void> }) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const create = async () => {
+    if (!name.trim() || !email.trim()) { setError('Enter the business name and the owner\'s email.'); return; }
+    setBusy(true); setError(null); setNote(null);
+    try {
+      await trpc.admin.vendors.create.mutate({ legalName: name.trim(), email: email.trim() });
+      setNote(`Invite sent to ${email.trim()}. They sign in with that email to finish setting up.`);
+      setName(''); setEmail('');
+      await onCreated();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="admin-stack">
+      <p className="admin-strong">Add a vendor</p>
+      <div className="admin-inline">
+        <input className={input} placeholder="Business name" value={name} onChange={(e) => setName(e.target.value)} />
+        <input className={input} type="email" placeholder="Owner's email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <Button disabled={busy} onClick={create}>{busy ? 'Sending…' : 'Create and invite'}</Button>
+      </div>
+      <p className="admin-small">They add their own payout and ID details. It still needs your approval to go live.</p>
+      {note && <p className="admin-small">{note}</p>}
+      {error && <p className="admin-warn">{error}</p>}
+    </div>
+  );
+}
+
+/** Attaches one vendor location to a listed place, so its bookables show on that place's page. */
+function VendorPlaceLink({ location, onChanged }: { location: VendorLocationRow; onChanged: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<{ venueId: string; name: string; address: string | null }[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!location.id) return null;
+  const locationId = location.id;
+
+  const search = async () => {
+    if (query.trim().length < 2) { setError('Type at least 2 letters of the place name.'); return; }
+    setBusy(true); setError(null);
+    try {
+      const result = await trpc.admin.vendors.menuVenues.query({ query: query.trim() });
+      setResults(result.venues);
+      if (result.venues.length === 0) setError('No listed place matches. List it in the Places tab first.');
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const attach = async (venueId: string | null) => {
+    setBusy(true); setError(null);
+    try {
+      await trpc.admin.vendors.linkMenuVenue.mutate({ locationId, venueId, expectedVenueId: location.venueId ?? null });
+      setOpen(false); setQuery(''); setResults([]);
+      await onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (location.state !== 'ACTIVE') {
+    return location.venueName
+      ? <p className="admin-small">On place: {location.venueName}</p>
+      : <p className="admin-small">Can be added to a place once this location is live.</p>;
+  }
+  return (
+    <div className="admin-stack">
+      <div className="admin-inline">
+        <p className="admin-small">{location.venueName ? `On place: ${location.venueName}${location.venueAddress ? ` · ${location.venueAddress}` : ''}` : 'Not on a listed place'}</p>
+        <Button kind="quiet" disabled={busy} onClick={() => setOpen(!open)}>{location.venueName ? 'Change place' : 'Add to place'}</Button>
+        {location.venueId && <Button kind="quiet" disabled={busy} onClick={() => attach(null)}>Remove from place</Button>}
+      </div>
+      {open && (
+        <div className="admin-stack">
+          <div className="admin-inline">
+            <input className={input} placeholder="Search listed places" value={query} onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void search(); }} />
+            <Button kind="quiet" disabled={busy} onClick={search}>Search</Button>
+          </div>
+          {results.map((r) => (
+            <div key={r.venueId} className="admin-inline">
+              <p className="admin-small">{r.name}{r.address ? ` · ${r.address}` : ''}</p>
+              <Button kind="quiet" disabled={busy || r.venueId === location.venueId} onClick={() => attach(r.venueId)}>
+                {r.venueId === location.venueId ? 'Attached' : 'Attach'}
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+      {error && <p className="admin-warn">{error}</p>}
+    </div>
+  );
+}
+
+/** Disapprove, restore, resend the owner invite, or close a business for good. */
+function VendorDecisions({ vendor, onChanged }: { vendor: Vendor; onChanged: () => Promise<void> }) {
+  const [mode, setMode] = useState<'none' | 'pause' | 'close'>('none');
+  const [reason, setReason] = useState('');
+  const [confirmName, setConfirmName] = useState('');
+  const [blockers, setBlockers] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const paused = vendor.state === 'SUSPENDED';
+  const canPause = vendor.state === 'ACTIVE' || ((vendor.state === 'DRAFT' || vendor.state === 'PENDING') && Boolean(vendor.approvedAt));
+
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true); setError(null); setNote(null);
+    try { await action(); } catch (err) { setError(errorText(err)); } finally { setBusy(false); }
+  };
+  const pause = () => run(async () => {
+    await trpc.admin.vendors.pause.mutate({ sellerId: vendor.sellerId, reason: reason.trim() || undefined });
+    setMode('none'); setReason('');
+    await onChanged();
+  });
+  const restore = () => run(async () => {
+    await trpc.admin.vendors.restore.mutate({ sellerId: vendor.sellerId });
+    await onChanged();
+  });
+  const resend = () => run(async () => {
+    await trpc.admin.vendors.resendInvite.mutate({ sellerId: vendor.sellerId });
+    setNote(`Invite sent again to ${vendor.contactEmail ?? 'the owner'}.`);
+  });
+  const close = () => run(async () => {
+    const result = await trpc.admin.vendors.close.mutate({ sellerId: vendor.sellerId, confirmName });
+    if (!result.closed) { setBlockers(result.blockers); return; }
+    setMode('none'); setConfirmName(''); setBlockers([]);
+    await onChanged();
+  });
+
+  return (
+    <div className="admin-stack">
+      <div className="admin-inline">
+        {paused && <Button disabled={busy} onClick={restore}>Restore</Button>}
+        {canPause && <Button kind="quiet" disabled={busy} onClick={() => setMode(mode === 'pause' ? 'none' : 'pause')}>Disapprove</Button>}
+        {vendor.ownerInvitePending && <Button kind="quiet" disabled={busy} onClick={resend}>Resend invite</Button>}
+        <Button kind="quiet" disabled={busy} onClick={() => { setMode(mode === 'close' ? 'none' : 'close'); setBlockers([]); }}>Delete</Button>
+      </div>
+      {mode === 'pause' && (
+        <div className="admin-stack">
+          <p className="admin-small">
+            {vendor.state === 'ACTIVE'
+              ? 'Takes this business off guest screens now. Guests who already paid can still be admitted.'
+              : 'Withdraws your approval, so it will not go live when it finishes setting up.'}
+          </p>
+          <div className="admin-inline">
+            <input className={input} maxLength={500} placeholder="Reason (optional, shown to the vendor)" value={reason} onChange={(e) => setReason(e.target.value)} />
+            <Button disabled={busy} onClick={pause}>{busy ? 'Saving…' : 'Disapprove and email'}</Button>
+          </div>
+        </div>
+      )}
+      {mode === 'close' && (
+        <div className="admin-stack">
+          <p className="admin-warn">Closes {vendor.legalName} for good. It disappears from guests and from this list, and its sign-in stops working. Past bookings and payouts are kept. This cannot be undone.</p>
+          <div className="admin-inline">
+            <input className={input} placeholder={`Type ${vendor.legalName} to confirm`} value={confirmName} onChange={(e) => setConfirmName(e.target.value)} />
+            <Button disabled={busy || confirmName.trim().toLowerCase() !== vendor.legalName.toLowerCase()} onClick={close}>{busy ? 'Closing…' : 'Close for good'}</Button>
+          </div>
+          {blockers.length > 0 && <p className="admin-warn">Can't close yet. Still open: {blockers.join(', ')}.</p>}
+        </div>
+      )}
+      {note && <p className="admin-small">{note}</p>}
+      {error && <p className="admin-warn">{error}</p>}
+    </div>
+  );
+}
+
 function VendorsTab({ onCount }: { onCount: (awaiting: number) => void }) {
   const [menuMediaBusy, setMenuMediaBusy] = useState(false);
   const [vendors, setVendors] = useState<Vendor[] | null>(null);
@@ -815,6 +1002,7 @@ function VendorsTab({ onCount }: { onCount: (awaiting: number) => void }) {
     <Card>
       <h2>Vendors</h2>
       <p className="admin-muted">A business goes live only after you approve it. Approving early lets it go live the moment it finishes setting up.</p>
+      <NewVendorForm onCreated={load} />
       {error && <p className="admin-warn">{error}</p>}
       {vendors === null ? <p className="admin-muted">Loading…</p> : vendors.length === 0 ? (
         <p className="admin-muted">No businesses yet.</p>
@@ -826,16 +1014,24 @@ function VendorsTab({ onCount }: { onCount: (awaiting: number) => void }) {
                 <p className="admin-strong">
                   {v.legalName}
                   {v.awaitingApproval && <span className="admin-badge">Waiting for you</span>}
-                  <span className="admin-tag">{v.state.toLowerCase()}</span>
+                  <span className="admin-tag">{v.state === 'SUSPENDED' ? 'paused' : v.state.toLowerCase()}</span>
+                  {v.ownerInvitePending && <span className="admin-tag">invite sent</span>}
                 </p>
                 <p className="admin-muted">{[v.contactEmail, v.businessKind].filter(Boolean).join(' · ') || 'No contact yet'}</p>
-                {v.locations.map((l) => <p key={l.label} className="admin-small">{l.label}{l.address ? ` · ${l.address}` : ''}</p>)}
+                {v.pausedAt && <p className="admin-warn">Disapproved {dateLabel(v.pausedAt)}{v.pausedReason ? `: ${v.pausedReason}` : ''}</p>}
+                {v.locations.map((l) => (
+                  <div key={l.id ?? l.label} className="admin-stack">
+                    <p className="admin-small">{l.label}{l.address ? ` · ${l.address}` : ''}</p>
+                    <VendorPlaceLink location={l} onChanged={load} />
+                  </div>
+                ))}
                 {v.missing.length > 0 && (
                   <p className="admin-warn">Still missing: {v.missing.map((m) => MISSING_LABELS[m] ?? m).join(', ')}</p>
                 )}
                 <p className="admin-small">Joined {dateLabel(v.createdAt)}{v.approvedAt ? ` · Approved ${dateLabel(v.approvedAt)}` : ''}</p>
                 <p className="admin-small">{v.videoHostingAt ? `Premium video hosting since ${dateLabel(v.videoHostingAt)}` : 'No premium video hosting'}</p>
                 <VendorBands vendor={v} onChanged={load} />
+                <VendorDecisions vendor={v} onChanged={load} />
               </div>
               <div className="admin-inline">
                 {!v.approvedAt && (

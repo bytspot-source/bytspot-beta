@@ -496,12 +496,6 @@ enum NativeHomeVibeCard {
         !vibe.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// Picks for a stored vibe show on every Home visit, however the vibe was
-    /// set: the launch quiz, this card, or Vibe Preferences.
-    static func showsPicks(vibe: String, pickCount: Int) -> Bool {
-        hasVibe(vibe) && pickCount > 0
-    }
-
     static func progressLabel(for step: NativePersonalizationStep) -> String { "\(step.index) of \(steps.count)" }
 
     static func storageKey(for step: NativePersonalizationStep) -> String {

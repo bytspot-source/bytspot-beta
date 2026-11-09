@@ -7216,7 +7216,7 @@ enum NativeHomeCopyContract {
     }
 
     static let boutiqueStayQuickActionSubtitle = "Find a stay"
-    static let visibleSurfaceLabels = ["Today's Pick", "Start here", "Recommended for you", "What's Happening Tonight", "Right Now Near You", "Trending Now", "What are you feeling?", "Nearby"]
+    static let visibleSurfaceLabels = ["Today's Pick", "Start here", "Local services", "What's Happening Tonight", "Right Now Near You", "Trending Now", "What are you feeling?", "Nearby"]
 
     static func containsUnprovenAvailabilityClaim(_ values: [String]) -> Bool {
         let prohibitedClaims = ["available tonight", "open spots"]
@@ -7232,6 +7232,13 @@ enum NativeHomeCopyContract {
 }
 
 enum NativeHomeRegionPresentation {
+    static let serverRecommendationsWhy = "Ranked by your answers, ratings, what's open now, and how far you said you'd go."
+
+    static func serverPickReason(_ place: NativeRecommendedPlace) -> String {
+        if !place.detail.isEmpty { return place.detail }
+        return place.reasons.first ?? serverRecommendationsWhy
+    }
+
     static func isAtlanta(_ location: NativeLocationCoordinate) -> Bool {
         NativeTabContentStore.canUseCurrentEventFeed(at: location)
     }
@@ -7655,10 +7662,9 @@ private struct NativeHomeDashboardView: View {
                 NativeFeedbackHomeCard(item: item) { openFeedback(item.target) }
             }
             if showsVibeCard { homeVibeCard }
-            if showsVibePicks { launchPicksReadySection }
+            if usesServerRecommendations || hasTrustedLocalRecommendations || typicalHomePlan != nil { tonightPickCard }
             exploreAroundYouSection
             if shouldShowHomeEmptyState { noLocalRecommendationsSection }
-            if hasTrustedLocalRecommendations || typicalHomePlan != nil { tonightPickCard }
             NativeHomeMusicSection(listings: musicListings, window: musicWindow, open: { homePartyInvitation = $0 })
             quickActionsSection
             if showsFindFriendsCard { findFriendsCard }
@@ -7687,6 +7693,7 @@ private struct NativeHomeDashboardView: View {
         .task(id: musicRequestKey) { await refreshMusic() }
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in Task { await refreshLiveWeather() } }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { if isTabActive { headerNow = $0 } }
+        .sheet(isPresented: $showGuestSavePrompt) { NativeGuestSavePromptSheet(title: guestHomePromptTitle, subtitle: guestHomePromptSubtitle, ctaTitle: guestHomePromptCTA, onSignIn: continueHomeGuestPromptSignIn) }
         .sheet(item: $aiPickDetailVenue) { venue in
             let detail = Group {
                 if Self.isValetPremiumRide(venue) {
@@ -7993,70 +8000,6 @@ private struct NativeHomeDashboardView: View {
         .accessibilityIdentifier("native-home-search")
     }
 
-    private var launchPicksReadySection: some View {
-        let theme = NativeJourneyTheme.current(intent: launchIntent)
-        let picks = launchRecommendationPicks
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                NativeIcon(symbol: "sparkles", color: theme.primary)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("YOUR PICKS ARE READY").font(.system(size: 11, weight: .black)).foregroundColor(theme.primary).tracking(1.1)
-                    Text(launchPicksTitle).nativeTitle(20)
-                    Text(launchPicksSubtitle).nativeBody(size: 12.5, color: NativeTheme.textSecondary)
-                }
-                Spacer(minLength: 0)
-                Text(picks.count > 1 ? "+\(picks.count - 1) more" : locationStore.coordinate.shortLabel).font(.system(size: 11, weight: .black)).foregroundColor(theme.primary).padding(.horizontal, 8).padding(.vertical, 5).background(theme.primary.opacity(0.12)).clipShape(Capsule())
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Text("WHY THESE?").font(.system(size: 10.5, weight: .black)).foregroundColor(NativeTheme.textTertiary).tracking(0.9)
-                Text(launchPicksWhy).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineSpacing(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(10)
-            .background(theme.primary.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-            VStack(spacing: 7) {
-                ForEach(Array(picks.prefix(2).enumerated()), id: \.offset) { index, pick in
-                    HStack(spacing: 12) {
-                        Text(["🥇", "🥈"][index]).font(.system(size: 18)).accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(pick.title).font(.system(size: 14.5, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
-                            Text(pick.subtitle).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).lineLimit(1)
-                        }
-                        Spacer(minLength: 0)
-                        Text(pick.badge).font(.system(size: 11, weight: .black)).foregroundColor(pick.color).padding(.horizontal, 8).padding(.vertical, 5).background(pick.color.opacity(0.14)).clipShape(Capsule())
-                    }
-                    .padding(10)
-                    .background(NativeTheme.selectedControlSurface.opacity(0.66))
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-            }
-            HStack(spacing: 8) {
-                Button(action: exploreLaunchPicksTapped) { Text("Explore").font(.system(size: 13.2, weight: .black)).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 40).background(theme.ctaGradient).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
-                    .buttonStyle(.plain)
-                Button(action: mapLaunchPicksTapped) { Text("Map").font(.system(size: 13.2, weight: .black)).foregroundColor(theme.secondary).frame(maxWidth: .infinity).frame(height: 40).background(theme.secondary.opacity(0.12)).overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(theme.secondary.opacity(0.25), lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
-                    .buttonStyle(.plain)
-                Button(action: saveLaunchPicksTapped) { Text(sessionStore.isAuthenticated ? "Active" : "Save picks").font(.system(size: 13.2, weight: .black)).foregroundColor(sessionStore.isAuthenticated ? NativeTheme.emerald : theme.primary).frame(maxWidth: .infinity).frame(height: 40).background((sessionStore.isAuthenticated ? NativeTheme.emerald : theme.primary).opacity(0.11)).overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke((sessionStore.isAuthenticated ? NativeTheme.emerald : theme.primary).opacity(0.24), lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)) }
-                    .buttonStyle(.plain)
-            }
-            if !sessionStore.isAuthenticated {
-                Text(Self.launchPicksSignInHint)
-                    .font(.system(size: 11.5, weight: .bold))
-                    .foregroundColor(NativeTheme.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .padding(14)
-        .nativePanel()
-        .accessibilityIdentifier("native-home-launch-picks-ready")
-        .sheet(isPresented: $showGuestSavePrompt) { NativeGuestSavePromptSheet(title: guestHomePromptTitle, subtitle: guestHomePromptSubtitle, ctaTitle: guestHomePromptCTA, onSignIn: continueHomeGuestPromptSignIn) }
-    }
-
-    private var showsVibePicks: Bool {
-        NativeHomeVibeCard.showsPicks(vibe: launchIntent, pickCount: launchRecommendationPicks.count)
-    }
-
     private var showsVibeCard: Bool {
         vibeCardStep != nil || NativeHomeVibeCard.isVisible(vibe: launchIntent, dismissed: vibeCardDismissed)
     }
@@ -8281,25 +8224,7 @@ private struct NativeHomeDashboardView: View {
         .accessibilityIdentifier("native-home-local-picks-empty")
     }
 
-    private func exploreLaunchPicksTapped() {
-        nativeImpactLight()
-        guard sessionStore.isAuthenticated else {
-            presentHomeGuestPrompt(title: "Sign in to explore your picks", subtitle: "Create an account to personalize recommendations before opening Discover.", cta: "Sign in to explore", intent: .explorePicks)
-            return
-        }
-        openNativeTab(.discover)
-    }
-
-    private func mapLaunchPicksTapped() {
-        nativeImpactLight()
-        guard sessionStore.isAuthenticated else {
-            presentHomeGuestPrompt(title: "Sign in to view your map", subtitle: "Sign in to keep routes, parking context, and arrival notes synced before opening Map.", cta: "Sign in to map", intent: .mapPicks)
-            return
-        }
-        openLaunchPicksOnMap()
-    }
-
-    private func saveLaunchPicksTapped() {
+    private func saveHomePicksTapped() {
         nativeImpactLight()
         guard !sessionStore.isAuthenticated else { return }
         presentHomeGuestPrompt(title: "Save your picks?", subtitle: "Sign in to keep favorites, routes, and parking preferences across devices.", cta: "Sign in to save", intent: .savePicks)
@@ -8321,34 +8246,17 @@ private struct NativeHomeDashboardView: View {
         }
     }
 
-    private func openLaunchPicksOnMap() {
-        if usesServerRecommendations, let venue = launchRecommendationPicks.first?.venue {
-            NativeOnboardingMapHandoff.clear()
-            NativeMapFocusHandoff.store(venue: venue, modeOverride: Self.launchMapMode(for: venue, intent: launchIntent), locationScopeOrigin: locationStore.coordinate)
-        } else {
-            Self.storeLaunchMapHandoff(snapshot: regionalSnapshot, location: locationStore.coordinate, intent: launchIntent, walk: launchWalkPreference, crew: launchCrewPreference)
-        }
+    private func routeToServerPick(_ venue: NativeVenueSummary) {
+        NativeOnboardingMapHandoff.clear()
+        NativeMapFocusHandoff.store(venue: venue, modeOverride: Self.launchMapMode(for: venue, intent: launchIntent), locationScopeOrigin: locationStore.coordinate)
         openNativeTab(.map)
     }
 
-    private var launchPicksTitle: String {
-        NativeHomeRegionPresentation.launchTitle(intent: launchIntent, location: locationStore.coordinate)
-    }
-
-    private var launchPicksSubtitle: String {
-        NativeHomeRegionPresentation.launchSubtitle(intent: launchIntent, location: locationStore.coordinate)
-    }
-
-    private var launchPicksWhy: String {
-        usesServerRecommendations ? Self.serverRecommendationsWhy : NativeHomeRegionPresentation.launchWhy(intent: launchIntent, location: locationStore.coordinate)
-    }
-
-    static let serverRecommendationsWhy = "Ranked by your answers, ratings, what's open now, and how far you said you'd go."
 
     @ViewBuilder private var exploreAroundYouSection: some View {
         if let places = serverRecommendations?.explore, !places.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Around you to explore").nativeTitle(20)
+                Text("Things to see nearby").nativeTitle(20)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(places) { place in
@@ -8477,8 +8385,62 @@ private struct NativeHomeDashboardView: View {
         return pool[bucket]
     }
 
+    /// The one "for you" card. A nearby invitation leads; otherwise the
+    /// server's top pick, with the next two underneath.
     @ViewBuilder private var tonightPickCard: some View {
-        if hasTrustedLocalRecommendations, let card = personalizedAIPick {
+        if regionalSnapshot.trustworthyNearbyPartyCards.isEmpty, usesServerRecommendations, let lead = launchRecommendationPicks.first {
+            VStack(alignment: .leading, spacing: 10) {
+                NativeHomeHeroCard(
+                    venue: lead.venue,
+                    eyebrow: Self.aiPickEyebrow,
+                    eyebrowIcon: "sparkles",
+                    eyebrowColor: NativeTheme.purple,
+                    reason: serverRecommendations?.forYou.first.map(NativeHomeRegionPresentation.serverPickReason) ?? NativeHomeRegionPresentation.serverRecommendationsWhy,
+                    crowdEmoji: crowdEmoji(lead.venue.crowd),
+                    crowdLabel: lead.badge,
+                    categoryEmoji: categoryEmoji(lead.venue.discoverType),
+                    primaryCTATitle: "Route",
+                    primaryCTAIcon: Self.primaryCTAIcon(forTitle: "Route"),
+                    secondaryCTATitle: Self.aiPickSecondaryCTA,
+                    primaryAction: { routeToServerPick(lead.venue) },
+                    secondaryAction: { aiPickDetailVenue = lead.venue }
+                )
+                ForEach(Array(launchRecommendationPicks.dropFirst().prefix(2))) { pick in
+                    Button {
+                        nativeImpactLight()
+                        aiPickDetailVenue = pick.venue
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text(categoryEmoji(pick.venue.discoverType)).font(.system(size: 18)).accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(pick.title).font(.system(size: 14.5, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
+                                Text(pick.subtitle).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textTertiary).lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                            Text(pick.badge).font(.system(size: 11, weight: .black)).foregroundColor(pick.color).padding(.horizontal, 8).padding(.vertical, 5).background(pick.color.opacity(0.14)).clipShape(Capsule())
+                            Image(systemName: "chevron.right").font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textTertiary)
+                        }
+                        .padding(12)
+                        .background(NativeTheme.selectedControlSurface.opacity(0.66))
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("native-home-pick-\(pick.id)")
+                }
+                if !sessionStore.isAuthenticated {
+                    Button(action: saveHomePicksTapped) {
+                        Text(Self.launchPicksSignInHint)
+                            .font(.system(size: 11.5, weight: .bold))
+                            .foregroundColor(NativeTheme.textTertiary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .multilineTextAlignment(.center)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .accessibilityIdentifier("native-home-ai-pick")
+        } else if hasTrustedLocalRecommendations, let card = personalizedAIPick {
             let venue = venueForAIPick(card)
             NativeHomeHeroCard(
                 venue: venue,
@@ -8860,7 +8822,7 @@ private struct NativeHomeDashboardView: View {
             VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Recommended for you").font(.system(size: 20, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                    Text("Local services").font(.system(size: 20, weight: .black)).foregroundColor(NativeTheme.textPrimary)
                     Text("Food, passes, and trusted local help.")
                         .font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2)
                 }

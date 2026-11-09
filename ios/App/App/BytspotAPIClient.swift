@@ -4969,6 +4969,12 @@ final class NativeTabContentStore: ObservableObject {
     private var snapshotOrigin: NativeLocationCoordinate?
     private var bestValueOrigin: NativeLocationCoordinate?
     private var nearbyPartyUserID: String?
+    private var snapshotUserID: String?
+    private var snapshotLoadedAt: Date?
+    private var inFlightRefresh: (id: UUID, origin: NativeLocationCoordinate, userID: String?, task: Task<Void, Never>)?
+
+    /// Tab visits and location ticks inside this window reuse what is loaded.
+    nonisolated static let freshnessInterval: TimeInterval = 120
 
     /// Nearby can contain circle-scoped invitations. Clear them synchronously
     /// on account/session changes, before any replacement network response.
@@ -4977,6 +4983,7 @@ final class NativeTabContentStore: ObservableObject {
         nearbyPartyUserID = userID
         refreshGeneration += 1
         isRefreshing = false
+        inFlightRefresh = nil
         snapshot = NativeTabContentSnapshot(venues: snapshot.venues,
             discoverCards: snapshot.discoverCards.filter { $0.nearbyParty == nil },
             events: snapshot.events, source: snapshot.source, lastUpdated: snapshot.lastUpdated,
@@ -4993,10 +5000,16 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     func invalidateLocationScopedContent(for location: NativeLocationCoordinate) {
-        refreshGeneration += 1
-        isRefreshing = false
+        // A read already under way for this area still answers it; only a
+        // move out of the area discards it.
+        if let inFlightRefresh, !Self.canPresentLocationScopedContent(origin: inFlightRefresh.origin, current: location) {
+            refreshGeneration += 1
+            isRefreshing = false
+            self.inFlightRefresh = nil
+        }
         guard Self.canPresentLocationScopedContent(origin: snapshotOrigin, current: location) else {
             snapshotOrigin = nil
+            snapshotLoadedAt = nil
             bestValueOrigin = nil
             snapshot = .unresolved
             return
@@ -5008,16 +5021,44 @@ final class NativeTabContentStore: ObservableObject {
         }
     }
 
-    func refresh(sessionStore: BytspotSessionStore, location: NativeLocationCoordinate = .midtown) async {
+    nonisolated static func canReuseSnapshot(loadedAt: Date?, origin: NativeLocationCoordinate?, loadedUserID: String?, currentUserID: String?, hasError: Bool, location: NativeLocationCoordinate, now: Date = Date()) -> Bool {
+        guard let loadedAt, !hasError, loadedUserID == currentUserID,
+              canPresentLocationScopedContent(origin: origin, current: location) else { return false }
+        let age = now.timeIntervalSince(loadedAt)
+        return age >= 0 && age < freshnessInterval
+    }
+
+    /// `force` is for pull to refresh. Otherwise a fresh snapshot for this
+    /// account and area is kept, and a read already running for it is joined.
+    func refresh(sessionStore: BytspotSessionStore, location: NativeLocationCoordinate = .midtown, force: Bool = false) async {
         guard NativeMigrationConfig.isNativeRootEnabled else { return }
-        synchronizeAccount(userID: sessionStore.canAttachBearerToken ? sessionStore.authenticatedUserID : nil)
+        let userID = sessionStore.canAttachBearerToken ? sessionStore.authenticatedUserID : nil
+        synchronizeAccount(userID: userID)
+        if !force, !location.isFallback {
+            if Self.canReuseSnapshot(loadedAt: snapshotLoadedAt, origin: snapshotOrigin, loadedUserID: snapshotUserID, currentUserID: userID, hasError: snapshot.errorMessage != nil, location: location) { return }
+            if let inFlightRefresh, inFlightRefresh.userID == userID,
+               Self.canPresentLocationScopedContent(origin: inFlightRefresh.origin, current: location) {
+                await inFlightRefresh.task.value
+                return
+            }
+        }
+        let id = UUID()
+        let task = Task { await self.load(sessionStore: sessionStore, location: location, userID: userID) }
+        inFlightRefresh = location.isFallback ? nil : (id, location, userID, task)
+        await task.value
+        if inFlightRefresh?.id == id { inFlightRefresh = nil }
+    }
+
+    private func load(sessionStore: BytspotSessionStore, location: NativeLocationCoordinate, userID: String?) async {
         invalidateLocationScopedContent(for: location)
+        refreshGeneration += 1
         let generation = refreshGeneration
         isRefreshing = true
         defer { if generation == refreshGeneration { isRefreshing = false } }
         guard !location.isFallback else {
             snapshotOrigin = nil
             bestValueOrigin = nil
+            snapshotLoadedAt = nil
             snapshot = .unresolved
             return
         }
@@ -5036,6 +5077,8 @@ final class NativeTabContentStore: ObservableObject {
             guard generation == refreshGeneration else { return }
             snapshotOrigin = location
             bestValueOrigin = nil
+            snapshotUserID = userID
+            snapshotLoadedAt = Date()
             snapshot = NativeTabContentSnapshot(
                 venues: liveVenues,
                 discoverCards: cards,

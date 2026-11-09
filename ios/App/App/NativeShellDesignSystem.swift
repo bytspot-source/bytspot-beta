@@ -18,6 +18,7 @@ import UIKit
 /// low contrast on purpose: they should be felt as depth, never seen as shapes,
 /// and they must never compete with content for the eye.
 private struct NativeDeepSpaceGroundDrawnKey: EnvironmentKey { static let defaultValue = false }
+private struct NativeTabIsActiveKey: EnvironmentKey { static let defaultValue = true }
 
 extension EnvironmentValues {
     /// Set by the shell once it draws the ground behind the whole window,
@@ -27,6 +28,12 @@ extension EnvironmentValues {
     var nativeDeepSpaceGroundDrawn: Bool {
         get { self[NativeDeepSpaceGroundDrawnKey.self] }
         set { self[NativeDeepSpaceGroundDrawnKey.self] = newValue }
+    }
+
+    /// False while a tab the shell keeps alive is hidden behind another one.
+    var nativeTabIsActive: Bool {
+        get { self[NativeTabIsActiveKey.self] }
+        set { self[NativeTabIsActiveKey.self] = newValue }
     }
 }
 

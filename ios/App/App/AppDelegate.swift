@@ -21,6 +21,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         URLCache.shared = URLCache(memoryCapacity: Self.imageCacheMemoryBytes, diskCapacity: Self.imageCacheDiskBytes, directory: nil)
         NativePushService.shared.configure(delegate: self)
         BytspotDiagnostics.shared.start()
+        BytspotStripe.configure()
         UserDefaults.standard.removeObject(forKey: NativeHomeVibeCard.dismissedKey)
         return true
     }

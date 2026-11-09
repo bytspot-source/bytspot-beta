@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getRankedDiscoverCardsWithSimplex } from '../vendorMatching.ts';
-import { curatedServiceRecommendationCards, savedServiceRequestToCard, vendorInventoryToCard, vendorServiceToCard } from '../vendorExperienceCards.ts';
+import { curatedServiceRecommendationCards, placeOffersFrom, placeOffersQuery, savedServiceRequestToCard, vendorInventoryToCard, vendorServiceToCard } from '../vendorExperienceCards.ts';
 import { discoverCardCapability, discoverCardControl } from '../mockData/discover.ts';
 import { controlFromCapability } from '../bookableProjection.ts';
 import { askErrorMessage, askIsLive, askProblems, askTransport, type AskClient } from '../guestAsk.ts';
@@ -405,4 +405,23 @@ test("a card uses the bookable's own website and video, and only the API's own v
   );
   assert.equal(fallback?.website, 'https://place.example/');
   assert.equal(fallback?.videoUrl, undefined);
+});
+
+test('a listed place asks for its attached offers by slug, then Google id; vendor cards never do', () => {
+  assert.deepEqual(placeOffersQuery({ slug: 'colony-square', placeId: 'g1' }), { slug: 'colony-square' });
+  assert.deepEqual(placeOffersQuery({ placeId: 'g1' }), { googlePlaceId: 'g1' });
+  assert.equal(placeOffersQuery({ slug: 'x', discoverSource: 'bytspot_vendor' }), null);
+  assert.equal(placeOffersQuery({}), null);
+});
+
+test('place offers carry an ask only for request windows', () => {
+  const item = {
+    windowId: 'w1', title: 'Chef table', sellerName: 'Peach Table', priceCents: 4500, maxGuests: 4, intent: 'request',
+    nextSlot: { startsAt: new Date(Date.now() + 3_600_000).toISOString(), remaining: 2 },
+  };
+  const [ask, plain] = placeOffersFrom([item, { ...item, windowId: 'w2', intent: 'book' }] as never);
+  assert.equal(ask.ask?.windowId, 'w1');
+  assert.deepEqual(ask.ask?.slots, [item.nextSlot]);
+  assert.equal(plain.ask, undefined);
+  assert.equal(plain.sellerName, 'Peach Table');
 });

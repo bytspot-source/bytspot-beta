@@ -90,7 +90,8 @@ export function onboardingStage(seller: Seller): OnboardingStage {
  * publish that quietly fails.
  */
 export function shouldShowOnboarding(seller: Seller): boolean {
-  if (seller.state === 'DRAFT' || seller.state === 'PENDING') return true;
+  // A paused business is told so, whether or not its setup is complete.
+  if (seller.state === 'DRAFT' || seller.state === 'PENDING' || seller.state === 'SUSPENDED') return true;
   return onboardingItems(seller).some((item) => !item.done);
 }
 

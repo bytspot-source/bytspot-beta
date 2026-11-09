@@ -11,7 +11,7 @@ import { getVenueReviews, saveVenueReview, getAverageRating, type VenueReview } 
 import { addAccessPassToWallet, BYTSPOT_COMMERCE_EVENT, getAccessPassForProduct, getBytspotMembership, hasPlatinumAccess, replaceAccessPassesFromServer, type AccessPass, type AccessPassInput, upsertAccessPass } from '../utils/insiderCommerce';
 import { APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP } from '../utils/reviewBuild';
 import { AskSheet } from './AskSheet';
-import { menusFrom, vendorVideoFrom } from '../utils/vendorExperienceCards';
+import { menusFrom, placeOffersFrom, placeOffersQuery, vendorVideoFrom, type PlaceOffer, type VendorInventoryCard } from '../utils/vendorExperienceCards';
 import { tableBookingFrom } from '../utils/tableBooking';
 
 interface VenueDetailsProps {
@@ -85,6 +85,18 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
   const isTicketedVenue = venue.entryType === 'paid';
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [askOpen, setAskOpen] = useState(false);
+  const [placeOffers, setPlaceOffers] = useState<PlaceOffer[]>([]);
+  const [placeAsk, setPlaceAsk] = useState<PlaceOffer['ask'] | null>(null);
+  const placeQuery = placeOffersQuery(venue);
+  const placeQueryKey = placeQuery ? JSON.stringify(placeQuery) : '';
+  useEffect(() => {
+    if (!placeQueryKey) { setPlaceOffers([]); return; }
+    let cancelled = false;
+    trpc.inventory.atVenue.query(JSON.parse(placeQueryKey)).then((items: VendorInventoryCard[]) => {
+      if (!cancelled) setPlaceOffers(placeOffersFrom(Array.isArray(items) ? items : []));
+    }).catch(() => { if (!cancelled) setPlaceOffers([]); });
+    return () => { cancelled = true; };
+  }, [placeQueryKey]);
   const venueMenus = menusFrom(venue?.menus);
   const venueVideo = vendorVideoFrom(venue?.videoUrl);
   const [isFavorite, setIsFavorite] = useState(() => isSpotSaved(favoriteSpotId));
@@ -1139,6 +1151,30 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
               </motion.button>
             )}
 
+            {placeOffers.length > 0 && (
+              <div className="mb-3 rounded-[16px] bg-[#1C1C1E]/80 border-2 border-white/30 p-3" data-testid="venue-place-offers">
+                <p className="text-[13px] text-white mb-2" style={{ fontWeight: 700 }}>Book here</p>
+                {placeOffers.map((offer) => (
+                  <div key={offer.windowId} className="flex items-center justify-between gap-3 py-2 border-t border-white/10 first:border-t-0">
+                    <div className="min-w-0">
+                      <p className="text-[14px] text-white truncate" style={{ fontWeight: 600 }}>{offer.title}</p>
+                      <p className="text-[12px] text-white/60 truncate">{offer.sellerName} · {offer.price} · {offer.when}</p>
+                    </div>
+                    {offer.ask && (
+                      <motion.button
+                        onClick={() => setPlaceAsk(offer.ask ?? null)}
+                        className="shrink-0 rounded-[12px] px-3 py-2 text-[13px] text-white"
+                        style={{ background: 'linear-gradient(135deg,#00BFFF,#A855F7)', fontWeight: 700 }}
+                        whileTap={{ scale: 0.97 }}
+                      >
+                        Ask
+                      </motion.button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {tableBooking && (
               <div className="mb-3">
                 <motion.a
@@ -1363,6 +1399,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
         </AnimatePresence>
       </div>
       {askOpen && venue.ask ? <AskSheet ask={venue.ask} onClose={() => setAskOpen(false)} /> : null}
+      {placeAsk ? <AskSheet ask={placeAsk} onClose={() => setPlaceAsk(null)} /> : null}
     </motion.div>
   );
 }

@@ -132,6 +132,8 @@ struct NativePartyPassRoute: Equatable {
     private(set) var latitude: Double?
     private(set) var longitude: Double?
     private(set) var intent: String?
+    /// Set on the link Stripe Checkout returns to.
+    private(set) var checkoutOutcome: NativePartyCheckoutOutcome?
 
     /// A handoff coordinate is worth centring the map on only when it is a real,
     /// in-range point. Anything else routes to the Party Pass without a camera move.
@@ -192,7 +194,35 @@ struct NativePartyPassRoute: Equatable {
         self.intent = Self.intents.first { $0 == value("intent") }
         self.latitude = value("lat").flatMap(Double.init)
         self.longitude = value("lng").flatMap(Double.init)
+        self.checkoutOutcome = value("checkout").flatMap(NativePartyCheckoutOutcome.init(queryValue:))
     }
+}
+
+enum NativePartyCheckoutOutcome: Equatable {
+    case paid, cancelled
+
+    init?(queryValue: String) {
+        switch queryValue.lowercased() {
+        case "success": self = .paid
+        case "cancelled": self = .cancelled
+        default: return nil
+        }
+    }
+}
+
+/// Stripe Checkout returns that the Party's admission controls have not shown yet.
+@MainActor
+final class NativePartyCheckoutReturns: ObservableObject {
+    static let shared = NativePartyCheckoutReturns()
+    @Published private(set) var outcomes: [String: NativePartyCheckoutOutcome] = [:]
+    /// What the guest was last told about that return, shared by every copy of the controls.
+    @Published private(set) var notices: [String: String] = [:]
+
+    func record(_ outcome: NativePartyCheckoutOutcome, partyID: String) { outcomes[partyID] = outcome }
+    func outcome(for partyID: String) -> NativePartyCheckoutOutcome? { outcomes[partyID] }
+    func finish(partyID: String) { outcomes[partyID] = nil }
+    func notice(for partyID: String) -> String { notices[partyID] ?? "" }
+    func setNotice(_ notice: String?, partyID: String) { notices[partyID] = notice }
 }
 
 /// Canonical native Plan invite URL: `/plan/<id>` on the production host or the
@@ -327,6 +357,7 @@ final class NativeNavigationCoordinator: ObservableObject {
         if path == "discover" || path.hasPrefix("venue/") || path.hasPrefix("v/") || path.hasPrefix("discover/") { requestedTab = .discover; return true }
         if path == "concierge" || path.hasPrefix("concierge/") { requestedTab = .concierge; return true }
         if path == "profile/notifications" { requestedTab = .home; requestedProfilePanel = .notifications; return true }
+        if path == "profile/payment" { requestedTab = .home; requestedProfilePanel = .paymentMethods; return true }
         if path == "profile" || path.hasPrefix("profile/") { requestedTab = .home; requestedDestination = .profile; return true }
         if path == "access" { requestedTab = .home; requestedDestination = .accessWallet; return true }
         if path == "payouts/host" { requestedProfilePanel = .getPaid; return true }
@@ -338,6 +369,9 @@ final class NativeNavigationCoordinator: ObservableObject {
             return true
         }
         if let partyRoute = NativePartyPassRoute(url: url) {
+            if let outcome = partyRoute.checkoutOutcome {
+                NativePartyCheckoutReturns.shared.record(outcome, partyID: partyRoute.partyID)
+            }
             // A Clip handoff that carried a public point opens the map on it, so the
             // guest lands on where they are going rather than on a card about it.
             if let coordinate = partyRoute.handoffCoordinate {

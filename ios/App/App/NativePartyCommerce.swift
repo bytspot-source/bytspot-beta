@@ -348,6 +348,39 @@ struct NativePartyCommerceGeneration {
     }
 }
 
+/// What the server says about a purchase the guest just returned from Stripe with.
+enum NativePartyCheckoutConfirmation: Equatable {
+    case waiting, confirmed, refundRequired
+
+    static let pollAttempts = 20
+    static let pollInterval: UInt64 = 3_000_000_000
+    /// A purchase completed this recently is the one the guest just paid for.
+    static let recentWindow: TimeInterval = 15 * 60
+
+    static func state(of purchases: [NativePartyCommercePurchase], partyID: String, now: Date = Date()) -> Self {
+        let party = purchases.filter { $0.party.id == partyID }
+        if party.contains(where: { ["creating", "pending"].contains($0.status) && !$0.reservationElapsed }) { return .waiting }
+        let recent = party.compactMap { purchase -> (Date, String)? in
+            guard let completed = purchase.completedAt.flatMap(NativeAccountDeletionFormat.date(fromISO:)),
+                  now.timeIntervalSince(completed) <= recentWindow else { return nil }
+            return (completed, purchase.status)
+        }.max { $0.0 < $1.0 }
+        if recent?.1 == "completed" { return .confirmed }
+        if recent?.1 == "refund-required" { return .refundRequired }
+        return .waiting
+    }
+
+    var notice: String {
+        switch self {
+        case .waiting: return "Payment received — confirming your purchase with the server…"
+        case .confirmed: return "Payment confirmed. Your pass is in Profile → Bookings / Wallet."
+        case .refundRequired: return "Payment received, but admission could not be granted. Refund required — contact the host."
+        }
+    }
+    static let stillWaitingNotice = "Stripe has not confirmed the payment yet. This can take a minute — tap Refresh."
+    static let cancelledNotice = "Checkout cancelled. No payment was taken."
+}
+
 /// Admission and checkout controls embedded in the invitation. No QR here.
 @MainActor
 struct NativePartyCommerceControls: View {
@@ -366,12 +399,16 @@ struct NativePartyCommerceControls: View {
     @State private var message = ""
     @State private var operation: Task<Void, Never>?
     @ObservedObject private var pushService = NativePushService.shared
+    @ObservedObject private var checkoutReturns = NativePartyCheckoutReturns.shared
     private var scope: NativePartyCommerceScope { NativePartyCommerceScope(sessionStore) }
     private var current: Bool { loadedScope == scope }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Admission & purchases").font(.title2.bold()).accessibilityAddTraits(.isHeader)
+            if !checkoutReturns.notice(for: partyID).isEmpty {
+                Text(checkoutReturns.notice(for: partyID)).font(.subheadline.weight(.semibold)).accessibilityIdentifier("native-party-checkout-notice")
+            }
             // This sheet covers the shell's copy of the card.
             if pushService.reminderPromptVisible { NativeReminderPermissionCard(pushService: pushService) }
             if !scope.signedIn {
@@ -438,8 +475,35 @@ struct NativePartyCommerceControls: View {
         .disabled(busy)
         .task(id: NativePartyCommerceLoadKey(scope: scope, revision: revision, partyID: partyID)) { await load() }
         .onChange(of: scenePhase) { phase in if phase == .active { refresh() } }
+        .task(id: checkoutReturns.outcome(for: partyID)) { await followCheckoutReturn() }
         .onDisappear { operation?.cancel(); generation.invalidate(); admission = nil; offer = nil; loadedScope = nil; busy = false }
         .accessibilityIdentifier("native-party-commerce-controls")
+    }
+
+    /// Polls the server after a Stripe return; payment is never inferred from the link itself.
+    @MainActor private func followCheckoutReturn() async {
+        guard let outcome = checkoutReturns.outcome(for: partyID) else { return }
+        guard outcome == .paid else {
+            checkoutReturns.setNotice(NativePartyCheckoutConfirmation.cancelledNotice, partyID: partyID)
+            checkoutReturns.finish(partyID: partyID)
+            return
+        }
+        checkoutReturns.setNotice(NativePartyCheckoutConfirmation.waiting.notice, partyID: partyID)
+        var state = NativePartyCheckoutConfirmation.waiting
+        for attempt in 0..<NativePartyCheckoutConfirmation.pollAttempts {
+            if attempt > 0 { try? await Task.sleep(nanoseconds: NativePartyCheckoutConfirmation.pollInterval) }
+            guard !Task.isCancelled else { return }
+            let captured = scope
+            guard captured.signedIn else { break }
+            if let page = try? await NativePartyCommerceAPI(client: captured.client).mine("purchases", partyID: partyID) {
+                state = NativePartyCheckoutConfirmation.state(of: page.purchases ?? [], partyID: partyID)
+            }
+            guard !Task.isCancelled else { return }
+            if state != .waiting { break }
+        }
+        checkoutReturns.setNotice(state == .waiting ? NativePartyCheckoutConfirmation.stillWaitingNotice : state.notice, partyID: partyID)
+        if state != .waiting { refresh() }
+        checkoutReturns.finish(partyID: partyID)
     }
 
     private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -490,6 +554,10 @@ struct NativePartyCommerceControls: View {
             if !selection.canRetry(admission: stateValue) { selection = NativePartyCommerceSelection() }
             // Receipt reconciliation is best-effort; it never creates admission.
             purchases = (page?.purchases ?? []).filter { $0.party.id == partyID }
+            if checkoutReturns.notice(for: partyID) == NativePartyCheckoutConfirmation.stillWaitingNotice {
+                let state = NativePartyCheckoutConfirmation.state(of: purchases, partyID: partyID)
+                if state != .waiting { checkoutReturns.setNotice(state.notice, partyID: partyID) }
+            }
             if let userID = captured.userID {
                 NativePartyCommerceRetries().reconcile(userID: userID, purchases: purchases)
             }
@@ -528,6 +596,7 @@ struct NativePartyCommerceControls: View {
         let key = recovered ?? retries.key(userID: userID, partyID: partyID, selection: chosen)
         retries.remember(key, userID: userID, partyID: partyID, selection: chosen)
         busy = true; message = ""
+        checkoutReturns.setNotice(nil, partyID: partyID)
         operation = Task { @MainActor in
             do {
                 let api = NativePartyCommerceAPI(client: captured.client)

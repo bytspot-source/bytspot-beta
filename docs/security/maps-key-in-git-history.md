@@ -40,4 +40,4 @@ Checked 2026-11-10 on `fix/abuse-risk-review-2026-11-10`.
 ## How to verify
 - Old key in Credentials is deleted (or restricted as above).
 - Places-backed screens in the app still load after the Render redeploy.
-- `git grep -n 'AIza' HEAD` in each repo returns nothing.
+- `git grep -nE 'AIza[0-9A-Za-z_-]{35}' HEAD` in each repo returns nothing (a bare prefix also matches this doc).

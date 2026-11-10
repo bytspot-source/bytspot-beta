@@ -40,6 +40,10 @@
 		A13F03132C0FF00100000063 /* NativePatchRouteSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03122C0FF00100000063 /* NativePatchRouteSelfTests.swift */; };
 		B7E1A0012E0000000000F001 /* NativeReportRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E1A0002E0000000000F000 /* NativeReportRelay.swift */; };
 		A13F0A012D0000000000A001 /* BytspotContactHasher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0A002D0000000000A000 /* BytspotContactHasher.swift */; };
+		A13F0A072D0000000000A007 /* BytspotStripe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0A062D0000000000A006 /* BytspotStripe.swift */; };
+		A13F0A092D0000000000A009 /* BytspotStripe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0A062D0000000000A006 /* BytspotStripe.swift */; };
+		A13F0A0B2D0000000000A00B /* BytspotStripeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0A0A2D0000000000A00A /* BytspotStripeTests.swift */; };
+		A13F0A0D2D0000000000A00D /* StripeApplePay in Frameworks */ = {isa = PBXBuildFile; productRef = A13F0A0C2D0000000000A00C /* StripeApplePay */; };
 		A13F0A032D0000000000A003 /* BytspotContactSyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0A022D0000000000A002 /* BytspotContactSyncStore.swift */; };
 		A13F0A052D0000000000A005 /* NativeContactSyncSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F0A042D0000000000A004 /* NativeContactSyncSelfTests.swift */; };
 		A13F03152C0FF00100000065 /* NativePatchBookingSelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F03142C0FF00100000065 /* NativePatchBookingSelfTests.swift */; };
@@ -154,6 +158,8 @@
 		A13F03122C0FF00100000063 /* NativePatchRouteSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePatchRouteSelfTests.swift; sourceTree = "<group>"; };
 		B7E1A0002E0000000000F000 /* NativeReportRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeReportRelay.swift; sourceTree = "<group>"; };
 		A13F0A002D0000000000A000 /* BytspotContactHasher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotContactHasher.swift; sourceTree = "<group>"; };
+		A13F0A062D0000000000A006 /* BytspotStripe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotStripe.swift; sourceTree = "<group>"; };
+		A13F0A0A2D0000000000A00A /* BytspotStripeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotStripeTests.swift; sourceTree = "<group>"; };
 		A13F0A022D0000000000A002 /* BytspotContactSyncStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BytspotContactSyncStore.swift; sourceTree = "<group>"; };
 		A13F0A042D0000000000A004 /* NativeContactSyncSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeContactSyncSelfTests.swift; sourceTree = "<group>"; };
 		A13F03142C0FF00100000065 /* NativePatchBookingSelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePatchBookingSelfTests.swift; sourceTree = "<group>"; };
@@ -221,6 +227,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A13F0A0D2D0000000000A00D /* StripeApplePay in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -231,6 +238,7 @@
 			isa = PBXGroup;
 			children = (
 				9A1129492FA586137FE60C71 /* BytspotTrustEngineTests.swift */,
+				A13F0A0A2D0000000000A00A /* BytspotStripeTests.swift */,
 				D92400422026092400000001 /* NativePartyCommerceTests.swift */,
 				D92410142026101000000001 /* NativeSafetyTests.swift */,
 				D92410262026101200000001 /* NativeSecureBandTests.swift */,
@@ -315,6 +323,7 @@
 				A13F03102C0FF00100000061 /* NativeAuthSeamSelfTests.swift */,
 				A13F03122C0FF00100000063 /* NativePatchRouteSelfTests.swift */,
 				A13F0A002D0000000000A000 /* BytspotContactHasher.swift */,
+				A13F0A062D0000000000A006 /* BytspotStripe.swift */,
 				B7E1A0002E0000000000F000 /* NativeReportRelay.swift */,
 				A13F0A022D0000000000A002 /* BytspotContactSyncStore.swift */,
 				A13F0A042D0000000000A004 /* NativeContactSyncSelfTests.swift */,
@@ -419,6 +428,7 @@
 			);
 			name = Clip;
 			packageProductDependencies = (
+				A13F0A0C2D0000000000A00C /* StripeApplePay */,
 			);
 			productName = Clip;
 			productReference = A13F01002C0FF00100000010 /* Clip.app */;
@@ -516,6 +526,7 @@
 				A13F03112C0FF00100000061 /* NativeAuthSeamSelfTests.swift in Sources */,
 				A13F03132C0FF00100000063 /* NativePatchRouteSelfTests.swift in Sources */,
 				A13F0A012D0000000000A001 /* BytspotContactHasher.swift in Sources */,
+				A13F0A072D0000000000A007 /* BytspotStripe.swift in Sources */,
 				B7E1A0012E0000000000F001 /* NativeReportRelay.swift in Sources */,
 				A13F0A032D0000000000A003 /* BytspotContactSyncStore.swift in Sources */,
 				A13F0A052D0000000000A005 /* NativeContactSyncSelfTests.swift in Sources */,
@@ -559,6 +570,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B3D8A6E7D100EEDA96C20BD3 /* BytspotTrustEngineTests.swift in Sources */,
+				A13F0A0B2D0000000000A00B /* BytspotStripeTests.swift in Sources */,
 				D92400412026092400000001 /* NativePartyCommerceTests.swift in Sources */,
 				D92410132026101000000001 /* NativeSafetyTests.swift in Sources */,
 				D92410252026101200000001 /* NativeSecureBandTests.swift in Sources */,
@@ -580,6 +592,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A13F01062C0FF00100000016 /* ClipApp.swift in Sources */,
+				A13F0A092D0000000000A009 /* BytspotStripe.swift in Sources */,
 				A13F01072C0FF00100000017 /* ClipContentView.swift in Sources */,
 				A13F01082C0FF00100000018 /* ClipPatchVerifier.swift in Sources */,
 				A13F01202C0FF00100000030 /* BytspotAviationFallbackTests.swift in Sources */,
@@ -936,6 +949,11 @@
 			productName = GoogleSignIn;
 		};
 		7B5E2C802B6A4A6AA8A21A01 /* StripeApplePay */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios.git" */;
+			productName = StripeApplePay;
+		};
+		A13F0A0C2D0000000000A00C /* StripeApplePay */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 7B5E2C7F2B6A4A6AA8A21A01 /* XCRemoteSwiftPackageReference "stripe-ios.git" */;
 			productName = StripeApplePay;

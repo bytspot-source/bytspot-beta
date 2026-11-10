@@ -6,7 +6,6 @@ struct BytspotClipApp: App {
     @StateObject private var invocation = ClipInvocationModel()
 
     init() {
-        BytspotStripe.configure()
         #if DEBUG
         BytspotAviationFallbackTests.run()
         #endif

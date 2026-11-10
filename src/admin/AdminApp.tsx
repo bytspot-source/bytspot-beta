@@ -30,8 +30,8 @@ type ListedPlace = {
   numbers: { checkIns: Count; bookingTaps: Count; planAdds: Count; bookedByGuests: Count };
 };
 type VenueControlRow = { venueId: string; name: string; address: string; category: string; control: 'bytspot' | 'listed'; controlledAt: string | null; placeId: string | null };
-type Candidate = { placeId: string; name: string; address: string; suggestedCategory: Category; listed: boolean };
-type Draft = { placeId: string; name: string; address: string; provider: Provider | 'none'; url: string; category: Category; opened: boolean };
+type Candidate = { placeId: string; name: string; address: string; suggestedCategory: Category; listed: boolean; venueName?: string | null };
+type Draft = { placeId: string; name: string; address: string; provider: Provider | 'none'; url: string; category: Category; opened: boolean; tiedTo?: string | null };
 type Vendor = {
   sellerId: string; legalName: string; contactEmail: string | null; businessKind: string | null; state: string;
   awaitingApproval: boolean; approvedAt: string | null; createdAt: string; missing: string[];
@@ -114,6 +114,15 @@ function errorText(error: unknown): string {
 
 function dateLabel(value: string | null): string {
   return value ? new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+}
+
+/** The Bytspot venue a Google match already belongs to, when its name is not the one Google shows. */
+function tiedToOther(c: Candidate): string | null {
+  const own = c.venueName?.trim();
+  if (!own) return null;
+  const norm = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const a = norm(own); const b = norm(c.name);
+  return a && b && (a.includes(b) || b.includes(a)) ? null : own;
 }
 
 /** The same check the API makes, so a bad link is caught before it is sent. */
@@ -224,6 +233,12 @@ function PlaceForm({ draft, onChange, onSaved, onCancel }: {
         <p className="admin-strong">{draft.name}</p>
         <p className="admin-muted">{draft.address}</p>
       </div>
+      {draft.tiedTo && (
+        <p className="admin-warn">
+          This Google place is linked to {draft.tiedTo} in Bytspot. Saving changes {draft.tiedTo}, not a new place.
+          To list {draft.name} on its own, first give {draft.tiedTo} its correct Google place in the venues list below.
+        </p>
+      )}
       <div className="admin-inline">
         {(['opentable', 'resy'] as const).map((provider) => (
           <Button key={provider} kind={draft.provider === provider ? 'primary' : 'quiet'} onClick={() => onChange({ ...draft, provider })}>
@@ -559,7 +574,10 @@ function PlacesTab() {
     }
   };
 
-  const pick = (c: Candidate) => setDraft({ placeId: c.placeId, name: c.name, address: c.address, provider: 'opentable', url: '', category: c.suggestedCategory, opened: false });
+  const pick = (c: Candidate) => setDraft({
+    placeId: c.placeId, name: c.name, address: c.address, provider: 'opentable', url: '', category: c.suggestedCategory, opened: false,
+    tiedTo: tiedToOther(c),
+  });
   const edit = (p: ListedPlace) => p.placeId && setDraft({
     placeId: p.placeId, name: p.name, address: p.address, provider: p.booking?.provider ?? 'none',
     url: p.booking?.url ?? '', category: (CATEGORIES.some((c) => c.id === p.category) ? p.category : 'restaurant') as Category, opened: false,
@@ -592,6 +610,7 @@ function PlacesTab() {
                 <div>
                   <p className="admin-strong">{c.name}</p>
                   <p className="admin-muted">{c.address}</p>
+                  {tiedToOther(c) && <p className="admin-warn">Linked to {tiedToOther(c)} in Bytspot</p>}
                 </div>
                 <Button kind="quiet" onClick={() => pick(c)}>{c.listed ? 'Edit' : 'Pick'}</Button>
               </li>

@@ -9,7 +9,7 @@
 - You are the organizer and seller of your event. You are responsible for the venue, permits, capacity, security, insurance and following the law.
 
 ## 2. Alcohol
-Bytspot doesn't sell, serve or deliver alcohol. If your event involves alcohol, the venue or a licensed provider must handle it, and you must mark the event **21+**. Read the Alcohol Policy (/alcohol-policy). "BYOB for sale", selling bottles through Bytspot, and putting drinks into the pass price are not allowed.
+Bytspot doesn't sell, serve or deliver alcohol, and it does not collect payment for bottles. If your event involves alcohol, the venue or a licensed provider must handle it, and you must mark the event **21+**. Read the Alcohol Policy (/alcohol-policy). "BYOB for sale", selling bottles through Bytspot, putting drinks into the pass or session price, and listing a session as "bottles included" are not allowed. A bottle session must be listed as a minimum settled at the venue; the amount charged through Bytspot is a reservation fee only.
 
 ## 3. Money
 - Payments go through Stripe. Payouts are sent **after the event**. They are held if the event was cancelled, or if a payment has an open dispute or fraud warning.

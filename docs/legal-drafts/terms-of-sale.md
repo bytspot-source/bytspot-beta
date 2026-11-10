@@ -17,7 +17,7 @@ The total, including any fees, is shown before you pay. [COUNSEL/DANIEL: sales t
 These match the text shown on the Stripe Checkout page:
 - **The host or business cancels, or Bytspot removes the event:** you get a full refund to the card you paid with. Bytspot starts the refund automatically.
 - **Otherwise,** passes are non-refundable unless the host offers a refund.
-- **Bottle minimums** and anything you buy at the venue are settled with the venue. Bytspot doesn't sell alcohol.
+- **Bottle minimums** and anything you buy at the venue are settled with the venue. A session line on your receipt is a table or reservation fee only. Bytspot doesn't sell alcohol and doesn't charge for bottles.
 - **21+ events** need a valid government ID at the door. If you are turned away because you are under age or have no ID, you don't get a refund.
 
 ## 4. Chargebacks

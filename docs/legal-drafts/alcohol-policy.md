@@ -4,10 +4,10 @@
 >
 > Bytspot Inc., 8735 Dunwoody Place #13893, Atlanta, GA 30350 · Support: `[SUPPORT_EMAIL — replace before publishing; do not use a personal Gmail]`
 
-1. **Bytspot doesn't sell, serve, deliver or take payment for alcohol.** Passes pay for entry only.
+1. **Bytspot doesn't sell, serve, deliver or take payment for alcohol.** A pass or session reservation fee charged through Bytspot is admission or a table reservation only, never payment for drinks.
 2. **Events with alcohol must be marked 21+.** Venues check ID at the door. An account can't get a pass to a 21+ event or book a bottle-minimum session without a date of birth showing 21 or older.
-3. **Bottle minimums** are an agreement between the guest and the licensed venue, and are paid there. Bytspot may show that a minimum exists but never collects it.
-4. **Hosts** may not sell alcohol through Bytspot, put drinks into pass prices, or run unlicensed "BYOB for sale" events.
+3. **Bottle minimums** are an agreement between the guest and the licensed venue, and are paid there. Bytspot may show that a minimum exists and may charge a reservation fee for the table, but it never collects the bottles. Sessions may not be priced as "bottles included" on Bytspot; the API refuses them.
+4. **Hosts** may not sell alcohol through Bytspot, put drinks into pass or session prices, or run unlicensed "BYOB for sale" events.
 5. **Private sales** of alcohol are prohibited.
 6. Report problems in the app or at [SUPPORT_EMAIL].
 

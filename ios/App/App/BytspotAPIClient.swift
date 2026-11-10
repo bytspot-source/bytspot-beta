@@ -32,6 +32,8 @@ struct BytspotAPIClient {
         request.httpMethod = method
         request.timeoutInterval = 8
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // REA P5/X5: lets the API keep web-only purchases (Platinum) off iOS. Not a security boundary.
+        request.setValue("ios", forHTTPHeaderField: "X-Bytspot-Client")
         if let token = tokenProvider(), !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }

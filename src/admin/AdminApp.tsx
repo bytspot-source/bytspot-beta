@@ -31,7 +31,7 @@ type ListedPlace = {
 };
 type VenueControlRow = { venueId: string; name: string; address: string; category: string; control: 'bytspot' | 'listed'; controlledAt: string | null; placeId: string | null };
 type Candidate = { placeId: string; name: string; address: string; suggestedCategory: Category; listed: boolean };
-type Draft = { placeId: string; name: string; address: string; provider: Provider; url: string; category: Category; opened: boolean };
+type Draft = { placeId: string; name: string; address: string; provider: Provider | 'none'; url: string; category: Category; opened: boolean };
 type Vendor = {
   sellerId: string; legalName: string; contactEmail: string | null; businessKind: string | null; state: string;
   awaitingApproval: boolean; approvedAt: string | null; createdAt: string; missing: string[];
@@ -199,13 +199,17 @@ function PlaceForm({ draft, onChange, onSaved, onCancel }: {
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const problem = linkProblem(draft.provider, draft.url);
+  const noLink = draft.provider === 'none';
+  const problem = draft.provider === 'none' ? null : linkProblem(draft.provider, draft.url);
+  const ready = !problem && (noLink || draft.opened);
 
   const save = async () => {
-    if (problem || !draft.opened) return;
+    if (!ready) return;
     setBusy(true); setError(null);
     try {
-      await trpc.admin.places.save.mutate({ placeId: draft.placeId, provider: draft.provider, url: draft.url.trim(), category: draft.category });
+      await trpc.admin.places.save.mutate(noLink
+        ? { placeId: draft.placeId, provider: null, url: null, category: draft.category }
+        : { placeId: draft.placeId, provider: draft.provider, url: draft.url.trim(), category: draft.category });
       onSaved();
     } catch (err) {
       setError(errorText(err));
@@ -226,12 +230,21 @@ function PlaceForm({ draft, onChange, onSaved, onCancel }: {
             {provider === 'opentable' ? 'OpenTable' : 'Resy'}
           </Button>
         ))}
+        <Button kind={noLink ? 'primary' : 'quiet'} onClick={() => onChange({ ...draft, provider: 'none', url: '', opened: false })}>
+          No booking link
+        </Button>
       </div>
-      <input className={input} placeholder={draft.provider === 'opentable' ? 'https://www.opentable.com/r/…' : 'https://resy.com/cities/…'}
-        value={draft.url} onChange={(e) => onChange({ ...draft, url: e.target.value, opened: false })} />
-      {draft.url && problem && <p className="admin-warn">{problem}</p>}
-      {!problem && (
-        <a href={draft.url.trim()} target="_blank" rel="noopener noreferrer" className="admin-link">Open the link to check it ↗</a>
+      {noLink ? (
+        <p className="admin-muted">Listed without a booking button. Guests still see the place and can save, plan and get directions.</p>
+      ) : (
+        <>
+          <input className={input} placeholder={draft.provider === 'opentable' ? 'https://www.opentable.com/r/…' : 'https://resy.com/cities/…'}
+            value={draft.url} onChange={(e) => onChange({ ...draft, url: e.target.value, opened: false })} />
+          {draft.url && problem && <p className="admin-warn">{problem}</p>}
+          {!problem && (
+            <a href={draft.url.trim()} target="_blank" rel="noopener noreferrer" className="admin-link">Open the link to check it ↗</a>
+          )}
+        </>
       )}
       <label className="admin-muted">
         Filed under{' '}
@@ -240,13 +253,15 @@ function PlaceForm({ draft, onChange, onSaved, onCancel }: {
           {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
         </select>
       </label>
-      <label className="admin-check">
-        <input type="checkbox" checked={draft.opened} onChange={(e) => onChange({ ...draft, opened: e.target.checked })} />
-        I opened this link and it books this restaurant.
-      </label>
+      {!noLink && (
+        <label className="admin-check">
+          <input type="checkbox" checked={draft.opened} onChange={(e) => onChange({ ...draft, opened: e.target.checked })} />
+          I opened this link and it books this restaurant.
+        </label>
+      )}
       {error && <p className="admin-warn">{error}</p>}
       <div className="admin-inline">
-        <Button onClick={save} disabled={busy || Boolean(problem) || !draft.opened}>{busy ? 'Saving…' : 'Save and list'}</Button>
+        <Button onClick={save} disabled={busy || !ready}>{busy ? 'Saving…' : 'Save and list'}</Button>
         <Button kind="quiet" onClick={onCancel}>Cancel</Button>
       </div>
     </div>
@@ -546,7 +561,7 @@ function PlacesTab() {
 
   const pick = (c: Candidate) => setDraft({ placeId: c.placeId, name: c.name, address: c.address, provider: 'opentable', url: '', category: c.suggestedCategory, opened: false });
   const edit = (p: ListedPlace) => p.placeId && setDraft({
-    placeId: p.placeId, name: p.name, address: p.address, provider: p.booking?.provider ?? 'opentable',
+    placeId: p.placeId, name: p.name, address: p.address, provider: p.booking?.provider ?? 'none',
     url: p.booking?.url ?? '', category: (CATEGORIES.some((c) => c.id === p.category) ? p.category : 'restaurant') as Category, opened: false,
   });
   const saved = () => { setDraft(null); setCandidates(null); setQuery(''); void load(); };
@@ -606,7 +621,7 @@ function PlacesTab() {
                         {p.booking.label} ↗
                       </a>
                     )}
-                    <span className="admin-tag">checked {dateLabel(p.checkedAt)}</span>
+                    <span className="admin-tag">{p.booking ? `checked ${dateLabel(p.checkedAt)}` : 'no booking link'}</span>
                   </div>
                   <div className="admin-inline">
                     <Button kind="quiet" onClick={() => edit(p)}>Edit</Button>

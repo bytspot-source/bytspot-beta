@@ -10,10 +10,6 @@ import {
 } from '../memberConsent.ts';
 
 const status = (over: Partial<ConsentStatus> = {}): ConsentStatus => ({
-  terms: { currentVersion: '2026-10-10', acceptedVersion: '2026-10-10', acceptedAt: '2026-10-10T00:00:00Z', needsAcceptance: false },
-  age: { hasBirthDate: false, confirmed18: false, canEnter21Plus: false },
-  ai: { provider: 'OpenAI', consentedAt: null, required: false },
-  ...over,
   terms: { currentVersion: '2026-10-10', acceptedVersion: '2026-10-10', acceptedAt: '2026-10-10T00:00:00Z', needsAcceptance: false, ...(over.terms ?? {}) },
   age: { hasBirthDate: false, confirmed18: false, canEnter21Plus: false, ...(over.age ?? {}) },
   ai: { provider: 'OpenAI', consentedAt: null, required: false, ...(over.ai ?? {}) },

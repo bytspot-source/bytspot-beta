@@ -109,7 +109,7 @@
     <key>NSUserNotificationsUsageDescription</key>
     <string>Bytspot sends you alerts when your saved spots are packed or when events near you are starting.</string>
     <key>NSContactsUsageDescription</key>
-    <string>Bytspot matches your contacts on-device using salted hashes to find friends already on Bytspot. Your address book is never uploaded or stored.</string>
+    <string>Bytspot turns the phone numbers and emails in your contacts into one-way codes on your device and sends those codes to Bytspot to find friends already here. Names and other contact details never leave your phone.</string>
     <!-- Scene lifecycle: iOS 27 requires scene adoption at runtime for
          anything linked against its SDK, and an app-delegate window traps
          before the first frame. One scene only, since Bytspot has one window. -->

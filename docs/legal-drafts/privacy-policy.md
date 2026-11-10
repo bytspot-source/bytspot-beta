@@ -11,7 +11,7 @@ _Must match the iOS privacy manifests (`ios/App/App/PrivacyInfo.xcprivacy`, `ios
 |---|---|---|
 | Name, email, phone, date of birth | Account, sign-in, age rules | Yes |
 | **Contacts (as one-way codes)** | Finding friends on Bytspot. Your phone turns contact phone numbers and emails into keyed one-way codes (HMAC) and sends only those codes. Contact names and other details stay on your device. | Yes |
-| **Precise location** | Nearby places, Plan meet-up points, and live location sharing with Plan members **only when you turn it on** | Yes |
+| **Precise location** | Nearby places, Plan meet-up points, and presence you choose to share with friends or Plan members. Plan members who didn't create the Plan see only an area of about 500 m. [DANIEL: confirm there is no continuous live-location feature, or describe it.] | Yes |
 | Coarse location | Area-level demand and "who's out" counts. Rounded to about 500 m before storage or display. | Yes |
 | Photos | Profile, Plans, listings and reviews | Yes |
 | Voice | Voice search and concierge, if you use them. [DANIEL: confirm whether audio leaves the device or only the transcript.] | Yes |
@@ -31,14 +31,14 @@ _Must match the iOS privacy manifests (`ios/App/App/PrivacyInfo.xcprivacy`, `ios
 We don't sell your personal information, and we don't use it for cross-app tracking.
 
 ## Who else can see what
-- Plan members see what you share in the Plan, including live location if you turn it on.
+- Plan members see what you share in the Plan. A Plan's exact meet-up point is shown only to its creator; others see an area of about 500 m.
 - Event guests see the exact venue only after they are approved or have bought a pass.
 - Private-sale buyers see the payment handle the seller chose to share.
 
 ## Your choices
 - Turn location, contacts, camera and microphone permissions on or off in iOS Settings.
-- Stop location sharing in any Plan.
-- Delete your account in Settings. We delete or anonymise your data within [30] days, except for what we must keep for payments, tax, disputes or legal reasons, for [X] years.
+- Turn off presence in Settings. [DANIEL: confirm the setting name.]
+- Delete your account in Settings. Your account is permanently purged 30 days after you ask (you can change your mind before then), except for what we must keep for payments, tax, disputes or legal reasons, for [X] years.
 
 ## Children
 Bytspot isn't meant for children under [13 / 18 — COUNSEL]. Accounts found to be under age are removed.

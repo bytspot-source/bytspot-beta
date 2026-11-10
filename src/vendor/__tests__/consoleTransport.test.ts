@@ -84,6 +84,14 @@ test('no offers reads as no win rate, not zero', () => {
   assert.equal(reviveAnalytics({ winRate: 40 }).winRate, 40);
 });
 
+test('check-in counts read through, and an older server reads as none', () => {
+  const analytics = reviveAnalytics({ checkIns: 12, checkInGuests: 9 });
+  assert.equal(analytics.checkIns, 12);
+  assert.equal(analytics.checkInGuests, 9);
+  assert.equal(reviveAnalytics({}).checkIns, 0);
+  assert.equal(reviveAnalytics({}).checkInGuests, 0);
+});
+
 test('payout lines default to completed and keep their currency', () => {
   const payouts = revivePayouts({
     payout: { reference: 'acct_1', status: 'active', last4: '4242' },

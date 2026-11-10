@@ -2028,6 +2028,7 @@ private struct NativeProfileHeaderCard: View {
     @EnvironmentObject private var membershipStore: NativeMembershipTierStore
     @AppStorage(NativeSignedInIdentity.displayNameKey) private var signedInDisplayName = ""
     @State private var reporterBadge: String?
+    @ObservedObject private var pointsStore = NativePointsStore.shared
 
     // The local personal-info draft ("bytspot_profile_display_name") is
     // deliberately not used here: it is unscoped and may hold a previous
@@ -2091,9 +2092,9 @@ private struct NativeProfileHeaderCard: View {
                     HStack(spacing: 0) {
                         NativeProfileStat(value: "\(connectionCount)", label: "Connections")
                         Rectangle().fill(NativeProfileStyle.hairline).frame(width: 1, height: 24)
-                        NativeProfileStat(value: NativeManualCheckInStore.pointsLabel(scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)), label: "Points")
+                        NativeProfileStat(value: sessionStore.isAuthenticated ? pointsStore.snapshot.pointsLabel : "0", label: "Points")
                         Rectangle().fill(NativeProfileStyle.hairline).frame(width: 1, height: 24)
-                        NativeProfileStat(value: "\(NativeManualCheckInStore.all(scope: NativeManualCheckInScope.authenticated(token: sessionStore.token)).count)", label: "Check-ins")
+                        NativeProfileStat(value: sessionStore.isAuthenticated ? pointsStore.snapshot.checkInsLabel : "0", label: "Check-ins")
                     }
                     .padding(.top, 16)
                 }
@@ -2105,6 +2106,9 @@ private struct NativeProfileHeaderCard: View {
         .task(id: sessionStore.isAuthenticated) {
             guard sessionStore.isAuthenticated else { reporterBadge = nil; return }
             reporterBadge = (try? await sessionStore.mapReportsAPI.standing())?.badge
+        }
+        .task(id: NativePointsRefreshKey(token: sessionStore.token, revision: pointsStore.revision)) {
+            await pointsStore.refresh(sessionStore: sessionStore)
         }
     }
 
@@ -2364,6 +2368,7 @@ private struct NativeProfilePanelSheet: View {
     @AppStorage(NativeAppearanceMode.defaultsKey) private var appearanceRaw = NativeAppearanceMode.system.rawValue
     @StateObject private var unsaved = NativeProfileUnsavedChanges()
     @State private var confirmLeaving = false
+    @ObservedObject private var pointsStore = NativePointsStore.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2481,13 +2486,16 @@ private struct NativeProfilePanelSheet: View {
             NativeLegalPanel(document: .disclaimer)
         default:
             VStack(spacing: 10) {
+                if panel == .points {
+                    NativePointsSummarySection()
+                }
                 if panel == .access {
                     // Points was its own tile before Plans took that slot. It
                     // stays a first-class panel; the entry point moves here so
                     // Wallet remains the single hub for what a user carries.
                     if let open = openPanel {
                         Button(action: { nativeImpactLight(); open(.points) }) {
-                            NativeWalletLine(title: "Points", subtitle: "Earned by check-in", icon: "mappin.and.ellipse")
+                            NativeWalletLine(title: "Points", subtitle: pointsStore.snapshot.balance.map { "\(NativePointsSnapshot.label($0.total)) points · earned by check-in" } ?? "Earned by check-in", icon: "mappin.and.ellipse")
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("native-wallet-points-row")
@@ -6622,6 +6630,42 @@ private struct NativeWalletLedgerPreferenceSections: View {
             }
         }
         .task { await walletLedgerStore.refresh(sessionStore: sessionStore) }
+    }
+}
+
+struct NativePointsRefreshKey: Equatable {
+    let token: String?
+    let revision: Int
+}
+
+/// Balance, check-ins and recent history as the server recorded them.
+private struct NativePointsSummarySection: View {
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @ObservedObject private var pointsStore = NativePointsStore.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if sessionStore.isAuthenticated {
+                NativeTransactionLedger(entries: [
+                    NativeTransactionLedgerEntry("Balance", pointsStore.snapshot.pointsLabel, valueColor: NativeTheme.emerald),
+                    NativeTransactionLedgerEntry("Check-ins", pointsStore.snapshot.checkInsLabel),
+                    NativeTransactionLedgerEntry("Tier", pointsStore.snapshot.balance.map { $0.tier.capitalized } ?? "—")
+                ])
+                if !pointsStore.snapshot.history.isEmpty {
+                    NativeTransactionLedger(entries: pointsStore.snapshot.history.prefix(10).map { item in
+                        NativeTransactionLedgerEntry(item.description, item.amountLabel, valueColor: item.signedAmount >= 0 ? NativeTheme.emerald : NativeTheme.textSecondary)
+                    })
+                }
+            } else {
+                Text("Sign in to see your points and check-ins.")
+                    .font(.system(size: 12.5, weight: .bold))
+                    .foregroundColor(NativeTheme.textSecondary)
+            }
+        }
+        .accessibilityIdentifier("native-points-summary")
+        .task(id: NativePointsRefreshKey(token: sessionStore.token, revision: pointsStore.revision)) {
+            await pointsStore.refresh(sessionStore: sessionStore)
+        }
     }
 }
 

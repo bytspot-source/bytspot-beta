@@ -3372,6 +3372,106 @@ final class NativeWalletLedgerStore: ObservableObject {
     }
 }
 
+struct NativePointsBalance: Decodable, Equatable {
+    let total: Int
+    let lifetime: Int
+    let tier: String
+}
+
+struct NativePointsHistoryItem: Decodable, Equatable, Identifiable {
+    let id: String
+    let type: String
+    let amount: Int
+    let description: String
+    let category: String
+    let createdAt: String
+
+    var signedAmount: Int { type == "spend" ? -abs(amount) : amount }
+    var amountLabel: String { signedAmount >= 0 ? "+\(signedAmount)" : "\(signedAmount)" }
+}
+
+struct NativePointsSnapshot: Equatable {
+    var balance: NativePointsBalance?
+    var checkIns: Int?
+    var history: [NativePointsHistoryItem]
+
+    static let empty = NativePointsSnapshot(balance: nil, checkIns: nil, history: [])
+
+    static func label(_ points: Int) -> String {
+        points >= 1000 ? String(format: "%.1fK", Double(points) / 1000) : "\(points)"
+    }
+
+    var pointsLabel: String { balance.map { Self.label($0.total) } ?? "—" }
+    var checkInsLabel: String { checkIns.map(String.init) ?? "—" }
+}
+
+/// The member's points and check-ins as the server recorded them.
+struct NativePointsAPI {
+    static let balancePath = "/trpc/user.points.get"
+    static let historyPath = "/trpc/user.points.history"
+    static let checkInCountPath = "/trpc/user.checkins.count"
+    let client: BytspotAPIClient
+
+    private struct HistoryPage: Decodable { let items: [NativePointsHistoryItem] }
+
+    func balance() async throws -> NativePointsBalance {
+        try await client.trpcDecode(NativePointsBalance.self, path: Self.balancePath)
+    }
+
+    func history(limit: Int = 20) async throws -> [NativePointsHistoryItem] {
+        let payload = try await client.trpcQueryPayload(path: Self.historyPath, input: ["limit": limit])
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return try JSONDecoder().decode(HistoryPage.self, from: data).items
+    }
+
+    func checkInCount() async throws -> Int {
+        let payload = try await client.trpcPayload(path: Self.checkInCountPath)
+        guard let count = Self.count(from: payload) else { throw BytspotAPIClient.APIError.invalidResponse }
+        return count
+    }
+
+    static func count(from payload: Any) -> Int? {
+        if let count = payload as? Int { return count }
+        guard let dict = payload as? [String: Any] else { return nil }
+        return (dict["data"] as? Int) ?? (dict["json"] as? Int)
+    }
+}
+
+@MainActor
+final class NativePointsStore: ObservableObject {
+    static let shared = NativePointsStore()
+    @Published private(set) var snapshot = NativePointsSnapshot.empty
+    /// Bumped when a check-in is confirmed so visible totals reload.
+    @Published private(set) var revision = 0
+    private var owner: String?
+
+    func checkInConfirmed() { revision += 1 }
+
+    func refresh(sessionStore: BytspotSessionStore) async {
+        guard sessionStore.isAuthenticated, let token = sessionStore.token else {
+            snapshot = .empty
+            owner = nil
+            return
+        }
+        let account = sessionStore.authenticatedUserID ?? token
+        if owner != account {
+            snapshot = .empty
+            owner = account
+        }
+        let api = NativePointsAPI(client: BytspotAPIClient(tokenProvider: { sessionStore.canAttachBearerToken ? sessionStore.token : nil }))
+        async let balance = try? api.balance()
+        async let checkIns = try? api.checkInCount()
+        async let history = try? api.history()
+        let (newBalance, newCheckIns, newHistory) = await (balance, checkIns, history)
+        guard owner == account, sessionStore.isAuthenticated else { return }
+        var next = snapshot
+        if let newBalance { next.balance = newBalance }
+        if let newCheckIns { next.checkIns = newCheckIns }
+        if let newHistory { next.history = newHistory }
+        snapshot = next
+    }
+}
+
 struct NativeAPISessionSnapshot: Equatable {
     enum Mode: Equatable { case signedOut, guest, tokenPresent }
 

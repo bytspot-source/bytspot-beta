@@ -359,7 +359,8 @@ struct NativeHostPayoutsTests {
     }
 
     @MainActor @Test func checkoutReturnLinksCarryTheOutcomeToTheParty() throws {
-        let paid = try #require(NativePartyPassRoute(url: try #require(URL(string: "https://bytspot.app/party/party-9?checkout=success&session_id=cs_test_1"))))
+        let paidURL = try #require(URL(string: "https://bytspot.app/party/party-9?checkout=success&session_id=cs_test_1"))
+        let paid = try #require(NativePartyPassRoute(url: paidURL))
         #expect(paid.partyID == "party-9")
         #expect(paid.checkoutOutcome == .paid)
         #expect(NativePartyPassRoute(url: try #require(URL(string: "https://bytspot.app/party/party-9?checkout=cancelled")))?.checkoutOutcome == .cancelled)

@@ -357,6 +357,57 @@ struct NativeHostPayoutsTests {
         #expect(coordinator.requestedDestination == nil)
         #expect(NativeProfilePanel.getPaid.title == "Get paid")
     }
+
+    @MainActor @Test func checkoutReturnLinksCarryTheOutcomeToTheParty() throws {
+        let paid = try #require(NativePartyPassRoute(url: try #require(URL(string: "https://bytspot.app/party/party-9?checkout=success&session_id=cs_test_1"))))
+        #expect(paid.partyID == "party-9")
+        #expect(paid.checkoutOutcome == .paid)
+        #expect(NativePartyPassRoute(url: try #require(URL(string: "https://bytspot.app/party/party-9?checkout=cancelled")))?.checkoutOutcome == .cancelled)
+        #expect(NativePartyPassRoute(url: try #require(URL(string: "https://bytspot.app/party/party-9?checkout=paid")))?.checkoutOutcome == nil)
+        #expect(NativePartyPassRoute(url: try #require(URL(string: "https://bytspot.app/party/party-9")))?.checkoutOutcome == nil)
+
+        let returns = NativePartyCheckoutReturns.shared
+        returns.finish(partyID: "party-9")
+        let coordinator = NativeNavigationCoordinator()
+        #expect(coordinator.handle(url: try #require(URL(string: "https://bytspot.app/party/party-9?checkout=success&session_id=cs_test_1"))))
+        #expect(returns.outcome(for: "party-9") == .paid)
+        #expect(coordinator.requestedDestination == .party(paid))
+        returns.finish(partyID: "party-9")
+        #expect(returns.outcome(for: "party-9") == nil)
+    }
+
+    @Test func onlyTheServerConfirmsAReturnedCheckout() throws {
+        let now = try #require(NativeAccountDeletionFormat.date(fromISO: "2026-11-10T12:00:00Z"))
+        func purchase(_ status: String, completedAt: String? = nil, elapsed: Bool = false, partyID: String = "party-1") throws -> NativePartyCommercePurchase {
+            var row = CommerceProtocol.purchase
+            row["status"] = status
+            row["reservationElapsed"] = elapsed
+            if let completedAt { row["completedAt"] = completedAt }
+            var party = CommerceProtocol.party
+            party["id"] = partyID
+            row["party"] = party
+            return try NativePartyCommerceAPI.decode(NativePartyCommercePurchase.self, row)
+        }
+        let state = { (purchases: [NativePartyCommercePurchase]) in NativePartyCheckoutConfirmation.state(of: purchases, partyID: "party-1", now: now) }
+        #expect(state([]) == .waiting)
+        #expect(try state([purchase("pending")]) == .waiting)
+        #expect(try state([purchase("completed", completedAt: "2026-11-10T11:59:00Z")]) == .confirmed)
+        #expect(try state([purchase("refund-required", completedAt: "2026-11-10T11:59:00Z")]) == .refundRequired)
+        #expect(try state([purchase("completed", completedAt: "2026-11-10T11:59:00Z"), purchase("pending")]) == .waiting, "a purchase still pending is not yet confirmed")
+        #expect(try state([purchase("completed", completedAt: "2026-11-10T11:59:00Z"), purchase("pending", elapsed: true)]) == .confirmed, "an abandoned hold does not block")
+        #expect(try state([purchase("completed", completedAt: "2026-11-10T10:00:00Z")]) == .waiting, "an earlier purchase is not this one")
+        #expect(try state([purchase("completed", completedAt: "2026-11-10T11:59:00Z", partyID: "party-2")]) == .waiting)
+        #expect(try state([purchase("expired", completedAt: "2026-11-10T11:59:00Z")]) == .waiting)
+    }
+
+    @MainActor @Test func cardSetupReturnOpensPaymentMethods() throws {
+        let coordinator = NativeNavigationCoordinator()
+        #expect(coordinator.handle(url: try #require(URL(string: "bytspot://profile/payment"))))
+        #expect(coordinator.requestedProfilePanel == .paymentMethods)
+        #expect(coordinator.requestedDestination == nil)
+        #expect(coordinator.handle(url: try #require(URL(string: "https://bytspot.app/profile/payment"))))
+        #expect(coordinator.requestedProfilePanel == .paymentMethods)
+    }
 }
 
 /// Immutable per-request fixture: tests can run concurrently, no live network

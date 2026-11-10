@@ -1627,6 +1627,9 @@ struct NativePartyPassPreview: View {
                 NativeHeroCard(title: "Party Pass unavailable", eyebrow: "PARTY PASS", subtitle: "This Party could not be verified. Open a current Party Pass and try again.")
             case .loaded(let party):
                 partyCard(party)
+                if route.checkoutOutcome != nil {
+                    NativePartyCommerceControls(partyID: party.id)
+                }
                 recapBlock(party)
                 NativeHeroCard(title: "Secure continuation", eyebrow: "PARTY PASS", subtitle: "Guest actions remain on the verified Party Pass. This screen never uses legacy group access.")
             }
@@ -3535,6 +3538,7 @@ private struct NativePaymentMethodsPanel: View {
     let sessionStore: BytspotSessionStore
     @AppStorage("bytspot_payment_apple_pay_preferred") private var applePayPreferred = true
     @AppStorage("bytspot_payment_setup_staged") private var setupStaged = false
+    @Environment(\.scenePhase) private var scenePhase
     @State private var methods: [NativePaymentMethodRecord] = []
     @State private var isLoading = false
     @State private var isStartingSetup = false
@@ -3551,6 +3555,7 @@ private struct NativePaymentMethodsPanel: View {
                 .disabled(isStartingSetup || !sessionStore.isAuthenticated)
         }
         .task { await loadPaymentMethodsIfNeeded() }
+        .onChange(of: scenePhase) { phase in if phase == .active { Task { await loadPaymentMethodsIfNeeded() } } }
         .accessibilityIdentifier(NativePaymentMethodsLedgerContract.accessibilityID)
     }
 
@@ -3698,7 +3703,7 @@ private struct NativePaymentMethodsPanel: View {
         guard sessionStore.isAuthenticated else { return }
         isLoading = true
         defer { isLoading = false }
-        do { methods = try await api.listPaymentMethods(); statusMessage = methods.isEmpty ? "No saved card on file. Add one before checkout or use Apple Pay when available." : "Payment methods refreshed." } catch { statusMessage = "Could not refresh payment methods. Try again or continue using Apple Pay at checkout." }
+        do { methods = try await api.listPaymentMethods(); if !methods.isEmpty { setupStaged = false }; statusMessage = methods.isEmpty ? "No saved card on file. Add one before checkout or use Apple Pay when available." : "Payment methods refreshed." } catch { statusMessage = "Could not refresh payment methods. Try again or continue using Apple Pay at checkout." }
     }
 
     private func startSecureSetup() {

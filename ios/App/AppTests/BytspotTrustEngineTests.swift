@@ -8703,6 +8703,36 @@ final class NativeVenueVisitTests: XCTestCase {
     }
 
     @MainActor
+    func testAConfirmedCheckInReloadsServerPointsAndARejectedOneDoesNot() async throws {
+        let store = NativeVenueVisitStore()
+        let context = try XCTUnwrap(store.synchronize(userID: "points-member"))
+        let result = try response()
+        let before = NativePointsStore.shared.revision
+        await store.submit(context: context, venueID: "points-venue", coordinate: .verifiedMidtown) { _ in result }
+        XCTAssertEqual(NativePointsStore.shared.revision, before + 1)
+        let rejected = try XCTUnwrap(store.synchronize(userID: "points-member-2"))
+        await store.submit(context: rejected, venueID: "points-venue", coordinate: .verifiedMidtown) { _ in throw URLError(.timedOut) }
+        XCTAssertEqual(NativePointsStore.shared.revision, before + 1)
+    }
+
+    func testServerPointsDecodeAndLabelWithoutLocalRecords() throws {
+        let balance = try JSONDecoder().decode(NativePointsBalance.self, from: Data(#"{"total":1250,"lifetime":1300,"spent":50,"tier":"silver"}"#.utf8))
+        let earn = try JSONDecoder().decode(NativePointsHistoryItem.self, from: Data(#"{"id":"p1","userId":"u","type":"earn","amount":10,"description":"Checked in at Vidash","category":"checkin","createdAt":"2026-11-10T20:00:00.000Z"}"#.utf8))
+        let spend = try JSONDecoder().decode(NativePointsHistoryItem.self, from: Data(#"{"id":"p2","userId":"u","type":"spend","amount":50,"description":"Redeemed","category":"reward","createdAt":"2026-11-10T21:00:00.000Z"}"#.utf8))
+        let snapshot = NativePointsSnapshot(balance: balance, checkIns: 3, history: [earn, spend])
+        XCTAssertEqual(snapshot.pointsLabel, "1.2K")
+        XCTAssertEqual(snapshot.checkInsLabel, "3")
+        XCTAssertEqual(earn.amountLabel, "+10")
+        XCTAssertEqual(spend.amountLabel, "-50")
+        XCTAssertEqual(NativePointsSnapshot.empty.pointsLabel, "—")
+        XCTAssertEqual(NativePointsAPI.count(from: 7), 7)
+        XCTAssertEqual(NativePointsAPI.count(from: ["data": 7]), 7)
+        XCTAssertNil(NativePointsAPI.count(from: "7"))
+        XCTAssertEqual(NativePointsAPI.balancePath, "/trpc/user.points.get")
+        XCTAssertEqual(NativePointsAPI.checkInCountPath, "/trpc/user.checkins.count")
+    }
+
+    @MainActor
     func testTransportAndCancellationFailuresRetainKeyAcrossAmbiguousRetries() async throws {
         let store = NativeVenueVisitStore()
         let context = try XCTUnwrap(store.synchronize(userID: "member"))

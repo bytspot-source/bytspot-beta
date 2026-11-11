@@ -61,6 +61,8 @@ export function AnalyticsView({ transport }: { transport: ConsoleTransport }) {
             <Tile label="You receive" value={formatCents(data.netCents)} />
             <Tile label="To collect at the venue" value={formatCents(data.payAtVenueCents)} />
             <Tile label="Refunds" value={String(data.refunds)} />
+            <Tile label="Bytspot check-ins at your places" value={String(data.checkIns)} />
+            <Tile label="Guests who checked in" value={String(data.checkInGuests)} />
           </section>
           <section className="vendor-card">
             <h2 className="vendor-section-title">What sold</h2>

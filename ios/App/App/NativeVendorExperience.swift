@@ -708,6 +708,7 @@ final class NativeVenueVisitStore: ObservableObject {
             guard activeContext == context else { return }
             if response.isConfirmed {
                 states[identity] = .confirmed(response)
+                NativePointsStore.shared.checkInConfirmed()
             } else {
                 // A definitive rejection permits a new attempt with new evidence.
                 idempotencyKeys.removeValue(forKey: identity)

@@ -75,6 +75,8 @@ export interface Analytics {
   netCents: number;
   refunds: number;
   payAtVenueCents: number;
+  checkIns: number;
+  checkInGuests: number;
   top: { windowId: string; title: string; booked: number; valueCents: number }[];
 }
 
@@ -760,6 +762,8 @@ export function reviveAnalytics(json: Json): Analytics {
     netCents: num(json.netCents),
     refunds: num(json.refunds),
     payAtVenueCents: num(json.payAtVenueCents),
+    checkIns: num(json.checkIns),
+    checkInGuests: num(json.checkInGuests),
     top: top.map((row) => ({
       windowId: str(row.windowId),
       title: str(row.title),
@@ -1012,7 +1016,7 @@ export function demoConsoleTransport(): ConsoleTransport {
   let team: Team = { seats: [], canInvite: ['manager', 'staff', 'door', 'serviceProvider'] };
   const empty: Analytics = {
     days: 30, requests: 0, offers: 0, declined: 0, booked: 0, winRate: null,
-    paidCents: 0, netCents: 0, refunds: 0, payAtVenueCents: 0, top: [],
+    paidCents: 0, netCents: 0, refunds: 0, payAtVenueCents: 0, checkIns: 0, checkInGuests: 0, top: [],
   };
   return {
     patches: async () => ({ status: 200, value: [] }),

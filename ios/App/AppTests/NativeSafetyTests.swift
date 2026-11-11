@@ -82,7 +82,7 @@ final class NativeSafetyTests: XCTestCase {
 
     func testCopyAndContact() {
         XCTAssertEqual(NativeSafetyCopy.reportThanks, "Thanks. We review reports within 24 hours.")
-        XCTAssertEqual(NativeContactBytspotPanel.mailURL.absoluteString, "mailto:safety@bytspot.com")
+        XCTAssertEqual(NativeContactBytspotPanel.mailURL.absoluteString, "mailto:bytspotapp@gmail.com")
         XCTAssertEqual(person.blockTitle, "Block Jordan")
         XCTAssertNotEqual(NativeSafetyAction.report(party).id, NativeSafetyAction.block(party).id)
         XCTAssertEqual(NativeSafetyAction.block(party).target, party)

@@ -353,7 +353,7 @@ final class NativeNavigationCoordinator: ObservableObject {
         lastURL = url
         let path = normalizedPath(url: url, components: components)
 
-        if path.isEmpty || path == "home" { requestedTab = .home; return true }
+        if path == "home" { requestedTab = .home; return true }
         if path == "map" || path.hasPrefix("map/") { requestedTab = .map; return true }
         if path == "discover" || path.hasPrefix("venue/") || path.hasPrefix("v/") || path.hasPrefix("discover/") { requestedTab = .discover; return true }
         if path == "concierge" || path.hasPrefix("concierge/") { requestedTab = .concierge; return true }

@@ -98,7 +98,7 @@ export function nativeHandoffContext(rawUrl: string): NativeHandoffContext | nul
     return {
       kind: 'party',
       title: 'Open this Party Pass in Bytspot',
-      subtitle: 'This published Host Studio party opens in the native app or App Clip.',
+      subtitle: 'Open the party in the Bytspot app to see the details and get your pass.',
       appArgument: url.toString(),
       appSchemeURL: nativeURL.toString(),
     };
@@ -110,7 +110,7 @@ export function nativeHandoffContext(rawUrl: string): NativeHandoffContext | nul
     return {
       kind: 'group',
       title: 'Open this invite in Bytspot',
-      subtitle: 'This private group invite is native/App Clip only. The web app is not used for joins.',
+      subtitle: 'Open the invite in the Bytspot app to join.',
       appArgument: url.toString(),
       appSchemeURL: nativeURL.toString(),
     };
@@ -123,7 +123,7 @@ export function nativeHandoffContext(rawUrl: string): NativeHandoffContext | nul
     return {
       kind: patchId ? 'patch' : 'access',
       title: patchId ? 'Open this tap in Bytspot' : 'Open Bytspot Access',
-      subtitle: 'NFC, QR, map, and App Clip taps go to the native app or App Clip — never the old web app.',
+      subtitle: 'Open Bytspot to continue.',
       appArgument: nativeAppClipArgumentFor(rawUrl),
       appSchemeURL: nativeURL.toString(),
     };
@@ -133,8 +133,8 @@ export function nativeHandoffContext(rawUrl: string): NativeHandoffContext | nul
   cloneQuery(url, nativeURL);
   return {
     kind: 'app',
-    title: 'Open Bytspot',
-    subtitle: 'Bytspot is a native iPhone app. This page does not load the old web app.',
+    title: 'Plan the night with Bytspot',
+    subtitle: 'Find places nearby, make plans with friends, and join parties. Free on iPhone.',
     appArgument: url.toString(),
     appSchemeURL: nativeURL.toString(),
   };

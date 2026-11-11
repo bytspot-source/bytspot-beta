@@ -1,95 +1,105 @@
 /**
- * Privacy Policy — required for App Store & Play Store submission.
+ * Privacy Policy — required for App Store submission.
  * Accessible at /privacy (no auth required).
- * Last updated: 2026-04-03
+ * Must match ios/App/App/PrivacyInfo.xcprivacy and the App Store privacy labels.
+ * Last updated: 2026-11-11
  */
 export function PrivacyPolicy() {
   return (
     <div className="min-h-screen bg-black text-white/90 px-6 py-12 max-w-2xl mx-auto leading-relaxed">
       <h1 className="text-3xl font-bold mb-2">Privacy Policy</h1>
-      <p className="text-white/50 text-sm mb-8">Last updated: April 3, 2026</p>
+      <p className="text-white/50 text-sm mb-8">Last updated: November 11, 2026</p>
 
       <p className="mb-6">
-        Bytspot ("we", "us", or "our") operates the Bytspot mobile application (the "App").
-        This page informs you of our policies regarding the collection, use, and disclosure
-        of personal data when you use our App.
+        Bytspot ("we", "us", or "our") operates the Bytspot iPhone app and App Clip (the "App").
+        This policy explains what we collect, why, who we share it with, and the choices you have.
       </p>
 
       <Section title="1. Information We Collect">
         <BulletList items={[
-          <><B>Account Information</B> — Email address, name, and password when you create an account.</>,
-          <><B>Location Data (When In Use)</B> — We access your device's location <em>only while the App is open</em> to show nearby venues, typical occupancy, and parking availability. We never track your location in the background.</>,
-          <><B>Usage Data</B> — Category clicks, venue visits, and search queries stored locally on your device to personalize recommendations. This data is not sent to our servers unless you are signed in.</>,
-          <><B>Push Notification Tokens</B> — If you opt in to notifications, we store your device token to send crowd alerts for your saved venues.</>,
-          <><B>Camera & Photos</B> — Accessed only when you choose to create a post or update your profile picture. We do not access your camera or photo library without your explicit action.</>,
-          <><B>Preferences & Quiz Answers</B> — Vibe preferences, cuisine affinities, and intro quiz answers stored locally to improve recommendations.</>,
+          <><B>Account information</B> — Your name, email address, and, if you add them, phone number, birthday, and profile photo. If you sign in with Apple or Google, we receive the name and email they share with us.</>,
+          <><B>Location</B> — Only while the App is open. We use it to show places nearby, verify a check-in (your distance from the venue is recorded with the check-in), place reports you submit on the Map, and set Plan meet-up points. Plan members who did not create the Plan see only an area of about 500 m. We do not track your location in the background.</>,
+          <><B>Contacts (as one-way codes)</B> — If you allow it, your phone turns the phone numbers and email addresses in your contacts into one-way codes and sends only those codes, to find friends already on Bytspot. Contact names and other details stay on your phone.</>,
+          <><B>Payments and purchases</B> — When you buy a party pass or ticket, or save a card, payment is handled by Stripe. We receive the card brand, last four digits, expiry, and your purchase history. We never see or store full card numbers. Hosts who are paid through Bytspot provide payout details to Stripe.</>,
+          <><B>Content you create</B> — Plans, parties, Private Sale listings, reviews, photos, reports, and messages you send in the App.</>,
+          <><B>Check-ins and points</B> — Where and when you check in, and the points you earn.</>,
+          <><B>Concierge and voice</B> — Questions you ask the AI Concierge. If you use voice input, your speech is converted to text and used the same way as a typed request.</>,
+          <><B>Device and app activity</B> — Your push notification token if you turn on notifications, how you use features, and crash and error reports.</>,
         ]} />
       </Section>
 
       <Section title="2. How We Use Your Information">
         <BulletList items={[
-          'Show venues, parking, and crowd data relevant to your current location.',
-          'Personalize venue recommendations based on your preferences and behavior.',
-          'Send push notifications about crowd changes at your saved spots (opt-in only).',
-          'Authenticate your account and maintain your session.',
-          'Improve our App through aggregated, anonymized usage analytics.',
+          'Run your account and the features you use: places, Plans, parties, passes, Private Sales, check-ins, and points.',
+          'Process payments, refunds, and host payouts.',
+          'Find friends who are already on Bytspot.',
+          'Send notifications you turned on, such as party updates and reminders.',
+          'Personalize recommendations.',
+          'Keep the App safe: review reports, prevent fraud and abuse, and enforce our Terms.',
+          'Fix bugs and improve the App.',
         ]} />
       </Section>
 
-      <Section title="3. Data Storage & Security">
+      <Section title="3. Who Can See What">
+        <BulletList items={[
+          'Plan members see what you share in the Plan. The exact meet-up point is shown only to the Plan creator.',
+          'Party guests see the exact venue only after they are approved or have bought a pass, unless the host makes it public.',
+          'Private Sale buyers see only what the seller chooses to share, such as a meet point or payment handle, after the seller approves them.',
+          'Businesses see counts of check-ins at their places, not who checked in.',
+        ]} />
+      </Section>
+
+      <Section title="4. Service Providers">
+        <p className="mb-3">We share information only with providers that help us run the App:</p>
+        <BulletList items={[
+          <><B>Stripe</B> — payments, saved cards, refunds, and host payouts.</>,
+          <><B>OpenAI</B> — AI Concierge answers. Your question and venue information are sent; your contacts and location history are not.</>,
+          <><B>Google</B> — place details and photos, and Google sign-in if you use it.</>,
+          <><B>Apple</B> — Sign in with Apple and push notifications.</>,
+          <><B>Resend</B> — sign-in codes and account email.</>,
+          <><B>Sentry</B> — crash and error reports.</>,
+          <><B>Render</B> and <B>Cloudflare</B> — hosting, storage, and network security.</>,
+        ]} />
+        <p className="mt-3">We do not sell your personal information, and we do not use it to track you across other companies' apps or websites.</p>
+      </Section>
+
+      <Section title="5. Storage and Security">
         <p>
-          Most personalization data (preferences, behavior, cached venues) is stored
-          locally on your device using browser storage. Account data is stored on our
-          servers hosted on Render.com with encrypted connections (TLS).
-          Passwords are hashed using industry-standard algorithms and are never stored
-          in plain text.
+          Your account data is stored on our servers and sent over encrypted connections (TLS).
+          Contacts are sent only as keyed one-way codes. We limit who on our team can access data
+          and rate-limit lookups. No system is perfectly secure.
         </p>
       </Section>
 
-      <Section title="4. Third-Party Services">
-        <p className="mb-3">We use the following third-party services:</p>
+      <Section title="6. Your Choices">
         <BulletList items={[
-          <><B>Google Places API</B> — To provide venue information, photos, and nearby search results. Subject to <a href="https://policies.google.com/privacy" className="text-cyan-400 underline" target="_blank" rel="noopener noreferrer">Google's Privacy Policy</a>.</>,
-          <><B>OpenAI</B> — To power the AI Concierge chat feature. Conversation context is sent to OpenAI's API for response generation. No personally identifiable information is included in these requests.</>,
-          <><B>Ticketmaster</B> — To display live events near you.</>,
-          <><B>Render.com</B> — Cloud hosting for our API servers and database.</>,
+          <><B>Delete your account</B> in the App: Profile, then Safety & Legal, then Delete Account. You are signed out right away and your account is permanently erased after 30 days. Signing in again within 30 days cancels the deletion. We may keep records we must keep for payments, tax, disputes, or legal reasons.</>,
+          'Turn location, contacts, camera, photos, microphone, and notification permissions on or off at any time in iOS Settings.',
+          'Edit your profile and notification preferences in the App.',
+          <>Ask us for a copy of your data, or for a correction, by emailing <a href="mailto:bytspotapp@gmail.com" className="text-blue-400 underline">bytspotapp@gmail.com</a>.</>,
         ]} />
       </Section>
 
-      <Section title="5. Data Sharing">
+      <Section title="7. Children">
         <p>
-          We do <strong>not</strong> sell, trade, or rent your personal information to
-          third parties. We share data only as described above with trusted service processors
-          necessary to operate the App.
-        </p>
-      </Section>
-
-      <Section title="6. Your Rights">
-        <BulletList items={[
-          'You can delete your account and all associated data by contacting us.',
-          'You can revoke location, camera, or notification permissions at any time in your device settings.',
-          'You can clear locally stored preferences and behavior data from the Profile settings screen.',
-        ]} />
-      </Section>
-
-      <Section title="7. Children's Privacy">
-        <p>
-          Our App is not directed to children under 13. We do not knowingly collect
-          personal information from children under 13.
+          Bytspot is not meant for children under 13, and we do not knowingly collect their information.
+          Parties with alcohol are for guests 21 and older. If we learn an account belongs to a child under 13, we remove it.
         </p>
       </Section>
 
       <Section title="8. Changes to This Policy">
         <p>
-          We may update this Privacy Policy from time to time. We will notify you of any
-          changes by posting the new Privacy Policy in the App and updating the "Last updated" date.
+          We may update this policy. We will post the new version here, update the date above, and tell you in the App
+          if the change is significant.
         </p>
       </Section>
 
       <Section title="9. Contact Us">
         <p>
-          If you have questions about this Privacy Policy, contact us at:<br />
-          <a href="mailto:bytspotapp@gmail.com" className="text-cyan-400 underline">bytspotapp@gmail.com</a>
+          Questions about this policy:{' '}
+          <a href="mailto:bytspotapp@gmail.com" className="text-blue-400 underline">bytspotapp@gmail.com</a>.
+          Safety concerns:{' '}
+          <a href="mailto:safety@bytspot.com" className="text-blue-400 underline">safety@bytspot.com</a>.
         </p>
       </Section>
 

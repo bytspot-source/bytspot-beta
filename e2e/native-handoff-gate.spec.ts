@@ -12,9 +12,10 @@ test.describe('Retired PWA stays retired', () => {
   for (const path of ['/', '/map', '/provider', '/vendor', '/host'] as const) {
     test(`${path} renders the native handoff, not the web app`, async ({ page }) => {
       await page.goto(path);
-      await expect(page.getByText('Native only')).toBeVisible();
-      await expect(page.getByRole('link', { name: 'Open Bytspot' })).toBeVisible();
-      await expect(page.locator('#root')).toContainText('never loads the old React app');
+      await expect(page.locator('[data-native-handoff]')).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Download on the App Store' })).toHaveAttribute('href', 'https://apps.apple.com/app/id6761876421');
+      await expect(page.getByRole('link', { name: 'Open in Bytspot' })).toHaveAttribute('href', /^bytspot:\/\//);
+      await expect(page.locator('#root')).not.toContainText(/old (web|React) app/);
     });
   }
 
@@ -30,7 +31,7 @@ test.describe('Retired PWA stays retired', () => {
 test('/admin boots Bytspot Admin instead of the handoff', async ({ page }) => {
   await page.goto('/admin');
   await expect(page.getByRole('heading', { name: 'Bytspot Admin' })).toBeVisible();
-  await expect(page.getByText('Native only')).toHaveCount(0);
+  await expect(page.locator('[data-native-handoff]')).toHaveCount(0);
   await expect(page.locator('meta[name="apple-itunes-app"]')).toHaveCount(0);
 });
 
@@ -39,13 +40,14 @@ test.describe('Legal pages still load', () => {
     test(`${path} boots React instead of the handoff`, async ({ page }) => {
       await page.goto(path);
       await expect(page.locator('#root')).not.toBeEmpty();
-      await expect(page.getByText('Native only')).toHaveCount(0);
+      await expect(page.locator('[data-native-handoff]')).toHaveCount(0);
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     });
   }
 
   test('A trailing slash resolves to the page, not the retired app', async ({ page }) => {
     await page.goto('/privacy/');
     await expect(page.locator('#root')).not.toBeEmpty();
-    await expect(page.getByText('Native only')).toHaveCount(0);
+    await expect(page.locator('[data-native-handoff]')).toHaveCount(0);
   });
 });

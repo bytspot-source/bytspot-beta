@@ -3,6 +3,26 @@ import { canonicalLegalPath, nativeHandoffContext } from './utils/nativeHandoffG
 
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
 
+const APP_STORE_URL = 'https://apps.apple.com/app/id6761876421';
+
+/** Self-contained so the page renders correctly without the app stylesheet. */
+const HANDOFF_CSS = `
+body{margin:0;background:#050816;color:#F5F7FB;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif}
+.bh{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;background:radial-gradient(circle at 20% 10%,rgba(0,191,255,.18),transparent 45%),radial-gradient(circle at 85% 90%,rgba(168,85,247,.18),transparent 45%),#050816}
+.bh-card{width:100%;max-width:420px;padding:32px 28px;border-radius:28px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);box-sizing:border-box}
+.bh-brand{display:inline-flex;align-items:center;gap:10px;color:#F5F7FB;text-decoration:none;font-weight:700;font-size:18px}
+.bh-brand img{border-radius:10px}
+.bh h1{margin:24px 0 0;font-size:30px;line-height:1.15;font-weight:800;letter-spacing:-.01em}
+.bh-sub{margin:12px 0 0;font-size:16px;line-height:1.5;color:#C9D1E3}
+.bh-btn{display:flex;align-items:center;justify-content:center;height:52px;margin-top:14px;border-radius:16px;font-size:16px;font-weight:700;text-decoration:none}
+.bh-primary{margin-top:28px}
+.bh-primary{background:#00BFFF;color:#04111F}
+.bh-secondary{border:1px solid rgba(255,255,255,.22);color:#F5F7FB}
+.bh-note{margin:16px 0 0;font-size:13px;line-height:1.5;color:#9AA5BD}
+.bh-links{display:flex;gap:18px;margin-top:24px;padding-top:18px;border-top:1px solid rgba(255,255,255,.1)}
+.bh-links a{color:#9AA5BD;font-size:13px;text-decoration:none}
+`;
+
 function escapeHtml(value: string) {
   return value.replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char] ?? char);
 }
@@ -29,8 +49,8 @@ function renderNativeHandoffOnly() {
 
   const context = nativeHandoffContext(window.location.href) ?? {
     kind: 'app' as const,
-    title: 'Open Bytspot',
-    subtitle: 'Bytspot is a native iPhone app. This page does not load the old web app.',
+    title: 'Plan the night with Bytspot',
+    subtitle: 'Find places nearby, make plans with friends, and join parties. Free on iPhone.',
     appArgument: window.location.href,
     appSchemeURL: 'bytspot://home',
   };
@@ -47,25 +67,37 @@ function renderNativeHandoffOnly() {
   const subtitle = escapeHtml(context.subtitle);
   const appSchemeURL = escapeHtml(context.appSchemeURL);
   root.innerHTML = `
-    <main class="min-h-screen bg-black text-white flex items-center justify-center px-6">
-      <section class="w-full max-w-md rounded-[32px] border border-white/15 bg-white/10 p-7 shadow-2xl">
-        <div class="mb-5 inline-flex rounded-full border border-cyan-300/40 bg-cyan-300/10 px-3 py-1 text-xs font-black uppercase tracking-[0.22em] text-cyan-200">Native only</div>
-        <h1 class="text-3xl font-black leading-tight">${title}</h1>
-        <p class="mt-4 text-sm font-semibold leading-6 text-white/72">${subtitle}</p>
-        <a class="mt-7 flex h-14 items-center justify-center rounded-2xl bg-cyan-300 text-sm font-black text-black" href="${appSchemeURL}">Open Bytspot</a>
-        <p class="mt-4 text-xs font-semibold leading-5 text-white/50">If the App Clip card appears above, use it. This page never loads the old React app.</p>
+    <style>${HANDOFF_CSS}</style>
+    <main class="bh" data-native-handoff="${escapeHtml(context.kind)}">
+      <section class="bh-card">
+        <a class="bh-brand" href="/"><img src="/icon-192.png" alt="" width="40" height="40"><span>Bytspot</span></a>
+        <h1>${title}</h1>
+        <p class="bh-sub">${subtitle}</p>
+        <a class="bh-btn bh-primary" href="${APP_STORE_URL}">Download on the App Store</a>
+        <a class="bh-btn bh-secondary" href="${appSchemeURL}">Open in Bytspot</a>
+        <p class="bh-note">Already have Bytspot? Tap Open in Bytspot.</p>
+        <nav class="bh-links"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/support">Support</a></nav>
       </section>
     </main>`;
   return true;
 }
 
+/** Legal pages render on their own; the retired web app never boots for them. */
 async function bootLegalPages() {
-  const [{ createRoot }, { createElement }, { default: App }] = await Promise.all([
+  const legalPath = canonicalLegalPath(window.location.pathname);
+  const [{ createRoot }, { createElement }, page] = await Promise.all([
     import('react-dom/client'),
     import('react'),
-    import('./App.tsx'),
+    legalPath === '/terms'
+      ? import('./components/TermsOfService').then((m) => ({ component: m.TermsOfService, title: 'Terms of Service' }))
+      : legalPath === '/disclaimer'
+        ? import('./components/Disclaimer').then((m) => ({ component: m.Disclaimer, title: 'Disclaimer' }))
+        : legalPath === '/support'
+          ? import('./components/Support').then((m) => ({ component: m.Support, title: 'Support' }))
+          : import('./components/PrivacyPolicy').then((m) => ({ component: m.PrivacyPolicy, title: 'Privacy Policy' })),
   ]);
-  createRoot(document.getElementById('root')!).render(createElement(App));
+  document.title = `${page.title} · Bytspot`;
+  createRoot(document.getElementById('root')!).render(createElement(page.component));
 }
 
 /** Bytspot Admin is a web back office, so it boots instead of the native handoff. */

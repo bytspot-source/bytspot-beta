@@ -3934,7 +3934,7 @@ struct NativeVenueDetailsAPI {
 /// Bytspot shows the restaurant. Fire and forget: a failed count never blocks
 /// the handoff.
 struct NativeTableBookingTapAPI {
-    enum Surface: String { case venue, plan, concierge }
+    enum Surface: String { case venue, plan, concierge, party }
     let client: BytspotAPIClient
 
     static func input(placeID: String, surface: Surface) -> [String: Any]? {

@@ -24,6 +24,29 @@ final class NativePartyArrivalTests: XCTestCase {
         XCTAssertNil(context(longitude: -181).appleMapsItem)
     }
 
+    func testVenueBookingDecodesAndOnlyAListedVenueOffersItsLink() throws {
+        let json = #"""
+        {"partyId":"party-1","destination":{"venueId":"venue-1","name":"Sample Venue","address":"1 Example Way","latitude":33.749,"longitude":-84.388},
+         "map":{"provider":"apple-maps","directionsUrl":"https://maps.apple.com/"},"isHost":true,"bookingForGuests":false,
+         "venueBooking":{"placeId":"ChIJsample","controlled":false,"booking":{"provider":"opentable","url":"https://www.opentable.com/r/sample"}}}
+        """#
+        let decoded = try JSONDecoder().decode(NativePartyArrivalContext.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.isHost, true)
+        XCTAssertEqual(decoded.bookingForGuests, false)
+        XCTAssertEqual(decoded.tableBooking?.label, "OpenTable")
+
+        var controlled = decoded
+        controlled.venueBooking = .init(placeId: "ChIJsample", controlled: true, booking: .init(provider: "opentable", url: "https://www.opentable.com/r/sample"))
+        XCTAssertNil(controlled.tableBooking, "a Bytspot-controlled venue takes asks, not outside bookings")
+
+        var foreign = decoded
+        foreign.venueBooking = .init(placeId: "ChIJsample", controlled: false, booking: .init(provider: "opentable", url: "https://evil.test/r/sample"))
+        XCTAssertNil(foreign.tableBooking, "a link off the provider's own host never becomes a button")
+
+        XCTAssertNil(context().tableBooking, "an older server sends no booking")
+        XCTAssertEqual(NativeTableBookingTapAPI.input(placeID: "ChIJsample", surface: .party)?["surface"] as? String, "party")
+    }
+
     func testVenueCandidateListRequiresAnExactRegisteredVenueNameMatch() {
         let payload: [String: Any] = ["venues": [
             ["id": "match", "name": "Sample Venue", "address": "1 Example Way"],

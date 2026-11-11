@@ -96,10 +96,8 @@ export function PrivacyPolicy() {
 
       <Section title="9. Contact Us">
         <p>
-          Questions about this policy:{' '}
+          Questions about this policy or a safety concern:{' '}
           <a href="mailto:bytspotapp@gmail.com" className="text-blue-400 underline">bytspotapp@gmail.com</a>.
-          Safety concerns:{' '}
-          <a href="mailto:safety@bytspot.com" className="text-blue-400 underline">safety@bytspot.com</a>.
         </p>
       </Section>
 

@@ -96,7 +96,7 @@ enum NativeSafetyCopy {
     static let offline = "Couldn't reach Bytspot. Try again."
     static let tooMany = "Too many tries. Wait a moment and try again."
     static let signInAgain = "Sign in again to continue."
-    static let safetyEmail = "safety@bytspot.com"
+    static let safetyEmail = "bytspotapp@gmail.com"
 
     static func blockMessage(_ name: String) -> String {
         "\(name) won't be told. You'll stop seeing each other's parties, sales, reviews and plans."

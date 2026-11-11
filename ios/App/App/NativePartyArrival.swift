@@ -1,5 +1,6 @@
 import Foundation
 import MapKit
+import SwiftUI
 
 struct NativePartyArrivalVenue: Identifiable, Equatable {
     let id: String
@@ -21,9 +22,30 @@ struct NativePartyArrivalContext: Codable, Equatable {
         let directionsUrl: String
     }
 
+    /// How to book the arrival venue outside Bytspot. Sent to the host, and to
+    /// guests once the host turns it on. A Bytspot-controlled venue has no link.
+    struct VenueBooking: Codable, Equatable {
+        struct Booking: Codable, Equatable {
+            let provider: String
+            let url: String
+        }
+        let placeId: String?
+        let controlled: Bool
+        let booking: Booking?
+    }
+
     let partyId: String
     let destination: Destination
     let map: Map
+    var isHost: Bool? = nil
+    var bookingForGuests: Bool? = nil
+    var venueBooking: VenueBooking? = nil
+
+    /// The OpenTable or Resy link, re-checked so a foreign link never becomes a button.
+    var tableBooking: (url: URL, label: String)? {
+        guard let booking = venueBooking?.booking, venueBooking?.controlled == false else { return nil }
+        return NativeVenueDetailsDTO.tableBooking(["provider": booking.provider, "url": booking.url])
+    }
 
     var appleMapsItem: MKMapItem? {
         guard map.provider == "apple-maps",
@@ -80,6 +102,14 @@ struct NativePartyArrivalAPI {
                   !id.hasPrefix("place-"), !id.hasPrefix("apple-") else { return false }
             return true
         }
+    }
+
+    func setBookingForGuests(partyID: String, enabled: Bool) async throws {
+        _ = try await client.trpcPayload(
+            path: "/trpc/events.arrival.setBookingForGuests",
+            method: "POST",
+            input: ["partyId": partyID, "enabled": enabled]
+        )
     }
 
     func context(partyID: String) async throws -> NativePartyArrivalContext {
@@ -154,5 +184,60 @@ struct NativePartyArrivalAPI {
             .lowercased()
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
+    }
+}
+enum NativePartyVenueBookingCopy {
+    static let disclaimer = "Book with the restaurant directly. Bytspot doesn't hold this table."
+    static let guestToggle = "Show guests how to book"
+    static let guestToggleNote = "Guests with Party access see the booking link or the venue's contact details."
+}
+
+/// How to book a listed arrival venue outside Bytspot: its OpenTable or Resy
+/// link, or its phone and website when it has no link. Nothing is held.
+struct NativePartyVenueBookingSection: View {
+    let context: NativePartyArrivalContext
+    var onToggleGuests: ((Bool) -> Void)? = nil
+    @Environment(\.openURL) private var openURL
+    @EnvironmentObject private var sessionStore: BytspotSessionStore
+    @State private var contact: NativeVenueRichDetails?
+
+    var body: some View {
+        if let venueBooking = context.venueBooking, !venueBooking.controlled {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Book at \(context.destination.name)").font(.subheadline.weight(.bold)).foregroundColor(NativeTheme.textPrimary)
+                if let booking = context.tableBooking {
+                    Button("Book on \(booking.label) ↗") {
+                        if let placeID = venueBooking.placeId {
+                            let client = BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token })
+                            Task { await NativeTableBookingTapAPI(client: client).record(placeID: placeID, surface: .party) }
+                        }
+                        openURL(booking.url)
+                    }
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("native-party-venue-booking")
+                } else {
+                    HStack(spacing: 16) {
+                        if let phone = contact?.phone, let url = URL(string: "tel:\(phone.filter { $0.isNumber || $0 == "+" })") {
+                            Button("Call") { openURL(url) }.frame(minHeight: 44)
+                        }
+                        if let website = contact?.websiteURL {
+                            Button("Website ↗") { openURL(website) }.frame(minHeight: 44)
+                        }
+                    }
+                    .accessibilityIdentifier("native-party-venue-contact")
+                }
+                Text(NativePartyVenueBookingCopy.disclaimer).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                if context.isHost == true, let onToggleGuests {
+                    Toggle(NativePartyVenueBookingCopy.guestToggle, isOn: Binding(get: { context.bookingForGuests == true }, set: onToggleGuests))
+                        .font(.subheadline)
+                        .accessibilityIdentifier("native-party-venue-booking-guests")
+                    Text(NativePartyVenueBookingCopy.guestToggleNote).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                }
+            }
+            .task(id: venueBooking.placeId) {
+                guard context.tableBooking == nil, let placeID = venueBooking.placeId else { return }
+                contact = try? await NativeVenueDetailsAPI(client: BytspotAPIClient()).details(googlePlaceID: placeID)
+            }
+        }
     }
 }

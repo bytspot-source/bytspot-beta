@@ -1609,6 +1609,7 @@ struct NativePartyPassPreview: View {
     @State private var state: LoadState = .loading
     @State private var isOpeningArrival = false
     @State private var arrivalMessage = ""
+    @State private var venueBookingContext: NativePartyArrivalContext?
     @State private var recap: NativePartyRecap?
     @State private var recapStore: NativeAuthenticatedImageStore?
     /// Which party and which session the screen is currently showing. A load
@@ -1692,9 +1693,21 @@ struct NativePartyPassPreview: View {
             .disabled(isOpeningArrival)
             .accessibilityIdentifier("native-party-plan-arrival")
             if !arrivalMessage.isEmpty { Text(arrivalMessage).font(.system(size: 11.5, weight: .bold)).foregroundColor(NativeTheme.textSecondary) }
+            if let venueBookingContext, venueBookingContext.partyId == party.id {
+                NativePartyVenueBookingSection(context: venueBookingContext)
+            }
         }
         .padding(16)
         .nativePanel()
+        .task(id: "\(party.id)|\(sessionStore.token ?? "")") { await loadVenueBooking(for: party) }
+    }
+
+    /// Only an admitted guest or the host gets an answer; anyone else sees nothing.
+    @MainActor private func loadVenueBooking(for party: NativePartyPassRecord) async {
+        guard sessionStore.isAuthenticated, sessionStore.canAttachBearerToken else { venueBookingContext = nil; return }
+        let client = BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token })
+        let context = try? await NativePartyArrivalAPI(client: client).context(partyID: party.id)
+        venueBookingContext = context?.venueBooking == nil ? nil : context
     }
 
     private func accessLabel(_ value: String) -> String {

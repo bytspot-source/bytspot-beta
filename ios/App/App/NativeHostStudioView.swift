@@ -228,6 +228,7 @@ struct NativeHostStudioView: View {
     /// The venue actually bound, from either the registered-catalog match or a
     /// place search, so the confirmation reads the same for both paths.
     @State private var boundArrivalVenue: NativePartyArrivalVenue?
+    @State private var hostArrivalContext: NativePartyArrivalContext?
     @State private var arrivalPlaceQuery = ""
     @State private var arrivalPlaceResults: [NativePlaceSearchResult] = []
     @State private var isSearchingArrivalPlaces = false
@@ -1234,6 +1235,11 @@ struct NativeHostStudioView: View {
             if let venue = boundArrivalVenue {
                 Label("Arrival enabled for \(venue.name)", systemImage: "checkmark.seal.fill").font(.headline).foregroundColor(NativeTheme.cyan)
                 Text("Guests with Party access can plan a route. Black and Platinum guests can request a provider handoff; pickup coordinates are not collected by Bytspot.").font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                if let hostArrivalContext, hostArrivalContext.partyId == party.id {
+                    NativePartyVenueBookingSection(context: hostArrivalContext) { enabled in
+                        Task { await setVenueBookingForGuests(enabled, party: party) }
+                    }
+                }
             } else if isLoadingArrivalVenues {
                 ProgressView("Checking registered venues…").tint(NativeTheme.cyan).font(.subheadline)
             } else {
@@ -1248,6 +1254,9 @@ struct NativeHostStudioView: View {
                 arrivalPlaceSearch(for: party)
             }
         }.padding(16).studioSurface()
+        .task(id: "\(party.id)|\(boundArrivalVenue?.id ?? "")") {
+            if boundArrivalVenue == nil { hostArrivalContext = nil } else { await loadHostArrivalContext(for: party) }
+        }
     }
 
     private func arrivalResultLabel(name: String, address: String) -> some View {
@@ -1301,6 +1310,21 @@ struct NativeHostStudioView: View {
         defer { isSearchingArrivalPlaces = false; didSearchArrivalPlaces = true }
         let results = (try? await NativeLiveDiscoveryAPI(client: BytspotAPIClient()).placesTextSearch(query: query)) ?? []
         arrivalPlaceResults = NativePartyArrivalAPI.bindablePlaceResults(results)
+    }
+
+    @MainActor private func loadHostArrivalContext(for party: NativePublishedParty) async {
+        guard sessionStore.canAttachBearerToken, let token = sessionStore.token else { hostArrivalContext = nil; return }
+        hostArrivalContext = try? await NativePartyArrivalAPI(client: BytspotAPIClient(tokenProvider: { token })).context(partyID: party.id)
+    }
+
+    @MainActor private func setVenueBookingForGuests(_ enabled: Bool, party: NativePublishedParty) async {
+        guard sessionStore.canAttachBearerToken, let token = sessionStore.token else { return }
+        do {
+            try await NativePartyArrivalAPI(client: BytspotAPIClient(tokenProvider: { token })).setBookingForGuests(partyID: party.id, enabled: enabled)
+        } catch {
+            publishPresentation.message = "That setting could not be saved. Try again."
+        }
+        await loadHostArrivalContext(for: party)
     }
 
     @MainActor private func bindArrivalPlace(_ place: NativePlaceSearchResult, to party: NativePublishedParty) async {

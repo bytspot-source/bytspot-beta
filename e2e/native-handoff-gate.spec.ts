@@ -14,7 +14,9 @@ test.describe('Retired PWA stays retired', () => {
       await page.goto(path);
       await expect(page.locator('[data-native-handoff]')).toBeVisible();
       await expect(page.getByRole('link', { name: 'Download on the App Store' })).toHaveAttribute('href', 'https://apps.apple.com/app/id6761876421');
-      await expect(page.getByRole('link', { name: 'Open in Bytspot' })).toHaveAttribute('href', /^bytspot:\/\//);
+      // Off iPhone a bytspot:// link can never open anything.
+      await expect(page.getByRole('link', { name: 'Open in Bytspot' })).toHaveCount(0);
+      await expect(page.locator('#root')).toContainText('Bytspot is available on iPhone.');
       await expect(page.locator('#root')).not.toContainText(/old (web|React) app/);
     });
   }
@@ -25,6 +27,23 @@ test.describe('Retired PWA stays retired', () => {
     // static homepage default stays behind it.
     await expect(page.locator('meta[name="apple-itunes-app"]').first())
       .toHaveAttribute('content', /app-argument=\S*\/party\/test-party-id$/);
+  });
+});
+
+test.describe('On iPhone', () => {
+  test.use({
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+    viewport: { width: 390, height: 844 },
+  });
+
+  test('Open in Bytspot opens the app, and falls back to the App Store when it does not open', async ({ page }) => {
+    await page.goto('/');
+    const open = page.getByRole('link', { name: 'Open in Bytspot' });
+    await expect(open).toHaveAttribute('href', 'bytspot://home');
+    // The app is not installed here, so the scheme goes nowhere and the page stays visible.
+    await page.route('https://apps.apple.com/**', (route) => route.fulfill({ status: 200, body: 'app store' }));
+    await open.click();
+    await page.waitForURL('https://apps.apple.com/app/id6761876421', { timeout: 5000 });
   });
 });
 

@@ -44,6 +44,36 @@ function isLegalWebPath(): boolean {
   return canonicalLegalPath(window.location.pathname) !== null;
 }
 
+function isAppleMobile(): boolean {
+  return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+/**
+ * A bytspot:// link does nothing when the app is not installed, or off iPhone.
+ * Off iPhone the button is hidden; on iPhone, if the app has not opened after
+ * a moment, the visitor is sent to the App Store instead.
+ */
+function wireOpenInBytspot(root: HTMLElement, appSchemeURL: string) {
+  const open = root.querySelector<HTMLAnchorElement>('.bh-secondary');
+  const note = root.querySelector<HTMLParagraphElement>('.bh-note');
+  if (!open) return;
+  if (!isAppleMobile()) {
+    open.remove();
+    if (note) note.textContent = 'Bytspot is available on iPhone.';
+    return;
+  }
+  open.addEventListener('click', (event) => {
+    event.preventDefault();
+    const fallback = window.setTimeout(() => {
+      if (!document.hidden) window.location.href = APP_STORE_URL;
+    }, 1600);
+    const cancel = () => { if (document.hidden) window.clearTimeout(fallback); };
+    document.addEventListener('visibilitychange', cancel, { once: true });
+    window.addEventListener('pagehide', () => window.clearTimeout(fallback), { once: true });
+    window.location.href = appSchemeURL;
+  });
+}
+
 function renderNativeHandoffOnly() {
   if (isLegalWebPath()) return false;
 
@@ -79,6 +109,7 @@ function renderNativeHandoffOnly() {
         <nav class="bh-links"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/support">Support</a></nav>
       </section>
     </main>`;
+  wireOpenInBytspot(root, context.appSchemeURL);
   return true;
 }
 

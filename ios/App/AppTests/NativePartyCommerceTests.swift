@@ -401,6 +401,14 @@ struct NativeHostPayoutsTests {
         #expect(try state([purchase("expired", completedAt: "2026-11-10T11:59:00Z")]) == .waiting)
     }
 
+    @MainActor @Test func theWebsiteOpenButtonLandsOnHome() throws {
+        let coordinator = NativeNavigationCoordinator()
+        coordinator.requestedTab = .map
+        #expect(coordinator.handle(url: try #require(URL(string: "bytspot://home"))))
+        #expect(coordinator.requestedTab == .home)
+        #expect(coordinator.requestedDestination == nil)
+    }
+
     @MainActor @Test func cardSetupReturnOpensPaymentMethods() throws {
         let coordinator = NativeNavigationCoordinator()
         #expect(coordinator.handle(url: try #require(URL(string: "bytspot://profile/payment"))))

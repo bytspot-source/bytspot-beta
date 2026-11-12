@@ -319,11 +319,20 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
     }
 
     func testOpeningCopyStaysWithinSupportedDiscovery() {
-        XCTAssertEqual(NativeConciergeRegionPresentation.starterPrompts, ["Coffee nearby", "Dinner tonight", "Something to do nearby"])
         XCTAssertTrue(NativeConciergeRegionPresentation.privacyNotice.contains("30 minutes"))
         XCTAssertTrue(NativeConciergeRegionPresentation.privacyNotice.contains("until you clear it"))
-        for text in NativeConciergeRegionPresentation.starterPrompts + [NativeConciergeRegionPresentation.openingTitle, NativeConciergeRegionPresentation.genericWelcomeMessage] {
+        for text in [NativeConciergeRegionPresentation.openingTitle, NativeConciergeRegionPresentation.genericWelcomeMessage] {
             XCTAssertNil(text.range(of: #"\b(book|order|pay|reserve|plan)\b"#, options: [.regularExpression, .caseInsensitive]), text)
+        }
+        let evening = NativeConciergeSuggestionFallback.chips(now: NativeConciergeSuggestionFallback.fridayEvening, location: nil)
+        XCTAssertEqual(evening.map(\.label), ["Plan the night", "Dinner nearby", "Something to do"])
+        XCTAssertEqual(evening.map(\.prompt), ["Plan dinner and drinks tonight", "Dinner nearby", "Events nearby"])
+        XCTAssertNotEqual(evening[0].label, evening[0].prompt)
+        for chip in evening {
+            XCTAssertNil(chip.typical)
+            XCTAssertNil(chip.primePath.note)
+            XCTAssertFalse(NativeConciergeSuggestionCopy.claimsScarcity(chip.reason))
+            XCTAssertFalse(chip.reason.localizedCaseInsensitiveContains("live"))
         }
     }
 
@@ -978,10 +987,290 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertTrue(concierge.contains("if reduceMotion {"))
         XCTAssertTrue(concierge.contains("UIAccessibility.post(notification: .announcement"))
         XCTAssertTrue(concierge.contains("Button(\"Sign in\", action: openNativeAuth)"))
+        XCTAssertTrue(concierge.contains("showsSuggestionRail"))
+        XCTAssertTrue(concierge.contains("chooseOpeningSuggestion"))
+        XCTAssertTrue(concierge.contains("useOpeningSuggestion"))
+        XCTAssertTrue(concierge.contains("suggestion.prompt"))
+        XCTAssertTrue(concierge.contains("Share Plan link"))
+        XCTAssertTrue(concierge.contains("native-concierge-share-plan"))
+        XCTAssertTrue(concierge.contains("native-concierge-suggestion-notes"))
+        XCTAssertTrue(concierge.contains("refreshOpeningSuggestions"))
+        XCTAssertFalse(concierge.contains("Coffee nearby\", \"Dinner tonight\", \"Something to do nearby\""))
         for retired in ["concierge.chat", "concierge.actions", "Concierge review required", "mic.fill", "Check stay dates", "openNativeTab(.discover)", "asyncAfter"] {
             XCTAssertFalse(concierge.contains(retired), retired)
         }
     }
+
+    func testCuratedFallbackFollowsTheAtlantaHourAndDoesNotInventACrowd() {
+        let morning = NativeConciergeSuggestionFallback.chips(now: NativeConciergeSuggestionFallback.fridayMorning, location: nil)
+        let afternoon = NativeConciergeSuggestionFallback.chips(now: NativeConciergeSuggestionFallback.fridayAfternoon, location: nil)
+        let evening = NativeConciergeSuggestionFallback.chips(now: NativeConciergeSuggestionFallback.fridayEvening, location: nil)
+        let late = NativeConciergeSuggestionFallback.chips(now: NativeConciergeSuggestionFallback.saturdayLate, location: nil)
+        XCTAssertEqual(morning.map(\.id), ["plan_the_night", "coffee_nearby", "events_nearby"])
+        XCTAssertEqual(afternoon.map(\.id), ["plan_the_night", "lunch_nearby", "events_nearby"])
+        XCTAssertEqual(evening.map(\.id), ["plan_the_night", "dinner_nearby", "events_nearby"])
+        XCTAssertEqual(late.map(\.id), ["plan_the_night", "drinks_nearby", "events_nearby"])
+        XCTAssertEqual(NativeConciergeAtlantaClock.hour(NativeConciergeSuggestionFallback.fridayMorning), 8)
+        XCTAssertEqual(NativeConciergeAtlantaClock.hour(NativeConciergeSuggestionFallback.fridayAfternoon), 14)
+        XCTAssertEqual(NativeConciergeAtlantaClock.hour(NativeConciergeSuggestionFallback.fridayEvening), 19)
+        XCTAssertEqual(NativeConciergeAtlantaClock.hour(NativeConciergeSuggestionFallback.saturdayLate), 3)
+        XCTAssertTrue(evening[0].reason.contains("Location wasn't shared"))
+        let midtown = NativeConciergeSuggestionFallback.chips(now: eveningDate, location: NativeLocationCoordinate(latitude: 33.781, longitude: -84.3833, isFallback: false))
+        XCTAssertTrue(midtown[0].reason.contains("Using the location you shared in Midtown."))
+        let atlanta = NativeConciergeSuggestionFallback.chips(now: eveningDate, location: NativeLocationCoordinate(latitude: 33.84, longitude: -84.38, isFallback: false))
+        XCTAssertTrue(atlanta[0].reason.contains("Using the location you shared in Atlanta."))
+        XCTAssertTrue(NativeConciergeSuggestionFallback.chips(now: eveningDate, location: seattle)[0].reason.contains("Using the location you shared."))
+        XCTAssertFalse(midtown[0].reason.contains("Midtown Atlanta"))
+    }
+
+    private var eveningDate: Date { NativeConciergeSuggestionFallback.fridayEvening }
+
+    func testSuggestionDecodeKeepsTypicalAndPrimePathHonest() throws {
+        let decoded = try decodeSuggestions(suggestionsPayload())
+        XCTAssertEqual(decoded.source, .curated)
+        XCTAssertEqual(decoded.suggestions.map(\.id), ["plan_the_night", "dinner_nearby", "events_nearby"])
+        let night = decoded.suggestions[0]
+        XCTAssertEqual(night.prompt, "Plan dinner and drinks tonight")
+        let lines = NativeConciergeSuggestionCopy.disclosureLines(for: decoded.suggestions)
+        XCTAssertTrue(lines.contains("Plan the night: Busy around this hour. Typical for this hour in Atlanta, not a live reading."))
+        XCTAssertTrue(lines.contains("Prime Path can feature a confirmable Bytspot stop for nightlife. That pick is on Concierge plans, not on Discover listings."))
+        let joined = lines.joined(separator: " ")
+        XCTAssertNil(joined.range(of: #"\b(busy right now|live crowd|spots left|right now|wait)\b"#, options: [.regularExpression, .caseInsensitive]))
+        XCTAssertEqual(NativeConciergeSuggestionFallback.resolved(decoded, now: eveningDate, location: nil).map(\.id), decoded.suggestions.map(\.id))
+
+        var liveCrowd = suggestionsPayload()
+        liveCrowd["suggestions"] = [suggestionFields(reason: "Bars are a live crowd tonight.")]
+        XCTAssertThrowsError(try decodeSuggestions(liveCrowd))
+        var wrongNote = suggestionsPayload()
+        var nightFields = suggestionFields()
+        nightFields["typical"] = typicalFields(note: "Live right now.")
+        wrongNote["suggestions"] = [nightFields, dinnerFields(), eventsFields()]
+        XCTAssertThrowsError(try decodeSuggestions(wrongNote))
+        var sourceLive = suggestionsPayload()
+        var liveTypical = suggestionFields()
+        liveTypical["typical"] = typicalFields(source: "live")
+        sourceLive["suggestions"] = [liveTypical, dinnerFields(), eventsFields()]
+        XCTAssertThrowsError(try decodeSuggestions(sourceLive))
+
+        let unavailable = try decodeSuggestions([
+            "version": 1, "status": "unavailable", "source": NSNull(),
+            "reply": "Concierge discovery is not enabled yet. You can browse places in Discover.",
+            "area": NSNull(), "when": NSNull(),
+            "primePath": ["status": "unavailable", "confirmableNeeds": []],
+            "suggestions": [],
+        ])
+        XCTAssertEqual(NativeConciergeSuggestionFallback.resolved(unavailable, now: eveningDate, location: nil).map(\.label),
+                       ["Plan the night", "Dinner nearby", "Something to do"])
+        XCTAssertEqual(NativeConciergeSuggestionFallback.resolved(nil, now: eveningDate, location: nil).count, 3)
+        let onlyNight = try decodeSuggestions(suggestionsPayload(suggestions: [suggestionFields()]))
+        XCTAssertEqual(NativeConciergeSuggestionFallback.resolved(onlyNight, now: eveningDate, location: nil).map(\.id),
+                       ["plan_the_night", "dinner_nearby", "events_nearby"])
+    }
+
+    func testAChipSendsItsPromptAndAShareChipDoesNotSearch() throws {
+        let night = try decodeSuggestions(suggestionsPayload()).suggestions[0]
+        guard case .discover(let prompt, let notes) = NativeConciergeSuggestionAction.action(for: night) else {
+            return XCTFail("The night chip searches with its prompt")
+        }
+        XCTAssertEqual(prompt, "Plan dinner and drinks tonight")
+        XCTAssertNotEqual(prompt, night.label)
+        XCTAssertTrue(notes.contains { $0.contains(NativeConciergeSuggestionCopy.typicalNote) })
+        let share = NativeConciergeSuggestion(id: "share_plan", label: "Share Friday Night", prompt: "Share Friday Night",
+                                              reason: "You already have \"Friday Night\". Send one link and everyone's in.",
+                                              destination: .sharePlan, startsPlan: false, planId: "plan_1", typical: nil,
+                                              primePath: .init(consulted: false, confirmableNeeds: [], note: nil))
+        XCTAssertEqual(NativeConciergeSuggestionAction.action(for: share), .sharePlan("plan_1"))
+        let show = NativeConciergeSuggestion(id: "plan_a_show", label: "Plan a show", prompt: "Plan a show tonight",
+                                             reason: "Plan a show, then send one link so everyone's in.",
+                                             destination: .conciergePlan, startsPlan: true, planId: nil, typical: nil,
+                                             primePath: .init(consulted: true, confirmableNeeds: ["events"],
+                                                              note: "Prime Path can feature a confirmable Bytspot stop for events. That pick is on Concierge plans, not on Discover listings."))
+        guard case .discover(let showPrompt, let showNotes) = NativeConciergeSuggestionAction.action(for: show) else {
+            return XCTFail("A Concierge-plan chip still sends its prompt to Discover")
+        }
+        XCTAssertEqual(showPrompt, "Plan a show tonight")
+        XCTAssertEqual(showNotes.count, 1)
+        XCTAssertTrue(NativeConciergeSuggestionCopy.isTypicalHourLabel("around 10 PM"))
+        XCTAssertTrue(NativeConciergeSuggestionCopy.isTypicalHourLabel("around this hour"))
+        XCTAssertFalse(NativeConciergeSuggestionCopy.isTypicalHourLabel("right now"))
+        XCTAssertFalse(NativeConciergeSuggestionCopy.isTypicalHourLabel("around 13 PM"))
+
+        let link = try XCTUnwrap(NativeConciergePlanShare.link(planID: "plan-1", title: "Dinner and drinks", joinToken: nil))
+        XCTAssertEqual(link.url.absoluteString, "https://bytspot.app/plan/plan-1")
+        XCTAssertTrue(link.message.contains("Dinner and drinks"))
+        let tokenLink = try XCTUnwrap(NativeConciergePlanShare.link(planID: "plan-1", title: "Share Friday Night", joinToken: "join-token"))
+        XCTAssertEqual(tokenLink.url.absoluteString, "https://bytspot.app/plan/plan-1?t=join-token")
+        XCTAssertTrue(tokenLink.message.contains("Friday Night"))
+        XCTAssertFalse(tokenLink.message.contains("Share Friday"))
+        XCTAssertNil(NativeConciergePlanShare.link(planID: " ", title: "Dinner", joinToken: nil))
+    }
+
+    func testSignedOutChipStaysOnScreenAndDoesNotSearch() {
+        let model = NativeConciergeModel()
+        let night = model.openingSuggestions[0]
+        XCTAssertEqual(night.id, "plan_the_night")
+        XCTAssertEqual(model.chooseOpeningSuggestion(night), .needsSignIn)
+        XCTAssertTrue(model.turns.isEmpty)
+        XCTAssertFalse(model.isSearching)
+        XCTAssertEqual(model.notice, "Sign in to search for nearby places.")
+        let stranger = NativeConciergeSuggestion(id: "plan_the_night", label: "Plan the night", prompt: "Plan dinner and drinks tonight",
+                                                 reason: "Elsewhere", destination: .discover, startsPlan: true, planId: nil, typical: nil,
+                                                 primePath: .init(consulted: false, confirmableNeeds: [], note: nil))
+        model.clear()
+        XCTAssertNil(model.notice)
+        XCTAssertEqual(model.chooseOpeningSuggestion(stranger), .ignored)
+        XCTAssertNil(model.notice)
+        XCTAssertTrue(model.turns.isEmpty)
+    }
+
+    func testSuggestionsQueryOmitsLocationUntilThereIsAFixAndDoesNotReplayARefusal() async throws {
+        let api = NativeConciergeAPI(client: BytspotAPIClient(tokenProvider: { "concierge-test-only" }))
+        let bare = try api.makeSuggestionsRequest(location: nil)
+        XCTAssertEqual(bare.httpMethod, "GET")
+        XCTAssertNil(bare.httpBody)
+        XCTAssertEqual(bare.url?.absoluteURL.path, "/trpc/concierge.suggestions")
+        let bareInput = try queryInput(bare)
+        XCTAssertEqual(bareInput.count, 0)
+        let located = try api.makeSuggestionsRequest(location: seattle)
+        let locatedInput = try queryInput(located)
+        let point = try XCTUnwrap(locatedInput["location"] as? [String: Any])
+        let lat = try XCTUnwrap(point["lat"] as? Double)
+        let lng = try XCTUnwrap(point["lng"] as? Double)
+        XCTAssertEqual(lat, seattle.latitude, accuracy: 0.000_001)
+        XCTAssertEqual(lng, seattle.longitude, accuracy: 0.000_001)
+        XCTAssertThrowsError(try NativeConciergeAPI(client: BytspotAPIClient()).makeSuggestionsRequest(location: seattle))
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [NativeConciergeSuggestionsURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel(); NativeConciergeSuggestionsURLProtocol.handler = nil; BytspotAPIClient.sessionRenewer = nil }
+        var client = BytspotAPIClient(baseURL: URL(string: "https://api.example.test")!, tokenProvider: { "member-test-token" })
+        client.urlSession = session
+        let probe = SuggestionRequestProbe()
+        BytspotAPIClient.sessionRenewer = { _ in
+            await Task.yield()
+            return "renewed-token"
+        }
+        NativeConciergeSuggestionsURLProtocol.handler = { request in
+            probe.record(request)
+            return (401, Data("{}".utf8))
+        }
+        do {
+            _ = try await NativeConciergeAPI(client: client).suggestions(location: nil)
+            XCTFail("A refused suggestions query must fail closed")
+        } catch {}
+        XCTAssertEqual(probe.hits, 1, "A refused suggestions query is not replayed with another token")
+        XCTAssertEqual(probe.method, "GET")
+        XCTAssertEqual(probe.authorization, "Bearer member-test-token")
+
+        let payload = suggestionsPayload()
+        NativeConciergeSuggestionsURLProtocol.handler = { _ in
+            (200, try JSONSerialization.data(withJSONObject: ["result": ["data": payload]]))
+        }
+        let loaded = try await NativeConciergeAPI(client: client).suggestions(location: nil)
+        XCTAssertEqual(loaded.suggestions[0].prompt, "Plan dinner and drinks tonight")
+        XCTAssertEqual(loaded.suggestions[0].typical?.source, "typical")
+        XCTAssertEqual(loaded.suggestions[0].typical?.note, NativeConciergeSuggestionCopy.typicalNote)
+    }
+
+    private func queryInput(_ request: URLRequest) throws -> [String: Any] {
+        let resolved = try XCTUnwrap(request.url?.absoluteURL)
+        let components = try XCTUnwrap(URLComponents(url: resolved, resolvingAgainstBaseURL: false))
+        let raw = try XCTUnwrap(components.queryItems?.first { $0.name == "input" }?.value)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+    }
+
+    private func decodeSuggestions(_ value: [String: Any]) throws -> NativeConciergeSuggestions {
+        let api = NativeConciergeAPI(client: BytspotAPIClient(tokenProvider: { "concierge-test-only" }))
+        return try api.decodeSuggestions(JSONSerialization.data(withJSONObject: value))
+    }
+
+    private func suggestionsPayload(suggestions: [[String: Any]]? = nil) -> [String: Any] {
+        [
+            "version": 1, "status": "ok", "source": "curated", "reply": NSNull(),
+            "area": ["label": "Midtown Atlanta", "basis": "launch_market",
+                     "sentence": "Location wasn't shared, so this assumes the launch market, Midtown Atlanta."],
+            "when": ["timezone": "America/New_York", "hour": 19, "dayOfWeek": 5, "weekday": "Fri"],
+            "primePath": ["status": "unavailable", "confirmableNeeds": []],
+            "suggestions": suggestions ?? [suggestionFields(), dinnerFields(), eventsFields()],
+        ]
+    }
+
+    private func suggestionFields(reason: String? = nil) -> [String: Any] {
+        [
+            "id": "plan_the_night", "label": "Plan the night", "prompt": "Plan dinner and drinks tonight",
+            "reason": reason ?? "Plan the night. Send one link. Everyone's in. Location wasn't shared, so this assumes the launch market, Midtown Atlanta. Bars are typically Busy around this hour. Typical for this hour in Atlanta, not a live reading.",
+            "destination": "discover", "startsPlan": true, "planId": NSNull(),
+            "typical": typicalFields(),
+            "primePath": ["consulted": true, "confirmableNeeds": ["nightlife"],
+                          "note": "Prime Path can feature a confirmable Bytspot stop for nightlife. That pick is on Concierge plans, not on Discover listings."],
+        ]
+    }
+
+    private func dinnerFields() -> [String: Any] {
+        [
+            "id": "dinner_nearby", "label": "Dinner nearby", "prompt": "Dinner nearby",
+            "reason": "Dinner nearby. Location wasn't shared, so this assumes the launch market, Midtown Atlanta.",
+            "destination": "discover", "startsPlan": false, "planId": NSNull(), "typical": NSNull(),
+            "primePath": ["consulted": false, "confirmableNeeds": [], "note": NSNull()],
+        ]
+    }
+
+    private func eventsFields() -> [String: Any] {
+        var fields = dinnerFields()
+        fields["id"] = "events_nearby"
+        fields["label"] = "Something to do"
+        fields["prompt"] = "Events nearby"
+        fields["reason"] = "Something to do. Location wasn't shared, so this assumes the launch market, Midtown Atlanta."
+        return fields
+    }
+
+    private func typicalFields(note: String = NativeConciergeSuggestionCopy.typicalNote, source: String = "typical") -> [String: Any] {
+        ["category": "bar", "level": 3, "label": "Busy", "source": source, "note": note, "hourLabel": "around this hour"]
+    }
+}
+
+private final class SuggestionRequestProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedHits = 0
+    private var storedMethod: String?
+    private var storedAuthorization: String?
+
+    func record(_ request: URLRequest) {
+        lock.lock()
+        storedHits += 1
+        storedMethod = request.httpMethod
+        storedAuthorization = request.value(forHTTPHeaderField: "Authorization")
+        lock.unlock()
+    }
+
+    var hits: Int { lock.lock(); defer { lock.unlock() }; return storedHits }
+    var method: String? { lock.lock(); defer { lock.unlock() }; return storedMethod }
+    var authorization: String? { lock.lock(); defer { lock.unlock() }; return storedAuthorization }
+}
+
+private final class NativeConciergeSuggestionsURLProtocol: URLProtocol {
+    static var handler: ((URLRequest) throws -> (Int, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let handler = Self.handler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        do {
+            let (status, data) = try handler(request)
+            let url = request.url ?? URL(string: "https://api.example.test/trpc/concierge.suggestions")!
+            let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+    override func stopLoading() {}
 }
 
 /// A listed partner with a supplied category and no granted authority.

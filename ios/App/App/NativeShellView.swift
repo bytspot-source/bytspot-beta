@@ -20282,7 +20282,6 @@ enum NativeConciergeRegionPresentation {
 
     static let genericWelcomeMessage = "Ask for coffee, a meal or something to do nearby. You can also search with a photo of a dish."
     static let openingTitle = "What are you in the mood for?"
-    static let starterPrompts = ["Coffee nearby", "Dinner tonight", "Something to do nearby"]
     static let statusLabels = ["Ready", "Searching nearby…", "Search unavailable", "Sign in to search"]
     static let privacyNotice = "Concierge sends your messages, location and saved preferences to Bytspot to search. AI and place-search providers may process them. This chat stays in memory on this device until you clear it, sign out, change area, or leave the app in the background for 30 minutes."
 
@@ -20337,7 +20336,13 @@ final class NativeConciergeModel: ObservableObject {
     @Published private(set) var planSaving = false
     @Published private(set) var savedPlan: NativeConciergeSavedPlan?
     @Published private(set) var planNotice: String?
+    /// Opening chips. The server list replaces the on-device curated fallback when the query succeeds.
+    @Published private(set) var openingSuggestions: [NativeConciergeSuggestion] = NativeConciergeSuggestionFallback.chips()
+    /// Typical-crowd and Prime Path sentences for the chip that started the current search.
+    @Published private(set) var activeSuggestionNotes: [String] = []
     @Published private(set) var askListings: [String: [NativeWindowListing]] = [:]
+    private var suggestionsTask: Task<Void, Never>?
+    private var suggestionsGeneration = UUID()
     private var planSaveTask: Task<Void, Never>?
     /// A card action waiting for the guest's approval. Nothing runs before approve(_:).
     @Published var pendingAction: NativeConciergePendingAction?
@@ -20462,6 +20467,8 @@ final class NativeConciergeModel: ObservableObject {
 
     func clear() {
         stop()
+        suggestionsTask?.cancel()
+        suggestionsTask = nil
         planSaveTask?.cancel()
         planSaveTask = nil
         planSaving = false
@@ -20470,6 +20477,8 @@ final class NativeConciergeModel: ObservableObject {
         draft = ""
         turns = []
         result = nil
+        activeSuggestionNotes = []
+        openingSuggestions = NativeConciergeSuggestionFallback.chips(location: realLocation)
         planSelection = nil
         planRequest = nil
         arrivalTask?.cancel()
@@ -20482,6 +20491,44 @@ final class NativeConciergeModel: ObservableObject {
         scrollAnchor = nil
         searchState = .idle
         removePhoto()
+        refreshOpeningSuggestions()
+    }
+
+    /// The empty chat asks for curated chips. Location is sent only when a fresh fix exists.
+    /// A closed route, a transport failure, or a malformed body keeps the on-device list.
+    func refreshOpeningSuggestions(now: Date = Date()) {
+        suggestionsTask?.cancel()
+        let location = realLocation
+        openingSuggestions = NativeConciergeSuggestionFallback.chips(now: now, location: location)
+        guard turns.isEmpty, isSignedIn, let session, let accountID = session.authenticatedUserID else { return }
+        let authorization = session.token
+        let generation = UUID()
+        suggestionsGeneration = generation
+        let api = NativeConciergeAPI(client: BytspotAPIClient(tokenProvider: { authorization }))
+        suggestionsTask = Task { @MainActor [weak self] in
+            let response = try? await api.suggestions(location: location)
+            guard let self, !Task.isCancelled, self.suggestionsGeneration == generation, self.turns.isEmpty,
+                  self.session?.authenticatedUserID == accountID, self.session?.token == authorization else { return }
+            self.openingSuggestions = NativeConciergeSuggestionFallback.resolved(response, now: now, location: location)
+            self.suggestionsTask = nil
+        }
+    }
+
+    /// A chip the empty chat is showing. Signed-out and no-location taps ask for that, and do not send.
+    func chooseOpeningSuggestion(_ suggestion: NativeConciergeSuggestion) -> NativeConciergeSuggestionChoice {
+        guard !isSearching, openingSuggestions.contains(suggestion),
+              let action = NativeConciergeSuggestionAction.action(for: suggestion) else { return .ignored }
+        guard canSearch else {
+            notice = isSignedIn ? NativeConciergeContract.locationRequired : "Sign in to search for nearby places."
+            return isSignedIn ? .needsLocation : .needsSignIn
+        }
+        switch action {
+        case .discover(let prompt, let notes):
+            send(prompt, suggestionNotes: notes)
+            return .sent
+        case .sharePlan(let planID):
+            return .sharePlan(planID)
+        }
     }
 
     /// The prepared photo stays in memory only and is discarded with the conversation.
@@ -20716,13 +20763,14 @@ final class NativeConciergeModel: ObservableObject {
         isSearching = false
     }
 
-    func send(_ raw: String) {
+    func send(_ raw: String, suggestionNotes: [String] = []) {
         let text = NativeConciergeContract.boundedMessage(raw)
         guard !text.isEmpty, !isSearching else { return }
         guard canSearch else {
             notice = isSignedIn ? NativeConciergeContract.locationRequired : "Sign in to search for nearby places."
             return
         }
+        activeSuggestionNotes = suggestionNotes.filter { !NativeConciergeSuggestionCopy.claimsScarcity($0) }
         turns.append(Turn(message: NativeConciergeMessage(role: .user, content: text)))
         turns = Array(turns.suffix(NativeConciergeContract.maximumMessages))
         draft = ""
@@ -20822,7 +20870,6 @@ private struct NativeConciergeView: View {
     nonisolated static let headerTitle = "Bytspot Concierge"
     nonisolated static let statusLabel = "Discover places"
     nonisolated static let statusLabels = NativeConciergeRegionPresentation.statusLabels
-    nonisolated static let suggestionPrompts = NativeConciergeRegionPresentation.starterPrompts
     nonisolated static let openingTitle = NativeConciergeRegionPresentation.openingTitle
     nonisolated static let privacyNotice = NativeConciergeRegionPresentation.privacyNotice
     nonisolated static let handoffActionTitles = ["View details"]
@@ -20833,7 +20880,7 @@ private struct NativeConciergeView: View {
         VStack(spacing: 0) {
             conciergeHeader
             chatTranscript
-            if model.canSearch && !model.isSearching && !suggestionChips.isEmpty { suggestionRail }
+            if showsSuggestionRail { suggestionRail }
             composer
         }
         .foregroundColor(NativeTheme.textPrimary)
@@ -20891,26 +20938,75 @@ private struct NativeConciergeView: View {
         .background(NativePolish.glassSurface)
     }
 
+    private var showsSuggestionRail: Bool {
+        guard !model.isSearching else { return false }
+        if model.turns.isEmpty { return !model.openingSuggestions.isEmpty }
+        return model.canSearch && !(model.result?.actionableRefinements ?? []).isEmpty
+    }
+
     private var suggestionRail: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(suggestionChips, id: \.self) { chip in
-                    Button { composerFocused = false; model.send(chip) } label: {
-                        Text(chip).font(.subheadline.weight(.semibold))
-                            .lineLimit(3).frame(maxWidth: 260)
-                            .padding(.horizontal, 14).padding(.vertical, 10).frame(minHeight: 44)
-                            .background(NativePolish.elevatedSurface).clipShape(Capsule())
+        VStack(alignment: .leading, spacing: 4) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if model.turns.isEmpty {
+                        ForEach(model.openingSuggestions) { suggestion in
+                            Button { useOpeningSuggestion(suggestion) } label: {
+                                Text(suggestion.label).font(.subheadline.weight(.semibold))
+                                    .lineLimit(3).frame(maxWidth: 260)
+                                    .padding(.horizontal, 14).padding(.vertical, 10).frame(minHeight: 44)
+                                    .background(NativePolish.elevatedSurface).clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("native-concierge-suggestion-\(suggestion.id)")
+                            .accessibilityHint(suggestion.destination == .sharePlan
+                                ? "Shares this Plan link."
+                                : "Sends “\(suggestion.prompt)”.")
+                        }
+                    } else {
+                        ForEach(model.result?.actionableRefinements ?? [], id: \.self) { chip in
+                            Button { composerFocused = false; model.send(chip) } label: {
+                                Text(chip).font(.subheadline.weight(.semibold))
+                                    .lineLimit(3).frame(maxWidth: 260)
+                                    .padding(.horizontal, 14).padding(.vertical, 10).frame(minHeight: 44)
+                                    .background(NativePolish.elevatedSurface).clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Sends this message.")
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Sends this message.")
-                }
-            }.padding(.horizontal, 16).padding(.vertical, 8)
+                }.padding(.horizontal, 16).padding(.vertical, 8)
+            }
+            if model.turns.isEmpty && !NativeConciergeSuggestionCopy.disclosureLines(for: model.openingSuggestions).isEmpty {
+                suggestionNotes(NativeConciergeSuggestionCopy.disclosureLines(for: model.openingSuggestions))
+                    .padding(.horizontal, 16).padding(.bottom, 8)
+            }
         }
     }
 
-    private var suggestionChips: [String] {
-        if model.turns.isEmpty { return Self.suggestionPrompts }
-        return model.result?.actionableRefinements ?? []
+    private func useOpeningSuggestion(_ suggestion: NativeConciergeSuggestion) {
+        composerFocused = false
+        switch model.chooseOpeningSuggestion(suggestion) {
+        case .needsSignIn:
+            openNativeAuth?()
+        case .needsLocation:
+            promptForLocation()
+        case .sharePlan(let planID):
+            Task { await presentPlanShare(planID: planID, fallbackTitle: suggestion.label) }
+        case .sent, .ignored:
+            break
+        }
+    }
+
+    private func suggestionNotes(_ lines: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(lines, id: \.self) { line in
+                Text(line).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("native-concierge-suggestion-notes")
     }
 
     private var chatTranscript: some View {
@@ -20946,6 +21042,9 @@ private struct NativeConciergeView: View {
                             }
                             .id(NativeConciergeCardPresentation.anchor(card))
                         }
+                        if !model.activeSuggestionNotes.isEmpty {
+                            suggestionNotes(model.activeSuggestionNotes)
+                        }
                         if let draft = model.planDraft, result.proposedPlan == draft.plan {
                             proposedPlanPanel(draft, cards: result.cards)
                         }
@@ -20958,7 +21057,7 @@ private struct NativeConciergeView: View {
                     }
                     if model.searchState == .empty {
                         statusRow(icon: "magnifyingglass",
-                                  text: suggestionChips.isEmpty ? "Try describing it differently." : "Try a suggestion below, or describe it differently.",
+                                  text: showsSuggestionRail ? "Try a suggestion below, or describe it differently." : "Try describing it differently.",
                                   identifier: "native-concierge-empty")
                     }
                     if let proposal = model.proposal {
@@ -20972,6 +21071,9 @@ private struct NativeConciergeView: View {
                     }
                     if model.photoPreview != nil || model.photoNotice != nil {
                         photoPanel
+                    }
+                    if model.result == nil, !model.turns.isEmpty, !model.activeSuggestionNotes.isEmpty {
+                        suggestionNotes(model.activeSuggestionNotes)
                     }
                     if model.isSearching {
                         NativeConciergeAdaptiveStack {
@@ -21118,6 +21220,8 @@ private struct NativeConciergeView: View {
             }
             Text(NativeConciergePlanSave.footnote).font(.footnote).foregroundColor(NativeTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+            Text(NativeConciergePlanShare.savedFootnote).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14).frame(maxWidth: .infinity, alignment: .leading)
         .background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 22))
@@ -21169,7 +21273,12 @@ private struct NativeConciergeView: View {
                 }
             }
             NativeConciergeActionGrid {
-                Button("Open Plans") { openNativeTab(.plan) }.buttonStyle(NativeConciergeChipStyle(prominent: true))
+                Button("Share Plan link") {
+                    Task { await presentPlanShare(planID: saved.planID, fallbackTitle: saved.title) }
+                }
+                .buttonStyle(NativeConciergeChipStyle(prominent: true))
+                .accessibilityIdentifier("native-concierge-share-plan")
+                Button("Open Plans") { openNativeTab(.plan) }.buttonStyle(NativeConciergeChipStyle())
                 Button("Done") { model.dismissSavedPlan() }.buttonStyle(NativeConciergeChipStyle())
             }
         }
@@ -21350,13 +21459,31 @@ private struct NativeConciergeView: View {
         }
     }
 
+    private func promptForLocation() {
+        if locationStore.authorizationState == .denied || locationStore.authorizationState == .restricted || locationStore.authorizationState == .unavailable {
+            if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+        } else {
+            locationStore.requestWhenInUseIfNeeded()
+        }
+    }
+
+    /// Reads the Plan so the share sheet can carry the creator's join link. The link is not logged.
+    private func presentPlanShare(planID: String, fallbackTitle: String) async {
+        let credential = sessionStore.token
+        guard sessionStore.canAttachBearerToken else { return }
+        let client = BytspotAPIClient(tokenProvider: { credential })
+        let plan = try? await NativePlanAPI(client: client).get(planID)
+        guard sessionStore.canAttachBearerToken, sessionStore.token == credential else { return }
+        let title = plan?.title ?? NativeConciergePlanShare.fallbackTitle(fallbackTitle)
+        guard let link = NativeConciergePlanShare.link(planID: planID, title: title, joinToken: plan?.joinToken) else { return }
+        _ = NativePartySharePresentation.share(link.activityItems)
+    }
+
     @ViewBuilder private var locationButton: some View {
         if locationStore.authorizationState == .denied || locationStore.authorizationState == .restricted || locationStore.authorizationState == .unavailable {
-            Button("Open Settings") {
-                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-            }.frame(minHeight: 44)
+            Button("Open Settings") { promptForLocation() }.frame(minHeight: 44)
         } else {
-            Button("Use current location") { locationStore.requestWhenInUseIfNeeded() }.frame(minHeight: 44)
+            Button("Use current location") { promptForLocation() }.frame(minHeight: 44)
         }
     }
 
@@ -23742,7 +23869,10 @@ enum NativeConciergeParitySelfTests {
         precondition(NativeConciergeView.statusLabel == "Discover places", "NativeConciergeParitySelfTests: Concierge is discovery only.")
         precondition(NativeConciergeView.statusLabels == ["Ready", "Searching nearby…", "Search unavailable", "Sign in to search"], "NativeConciergeParitySelfTests: authentication alone must not claim Live.")
         precondition(NativeConciergeContract.maximumMessages == 10 && NativeConciergeContract.maximumMessageLength == 2_000, "NativeConciergeParitySelfTests: bounded history contract drifted.")
-        precondition(NativeConciergeView.suggestionPrompts == ["Coffee nearby", "Dinner tonight", "Something to do nearby"], "NativeConciergeParitySelfTests: prompts must describe supported discovery.")
+        let eveningChips = NativeConciergeSuggestionFallback.chips(now: NativeConciergeSuggestionFallback.fridayEvening, location: nil)
+        precondition(eveningChips.map(\.label) == ["Plan the night", "Dinner nearby", "Something to do"], "NativeConciergeParitySelfTests: curated opening chips drifted.")
+        precondition(eveningChips.map(\.prompt) == ["Plan dinner and drinks tonight", "Dinner nearby", "Events nearby"], "NativeConciergeParitySelfTests: a chip sends its prompt.")
+        precondition(eveningChips.allSatisfy { $0.typical == nil && $0.primePath.note == nil }, "NativeConciergeParitySelfTests: the on-device fallback must not invent a crowd or a Prime Path pick.")
         precondition(NativeConciergeView.handoffActionTitles == ["View details"], "NativeConciergeParitySelfTests: cards open real place details, not booking promises.")
         precondition(NativeConciergeView.composerPlaceholder == "Message Concierge…", "NativeConciergeParitySelfTests: Concierge composer placeholder drifted.")
     }
@@ -23762,7 +23892,9 @@ enum NativePhase4TabContentSelfTests {
         let fallback = NativeTabContentSnapshot.fallback
         precondition(fallback.venues.isEmpty && fallback.discoverCards.isEmpty && fallback.events.isEmpty, "NativePhase4TabContentSelfTests: the offline deck holds no invented venues, cards or events.")
         precondition(NativeTabContentStore.icon(for: "parking") == "parkingsign.circle.fill", "NativePhase4TabContentSelfTests: Discover icon mapping drifted.")
-        precondition(NativeConciergeView.suggestionPrompts == ["Coffee nearby", "Dinner tonight", "Something to do nearby"], "NativePhase4TabContentSelfTests: Concierge suggestions must stay within Release A discovery.")
+        let eveningChips = NativeConciergeSuggestionFallback.chips(now: NativeConciergeSuggestionFallback.fridayEvening, location: nil)
+        precondition(eveningChips.first?.prompt == "Plan dinner and drinks tonight", "NativePhase4TabContentSelfTests: the first chip is the dinner-and-drinks Plan prompt.")
+        precondition(eveningChips.count == 3, "NativePhase4TabContentSelfTests: the curated fallback is three chips.")
     }
 }
 #endif

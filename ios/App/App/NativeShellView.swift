@@ -20388,7 +20388,8 @@ final class NativeConciergeModel: ObservableObject {
     private func updateLocation(_ fix: CLLocation?, authorized: Bool) {
         let coordinate = NativeConciergeContract.searchCoordinate(location: fix, authorized: authorized)
         let next = NativeConciergeContract.stableOrigin(coordinate, previous: searchOrigin)
-        if next != searchOrigin { clear() }
+        // The store publishes before it stores the new fix, so the new origin is passed in.
+        if next != searchOrigin { clear(using: next) }
         searchOrigin = next
     }
     var isSignedIn: Bool {
@@ -20465,7 +20466,9 @@ final class NativeConciergeModel: ObservableObject {
         planRequest = nil
     }
 
-    func clear() {
+    func clear() { clear(using: realLocation) }
+
+    private func clear(using origin: NativeLocationCoordinate?) {
         stop()
         suggestionsTask?.cancel()
         suggestionsTask = nil
@@ -20478,7 +20481,7 @@ final class NativeConciergeModel: ObservableObject {
         turns = []
         result = nil
         activeSuggestionNotes = []
-        openingSuggestions = NativeConciergeSuggestionFallback.chips(location: realLocation)
+        openingSuggestions = NativeConciergeSuggestionFallback.chips(location: origin)
         planSelection = nil
         planRequest = nil
         arrivalTask?.cancel()
@@ -20491,14 +20494,14 @@ final class NativeConciergeModel: ObservableObject {
         scrollAnchor = nil
         searchState = .idle
         removePhoto()
-        refreshOpeningSuggestions()
+        refreshOpeningSuggestions(location: origin)
     }
 
     /// The empty chat asks for curated chips. Location is sent only when a fresh fix exists.
     /// A closed route, a transport failure, or a malformed body keeps the on-device list.
-    func refreshOpeningSuggestions(now: Date = Date()) {
+    func refreshOpeningSuggestions(now: Date = Date(), location: NativeLocationCoordinate?? = nil) {
         suggestionsTask?.cancel()
-        let location = realLocation
+        let location = location ?? realLocation
         openingSuggestions = NativeConciergeSuggestionFallback.chips(now: now, location: location)
         guard turns.isEmpty, isSignedIn, let session, let accountID = session.authenticatedUserID else { return }
         let authorization = session.token

@@ -993,7 +993,11 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertTrue(concierge.contains("suggestion.prompt"))
         XCTAssertTrue(concierge.contains("Share Plan link"))
         XCTAssertTrue(concierge.contains("native-concierge-share-plan"))
-        XCTAssertTrue(concierge.contains("native-concierge-suggestion-notes"))
+        // The chat stays clear: no notes under chips or results, and the data notice sits behind the info button.
+        XCTAssertFalse(concierge.contains("native-concierge-suggestion-notes"))
+        XCTAssertFalse(concierge.contains("Text(Self.privacyNotice).font(.footnote)"))
+        XCTAssertTrue(concierge.contains("native-concierge-privacy"))
+        XCTAssertTrue(concierge.contains("Text(Self.privacyNotice)"))
         XCTAssertTrue(concierge.contains("refreshOpeningSuggestions"))
         XCTAssertFalse(concierge.contains("Coffee nearby\", \"Dinner tonight\", \"Something to do nearby\""))
         for retired in ["concierge.chat", "concierge.actions", "Concierge review required", "mic.fill", "Check stay dates", "openNativeTab(.discover)", "asyncAfter"] {

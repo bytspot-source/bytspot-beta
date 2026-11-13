@@ -798,6 +798,369 @@ struct NativeConciergeAPI {
         decoder.userInfo[NativeConciergeCard.MenuEvidence.apiBaseURLKey] = client.baseURL
         return try decoder.decode(NativeConciergeResponse.self, from: data)
     }
+
+    /// Opening chips. Location is omitted until the guest has a fresh fix.
+    /// Same rule as discover: a 401 is not replayed by the global renewer.
+    func makeSuggestionsRequest(location: NativeLocationCoordinate?) throws -> URLRequest {
+        guard let authorization = client.tokenProvider(),
+              !authorization.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              authorization != "guest_session" else { throw AccessError.signInRequired }
+        var input: [String: Any] = [:]
+        if let coordinate = NativeConciergeContract.realCoordinate(location) {
+            input["location"] = ["lat": coordinate.latitude, "lng": coordinate.longitude]
+        }
+        var scopedClient = client
+        scopedClient.tokenProvider = { authorization }
+        let path = try BytspotAPIClient.trpcQueryPath(NativeConciergeSuggestionsContract.path, input: input)
+        return try scopedClient.makeRequest(path: path, method: "GET")
+    }
+
+    func suggestions(location: NativeLocationCoordinate?) async throws -> NativeConciergeSuggestions {
+        try Task.checkCancellation()
+        let urlRequest = try makeSuggestionsRequest(location: location)
+        let (data, response) = try await client.urlSession.data(for: urlRequest)
+        try Task.checkCancellation()
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else { throw BytspotAPIClient.APIError.invalidResponse }
+        let payload = BytspotAPIClient.unwrapTRPCData(try JSONSerialization.jsonObject(with: data))
+        return try decodeSuggestions(JSONSerialization.data(withJSONObject: payload))
+    }
+
+    func decodeSuggestions(_ data: Data) throws -> NativeConciergeSuggestions {
+        try JSONDecoder().decode(NativeConciergeSuggestions.self, from: data)
+    }
+}
+
+/// Guest-facing words for concierge.suggestions. The server writes them.
+/// A crowd word is shown only beside the exact typical sentence.
+enum NativeConciergeSuggestionCopy {
+    static let typicalNote = "Typical for this hour in Atlanta, not a live reading."
+    static let planStory = "Plan the night. Send one link. Everyone's in."
+    static let nightLabel = "Plan the night"
+    static let nightPrompt = "Plan dinner and drinks tonight"
+    static let crowdLabels = ["Chill", "Active", "Busy", "Packed"]
+    private static let scarcity = #"\b(busy right now|live crowd|spots left)\b"#
+
+    static func isTypicalHourLabel(_ value: String) -> Bool {
+        value == "around this hour" ||
+            value.range(of: #"^around (1[0-2]|[1-9]) (AM|PM)$"#, options: .regularExpression) != nil
+    }
+
+    static func claimsScarcity(_ text: String) -> Bool {
+        text.range(of: scarcity, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    /// Chip label, the typical level, when that level applies, and the sentence that says it is not live.
+    static func disclosureLines(for suggestions: [NativeConciergeSuggestion]) -> [String] {
+        var seen = Set<String>()
+        return suggestions.flatMap { suggestion in
+            [suggestion.crowdDisclosure, suggestion.primePathDisclosure].compactMap { $0 }
+        }.filter { seen.insert($0).inserted }
+    }
+}
+
+enum NativeConciergeSuggestionsContract {
+    static let path = "/trpc/concierge.suggestions"
+}
+
+/// One opening chip. `prompt` is what a tap sends. `label` is what the chip shows.
+struct NativeConciergeSuggestion: Decodable, Equatable, Identifiable {
+    enum Destination: String, Decodable {
+        case discover
+        case conciergePlan = "concierge_plan"
+        case sharePlan = "share_plan"
+    }
+
+    struct Typical: Decodable, Equatable {
+        let category: String
+        let level: Int
+        let label: String
+        let source: String
+        let note: String
+        let hourLabel: String
+    }
+
+    struct PrimePath: Decodable, Equatable {
+        let consulted: Bool
+        let confirmableNeeds: [String]
+        let note: String?
+    }
+
+    let id: String
+    let label: String
+    let prompt: String
+    let reason: String
+    let destination: Destination
+    let startsPlan: Bool
+    let planId: String?
+    let typical: Typical?
+    let primePath: PrimePath
+
+    /// The crowd word only when the server marked it typical and included the fixed sentence.
+    var crowdDisclosure: String? {
+        guard let typical, typical.source == "typical", typical.note == NativeConciergeSuggestionCopy.typicalNote,
+              NativeConciergeSuggestionCopy.crowdLabels.contains(typical.label),
+              !NativeConciergeSuggestionCopy.claimsScarcity(typical.label),
+              !NativeConciergeSuggestionCopy.claimsScarcity(typical.hourLabel) else { return nil }
+        let line = "\(label): \(typical.label) \(typical.hourLabel). \(typical.note)"
+        return NativeConciergeSuggestionCopy.claimsScarcity(line) ? nil : line
+    }
+
+    /// The only sentence that may mention Prime Path. Nil means say nothing about it.
+    var primePathDisclosure: String? {
+        guard let note = primePath.note?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty,
+              !NativeConciergeSuggestionCopy.claimsScarcity(note) else { return nil }
+        return note
+    }
+}
+
+struct NativeConciergeSuggestions: Decodable, Equatable {
+    enum Status: String, Decodable { case ok, unavailable }
+    enum Source: String, Decodable { case si, curated }
+
+    struct Area: Decodable, Equatable {
+        let label: String?
+        let basis: String
+        let sentence: String
+    }
+
+    struct When: Decodable, Equatable {
+        let timezone: String
+        let hour: Int
+        let dayOfWeek: Int
+        let weekday: String
+    }
+
+    struct PrimePath: Decodable, Equatable {
+        let status: String
+        let confirmableNeeds: [String]
+    }
+
+    let version: Int
+    let status: Status
+    let source: Source?
+    let reply: String?
+    let area: Area?
+    let when: When?
+    let primePath: PrimePath
+    let suggestions: [NativeConciergeSuggestion]
+
+    private enum CodingKeys: String, CodingKey {
+        case version, status, source, reply, area, when, primePath, suggestions
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decode(Int.self, forKey: .version)
+        status = try values.decode(Status.self, forKey: .status)
+        source = try values.decodeIfPresent(Source.self, forKey: .source)
+        reply = try values.decodeIfPresent(String.self, forKey: .reply)
+        area = try values.decodeIfPresent(Area.self, forKey: .area)
+        when = try values.decodeIfPresent(When.self, forKey: .when)
+        primePath = try values.decode(PrimePath.self, forKey: .primePath)
+        let decoded = try values.decode([NativeConciergeSuggestion].self, forKey: .suggestions)
+        suggestions = decoded
+        guard version == 1 else { throw BytspotAPIClient.APIError.invalidResponse }
+        switch status {
+        case .unavailable:
+            guard source == nil, area == nil, when == nil, suggestions.isEmpty,
+                  primePath.status == "unavailable", primePath.confirmableNeeds.isEmpty,
+                  reply?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+                throw BytspotAPIClient.APIError.invalidResponse
+            }
+        case .ok:
+            guard source != nil, let area, let when, (1...3).contains(suggestions.count),
+                  suggestions.first?.id == "plan_the_night",
+                  suggestions.contains(where: \.startsPlan),
+                  Set(suggestions.map(\.id)).count == suggestions.count,
+                  when.timezone == "America/New_York", (0...23).contains(when.hour), (0...6).contains(when.dayOfWeek),
+                  area.basis == "coordinates" || area.basis == "launch_market",
+                  !area.sentence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  reply == nil,
+                  primePath.status == "ok" || primePath.status == "unavailable",
+                  primePath.status == "ok" || primePath.confirmableNeeds.isEmpty else {
+                throw BytspotAPIClient.APIError.invalidResponse
+            }
+            for suggestion in suggestions {
+                guard Self.suggestionIsHonest(suggestion) else { throw BytspotAPIClient.APIError.invalidResponse }
+            }
+        }
+    }
+
+    /// Drops a chip that would show a live crowd, a wait, or a Plan prompt that is not the one the server writes.
+    private static func suggestionIsHonest(_ suggestion: NativeConciergeSuggestion) -> Bool {
+        let text = { (value: String, limit: Int) in
+            !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && value.utf16.count <= limit &&
+                value.rangeOfCharacter(from: .controlCharacters) == nil
+        }
+        let knownIDs: Set<String> = ["plan_the_night", "coffee_nearby", "lunch_nearby", "dinner_nearby",
+                                      "drinks_nearby", "events_nearby", "plan_a_show", "share_plan"]
+        guard knownIDs.contains(suggestion.id),
+              text(suggestion.id, 40), text(suggestion.label, 40), text(suggestion.prompt, 200), text(suggestion.reason, 320),
+              !NativeConciergeSuggestionCopy.claimsScarcity(suggestion.reason),
+              !NativeConciergeSuggestionCopy.claimsScarcity(suggestion.label) else { return false }
+        if suggestion.id == "plan_the_night" {
+            guard suggestion.prompt == NativeConciergeSuggestionCopy.nightPrompt,
+                  suggestion.destination == .discover, suggestion.startsPlan, suggestion.planId == nil else { return false }
+        }
+        switch suggestion.destination {
+        case .sharePlan:
+            guard !suggestion.startsPlan, let planId = suggestion.planId, text(planId, 128), suggestion.typical == nil else { return false }
+        case .discover, .conciergePlan:
+            guard suggestion.planId == nil else { return false }
+        }
+        if let typical = suggestion.typical {
+            guard typical.source == "typical", typical.note == NativeConciergeSuggestionCopy.typicalNote,
+                  (1...4).contains(typical.level), NativeConciergeSuggestionCopy.crowdLabels.contains(typical.label),
+                  ["coffee", "restaurant", "bar", "venue"].contains(typical.category),
+                  NativeConciergeSuggestionCopy.isTypicalHourLabel(typical.hourLabel),
+                  suggestion.reason.contains(typical.note),
+                  !NativeConciergeSuggestionCopy.claimsScarcity(typical.hourLabel) else { return false }
+        }
+        if let note = suggestion.primePath.note {
+            guard text(note, 240), !suggestion.primePath.confirmableNeeds.isEmpty,
+                  !NativeConciergeSuggestionCopy.claimsScarcity(note) else { return false }
+        } else if !suggestion.primePath.confirmableNeeds.isEmpty {
+            return false
+        }
+        return true
+    }
+}
+
+/// The server's curated list when no model ran and this device has no Plan history.
+/// Crowd levels stay off until the server sends `source: "typical"`.
+enum NativeConciergeSuggestionFallback {
+    /// 2026-11-14T00:00:00Z, 7:00 PM in America/New_York. Matches the server fixture.
+    static let fridayEvening = Date(timeIntervalSince1970: 1_794_614_400)
+    static let fridayMorning = Date(timeIntervalSince1970: 1_794_574_800)
+    static let fridayAfternoon = Date(timeIntervalSince1970: 1_794_596_400)
+    static let saturdayLate = Date(timeIntervalSince1970: 1_794_643_200)
+
+    private static let launchSentence = "Location wasn't shared, so this assumes the launch market, Midtown Atlanta."
+
+    static func chips(now: Date = Date(), location: NativeLocationCoordinate? = nil) -> [NativeConciergeSuggestion] {
+        let hour = NativeConciergeAtlantaClock.hour(now)
+        let second: (id: String, label: String, prompt: String)
+        switch hour {
+        case 5..<11: second = (id: "coffee_nearby", label: "Coffee nearby", prompt: "Coffee nearby")
+        case 11..<16: second = (id: "lunch_nearby", label: "Lunch nearby", prompt: "Lunch nearby")
+        case 16..<21: second = (id: "dinner_nearby", label: "Dinner nearby", prompt: "Dinner nearby")
+        default: second = (id: "drinks_nearby", label: "Drinks nearby", prompt: "Drinks nearby")
+        }
+        let area = areaSentence(location)
+        return [
+            make(id: "plan_the_night", label: NativeConciergeSuggestionCopy.nightLabel,
+                 prompt: NativeConciergeSuggestionCopy.nightPrompt,
+                 reason: "\(NativeConciergeSuggestionCopy.planStory) \(area)", startsPlan: true),
+            make(id: second.id, label: second.label, prompt: second.prompt,
+                 reason: "\(second.label). \(area)", startsPlan: false),
+            make(id: "events_nearby", label: "Something to do", prompt: "Events nearby",
+                 reason: "Something to do. \(area)", startsPlan: false),
+        ]
+    }
+
+    /// Server chips when the query succeeded. The local list when it failed, was closed, or was malformed.
+    static func resolved(_ response: NativeConciergeSuggestions?, now: Date = Date(), location: NativeLocationCoordinate? = nil) -> [NativeConciergeSuggestion] {
+        let fallback = chips(now: now, location: location)
+        guard let response, response.status == .ok, response.suggestions.first?.id == "plan_the_night" else { return fallback }
+        var merged = response.suggestions
+        for extra in fallback where merged.count < 3 && !merged.contains(where: { $0.id == extra.id }) {
+            merged.append(extra)
+        }
+        return Array(merged.prefix(3))
+    }
+
+    private static func areaSentence(_ location: NativeLocationCoordinate?) -> String {
+        guard let location = NativeConciergeContract.realCoordinate(location) else { return launchSentence }
+        let meters = NativeConciergeAtlantaClock.meters(fromLat: location.latitude, lng: location.longitude,
+                                                         toLat: 33.781, toLng: -84.3833)
+        if meters <= 2_500 { return "Using the location you shared in Midtown." }
+        if meters <= 25_000 { return "Using the location you shared in Atlanta." }
+        return "Using the location you shared."
+    }
+
+    private static func make(id: String, label: String, prompt: String, reason: String, startsPlan: Bool) -> NativeConciergeSuggestion {
+        NativeConciergeSuggestion(id: id, label: label, prompt: prompt, reason: reason, destination: .discover,
+                                  startsPlan: startsPlan, planId: nil, typical: nil,
+                                  primePath: .init(consulted: false, confirmableNeeds: [], note: nil))
+    }
+}
+
+enum NativeConciergeAtlantaClock {
+    static let timeZone = TimeZone(identifier: "America/New_York") ?? TimeZone(secondsFromGMT: -5 * 3_600)!
+
+    static func hour(_ date: Date) -> Int {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar.component(.hour, from: date)
+    }
+
+    static func meters(fromLat: Double, lng: Double, toLat: Double, toLng: Double) -> Double {
+        let radius = 6_371_000.0
+        let lat1 = fromLat * .pi / 180
+        let lat2 = toLat * .pi / 180
+        let dLat = (toLat - fromLat) * .pi / 180
+        let dLng = (toLng - lng) * .pi / 180
+        let a = sin(dLat / 2) * sin(dLat / 2) + cos(lat1) * cos(lat2) * sin(dLng / 2) * sin(dLng / 2)
+        return 2 * radius * asin(min(1, sqrt(a)))
+    }
+}
+
+/// What a tap does once the guest can search. Share chips open a Plan link.
+/// Every other chip sends `prompt` to concierge.discover, never the label.
+enum NativeConciergeSuggestionChoice: Equatable {
+    case sent
+    case needsSignIn
+    case needsLocation
+    case sharePlan(String)
+    case ignored
+}
+
+enum NativeConciergeSuggestionAction: Equatable {
+    case discover(prompt: String, notes: [String])
+    case sharePlan(String)
+
+    static func action(for suggestion: NativeConciergeSuggestion) -> Self? {
+        switch suggestion.destination {
+        case .sharePlan:
+            guard let planID = suggestion.planId?.trimmingCharacters(in: .whitespacesAndNewlines), !planID.isEmpty else { return nil }
+            return .sharePlan(planID)
+        case .discover, .conciergePlan:
+            let prompt = NativeConciergeContract.boundedMessage(suggestion.prompt)
+            guard !prompt.isEmpty else { return nil }
+            return .discover(prompt: prompt, notes: NativeConciergeSuggestionCopy.disclosureLines(for: [suggestion]))
+        }
+    }
+}
+
+/// The invite link a saved or existing Plan already uses.
+struct NativeConciergePlanShareLink: Equatable {
+    let message: String
+    let url: URL
+    var activityItems: [Any] { [message, url] }
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.message == rhs.message && lhs.url == rhs.url }
+}
+
+enum NativeConciergePlanShare {
+    static let savedFootnote = "Saving makes a Plan. Share its link from the next step."
+
+    static func link(planID: String, title: String, joinToken: String?) -> NativeConciergePlanShareLink? {
+        let trimmedID = planID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedID.isEmpty, trimmedID.rangeOfCharacter(from: .controlCharacters) == nil,
+              let url = NativePlanDisplay.inviteLink(planId: trimmedID, token: joinToken) else { return nil }
+        let named = fallbackTitle(title)
+        return NativeConciergePlanShareLink(message: NativePlanDisplay.inviteMessage(title: named), url: url)
+    }
+
+    /// A share chip's label is "Share {title}". The Plan title is what the invite should name.
+    static func fallbackTitle(_ title: String) -> String {
+        var named = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if named.hasPrefix("Share ") {
+            named = String(named.dropFirst("Share ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return named.isEmpty ? "a plan" : named
+    }
 }
 
 /// A fresh generation on EVERY invalidation prevents A → B → A from reviving A's old response.

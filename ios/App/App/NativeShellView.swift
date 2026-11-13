@@ -20219,7 +20219,7 @@ struct NativeConciergeSavedPlan: Equatable {
 }
 
 enum NativeConciergePlanSave {
-    static let footnote = "Saved as a Plan with these places as references. Nothing is booked or paid for."
+    static let footnote = "Nothing is booked or paid for."
 
     static func needLabel(_ need: String) -> String {
         switch need {
@@ -20280,7 +20280,7 @@ enum NativeConciergePlanSave {
 enum NativeConciergeRegionPresentation {
     enum Topic { case parking, stay, open, general }
 
-    static let genericWelcomeMessage = "Ask for coffee, a meal or something to do nearby. You can also search with a photo of a dish."
+    static let genericWelcomeMessage = "Ask for anything nearby, or send a photo of a dish."
     static let openingTitle = "What are you in the mood for?"
     static let statusLabels = ["Ready", "Searching nearby…", "Search unavailable", "Sign in to search"]
     static let privacyNotice = "Concierge sends your messages, location and saved preferences to Bytspot to search. AI and place-search providers may process them. This chat stays in memory on this device until you clear it, sign out, change area, or leave the app in the background for 30 minutes."
@@ -20858,6 +20858,7 @@ private struct NativeConciergeView: View {
     var openNativeAuth: (() -> Void)? = nil
     var openDirectRoute: ((NativeVenueSummary) -> Void)? = nil
     @FocusState private var composerFocused: Bool
+    @State private var showingPrivacyNotice = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var didRunPreviewPrompt = false
     @State private var choosingPhotoSource = false
@@ -20926,10 +20927,16 @@ private struct NativeConciergeView: View {
 
     private var conciergeHeader: some View {
         NativeConciergeAdaptiveStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(Self.headerTitle).font(.title2.bold()).accessibilityAddTraits(.isHeader)
-                Text("\(Self.statusLabel) · \(model.statusText)").font(.subheadline).foregroundColor(NativeTheme.cyan)
+            HStack(spacing: 6) {
+                Text(Self.headerTitle).font(.title3.bold()).accessibilityAddTraits(.isHeader)
+                    .accessibilityValue(model.statusText)
                     .accessibilityIdentifier("native-concierge-status")
+                Button { showingPrivacyNotice = true } label: {
+                    Image(systemName: "info.circle").foregroundColor(NativeTheme.textSecondary)
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .accessibilityLabel("How Concierge uses your messages")
+                .accessibilityIdentifier("native-concierge-privacy")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if !model.turns.isEmpty || model.photoPreview != nil {
@@ -20937,8 +20944,13 @@ private struct NativeConciergeView: View {
                     .accessibilityHint("Deletes this conversation from this device.")
             }
         }
-        .padding(16)
+        .padding(.horizontal, 16).padding(.vertical, 6)
         .background(NativePolish.glassSurface)
+        .alert("Concierge and your data", isPresented: $showingPrivacyNotice) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(Self.privacyNotice)
+        }
     }
 
     private var showsSuggestionRail: Bool {
@@ -20979,10 +20991,6 @@ private struct NativeConciergeView: View {
                     }
                 }.padding(.horizontal, 16).padding(.vertical, 8)
             }
-            if model.turns.isEmpty && !NativeConciergeSuggestionCopy.disclosureLines(for: model.openingSuggestions).isEmpty {
-                suggestionNotes(NativeConciergeSuggestionCopy.disclosureLines(for: model.openingSuggestions))
-                    .padding(.horizontal, 16).padding(.bottom, 8)
-            }
         }
     }
 
@@ -20998,18 +21006,6 @@ private struct NativeConciergeView: View {
         case .sent, .ignored:
             break
         }
-    }
-
-    private func suggestionNotes(_ lines: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(lines, id: \.self) { line in
-                Text(line).font(.footnote).foregroundColor(NativeTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("native-concierge-suggestion-notes")
     }
 
     private var chatTranscript: some View {
@@ -21045,9 +21041,6 @@ private struct NativeConciergeView: View {
                             }
                             .id(NativeConciergeCardPresentation.anchor(card))
                         }
-                        if !model.activeSuggestionNotes.isEmpty {
-                            suggestionNotes(model.activeSuggestionNotes)
-                        }
                         if let draft = model.planDraft, result.proposedPlan == draft.plan {
                             proposedPlanPanel(draft, cards: result.cards)
                         }
@@ -21074,9 +21067,6 @@ private struct NativeConciergeView: View {
                     }
                     if model.photoPreview != nil || model.photoNotice != nil {
                         photoPanel
-                    }
-                    if model.result == nil, !model.turns.isEmpty, !model.activeSuggestionNotes.isEmpty {
-                        suggestionNotes(model.activeSuggestionNotes)
                     }
                     if model.isSearching {
                         NativeConciergeAdaptiveStack {
@@ -21125,9 +21115,8 @@ private struct NativeConciergeView: View {
     private var openingPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(Self.openingTitle).font(.title3.bold()).fixedSize(horizontal: false, vertical: true)
-            Text(NativeConciergeRegionPresentation.genericWelcomeMessage).font(.body)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(Self.privacyNotice).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+            Text(NativeConciergeRegionPresentation.genericWelcomeMessage).font(.subheadline)
+                .foregroundColor(NativeTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
@@ -21222,8 +21211,6 @@ private struct NativeConciergeView: View {
                     .accessibilityIdentifier("native-concierge-make-plan")
             }
             Text(NativeConciergePlanSave.footnote).font(.footnote).foregroundColor(NativeTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(NativeConciergePlanShare.savedFootnote).font(.footnote).foregroundColor(NativeTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14).frame(maxWidth: .infinity, alignment: .leading)

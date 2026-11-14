@@ -829,8 +829,8 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertEqual(request.messages.count, 10)
         XCTAssertTrue(request.messages[0].content.hasPrefix("3 "))
         XCTAssertTrue(request.messages.allSatisfy { $0.content.utf16.count <= 2_000 })
-        XCTAssertEqual(request.location.lat, seattle.latitude)
-        XCTAssertEqual(request.location.lng, seattle.longitude)
+        XCTAssertEqual(request.location?.lat, seattle.latitude)
+        XCTAssertEqual(request.location?.lng, seattle.longitude)
         XCTAssertEqual(request.quizAnswers.vibe, "dinner")
         XCTAssertEqual(request.quizAnswers.walk, "close")
         XCTAssertEqual(request.quizAnswers.group, "couple")
@@ -849,7 +849,16 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertNil(empty.vibe)
         let long = NativeConciergeRequest.QuizAnswers(vibe: String(repeating: "🌎", count: 100), walk: nil, crew: nil)
         XCTAssertEqual(long.vibe?.utf16.count, 40)
-        let invalidCoordinates: [NativeLocationCoordinate?] = [nil, .midtown,
+        let unlocated = try NativeConciergeRequest(messages: messages, location: nil, quizAnswers: empty)
+        XCTAssertNil(unlocated.location, "No location is allowed; the server plans where the guest says.")
+        let encoded = String(data: try JSONEncoder().encode(unlocated), encoding: .utf8) ?? ""
+        XCTAssertFalse(encoded.contains("\"location\""), encoded)
+        var unlocatedGate = NativeConciergeRequestGuard()
+        let unlocatedTicket = try XCTUnwrap(unlocatedGate.begin(accountID: "account-a", location: nil))
+        XCTAssertTrue(unlocatedGate.accepts(unlocatedTicket, accountID: "account-a", location: nil, isCancelled: false))
+        XCTAssertFalse(unlocatedGate.accepts(unlocatedTicket, accountID: "account-a", location: seattle, isCancelled: false),
+                       "A fix that arrives mid-search starts a new search instead of reusing the old answer.")
+        let invalidCoordinates: [NativeLocationCoordinate?] = [.midtown,
             .init(latitude: .nan, longitude: 1, isFallback: false),
             .init(latitude: 1, longitude: .infinity, isFallback: false),
             .init(latitude: 91, longitude: 1, isFallback: false)]

@@ -20396,7 +20396,8 @@ final class NativeConciergeModel: ObservableObject {
         session?.canAttachBearerToken == true &&
             session?.authenticatedUserID.map(NativeConciergeContract.exactIdentity) == true
     }
-    var canSearch: Bool { isSignedIn && realLocation != nil }
+    /// Location is optional: without it the server searches the place the guest names, or asks where.
+    var canSearch: Bool { isSignedIn }
 
     var statusText: String {
         let labels = NativeConciergeRegionPresentation.statusLabels
@@ -20653,7 +20654,8 @@ final class NativeConciergeModel: ObservableObject {
     /// The Make it a Plan button. One tap runs one save; Retry resends the same create key.
     func saveProposedPlan() {
         guard let current = planDraft, !planSaving, let result, isSignedIn, let session,
-              let accountID = session.authenticatedUserID, let origin = realLocation,
+              let accountID = session.authenticatedUserID,
+              let origin = realLocation ?? current.plan.area.map({ NativeLocationCoordinate(latitude: $0.lat, longitude: $0.lng, isFallback: false) }),
               result.proposedPlan == current.plan else { return }
         let draft = current.frozen()
         planDraft = draft
@@ -20787,11 +20789,11 @@ final class NativeConciergeModel: ObservableObject {
 
     private func search() {
         guard let session, session.canAttachBearerToken,
-              let accountID = session.authenticatedUserID,
-              let coordinate = realLocation else {
-            notice = NativeConciergeContract.locationRequired
+              let accountID = session.authenticatedUserID else {
+            notice = "Sign in to search for nearby places."
             return
         }
+        let coordinate = realLocation
         guard let request = try? NativeConciergeRequest(messages: turns.map(\.message), location: coordinate,
                                                        quizAnswers: .saved(), preferences: .saved()),
               let ticket = requestGuard.begin(accountID: accountID, location: coordinate) else { return }
@@ -21021,8 +21023,9 @@ private struct NativeConciergeView: View {
                             Button("Sign in", action: openNativeAuth).frame(minHeight: 44)
                                 .accessibilityIdentifier("native-concierge-sign-in")
                         }
-                    } else if model.realLocation == nil {
-                        Text(NativeConciergeContract.locationRequired).font(.body)
+                    } else if model.realLocation == nil && model.turns.isEmpty {
+                        Text(NativeConciergeContract.locationRequired).font(.subheadline)
+                            .foregroundColor(NativeTheme.textSecondary)
                         locationButton
                     }
                     ForEach(model.turns) { turn in
@@ -21031,7 +21034,8 @@ private struct NativeConciergeView: View {
                     if let result = model.result {
                         ForEach(result.cards) { card in
                             NativeConciergePlaceCard(card: card,
-                                                     distance: model.realLocation?.distanceLabel(toLatitude: card.lat, longitude: card.lng),
+                                                     distance: (model.realLocation?.distanceMiles(toLatitude: card.lat, longitude: card.lng) ?? .infinity) <= 50
+                                                         ? model.realLocation?.distanceLabel(toLatitude: card.lat, longitude: card.lng) : nil,
                                                      isSaved: model.isSaved(card),
                                                      requestAction: { model.remember(card); model.requestAction($0, on: card) }) {
                                 // Opening details does not need a new GPS fix. Account/location

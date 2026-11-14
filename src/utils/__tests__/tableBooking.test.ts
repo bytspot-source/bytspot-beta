@@ -9,10 +9,19 @@ test('a listed OpenTable or Resy link becomes a button, labelled by provider', (
   assert.deepEqual(tableBookingFrom({ provider: 'resy', url: 'https://resy.com/cities/atl/example' })?.label, 'Resy');
 });
 
+test('the newer providers become buttons too, each on its own site only', () => {
+  assert.equal(tableBookingFrom({ provider: 'sevenrooms', url: 'https://www.sevenrooms.com/reservations/x' })?.label, 'SevenRooms');
+  assert.equal(tableBookingFrom({ provider: 'fareharbor', url: 'https://fareharbor.com/embeds/book/x/' })?.label, 'FareHarbor');
+  assert.equal(tableBookingFrom({ provider: 'wheelsup', url: 'https://wheelsup.com/' })?.label, 'Wheels Up');
+  assert.equal(tableBookingFrom({ provider: 'blade', url: 'https://www.blade.com/x' })?.label, 'Blade');
+});
+
 test('a malformed or foreign link never becomes a button', () => {
   for (const value of [
     null, 'https://resy.com/x', {},
-    { provider: 'sevenrooms', url: 'https://sevenrooms.com/x' },
+    { provider: 'yelp', url: 'https://www.yelp.com/reservations/x' },
+    { provider: 'fareharbor', url: 'https://fareharbor.com.evil.example/x' },
+    { provider: 'constructor', url: 'https://example.com/x' },
     { provider: 'opentable', url: 'http://www.opentable.com/r/x' },
     { provider: 'opentable', url: 'https://resy.com/x' },
     { provider: 'resy', url: 'https://resy.com.evil.example/x' },

@@ -4230,17 +4230,14 @@ enum NativeVenueDetailsDTO {
         return details.hasSuppliedFacts ? details : nil
     }
 
-    /// An OpenTable or Resy link from the server's hand-checked list, re-checked
-    /// so a malformed or foreign link can never become a button.
+    /// A booking link from the server's hand-checked list, re-checked so a
+    /// malformed or foreign link can never become a button.
     static func tableBooking(_ value: Any?) -> (url: URL, label: String)? {
         guard let booking = value as? [String: Any], let provider = booking["provider"] as? String,
               let raw = booking["url"] as? String, let url = safeHTTPSURL(raw),
-              let host = url.host?.lowercased() else { return nil }
-        switch provider {
-        case "opentable" where host == "opentable.com" || host == "www.opentable.com": return (url, "OpenTable")
-        case "resy" where host == "resy.com": return (url, "Resy")
-        default: return nil
-        }
+              let host = url.host?.lowercased(),
+              let rule = NativeBookingProviders.all[provider], rule.hosts.contains(host) else { return nil }
+        return (url, rule.label)
     }
 
     private static func text(_ value: Any?) -> String? {
@@ -4297,7 +4294,34 @@ struct NativeVenueDetailsAPI {
     }
 }
 
-/// Counts a tap on an admin-listed OpenTable or Resy link, for the numbers
+/// The outside booking sites a listed place may link to, and each one's exact hosts.
+/// Same table as the API's services/bookingProviders.ts; keep the two in step.
+enum NativeBookingProviders {
+    struct Rule: Equatable { let label: String; let hosts: Set<String> }
+
+    static let all: [String: Rule] = [
+        "opentable": Rule(label: "OpenTable", hosts: ["opentable.com", "www.opentable.com"]),
+        "resy": Rule(label: "Resy", hosts: ["resy.com"]),
+        "tock": Rule(label: "Tock", hosts: ["exploretock.com", "www.exploretock.com"]),
+        "sevenrooms": Rule(label: "SevenRooms", hosts: ["sevenrooms.com", "www.sevenrooms.com"]),
+        "fareharbor": Rule(label: "FareHarbor", hosts: ["fareharbor.com"]),
+        "peek": Rule(label: "Peek", hosts: ["book.peek.com", "peek.com", "www.peek.com"]),
+        "xola": Rule(label: "Xola", hosts: ["checkout.xola.com", "xola.com", "www.xola.com"]),
+        "bookeo": Rule(label: "Bookeo", hosts: ["bookeo.com", "www.bookeo.com"]),
+        "vagaro": Rule(label: "Vagaro", hosts: ["vagaro.com", "www.vagaro.com"]),
+        "booksy": Rule(label: "Booksy", hosts: ["booksy.com"]),
+        "fresha": Rule(label: "Fresha", hosts: ["fresha.com", "www.fresha.com"]),
+        "mindbody": Rule(label: "Mindbody", hosts: ["mindbodyonline.com", "www.mindbodyonline.com", "clients.mindbodyonline.com"]),
+        "eventbrite": Rule(label: "Eventbrite", hosts: ["eventbrite.com", "www.eventbrite.com"]),
+        "dice": Rule(label: "DICE", hosts: ["dice.fm"]),
+        "parkwhiz": Rule(label: "ParkWhiz", hosts: ["parkwhiz.com", "www.parkwhiz.com"]),
+        "spothero": Rule(label: "SpotHero", hosts: ["spothero.com"]),
+        "blade": Rule(label: "Blade", hosts: ["blade.com", "www.blade.com"]),
+        "wheelsup": Rule(label: "Wheels Up", hosts: ["wheelsup.com", "www.wheelsup.com"]),
+    ]
+}
+
+/// Counts a tap on an admin-listed booking link, for the numbers
 /// Bytspot shows the restaurant. Fire and forget: a failed count never blocks
 /// the handoff.
 struct NativeTableBookingTapAPI {

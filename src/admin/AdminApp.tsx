@@ -233,6 +233,7 @@ function PlaceForm({ draft, onChange, onSaved, onCancel }: {
   const noLink = draft.provider === 'none';
   const problem = draft.provider === 'none' ? null : linkProblem(draft.provider, draft.url);
   const ready = !problem && (noLink || draft.opened);
+  const isEvent = draft.provider !== 'none' && EVENT_PROVIDERS.includes(draft.provider);
 
   const save = async () => {
     if (!ready) return;
@@ -285,11 +286,11 @@ function PlaceForm({ draft, onChange, onSaved, onCancel }: {
             <a href={draft.url.trim()} target="_blank" rel="noopener noreferrer" className="admin-link">Open the link to check it ↗</a>
           )}
           <label className="admin-muted">
-            {EVENT_PROVIDERS.includes(draft.provider) ? 'Event date (link stops showing after this day)' : 'Stop showing after (optional)'}{' '}
+            {isEvent ? 'Event date (link stops showing after this day)' : 'Stop showing after (optional)'}{' '}
             <input type="date" className="admin-select" value={draft.endsOn}
               onChange={(e) => onChange({ ...draft, endsOn: e.target.value })} />
           </label>
-          {EVENT_PROVIDERS.includes(draft.provider) && !draft.endsOn && (
+          {isEvent && !draft.endsOn && (
             <p className="admin-muted">Set the event's date for a single event. Leave it empty for a venue's or organizer's page.</p>
           )}
         </>

@@ -434,6 +434,8 @@ struct NativeConciergeProposedPlan: Decodable, Equatable {
         let label: String
         let lat: Double
         let lng: Double
+        /// The IANA zone the area keeps. Older servers omit it.
+        var timeZone: String? = nil
     }
     let stops: [Stop]
     let openNeeds: [String]

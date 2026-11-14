@@ -21232,9 +21232,15 @@ private struct NativeConciergeView: View {
                 .disabled(draft.isFrozen || model.planSaving)
                 .accessibilityIdentifier("native-concierge-plan-time-toggle")
             if let startsAt = model.planDraft?.startsAt {
+                let zone = NativePlanTimeZone.zone(draft.plan.area?.timeZone)
                 DatePicker("Starts", selection: Binding(get: { startsAt }, set: { model.planDraft?.startsAt = $0 }),
                            in: Date().addingTimeInterval(300)...)
+                    .environment(\.timeZone, zone ?? .current)
                     .disabled(draft.isFrozen || model.planSaving)
+                if let note = NativePlanTimeZone.note(zone, at: startsAt) {
+                    Text(note).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                        .accessibilityIdentifier("native-concierge-plan-time-zone")
+                }
             }
             if let notice = model.planNotice {
                 Text(notice).font(.subheadline).foregroundColor(NativeTheme.orange).fixedSize(horizontal: false, vertical: true)

@@ -24,9 +24,10 @@ type Category = (typeof CATEGORIES)[number]['id'];
 type Provider = BookingProvider;
 
 type Count = { total: number; last30: number };
+type Recheck = { venueId: string; status: 'due_soon' | 'stale'; dueAt: string | null };
 type ListedPlace = {
   venueId: string; name: string; address: string; category: string; placeId: string | null; hidden: boolean;
-  booking: TableBooking | null; checkedAt: string | null; listedAt: string | null; bookingStale?: boolean;
+  booking: TableBooking | null; checkedAt: string | null; listedAt: string | null; bookingStale?: boolean; bookingDueAt?: string | null;
   numbers: { checkIns: Count; bookingTaps: Count; planAdds: Count; bookedByGuests: Count };
 };
 type VenueControlRow = { venueId: string; name: string; address: string; category: string; control: 'bytspot' | 'listed'; controlledAt: string | null; placeId: string | null };
@@ -550,12 +551,14 @@ function PlacesTab() {
   const [searching, setSearching] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [places, setPlaces] = useState<ListedPlace[] | null>(null);
+  const [recheck, setRecheck] = useState<Recheck[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const result = await trpc.admin.places.list.query();
       setPlaces(result.places);
+      setRecheck(Array.isArray(result.recheck) ? result.recheck : []);
     } catch (err) {
       setError(errorText(err));
     }
@@ -624,6 +627,33 @@ function PlacesTab() {
       </Card>
 
       {error && <p className="admin-warn">{error}</p>}
+
+      {places && recheck.length > 0 && (
+        <Card>
+          <h2>Re-check these links</h2>
+          <p className="admin-muted">
+            Guests stop seeing a booking link 90 days after it was last checked. Open each one, make sure it still books
+            the place, then Edit and Save. A list is also emailed every Monday.
+          </p>
+          <ul className="admin-list">
+            {recheck.map((r) => {
+              const p = places.find((place) => place.venueId === r.venueId);
+              if (!p) return null;
+              return (
+                <li key={r.venueId} className="admin-row" style={{ alignItems: 'center' }}>
+                  <div>
+                    <p className="admin-strong">{p.name}</p>
+                    <p className={r.status === 'stale' ? 'admin-warn' : 'admin-muted'}>
+                      {r.status === 'stale' ? `Hidden from guests${r.dueAt ? ` since ${dateLabel(r.dueAt)}` : ''}` : `Hidden from guests on ${dateLabel(r.dueAt)}`}
+                    </p>
+                  </div>
+                  <Button kind="quiet" onClick={() => edit(p)}>Edit</Button>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
 
       <Card>
         <h2>Listed places</h2>

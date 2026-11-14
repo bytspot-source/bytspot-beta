@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { API_BASE_URL, trpc } from '../utils/trpc';
-import { tableBookingFrom, type TableBooking } from '../utils/tableBooking';
+import { BOOKING_PROVIDERS, BOOKING_PROVIDER_IDS, tableBookingFrom, type BookingProvider, type TableBooking } from '../utils/tableBooking';
 import './admin.css';
 import { MenuEvidenceReview } from './MenuEvidenceReview.tsx';
 import { MenuSourcePreview } from '../vendor/MenuDishEditor.tsx';
@@ -21,12 +21,12 @@ const CATEGORIES = [
   { id: 'cafe', label: 'Café' },
 ] as const;
 type Category = (typeof CATEGORIES)[number]['id'];
-type Provider = 'opentable' | 'resy';
+type Provider = BookingProvider;
 
 type Count = { total: number; last30: number };
 type ListedPlace = {
   venueId: string; name: string; address: string; category: string; placeId: string | null; hidden: boolean;
-  booking: TableBooking | null; checkedAt: string | null; listedAt: string | null;
+  booking: TableBooking | null; checkedAt: string | null; listedAt: string | null; bookingStale?: boolean;
   numbers: { checkIns: Count; bookingTaps: Count; planAdds: Count; bookedByGuests: Count };
 };
 type VenueControlRow = { venueId: string; name: string; address: string; category: string; control: 'bytspot' | 'listed'; controlledAt: string | null; placeId: string | null };
@@ -128,7 +128,7 @@ function tiedToOther(c: Candidate): string | null {
 /** The same check the API makes, so a bad link is caught before it is sent. */
 function linkProblem(provider: Provider, url: string): string | null {
   if (!url.trim()) return 'Paste the booking link.';
-  return tableBookingFrom({ provider, url: url.trim() }) ? null : `That is not an https link on ${provider === 'opentable' ? 'opentable.com' : 'resy.com'}.`;
+  return tableBookingFrom({ provider, url: url.trim() }) ? null : `That is not an https link on ${BOOKING_PROVIDERS[provider].hosts[0]}.`;
 }
 
 function Card({ children }: { children: ReactNode }) {
@@ -240,20 +240,23 @@ function PlaceForm({ draft, onChange, onSaved, onCancel }: {
         </p>
       )}
       <div className="admin-inline">
-        {(['opentable', 'resy'] as const).map((provider) => (
-          <Button key={provider} kind={draft.provider === provider ? 'primary' : 'quiet'} onClick={() => onChange({ ...draft, provider })}>
-            {provider === 'opentable' ? 'OpenTable' : 'Resy'}
-          </Button>
-        ))}
-        <Button kind={noLink ? 'primary' : 'quiet'} onClick={() => onChange({ ...draft, provider: 'none', url: '', opened: false })}>
-          No booking link
-        </Button>
+        <label className="admin-muted">
+          Booking site{' '}
+          <select className="admin-select" value={draft.provider}
+            onChange={(e) => {
+              const value = e.target.value as Provider | 'none';
+              onChange(value === 'none' ? { ...draft, provider: 'none', url: '', opened: false } : { ...draft, provider: value, opened: false });
+            }}>
+            {BOOKING_PROVIDER_IDS.map((id) => <option key={id} value={id}>{BOOKING_PROVIDERS[id].label}</option>)}
+            <option value="none">No booking link</option>
+          </select>
+        </label>
       </div>
       {noLink ? (
         <p className="admin-muted">Listed without a booking button. Guests still see the place and can save, plan and get directions.</p>
       ) : (
         <>
-          <input className={input} placeholder={draft.provider === 'opentable' ? 'https://www.opentable.com/r/…' : 'https://resy.com/cities/…'}
+          <input className={input} placeholder={draft.provider === 'none' ? '' : BOOKING_PROVIDERS[draft.provider].example}
             value={draft.url} onChange={(e) => onChange({ ...draft, url: e.target.value, opened: false })} />
           {draft.url && problem && <p className="admin-warn">{problem}</p>}
           {!problem && (
@@ -271,7 +274,7 @@ function PlaceForm({ draft, onChange, onSaved, onCancel }: {
       {!noLink && (
         <label className="admin-check">
           <input type="checkbox" checked={draft.opened} onChange={(e) => onChange({ ...draft, opened: e.target.checked })} />
-          I opened this link and it books this restaurant.
+          I opened this link and it books this place.
         </label>
       )}
       {error && <p className="admin-warn">{error}</p>}
@@ -641,6 +644,9 @@ function PlacesTab() {
                       </a>
                     )}
                     <span className="admin-tag">{p.booking ? `checked ${dateLabel(p.checkedAt)}` : 'no booking link'}</span>
+                    {p.bookingStale && (
+                      <span className="admin-tag admin-warn">Not checked in 90 days: hidden from guests. Edit and save to check it again.</span>
+                    )}
                   </div>
                   <div className="admin-inline">
                     <Button kind="quiet" onClick={() => edit(p)}>Edit</Button>

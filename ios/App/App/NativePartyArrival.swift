@@ -41,7 +41,7 @@ struct NativePartyArrivalContext: Codable, Equatable {
     var bookingForGuests: Bool? = nil
     var venueBooking: VenueBooking? = nil
 
-    /// The OpenTable or Resy link, re-checked so a foreign link never becomes a button.
+    /// The outside booking link, re-checked so a foreign link never becomes a button.
     var tableBooking: (url: URL, label: String)? {
         guard let booking = venueBooking?.booking, venueBooking?.controlled == false else { return nil }
         return NativeVenueDetailsDTO.tableBooking(["provider": booking.provider, "url": booking.url])
@@ -187,12 +187,12 @@ struct NativePartyArrivalAPI {
     }
 }
 enum NativePartyVenueBookingCopy {
-    static let disclaimer = "Book with the restaurant directly. Bytspot doesn't hold this table."
+    static let disclaimer = "Book with the business directly. Bytspot doesn't hold this."
     static let guestToggle = "Show guests how to book"
     static let guestToggleNote = "Guests with Party access see the booking link or the venue's contact details."
 }
 
-/// How to book a listed arrival venue outside Bytspot: its OpenTable or Resy
+/// How to book a listed arrival venue outside Bytspot: its booking
 /// link, or its phone and website when it has no link. Nothing is held.
 struct NativePartyVenueBookingSection: View {
     let context: NativePartyArrivalContext

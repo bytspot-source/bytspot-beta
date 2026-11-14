@@ -7441,10 +7441,22 @@ final class NativePlanBookablesContractTests: XCTestCase {
         XCTAssertNil(NativePlanDisplay.tableBooking(cancelled))
         XCTAssertEqual(NativePlanDisplay.itemStatusLabel(cancelled), "Cancelled")
 
-        for (provider, url) in [("opentable", "https://resy.com/x"), ("resy", "http://resy.com/x"), ("resy", "https://resy.com.evil.example/x"), ("sevenrooms", "https://sevenrooms.com/x")] {
+        for (provider, url) in [("opentable", "https://resy.com/x"), ("resy", "http://resy.com/x"), ("resy", "https://resy.com.evil.example/x"),
+                                ("yelp", "https://www.yelp.com/reservations/x"), ("fareharbor", "https://fareharbor.com.evil.example/x"),
+                                ("blade", "https://evil.example/blade.com")] {
             let foreign = try item(["tableBooking": ["provider": provider, "label": "x", "url": url]])
             XCTAssertNil(NativePlanDisplay.tableBooking(foreign), url)
         }
+        for (provider, url, label) in [("sevenrooms", "https://www.sevenrooms.com/reservations/x", "SevenRooms"),
+                                       ("fareharbor", "https://fareharbor.com/embeds/book/x/", "FareHarbor"),
+                                       ("vagaro", "https://www.vagaro.com/x", "Vagaro"),
+                                       ("parkwhiz", "https://www.parkwhiz.com/p/x/", "ParkWhiz"),
+                                       ("blade", "https://www.blade.com/airports/x", "Blade"),
+                                       ("wheelsup", "https://wheelsup.com/", "Wheels Up")] {
+            let listed = try item(["tableBooking": ["provider": provider, "label": label, "url": url]])
+            XCTAssertEqual(NativePlanDisplay.tableBooking(listed)?.label, label, url)
+        }
+        XCTAssertEqual(NativeBookingProviders.all.count, 18, "Same list as the API's services/bookingProviders.ts")
     }
 
     func testABookingTapNamesOnlyAnExactPlace() throws {

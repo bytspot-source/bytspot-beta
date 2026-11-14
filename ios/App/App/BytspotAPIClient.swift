@@ -150,7 +150,7 @@ enum NativeConciergeContract {
     static let path = "/trpc/concierge.discover"
     static let maximumMessages = 10
     static let maximumMessageLength = 2_000
-    static let locationRequired = "Enable location to find places near you. No default city is used."
+    static let locationRequired = "Name a city or neighborhood, or share your location for places near you."
 
     static func realCoordinate(_ location: NativeLocationCoordinate?) -> NativeLocationCoordinate? {
         guard let location, !location.isFallback,
@@ -356,20 +356,23 @@ struct NativeConciergeRequest: Encodable, Equatable {
     }
 
     let messages: [NativeConciergeMessage]
-    let location: Location
+    /// Omitted when the guest has not shared a location; the server then plans where they say.
+    let location: Location?
     let quizAnswers: QuizAnswers
     /// Omitted when nothing is avoided and there is no ceiling.
     let preferences: NativePreferenceFilter?
 
     init(messages: [NativeConciergeMessage], location: NativeLocationCoordinate?, quizAnswers: QuizAnswers,
          preferences: NativePreferenceFilter = .empty) throws {
-        guard let coordinate = NativeConciergeContract.realCoordinate(location) else { throw InputError.needsLocation }
+        // No location is allowed. A supplied one must be a real fix, never a fallback point.
+        let coordinate = NativeConciergeContract.realCoordinate(location)
+        if location != nil, coordinate == nil { throw InputError.needsLocation }
         let bounded = messages.suffix(NativeConciergeContract.maximumMessages).map {
             NativeConciergeMessage(role: $0.role, content: NativeConciergeContract.boundedMessage($0.content))
         }
         guard bounded.last?.role == .user, bounded.allSatisfy({ !$0.content.isEmpty }) else { throw InputError.invalidMessages }
         self.messages = bounded
-        self.location = Location(lat: coordinate.latitude, lng: coordinate.longitude)
+        self.location = coordinate.map { Location(lat: $0.latitude, lng: $0.longitude) }
         self.quizAnswers = quizAnswers
         self.preferences = preferences.isEmpty ? nil : preferences
     }
@@ -1169,7 +1172,7 @@ struct NativeConciergeRequestGuard {
     struct Ticket: Equatable {
         fileprivate let generation: UUID
         let accountID: String
-        let location: NativeLocationCoordinate
+        let location: NativeLocationCoordinate?
     }
     private var generation = UUID()
     private var active: Ticket?
@@ -1178,9 +1181,10 @@ struct NativeConciergeRequestGuard {
 
     mutating func begin(accountID: String?, location: NativeLocationCoordinate?) -> Ticket? {
         invalidate()
-        guard let accountID, NativeConciergeContract.exactIdentity(accountID),
-              let location = NativeConciergeContract.realCoordinate(location) else { return nil }
-        let ticket = Ticket(generation: generation, accountID: accountID, location: location)
+        guard let accountID, NativeConciergeContract.exactIdentity(accountID) else { return nil }
+        let real = NativeConciergeContract.realCoordinate(location)
+        if location != nil, real == nil { return nil }
+        let ticket = Ticket(generation: generation, accountID: accountID, location: real)
         active = ticket
         return ticket
     }

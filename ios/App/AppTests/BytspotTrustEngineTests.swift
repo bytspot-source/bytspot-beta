@@ -5864,6 +5864,22 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(NativePlanDisplay.whenLabel(startsAt: nil, endsAt: nil), "When TBD")
     }
 
+    func testPlanInAnotherCityReadsInThatCitysTime() throws {
+        let eastern = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let pacific = NativePlanTimeZone.zone("America/Los_Angeles")
+        // 2026-10-03T02:00Z is Fri 7:00 PM in Los Angeles and Fri 10:00 PM in Atlanta.
+        XCTAssertEqual(NativePlanDisplay.whenLabel(startsAt: "2026-10-03T02:00:00.000Z", endsAt: nil, timeZone: pacific, device: eastern),
+                       "Fri Oct 2 · 7:00 PM PDT")
+        XCTAssertEqual(NativePlanDisplay.whenLabel(startsAt: "2026-10-03T02:00:00.000Z", endsAt: nil, timeZone: eastern, device: eastern),
+                       "Fri Oct 2 · 10:00 PM", "the guest's own zone needs no suffix")
+        XCTAssertEqual(NativePlanDisplay.whenLabel(startsAt: "2026-10-03T02:00:00.000Z", endsAt: nil, timeZone: nil, device: eastern),
+                       "Fri Oct 2 · 10:00 PM", "unknown zone falls back to the device")
+        let date = try XCTUnwrap(ISO8601DateFormatter.partyControlDate(from: "2026-10-03T02:00:00.000Z"))
+        XCTAssertEqual(NativePlanTimeZone.note(pacific, at: date, device: eastern), "Times are Los Angeles time (PDT).")
+        XCTAssertNil(NativePlanTimeZone.note(eastern, at: date, device: eastern))
+        XCTAssertNil(NativePlanTimeZone.zone("Not/AZone"))
+    }
+
     func testPlanDecodesTheServerShape() throws {
         // Pin the wire shape the router serializes so a rename on either
         // side surfaces in tests, not on a device.
@@ -5882,6 +5898,14 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(plan.readiness.pending, 2)
         XCTAssertEqual(plan.openNeeds, ["dining", "nightlife"])
         XCTAssertEqual(plan.participants.first?.role, "creator")
+        XCTAssertNil(plan.timeZone, "older servers send no zone")
+        let la = try decodePlan("""
+        {"id":"pl-2","title":"LA","intent":"Dinner","creatorUserId":"u-1","startsAt":null,"endsAt":null,"areaLabel":"LA",
+         "partySize":null,"needs":[],"lifecycle":"proposed","state":"proposed",
+         "readiness":{"going":1,"maybe":0,"pending":0,"declined":0,"total":1},"openNeeds":[],
+         "participants":[],"items":[],"timeZone":"America/Los_Angeles"}
+        """)
+        XCTAssertEqual(la.timeZone, "America/Los_Angeles")
         // Item shape is exercised so a rename on any of the four fields
         // fails here rather than on a device.
         let item = try XCTUnwrap(plan.items.first)

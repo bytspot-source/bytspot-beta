@@ -67,8 +67,10 @@ struct NativePlanItinerary: Decodable, Equatable {
     let stops: [Stop]
     let skipped: [Skipped]
     let suggestedOrder: SuggestedOrder?
+    /// The zone the server read hours and times in. Older servers omit it.
+    let timeZone: String?
 
-    private enum CodingKeys: String, CodingKey { case status, stops, skipped, suggestedOrder }
+    private enum CodingKeys: String, CodingKey { case status, stops, skipped, suggestedOrder, timeZone }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -76,6 +78,7 @@ struct NativePlanItinerary: Decodable, Equatable {
         stops = (try? container.decode([Stop].self, forKey: .stops)) ?? []
         skipped = (try? container.decode([Skipped].self, forKey: .skipped)) ?? []
         suggestedOrder = try? container.decodeIfPresent(SuggestedOrder.self, forKey: .suggestedOrder)
+        timeZone = (try? container.decodeIfPresent(String.self, forKey: .timeZone)) ?? nil
     }
 }
 
@@ -84,6 +87,34 @@ struct NativePlanTimelineLeg: Equatable {
     enum Mode: Equatable { case walking, driving }
     let minutes: Int
     let mode: Mode
+}
+
+/// The zone a Plan's area keeps, from the server. Times are shown and picked there.
+enum NativePlanTimeZone {
+    static func zone(_ identifier: String?) -> TimeZone? {
+        identifier.flatMap { TimeZone(identifier: $0) }
+    }
+
+    /// "Times are Los Angeles time (PDT)." Nil when the zone is unknown or keeps the device's clock.
+    static func note(_ zone: TimeZone?, at date: Date = Date(), device: TimeZone = .current) -> String? {
+        guard let zone, zone.secondsFromGMT(for: date) != device.secondsFromGMT(for: date) else { return nil }
+        let city = zone.identifier.split(separator: "/").last.map { $0.replacingOccurrences(of: "_", with: " ") } ?? zone.identifier
+        return "Times are \(city) time (\(abbreviation(zone, at: date)))."
+    }
+
+    /// "PDT" when the zone differs from the device's clock, else nil.
+    static func suffix(_ zone: TimeZone?, at date: Date, device: TimeZone = .current) -> String? {
+        guard let zone, zone.secondsFromGMT(for: date) != device.secondsFromGMT(for: date) else { return nil }
+        return abbreviation(zone, at: date)
+    }
+
+    private static func abbreviation(_ zone: TimeZone, at date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.timeZone = zone
+        formatter.dateFormat = "zzz"
+        return formatter.string(from: date)
+    }
 }
 
 enum NativePlanTimelineDisplay {
@@ -240,6 +271,9 @@ struct NativePlanTimelineView: View {
                 Text("Add a start time to see when each stop happens.")
                     .font(.footnote.weight(.semibold)).foregroundColor(NativeTheme.textSecondary)
                     .accessibilityIdentifier("native-plan-timeline-needs-start")
+            } else if let note = NativePlanTimeZone.note(NativePlanTimeZone.zone(itinerary.timeZone)) {
+                Text(note).font(.footnote.weight(.semibold)).foregroundColor(NativeTheme.textSecondary)
+                    .accessibilityIdentifier("native-plan-timeline-time-zone")
             }
             ForEach(Array(itinerary.stops.enumerated()), id: \.element.id) { index, stop in
                 if index > 0 { travelRow(stop) }
@@ -284,7 +318,7 @@ struct NativePlanTimelineView: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(stop.title).font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
-                if let time = NativePlanTimelineDisplay.timeLabel(stop) {
+                if let time = NativePlanTimelineDisplay.timeLabel(stop, timeZone: NativePlanTimeZone.zone(itinerary.timeZone) ?? .current) {
                     Text(time).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textPrimary)
                 }
                 Text(NativePlanTimelineDisplay.lengthLabel(stop)).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)

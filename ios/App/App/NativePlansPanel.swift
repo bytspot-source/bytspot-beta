@@ -93,6 +93,8 @@ struct NativePlan: Codable, Identifiable, Equatable {
     var longitude: Double? = nil
     /// When the Plan and its invite link stop working. Nil when nothing ends it.
     var expiresAt: String? = nil
+    /// The IANA zone the Plan's area keeps. Nil without a location or on older servers: the device clock is used.
+    var timeZone: String? = nil
 
     var place: NativePlanPlace? {
         guard let latitude, let longitude else { return nil }
@@ -1030,16 +1032,19 @@ enum NativePlanDisplay {
 
     /// A short "when" line. Absent starts are printed as "When TBD" rather
     /// than the current date, because a Plan without a time is a real state.
-    static func whenLabel(startsAt: String?, endsAt: String?) -> String {
+    /// A Plan in another zone reads in that zone, with its abbreviation ("7:00 PM PDT").
+    static func whenLabel(startsAt: String?, endsAt: String?, timeZone: TimeZone? = nil, device: TimeZone = .current) -> String {
         guard let starts = startsAt, let startsDate = ISO8601DateFormatter.partyControlDate(from: starts) else { return "When TBD" }
-        let dayFormatter = DateFormatter(); dayFormatter.dateFormat = "EEE MMM d"
-        let timeFormatter = DateFormatter(); timeFormatter.dateFormat = "h:mm a"
+        let zone = timeZone ?? device
+        let dayFormatter = DateFormatter(); dayFormatter.dateFormat = "EEE MMM d"; dayFormatter.timeZone = zone
+        let timeFormatter = DateFormatter(); timeFormatter.dateFormat = "h:mm a"; timeFormatter.timeZone = zone
         let dayText = dayFormatter.string(from: startsDate)
         let startsText = timeFormatter.string(from: startsDate)
+        let suffix = NativePlanTimeZone.suffix(timeZone, at: startsDate, device: device).map { " \($0)" } ?? ""
         if let ends = endsAt, let endsDate = ISO8601DateFormatter.partyControlDate(from: ends) {
-            return "\(dayText) · \(startsText) - \(timeFormatter.string(from: endsDate))"
+            return "\(dayText) · \(startsText) - \(timeFormatter.string(from: endsDate))\(suffix)"
         }
-        return "\(dayText) · \(startsText)"
+        return "\(dayText) · \(startsText)\(suffix)"
     }
 }
 
@@ -1924,7 +1929,7 @@ private struct NativePlanListRow: View {
                 Spacer()
                 Image(systemName: "chevron.right").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textTertiary)
             }
-            Text(NativePlanDisplay.whenLabel(startsAt: plan.startsAt, endsAt: plan.endsAt))
+            Text(NativePlanDisplay.whenLabel(startsAt: plan.startsAt, endsAt: plan.endsAt, timeZone: NativePlanTimeZone.zone(plan.timeZone)))
                 .font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
             // Status and readiness are printed together; a bare "Confirmed"
             // never appears, because a confirmed Plan is only the creator's
@@ -2077,7 +2082,7 @@ struct NativePlanDetailSheet: View {
                 Text(plan.title).font(.title2.weight(.black)).foregroundColor(NativeTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
-                Text([NativePlanDisplay.whenLabel(startsAt: plan.startsAt, endsAt: plan.endsAt), plan.areaLabel].compactMap { $0 }.joined(separator: " · "))
+                Text([NativePlanDisplay.whenLabel(startsAt: plan.startsAt, endsAt: plan.endsAt, timeZone: NativePlanTimeZone.zone(plan.timeZone)), plan.areaLabel].compactMap { $0 }.joined(separator: " · "))
                     .font(.subheadline.weight(.semibold)).foregroundColor(NativeTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 peopleStrip(plan).padding(.top, 8)
@@ -3004,7 +3009,11 @@ private struct NativePlanEditSheet: View {
                 if setsTime {
                     DatePicker("", selection: $startsAt, in: min(originalStart ?? Date(), Date())...)
                         .datePickerStyle(.compact).labelsHidden()
+                        .environment(\.timeZone, NativePlanTimeZone.zone(plan.timeZone) ?? .current)
                         .accessibilityIdentifier("native-plan-edit-starts-at")
+                    if let note = NativePlanTimeZone.note(NativePlanTimeZone.zone(plan.timeZone), at: startsAt) {
+                        Text(note).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+                    }
                     if plan.lifecycle == "proposed" {
                         Text(NativePlanDisplay.timeShortensLifeFootnote)
                             .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)

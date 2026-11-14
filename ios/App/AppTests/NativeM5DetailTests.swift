@@ -153,6 +153,16 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertNil(withProposal.proposedPlan)
     }
 
+    func testProposedPlanAreaCarriesTheCityTimeZone() throws {
+        let la: [String: Any] = ["label": "LA", "lat": 34.05, "lng": -118.24, "timeZone": "America/Los_Angeles"]
+        let decoded = try decode(response(cards: planCards(), changes: ["proposedPlan": proposedPlan(["area": la])]))
+        XCTAssertEqual(decoded.proposedPlan?.area?.timeZone, "America/Los_Angeles")
+        let older: [String: Any] = ["label": "LA", "lat": 34.05, "lng": -118.24]
+        XCTAssertNil(try decode(response(cards: planCards(), changes: ["proposedPlan": proposedPlan(["area": older])])).proposedPlan?.area?.timeZone)
+        let unknown: [String: Any] = ["label": "LA", "lat": 34.05, "lng": -118.24, "timeZone": NSNull()]
+        XCTAssertNotNil(try decode(response(cards: planCards(), changes: ["proposedPlan": proposedPlan(["area": unknown])])).proposedPlan)
+    }
+
     private final class PlanWriter: NativeConciergePlanWriting {
         var requests: [NativePlanWriteRequest] = []
         var failAttachTitles: Set<String> = []

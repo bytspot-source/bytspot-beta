@@ -24,15 +24,36 @@ type Category = (typeof CATEGORIES)[number]['id'];
 type Provider = BookingProvider;
 
 type Count = { total: number; last30: number };
-type Recheck = { venueId: string; status: 'due_soon' | 'stale'; dueAt: string | null };
+type Recheck = { venueId: string; status: 'due_soon' | 'stale' | 'expired'; dueAt: string | null };
 type ListedPlace = {
   venueId: string; name: string; address: string; category: string; placeId: string | null; hidden: boolean;
   booking: TableBooking | null; checkedAt: string | null; listedAt: string | null; bookingStale?: boolean; bookingDueAt?: string | null;
+  expiresAt?: string | null; bookingExpired?: boolean;
   numbers: { checkIns: Count; bookingTaps: Count; planAdds: Count; bookedByGuests: Count };
 };
 type VenueControlRow = { venueId: string; name: string; address: string; category: string; control: 'bytspot' | 'listed'; controlledAt: string | null; placeId: string | null };
 type Candidate = { placeId: string; name: string; address: string; suggestedCategory: Category; listed: boolean; venueName?: string | null };
-type Draft = { placeId: string; name: string; address: string; provider: Provider | 'none'; url: string; category: Category; opened: boolean; tiedTo?: string | null };
+type Draft = { placeId: string; name: string; address: string; provider: Provider | 'none'; url: string; category: Category; opened: boolean; tiedTo?: string | null;
+  /** YYYY-MM-DD: the last day the link shows (an event's date). Empty: no end. */
+  endsOn: string };
+
+/** Providers whose links are usually for one event; same list as the API. */
+const EVENT_PROVIDERS: readonly Provider[] = ['eventbrite', 'dice'];
+
+/** The end of that day, on this computer's clock, as the API expects it. */
+function endOfDay(day: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const end = new Date(`${day}T23:59:59`);
+  return Number.isNaN(end.getTime()) ? null : end.toISOString();
+}
+
+function dayInput(value: string | null | undefined): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
 type Vendor = {
   sellerId: string; legalName: string; contactEmail: string | null; businessKind: string | null; state: string;
   awaitingApproval: boolean; approvedAt: string | null; createdAt: string; missing: string[];
@@ -219,7 +240,7 @@ function PlaceForm({ draft, onChange, onSaved, onCancel }: {
     try {
       await trpc.admin.places.save.mutate(noLink
         ? { placeId: draft.placeId, provider: null, url: null, category: draft.category }
-        : { placeId: draft.placeId, provider: draft.provider, url: draft.url.trim(), category: draft.category });
+        : { placeId: draft.placeId, provider: draft.provider, url: draft.url.trim(), category: draft.category, expiresAt: endOfDay(draft.endsOn) });
       onSaved();
     } catch (err) {
       setError(errorText(err));
@@ -262,6 +283,14 @@ function PlaceForm({ draft, onChange, onSaved, onCancel }: {
           {draft.url && problem && <p className="admin-warn">{problem}</p>}
           {!problem && (
             <a href={draft.url.trim()} target="_blank" rel="noopener noreferrer" className="admin-link">Open the link to check it ↗</a>
+          )}
+          <label className="admin-muted">
+            {EVENT_PROVIDERS.includes(draft.provider) ? 'Event date (link stops showing after this day)' : 'Stop showing after (optional)'}{' '}
+            <input type="date" className="admin-select" value={draft.endsOn}
+              onChange={(e) => onChange({ ...draft, endsOn: e.target.value })} />
+          </label>
+          {EVENT_PROVIDERS.includes(draft.provider) && !draft.endsOn && (
+            <p className="admin-muted">Set the event's date for a single event. Leave it empty for a venue's or organizer's page.</p>
           )}
         </>
       )}
@@ -582,11 +611,12 @@ function PlacesTab() {
 
   const pick = (c: Candidate) => setDraft({
     placeId: c.placeId, name: c.name, address: c.address, provider: 'opentable', url: '', category: c.suggestedCategory, opened: false,
-    tiedTo: tiedToOther(c),
+    tiedTo: tiedToOther(c), endsOn: '',
   });
   const edit = (p: ListedPlace) => p.placeId && setDraft({
     placeId: p.placeId, name: p.name, address: p.address, provider: p.booking?.provider ?? 'none',
     url: p.booking?.url ?? '', category: (CATEGORIES.some((c) => c.id === p.category) ? p.category : 'restaurant') as Category, opened: false,
+    endsOn: p.bookingExpired ? '' : dayInput(p.expiresAt),
   });
   const saved = () => { setDraft(null); setCandidates(null); setQuery(''); void load(); };
 
@@ -643,8 +673,9 @@ function PlacesTab() {
                 <li key={r.venueId} className="admin-row" style={{ alignItems: 'center' }}>
                   <div>
                     <p className="admin-strong">{p.name}</p>
-                    <p className={r.status === 'stale' ? 'admin-warn' : 'admin-muted'}>
-                      {r.status === 'stale' ? `Hidden from guests${r.dueAt ? ` since ${dateLabel(r.dueAt)}` : ''}` : `Hidden from guests on ${dateLabel(r.dueAt)}`}
+                    <p className={r.status === 'due_soon' ? 'admin-muted' : 'admin-warn'}>
+                      {r.status === 'expired' ? `Event over ${dateLabel(r.dueAt)}: add the next one or remove the link`
+                        : r.status === 'stale' ? `Hidden from guests${r.dueAt ? ` since ${dateLabel(r.dueAt)}` : ''}` : `Hidden from guests on ${dateLabel(r.dueAt)}`}
                     </p>
                   </div>
                   <Button kind="quiet" onClick={() => edit(p)}>Edit</Button>
@@ -674,6 +705,11 @@ function PlacesTab() {
                       </a>
                     )}
                     <span className="admin-tag">{p.booking ? `checked ${dateLabel(p.checkedAt)}` : 'no booking link'}</span>
+                    {p.booking && p.expiresAt && (
+                      <span className={p.bookingExpired ? 'admin-tag admin-warn' : 'admin-tag'}>
+                        {p.bookingExpired ? `ended ${dateLabel(p.expiresAt)}` : `shows until ${dateLabel(p.expiresAt)}`}
+                      </span>
+                    )}
                     {p.bookingStale && (
                       <span className="admin-tag admin-warn">Not checked in 90 days: hidden from guests. Edit and save to check it again.</span>
                     )}

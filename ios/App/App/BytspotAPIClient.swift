@@ -689,6 +689,28 @@ struct NativeConciergeCard: Decodable, Identifiable, Equatable {
     }
 }
 
+/// A listed airport or terminal near the guest with a hand-checked flight link (Blade, Wheels Up).
+struct NativeConciergeTravelOption: Equatable, Identifiable {
+    static let flightProviders: Set<String> = ["blade", "wheelsup"]
+    let placeID: String?
+    let name: String
+    let url: URL
+    let label: String
+    var id: String { "\(placeID ?? name)|\(url.absoluteString)" }
+
+    init?(fields: [String: String?]) {
+        guard let provider = fields["provider"] ?? nil, Self.flightProviders.contains(provider),
+              let name = (fields["name"] ?? nil)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty, name.count <= 120,
+              let booking = NativeVenueDetailsDTO.tableBooking(["provider": provider, "url": (fields["url"] ?? nil) ?? ""]),
+              booking.label == (fields["label"] ?? nil) else { return nil }
+        let placeID = fields["placeId"] ?? nil
+        self.placeID = placeID.flatMap { NativeVenueDetailsDTO.exactGooglePlaceID($0) }
+        self.name = name
+        self.url = booking.url
+        self.label = booking.label
+    }
+}
+
 struct NativeConciergeResponse: Decodable, Equatable {
     enum Status: String, Decodable { case ready, needsLocation = "needs_location", unavailable, empty }
     let version: Int
@@ -700,7 +722,9 @@ struct NativeConciergeResponse: Decodable, Equatable {
     let proposal: NativeConciergeProposal?
     /// A Plan built from the shown cards. Dropped, not fatal, when it does not match them.
     let proposedPlan: NativeConciergeProposedPlan?
-    private enum CodingKeys: String, CodingKey { case version, reply, status, cards, refinements, proposal, proposedPlan }
+    /// Flights to the city a request is for. Only sent for another city; malformed entries are dropped.
+    let travel: [NativeConciergeTravelOption]
+    private enum CodingKeys: String, CodingKey { case version, reply, status, cards, refinements, proposal, proposedPlan, travel }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -720,6 +744,8 @@ struct NativeConciergeResponse: Decodable, Equatable {
         }
         let rawPlan = (try? values.decodeIfPresent(NativeConciergeProposedPlan.self, forKey: .proposedPlan)) ?? nil
         proposedPlan = status == .ready && proposal == nil && rawPlan?.isValid(for: decodedCards) == true ? rawPlan : nil
+        let rawTravel = (try? values.decodeIfPresent([[String: String?]].self, forKey: .travel)) ?? nil
+        travel = status == .ready ? Array((rawTravel ?? []).compactMap(NativeConciergeTravelOption.init(fields:)).prefix(3)) : []
         guard version == 1, !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               reply.utf16.count <= 8_000, cards.count <= 3,
               Set(cards.map(\.id)).count == cards.count,

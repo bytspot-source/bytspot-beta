@@ -84,6 +84,21 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
                        [.directions, .website, .save])
     }
 
+    func testTravelDecodesOnlyHandCheckedFlightLinks() throws {
+        let blade: [String: Any] = ["placeId": "ChIJatl", "name": "Hartsfield-Jackson", "provider": "blade", "label": "Blade",
+                                    "url": "https://www.blade.com/airports/hartsfield-jackson-atlanta-international"]
+        let wheels: [String: Any] = ["placeId": NSNull(), "name": "PDK", "provider": "wheelsup", "label": "Wheels Up", "url": "https://wheelsup.com/"]
+        var notFlight = blade; notFlight["provider"] = "opentable"; notFlight["label"] = "OpenTable"; notFlight["url"] = "https://www.opentable.com/r/x"
+        var foreign = blade; foreign["url"] = "https://evil.example/blade"
+        var mislabelled = blade; mislabelled["label"] = "Wheels Up"
+        let decoded = try decode(response(changes: ["travel": [blade, notFlight, foreign, mislabelled, wheels]]))
+        XCTAssertEqual(decoded.travel.map(\.label), ["Blade", "Wheels Up"])
+        XCTAssertEqual(decoded.travel.first?.placeID, "ChIJatl")
+        XCTAssertNil(decoded.travel.last?.placeID)
+        XCTAssertTrue(try decode(response()).travel.isEmpty, "An older server sends none")
+        XCTAssertTrue(try decode(response(cards: [], changes: ["status": "empty", "travel": [blade]])).travel.isEmpty, "Only a ready answer offers flights")
+    }
+
     func testProposalMustNameAShownCardAction() throws {
         let shown = card(["actions": [["type": "directions"], ["type": "save"]]])
         let valid = try decode(response(cards: [shown], changes: ["proposal": ["type": "directions", "cardId": "gp:place-one"]]))

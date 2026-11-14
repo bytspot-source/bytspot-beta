@@ -21048,6 +21048,9 @@ private struct NativeConciergeView: View {
                         if let draft = model.planDraft, result.proposedPlan == draft.plan {
                             proposedPlanPanel(draft, cards: result.cards)
                         }
+                        if !result.travel.isEmpty {
+                            travelPanel(result.travel)
+                        }
                         if result.status == .needsLocation {
                             locationButton
                         }
@@ -21174,6 +21177,35 @@ private struct NativeConciergeView: View {
         .background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 22))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("native-concierge-proposal")
+    }
+
+    /// Another city: flights from listed airports near the guest. Book with the operator; Bytspot holds nothing.
+    private func travelPanel(_ options: [NativeConciergeTravelOption]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Getting there").font(.subheadline.weight(.bold)).foregroundColor(NativeTheme.textPrimary)
+            ForEach(options) { option in
+                Button {
+                    if let placeID = option.placeID {
+                        let client = BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token })
+                        Task { await NativeTableBookingTapAPI(client: client).record(placeID: placeID, surface: .concierge) }
+                    }
+                    openURL(option.url)
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Fly with \(option.label) ↗").font(.subheadline.weight(.semibold))
+                        Text("From \(option.name)").font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-concierge-travel-\(option.id)")
+            }
+            Text("Book with the operator directly. Bytspot doesn't hold this.").font(.footnote).foregroundColor(NativeTheme.textSecondary)
+        }
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(NativePolish.elevatedSurface).clipShape(RoundedRectangle(cornerRadius: 22))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("native-concierge-travel")
     }
 
     private func proposedPlanPanel(_ draft: NativeConciergePlanDraft, cards: [NativeConciergeCard]) -> some View {

@@ -5975,8 +5975,10 @@ final class NativeTabContentStore: ObservableObject {
         return "\(day.string(from: startsAt)) \(clock)"
     }
 
+    /// Every listed venue gets a card: the API sends them by name, so a cap here
+    /// would drop places late in the alphabet from their pill.
     private static func venueDiscoverCards(from venues: [NativeVenueSummary]) -> [NativeDiscoverSummary] {
-        venues.prefix(24).map { venue in
+        venues.map { venue in
             let type = venue.discoverType
             let spots = venue.parking.totalAvailable
             let meta = spots > 0 ? "\(venue.parking.priceLabel) • \(spots) spots" : venue.parking.priceLabel

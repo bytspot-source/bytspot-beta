@@ -2164,6 +2164,17 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testEveryListedVenueReachesItsPillNotOnlyTheFirstInTheAlphabet() {
+        let fillers = (1...30).map { venue(name: String(format: "A Place %02d", $0), category: "restaurant", address: "Midtown") }
+        let late = venue(name: "Prestige Helicopters", category: "transport", address: "3150 Corsair Dr")
+        let cards = NativeTabContentStore.discoverCards(from: fillers + [late])
+        XCTAssertEqual(cards.count, 31)
+        let card = try? XCTUnwrap(cards.first { $0.id == "venue-prestige-helicopters" })
+        XCTAssertNotNil(card)
+        XCTAssertTrue(NativeDiscoverBookablePresentation.matchesCategory(card?.type ?? "", filter: "move", sourceCategory: card?.categoryLabel))
+    }
+
+    @MainActor
     func testAnEmptyAreaShowsOnlyTheRideHandoffAndNoLocationShowsNothing() {
         let seattle = NativeLocationCoordinate(latitude: 47.6062, longitude: -122.3321, isFallback: false)
         XCTAssertEqual(NativeTabContentStore.liveDiscoverCards(apiCards: [], venues: [], location: seattle).map(\.id), [NativeTabContentStore.rideHandoffCardID])

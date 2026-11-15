@@ -24,6 +24,10 @@ export const BOOKING_PROVIDERS = {
   spothero: { label: 'SpotHero', hosts: ['spothero.com'], example: 'https://spothero.com/destination/…' },
   blade: { label: 'Blade', hosts: ['blade.com', 'www.blade.com'], example: 'https://www.blade.com/…' },
   wheelsup: { label: 'Wheels Up', hosts: ['wheelsup.com', 'www.wheelsup.com'], example: 'https://wheelsup.com/…' },
+  airbnb: { label: 'Airbnb', hosts: ['airbnb.com', 'www.airbnb.com'], example: 'https://www.airbnb.com/rooms/…' },
+  hipcamp: { label: 'Hipcamp', hosts: ['hipcamp.com', 'www.hipcamp.com'], example: 'https://www.hipcamp.com/en-US/land/…' },
+  bookingcom: { label: 'Booking.com', hosts: ['booking.com', 'www.booking.com'], example: 'https://www.booking.com/hotel/us/…' },
+  bookretreats: { label: 'BookRetreats', hosts: ['bookretreats.com', 'www.bookretreats.com'], example: 'https://bookretreats.com/r/…' },
 } as const;
 
 export type BookingProvider = keyof typeof BOOKING_PROVIDERS;

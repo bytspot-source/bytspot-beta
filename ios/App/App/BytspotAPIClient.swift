@@ -4038,6 +4038,7 @@ enum NativeDiscoverCategoryNormalizer {
     static func type(for rawType: String) -> String {
         let text = rawType.lowercased().replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: "-", with: " ")
         let tokens = Set(text.split { !$0.isLetter && !$0.isNumber }.map(String.init))
+        if tokens == ["retreat"] || tokens == ["retreats"] { return "boutique_apartment" }
         let coffeeTokens: Set<String> = ["coffee", "cafe", "cafes", "café", "cafés", "espresso"]
         if !tokens.isDisjoint(with: coffeeTokens) { return "coffee" }
 
@@ -4346,6 +4347,10 @@ enum NativeBookingProviders {
         "spothero": Rule(label: "SpotHero", hosts: ["spothero.com"]),
         "blade": Rule(label: "Blade", hosts: ["blade.com", "www.blade.com"]),
         "wheelsup": Rule(label: "Wheels Up", hosts: ["wheelsup.com", "www.wheelsup.com"]),
+        "airbnb": Rule(label: "Airbnb", hosts: ["airbnb.com", "www.airbnb.com"]),
+        "hipcamp": Rule(label: "Hipcamp", hosts: ["hipcamp.com", "www.hipcamp.com"]),
+        "bookingcom": Rule(label: "Booking.com", hosts: ["booking.com", "www.booking.com"]),
+        "bookretreats": Rule(label: "BookRetreats", hosts: ["bookretreats.com", "www.bookretreats.com"]),
     ]
 }
 

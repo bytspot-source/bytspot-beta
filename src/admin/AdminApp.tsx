@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { API_BASE_URL, trpc } from '../utils/trpc';
 import { BOOKING_PROVIDERS, BOOKING_PROVIDER_IDS, tableBookingFrom, type BookingProvider, type TableBooking } from '../utils/tableBooking';
-import { DISCOVERY_RAIL_LABELS, DISCOVERY_RAIL_TOKENS } from '../utils/discoveryRails';
+import { DISCOVERY_ALSO_ON, DISCOVERY_RAIL_LABELS, DISCOVERY_RAIL_TOKENS } from '../utils/discoveryRails';
 import './admin.css';
 import { MenuEvidenceReview } from './MenuEvidenceReview.tsx';
 import { MenuSourcePreview } from '../vendor/MenuDishEditor.tsx';
@@ -25,7 +25,7 @@ const CATEGORY_RAILS = [
   { rail: 'shop_style', options: [['retail', 'Shop'], ['fashion', 'Fashion'], ['styling', 'Salon / barber']] },
   { rail: 'create_learn', options: [['class', 'Class'], ['workshop', 'Workshop'], ['studio', 'Studio']] },
   { rail: 'social', options: [['community', 'Community space'], ['meetup', 'Meetup']] },
-  { rail: 'stay', options: [['hotel', 'Hotel'], ['lodging', 'Lodging']] },
+  { rail: 'stay', options: [['hotel', 'Hotel'], ['lodging', 'Lodging'], ['cabin', 'Cabin / glamping'], ['retreat', 'Retreat']] },
   { rail: 'move', options: [['transport', 'Airport / transit'], ['parking', 'Parking'], ['automotive', 'Car rental / auto']] },
   { rail: 'celebrate', options: [['celebration', 'Party venue'], ['wedding', 'Wedding venue']] },
   { rail: 'services', options: [['service', 'Local service']] },
@@ -34,6 +34,10 @@ const CATEGORIES = CATEGORY_RAILS.flatMap((group) => group.options.map(([id, lab
 type Category = (typeof CATEGORY_RAILS)[number]['options'][number][0];
 const railLabel = (rail: string) => DISCOVERY_RAIL_LABELS[DISCOVERY_RAIL_TOKENS.indexOf(rail)] ?? rail;
 const categoryOf = (id: string) => CATEGORIES.find((c) => c.id === id);
+const pillsLine = (id: string) => {
+  const pills = [categoryOf(id)?.rail ?? 'eat_drink', ...(DISCOVERY_ALSO_ON[id] ?? [])].map(railLabel);
+  return pills.length > 1 ? `Shows on the ${pills.join(' and ')} pills in Discover.` : `Shows on the ${pills[0]} pill in Discover.`;
+};
 type Provider = BookingProvider;
 
 type Count = { total: number; last30: number };
@@ -319,7 +323,7 @@ function PlaceForm({ draft, onChange, onSaved, onCancel }: {
           ))}
         </select>
       </label>
-      <p className="admin-muted">Shows on the {railLabel(categoryOf(draft.category)?.rail ?? 'eat_drink')} pill in Discover.</p>
+      <p className="admin-muted">{pillsLine(draft.category)}</p>
       {!noLink && (
         <label className="admin-check">
           <input type="checkbox" checked={draft.opened} onChange={(e) => onChange({ ...draft, opened: e.target.checked })} />

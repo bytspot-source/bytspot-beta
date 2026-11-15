@@ -4853,7 +4853,22 @@ struct NativeDiscoverServerRanking: Equatable {
 struct NativeDiscoverRankAPI {
     static let route = "/trpc/places.rankDiscover"
     static let maxCandidates = 150
+    /// The API refuses a request whose URL and headers pass about 16 KB (HTTP 431).
+    /// A deck that would not fit is sent in a POST body instead, which has no such limit.
+    static let maxQueryPathBytes = 8_000
     let client: BytspotAPIClient
+
+    struct Request: Equatable {
+        let path: String
+        let method: String
+        let body: Data?
+    }
+
+    static func request(input: [String: Any]) throws -> Request {
+        let query = try BytspotAPIClient.trpcQueryPath(route, input: input)
+        if query.utf8.count <= maxQueryPathBytes { return Request(path: query, method: "GET", body: nil) }
+        return Request(path: route, method: "POST", body: try BytspotAPIClient.trpcMutationBody(input))
+    }
 
     static func input(candidates: [NativeDiscoverRankCandidate], location: NativeLocationCoordinate, vibe: String, walk: String, crew: String, hour: Int, preferences: NativePreferenceFilter) -> [String: Any]? {
         guard !location.isFallback, !candidates.isEmpty else { return nil }
@@ -4871,7 +4886,8 @@ struct NativeDiscoverRankAPI {
 
     func rank(candidates: [NativeDiscoverRankCandidate], location: NativeLocationCoordinate, vibe: String, walk: String, crew: String, hour: Int, preferences: NativePreferenceFilter) async throws -> NativeDiscoverServerRanking? {
         guard let input = Self.input(candidates: candidates, location: location, vibe: vibe, walk: walk, crew: crew, hour: hour, preferences: preferences) else { return nil }
-        let payload = try await client.trpcQueryPayload(path: Self.route, input: input)
+        let request = try Self.request(input: input)
+        let payload = BytspotAPIClient.unwrapTRPCData(try await client.json(path: request.path, method: request.method, body: request.body))
         return NativeDiscoverServerRanking.decode(from: payload)
     }
 }

@@ -85,6 +85,52 @@ final class NativeDiscoverServerRankTests: XCTestCase {
                        "no answer keeps the local order and hides nothing")
     }
 
+    func testLocalOrderScoresEachCardOnceAndKeepsTheComparatorOrder() {
+        let ids = (0..<90).reversed().map { String(format: "card-%02d", $0) }
+        var calls = 0
+        let key: (String) -> NativeDiscoverBrowsePolicy.LocalOrderKey = { id in
+            calls += 1
+            let number = Int(id.suffix(2)) ?? 0
+            return NativeDiscoverBrowsePolicy.LocalOrderKey(isParty: number % 30 == 0, supported: number % 3 == 0, relevance: number % 7, id: id)
+        }
+        let keyed = NativeDiscoverBrowsePolicy.ordered(ids, ranking: nil, key: key)
+        XCTAssertEqual(calls, 90, "one score per card, not two per comparison")
+        let compared = NativeDiscoverBrowsePolicy.ordered(ids, ranking: nil, id: { $0 }, localPrecedes: { key($0).precedes(key($1)) })
+        XCTAssertEqual(keyed, compared, "the same order the comparator gave")
+
+        let ranking = NativeDiscoverServerRanking(order: ["card-05", "card-80"], hidden: ["card-00"])
+        let ranked = NativeDiscoverBrowsePolicy.ordered(ids, ranking: ranking, key: key)
+        XCTAssertEqual(Array(ranked.prefix(2)), ["card-05", "card-80"])
+        XCTAssertEqual(ranked.count, 89)
+        XCTAssertFalse(ranked.contains("card-00"))
+        XCTAssertEqual(Array(ranked.dropFirst(2)), keyed.filter { !["card-05", "card-80", "card-00"].contains($0) }, "unranked cards follow in local order")
+    }
+
+    func testADeckTooBigForTheURLIsRankedByPost() throws {
+        let facts = NativeDiscoverRankFacts(types: ["italian_restaurant", "restaurant", "food", "point_of_interest", "establishment"],
+                                            primaryType: "italian_restaurant", priceLevel: "PRICE_LEVEL_MODERATE", ratingCount: 812, isOpen: true)
+        func input(_ count: Int) throws -> [String: Any] {
+            let deck = (0..<count).map {
+                NativeDiscoverRankCandidate(id: "reference:place-ChIJk9TolFEI9YgRG28dZaKe\($0)", kind: .place, rail: "dining",
+                                            rating: 4.5, latitude: 33.78, longitude: -84.38, facts: facts)
+            }
+            return try XCTUnwrap(NativeDiscoverRankAPI.input(candidates: deck, location: here, vibe: "", walk: "", crew: "", hour: 19, preferences: .empty))
+        }
+        let small = try NativeDiscoverRankAPI.request(input: try input(5))
+        XCTAssertEqual(small.method, "GET")
+        XCTAssertNil(small.body)
+        XCTAssertTrue(small.path.hasPrefix(NativeDiscoverRankAPI.route + "?input="))
+
+        // 48 listed places and 31 Google places near Midtown: the API answered HTTP 431 to this as a URL.
+        let full = try input(79)
+        XCTAssertGreaterThan(try BytspotAPIClient.trpcQueryPath(NativeDiscoverRankAPI.route, input: full).utf8.count, 16_000)
+        let big = try NativeDiscoverRankAPI.request(input: full)
+        XCTAssertEqual(big.method, "POST")
+        XCTAssertEqual(big.path, NativeDiscoverRankAPI.route)
+        let sent = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(big.body)) as? [String: Any])
+        XCTAssertEqual((sent["candidates"] as? [[String: Any]])?.count, 79)
+    }
+
     func testCandidateKindAndFactsComeFromTheCard() {
         let facts = NativeDiscoverRankFacts(types: ["cafe"], primaryType: "cafe", priceLevel: "PRICE_LEVEL_INEXPENSIVE", ratingCount: 120, isOpen: true)
         let place = NativeDiscoverBrowsePolicy.rankCandidate(browseID: "reference:place-abc", cardID: "place-abc", isParty: false, isOffering: false,

@@ -2164,6 +2164,25 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testACabinIsAStayAndARetreatShowsOnStayAndWellness() throws {
+        let cabin = venue(name: "Blue Ridge Cabin", category: "cabin", address: "Ellijay")
+        let retreat = venue(name: "Serenbe Retreat", category: "retreat", address: "Chattahoochee Hills")
+        let cards = NativeTabContentStore.discoverCards(from: [cabin, retreat])
+        let cabinCard = try XCTUnwrap(cards.first { $0.title == "Blue Ridge Cabin" })
+        let retreatCard = try XCTUnwrap(cards.first { $0.title == "Serenbe Retreat" })
+        func shows(_ card: NativeDiscoverSummary, on pill: String) -> Bool {
+            NativeDiscoverBookablePresentation.matchesCategory(card.type, filter: pill, sourceCategory: card.categoryLabel)
+                || NativeDiscoverBookablePresentation.alsoMatches(category: card.rankFacts?.category, filter: pill)
+        }
+        XCTAssertTrue(shows(cabinCard, on: "stay"))
+        XCTAssertFalse(shows(cabinCard, on: "wellness"))
+        XCTAssertTrue(shows(retreatCard, on: "stay"))
+        XCTAssertTrue(shows(retreatCard, on: "wellness"))
+        XCTAssertFalse(shows(retreatCard, on: "events"), "a retreat is not an event")
+        XCTAssertEqual(NativeDiscoverBookablePresentation.rail(category: "retreat"), "stay")
+    }
+
+    @MainActor
     func testEveryListedVenueReachesItsPillNotOnlyTheFirstInTheAlphabet() {
         let fillers = (1...30).map { venue(name: String(format: "A Place %02d", $0), category: "restaurant", address: "Midtown") }
         let late = venue(name: "Prestige Helicopters", category: "transport", address: "3150 Corsair Dr")
@@ -7487,11 +7506,15 @@ final class NativePlanBookablesContractTests: XCTestCase {
                                        ("vagaro", "https://www.vagaro.com/x", "Vagaro"),
                                        ("parkwhiz", "https://www.parkwhiz.com/p/x/", "ParkWhiz"),
                                        ("blade", "https://www.blade.com/airports/x", "Blade"),
-                                       ("wheelsup", "https://wheelsup.com/", "Wheels Up")] {
+                                       ("wheelsup", "https://wheelsup.com/", "Wheels Up"),
+                                       ("airbnb", "https://www.airbnb.com/rooms/12345678", "Airbnb"),
+                                       ("hipcamp", "https://www.hipcamp.com/en-US/land/x", "Hipcamp"),
+                                       ("bookingcom", "https://www.booking.com/hotel/us/x.html", "Booking.com"),
+                                       ("bookretreats", "https://bookretreats.com/r/x", "BookRetreats")] {
             let listed = try item(["tableBooking": ["provider": provider, "label": label, "url": url]])
             XCTAssertEqual(NativePlanDisplay.tableBooking(listed)?.label, label, url)
         }
-        XCTAssertEqual(NativeBookingProviders.all.count, 18, "Same list as the API's services/bookingProviders.ts")
+        XCTAssertEqual(NativeBookingProviders.all.count, 22, "Same list as the API's services/bookingProviders.ts")
     }
 
     func testABookingTapNamesOnlyAnExactPlace() throws {

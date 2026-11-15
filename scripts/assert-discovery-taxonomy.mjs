@@ -85,6 +85,24 @@ if (!aliasBlock) {
   }
 }
 
+// ── Also on another rail ──────────────────────────────────────────────────
+// Swift: static let alsoOn: [String: [String]] = ["retreat": ["wellness"]]
+const alsoBlock = swift.match(/static let alsoOn: \[String: \[String\]\] = \[([^\n]*)\]\n/);
+const swiftAlso = {};
+if (alsoBlock) {
+  for (const m of alsoBlock[1].matchAll(/"([^"]+)": \[([^\]]*)\]/g)) swiftAlso[m[1]] = [...m[2].matchAll(/"([^"]+)"/g)].map((r) => r[1]);
+} else if (Object.keys(contract.alsoOn ?? {}).length) {
+  fail('could not read alsoOn from NativeDiscoverListing.swift');
+}
+for (const [category, rails] of Object.entries(contract.alsoOn ?? {})) {
+  if (!(category in contract.aliases)) fail(`alsoOn "${category}" has no home rail in aliases`);
+  for (const rail of rails) if (!expectedTokens.includes(rail)) fail(`alsoOn "${category}" points at unknown rail "${rail}"`);
+  if (String(swiftAlso[category] ?? []) !== String(rails)) fail(`alsoOn "${category}" is ${rails.join(', ')} in the contract but ${(swiftAlso[category] ?? []).join(', ') || 'missing'} in Swift`);
+}
+for (const category of Object.keys(swiftAlso)) {
+  if (!(category in (contract.alsoOn ?? {}))) fail(`alsoOn "${category}" is in Swift but missing from the contract`);
+}
+
 // ── Capability indicator ────────────────────────────────────────────────────
 const order = contract.cardIndicator.order;
 const caseLine = swift.match(/enum NativeDiscoverBookableCapability[^\n]*\{\s*\n\s*(?:\/\/[^\n]*\n\s*)*case ([^\n]+)/);

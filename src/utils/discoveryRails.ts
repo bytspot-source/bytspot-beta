@@ -15,6 +15,8 @@ export type DiscoveryRailToken = string;
 export const DISCOVERY_RAIL_TOKENS: readonly DiscoveryRailToken[] = contract.rails.map((rail) => rail.token);
 export const DISCOVERY_RAIL_LABELS: readonly string[] = contract.rails.map((rail) => rail.label);
 export const DISCOVERY_FALLBACK_RAIL: DiscoveryRailToken = contract.fallbackRail;
+/** Categories that also show on another rail besides their own. */
+export const DISCOVERY_ALSO_ON: Readonly<Record<string, readonly DiscoveryRailToken[]>> = contract.alsoOn;
 
 const ALIASES: Record<string, DiscoveryRailToken> = contract.aliases;
 const LABEL_TO_TOKEN = new Map(contract.rails.map((rail) => [rail.label.toLowerCase(), rail.token]));

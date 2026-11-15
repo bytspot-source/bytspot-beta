@@ -13,6 +13,11 @@ test('the newer providers become buttons too, each on its own site only', () => 
   assert.equal(tableBookingFrom({ provider: 'sevenrooms', url: 'https://www.sevenrooms.com/reservations/x' })?.label, 'SevenRooms');
   assert.equal(tableBookingFrom({ provider: 'fareharbor', url: 'https://fareharbor.com/embeds/book/x/' })?.label, 'FareHarbor');
   assert.equal(tableBookingFrom({ provider: 'wheelsup', url: 'https://wheelsup.com/' })?.label, 'Wheels Up');
+  assert.equal(tableBookingFrom({ provider: 'airbnb', url: 'https://www.airbnb.com/rooms/12345678' })?.label, 'Airbnb');
+  assert.equal(tableBookingFrom({ provider: 'hipcamp', url: 'https://www.hipcamp.com/en-US/land/example-123' })?.label, 'Hipcamp');
+  assert.equal(tableBookingFrom({ provider: 'bookingcom', url: 'https://www.booking.com/hotel/us/example.html' })?.label, 'Booking.com');
+  assert.equal(tableBookingFrom({ provider: 'bookretreats', url: 'https://bookretreats.com/r/example' })?.label, 'BookRetreats');
+  assert.equal(tableBookingFrom({ provider: 'airbnb', url: 'https://airbnb.example.com/rooms/1' }), undefined);
   assert.equal(tableBookingFrom({ provider: 'blade', url: 'https://www.blade.com/x' })?.label, 'Blade');
 });
 

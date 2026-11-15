@@ -12577,7 +12577,8 @@ private struct NativeDiscoverView: View {
             .filter {
                 NativeVendorExperience.isDiscoveryReference(id: $0.id) &&
                 NativeDiscoverBrowsePolicy.hasDiscoverCategory(type: $0.type, sourceCategory: $0.categoryLabel) &&
-                NativeDiscoverBookablePresentation.matchesCategory($0.type, filter: filter, sourceCategory: $0.categoryLabel)
+                (NativeDiscoverBookablePresentation.matchesCategory($0.type, filter: filter, sourceCategory: $0.categoryLabel)
+                    || NativeDiscoverBookablePresentation.alsoMatches(category: $0.rankFacts?.category, filter: filter))
             }
             .map(Self.spec(from:))
         let catalogRows = catalog.rows(for: catalogUserID)

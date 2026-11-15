@@ -106,6 +106,8 @@
     "boutique stay": "stay",
     "hotel": "stay",
     "lodging": "stay",
+    "cabin": "stay",
+    "retreat": "stay",
     "mobility": "move",
     "automotive": "move",
     "transport": "move",
@@ -119,6 +121,9 @@
     "service": "services",
     "green": "services",
     "local-service": "services"
+  },
+  "alsoOn": {
+    "retreat": ["wellness"]
   },
   "cardIndicator": {
     "description": "One word, one ring and one colour per capability, read by the discover card, the venue detail, the grant preview and the plan row. Blue marks an action Bytspot can execute; an external handoff and a bare listing stay neutral.",

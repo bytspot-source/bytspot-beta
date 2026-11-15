@@ -450,7 +450,7 @@ struct NativeDiscoverBookablePresentation: Equatable {
         case "fitness", "spa", "gym", "recovery": return "wellness"
         case "class", "workshop", "tutoring", "studio", "education": return "create_learn"
         case "bar", "club", "night_club": return "nightlife"
-        case "boutique_apartment", "boutique stay", "hotel", "lodging": return "stay"
+        case "boutique_apartment", "boutique stay", "hotel", "lodging", "cabin", "retreat": return "stay"
         case "mobility", "automotive", "transport", "parking", "stall": return "move"
         case "party", "private-party", "celebration", "wedding", "birthday": return "celebrate"
         case "service", "green", "local-service": return "services"
@@ -469,6 +469,16 @@ struct NativeDiscoverBookablePresentation: Equatable {
             }
         }
         return typeRail
+    }
+
+    /// Categories that also show on another rail besides their own (a retreat is a stay and a wellness trip).
+    static let alsoOn: [String: [String]] = ["retreat": ["wellness"]]
+
+    /// True when `category` (a listed place's own category) also belongs on the `filter` rail.
+    static func alsoMatches(category: String?, filter: String?) -> Bool {
+        guard let category, let filter, let selected = rail(category: filter) else { return false }
+        let key = category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return alsoOn[key]?.contains(selected) == true
     }
 
     static func matchesCategory(_ category: String, filter: String?, sourceCategory: String? = nil) -> Bool {

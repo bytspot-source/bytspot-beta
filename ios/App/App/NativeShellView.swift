@@ -11859,6 +11859,35 @@ enum NativeDiscoverBrowsePolicy {
         return id < otherID
     }
 
+    /// What the local order compares. Worked out once per card: scoring a card
+    /// normalises its text, which is too slow to repeat on every comparison of a sort.
+    struct LocalOrderKey: Equatable {
+        let isParty: Bool
+        let supported: Bool
+        let relevance: Int
+        let id: String
+
+        func precedes(_ other: LocalOrderKey) -> Bool {
+            NativeDiscoverBrowsePolicy.precedes(supported: supported, relevance: relevance, id: id,
+                                                otherSupported: other.supported, otherRelevance: other.relevance, otherID: other.id,
+                                                isParty: isParty, otherIsParty: other.isParty)
+        }
+    }
+
+    /// The same order as `ordered(_:ranking:id:localPrecedes:)`, with `key` called once per card.
+    static func ordered<Card>(_ cards: [Card], ranking: NativeDiscoverServerRanking?, key: (Card) -> LocalOrderKey) -> [Card] {
+        let hidden = ranking?.hidden ?? []
+        let positions = ranking?.positions ?? [:]
+        return cards.map { (card: $0, key: key($0)) }
+            .filter { !hidden.contains($0.key.id) }
+            .sorted { first, second in
+                let a = positions[first.key.id] ?? Int.max
+                let b = positions[second.key.id] ?? Int.max
+                return a != b ? a < b : first.key.precedes(second.key)
+            }
+            .map { $0.card }
+    }
+
     /// The server's order for cards it ranked, then any it has not seen yet in
     /// the local order. Cards it hides are left out.
     static func ordered<Card>(_ cards: [Card], ranking: NativeDiscoverServerRanking?, id: (Card) -> String, localPrecedes: (Card, Card) -> Bool) -> [Card] {
@@ -12251,9 +12280,10 @@ private struct NativeDiscoverView: View {
     }
 
     private var discoverDeck: some View {
-        VStack(spacing: 24) {
+        let cards = rankedCards
+        return VStack(spacing: 24) {
             NativeWindowAskRail(coordinate: locationStore.coordinate, openAuth: openNativeAuth)
-            if rankedCards.isEmpty {
+            if cards.isEmpty {
                 if selectedFilter == nil {
                     VStack(spacing: 6) {
                         Text(Self.emptyDeckTitle).font(.headline).foregroundColor(.white)
@@ -12266,10 +12296,10 @@ private struct NativeDiscoverView: View {
                         .font(.headline).foregroundColor(.white).frame(minHeight: 44)
                 }
             } else {
-                if let card = rankedCards.indices.contains(discoverCardIndex) ? rankedCards[discoverCardIndex] : rankedCards.first {
+                if let card = cards.indices.contains(discoverCardIndex) ? cards[discoverCardIndex] : cards.first {
                     if #available(iOS 18.0, *) {
                         NativeDiscoverSwipeCard(
-                            canAdvance: discoverCardIndex < rankedCards.count - 1,
+                            canAdvance: discoverCardIndex < cards.count - 1,
                             advance: { moveDiscoverCard(1) },
                             openDetails: { openDiscoverDetails(card) }
                         ) {
@@ -12280,8 +12310,8 @@ private struct NativeDiscoverView: View {
                         discoverFeatureCard(card).id(card.browseID)
                     }
                 }
-                discoverCardPager
-                discoverMoreNearby
+                discoverCardPager(count: cards.count)
+                discoverMoreNearby(cards)
             }
         }
         .accessibilityElement(children: .contain)
@@ -12291,8 +12321,7 @@ private struct NativeDiscoverView: View {
     /// The other ranked cards within walking distance, closest first, as
     /// thumbnail rows. Hidden without a fresh location. A row opens the same
     /// details as its card.
-    @ViewBuilder private var discoverMoreNearby: some View {
-        let cards = rankedCards
+    @ViewBuilder private func discoverMoreNearby(_ cards: [DiscoverCardSpec]) -> some View {
         let origin = NativeDiscoverMoreNearbyPolicy.origin(location: locationStore.lastLocation,
                                                            authorized: locationStore.authorizationState == .allowed)
         let miles = cards.map { origin?.distanceMiles(toLatitude: $0.latitude, longitude: $0.longitude) }
@@ -12467,12 +12496,12 @@ private struct NativeDiscoverView: View {
         }
     }
 
-    private var discoverCardPosition: some View {
-        let current = min(discoverCardIndex + 1, rankedCards.count)
+    private func discoverCardPosition(count: Int) -> some View {
+        let current = min(discoverCardIndex + 1, count)
         return Group {
-            if rankedCards.count <= NativeDiscoverSwipePolicy.maxPositionDots {
+            if count <= NativeDiscoverSwipePolicy.maxPositionDots {
                 HStack(spacing: 6) {
-                    ForEach(rankedCards.indices, id: \.self) { index in
+                    ForEach(0..<count, id: \.self) { index in
                         Capsule()
                             .fill(Color.white.opacity(index == discoverCardIndex ? 0.92 : 0.28))
                             .frame(width: index == discoverCardIndex ? 16 : 6, height: 6)
@@ -12480,16 +12509,16 @@ private struct NativeDiscoverView: View {
                 }
                 .animation(reduceDiscoverMotion ? nil : .spring(response: 0.3, dampingFraction: 0.85), value: discoverCardIndex)
             } else {
-                Text("\(current) of \(rankedCards.count)")
+                Text("\(current) of \(count)")
                     .font(.caption2.weight(.semibold)).foregroundColor(.white.opacity(0.6))
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Card \(current) of \(rankedCards.count)")
+        .accessibilityLabel("Card \(current) of \(count)")
         .accessibilityIdentifier("native-discover-card-position")
     }
 
-    private var discoverCardPager: some View {
+    private func discoverCardPager(count: Int) -> some View {
         HStack {
             Button { moveDiscoverCard(-1) } label: {
                 Label("Previous", systemImage: "chevron.left").labelStyle(.iconOnly)
@@ -12498,13 +12527,13 @@ private struct NativeDiscoverView: View {
             .disabled(discoverCardIndex == 0)
             .accessibilityLabel("Previous Discover card")
             Spacer()
-            discoverCardPosition
+            discoverCardPosition(count: count)
             Spacer()
             Button { moveDiscoverCard(1) } label: {
                 Label("Next", systemImage: "chevron.right").labelStyle(.iconOnly)
                     .frame(width: 44, height: 44)
             }
-            .disabled(discoverCardIndex >= rankedCards.count - 1)
+            .disabled(discoverCardIndex >= count - 1)
             .accessibilityLabel("Next Discover card")
         }
         .buttonStyle(.plain).foregroundColor(.white)
@@ -12532,12 +12561,12 @@ private struct NativeDiscoverView: View {
         await transactions.refresh(userID: userID, api: NativePlanAPI(client: client))
     }
 
+    /// Sorts the whole deck, so a view reads it once per render and hands the result down.
     private var rankedCards: [DiscoverCardSpec] {
-        NativeDiscoverBrowsePolicy.ordered(browseCards(matching: selectedFilter), ranking: discoverRanking, id: \.browseID) { first, second in
-            NativeDiscoverBrowsePolicy.precedes(
-                supported: first.presentation.primaryActionTitle != nil, relevance: searchScore(for: first), id: first.browseID,
-                otherSupported: second.presentation.primaryActionTitle != nil, otherRelevance: searchScore(for: second), otherID: second.browseID,
-                isParty: first.isParty, otherIsParty: second.isParty)
+        NativeDiscoverBrowsePolicy.ordered(browseCards(matching: selectedFilter), ranking: discoverRanking) { card in
+            NativeDiscoverBrowsePolicy.LocalOrderKey(
+                isParty: card.isParty, supported: card.presentation.primaryActionTitle != nil,
+                relevance: searchScore(for: card), id: card.browseID)
         }
     }
 

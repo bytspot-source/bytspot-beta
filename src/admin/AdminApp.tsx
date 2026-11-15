@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { API_BASE_URL, trpc } from '../utils/trpc';
 import { BOOKING_PROVIDERS, BOOKING_PROVIDER_IDS, tableBookingFrom, type BookingProvider, type TableBooking } from '../utils/tableBooking';
+import { DISCOVERY_RAIL_LABELS, DISCOVERY_RAIL_TOKENS } from '../utils/discoveryRails';
 import './admin.css';
 import { MenuEvidenceReview } from './MenuEvidenceReview.tsx';
 import { MenuSourcePreview } from '../vendor/MenuDishEditor.tsx';
@@ -14,13 +15,25 @@ const menuAdminApi = trpc.admin.vendors;
  */
 
 const TOKEN_KEY = 'bytspot_auth_token';
-const CATEGORIES = [
-  { id: 'restaurant', label: 'Restaurant' },
-  { id: 'bar', label: 'Bar' },
-  { id: 'club', label: 'Club' },
-  { id: 'cafe', label: 'Café' },
+/** Filed under, grouped by the Discover pill each lands on. Matches the API's LISTED_CATEGORY_RAILS. */
+const CATEGORY_RAILS = [
+  { rail: 'eat_drink', options: [['restaurant', 'Restaurant'], ['cafe', 'Café'], ['coffee', 'Coffee'], ['market', 'Food hall / market'], ['catering', 'Catering']] },
+  { rail: 'nightlife', options: [['bar', 'Bar'], ['club', 'Club']] },
+  { rail: 'events', options: [['event', 'Event venue'], ['music', 'Live music'], ['entertainment', 'Theater / cinema / comedy']] },
+  { rail: 'experience', options: [['attraction', 'Attraction'], ['museum', 'Museum / gallery'], ['tour', 'Tour'], ['park', 'Park'], ['outdoor', 'Outdoors'], ['sports', 'Sports']] },
+  { rail: 'wellness', options: [['spa', 'Spa'], ['gym', 'Gym'], ['fitness', 'Fitness / yoga'], ['recovery', 'Recovery']] },
+  { rail: 'shop_style', options: [['retail', 'Shop'], ['fashion', 'Fashion'], ['styling', 'Salon / barber']] },
+  { rail: 'create_learn', options: [['class', 'Class'], ['workshop', 'Workshop'], ['studio', 'Studio']] },
+  { rail: 'social', options: [['community', 'Community space'], ['meetup', 'Meetup']] },
+  { rail: 'stay', options: [['hotel', 'Hotel'], ['lodging', 'Lodging']] },
+  { rail: 'move', options: [['transport', 'Airport / transit'], ['parking', 'Parking'], ['automotive', 'Car rental / auto']] },
+  { rail: 'celebrate', options: [['celebration', 'Party venue'], ['wedding', 'Wedding venue']] },
+  { rail: 'services', options: [['service', 'Local service']] },
 ] as const;
-type Category = (typeof CATEGORIES)[number]['id'];
+const CATEGORIES = CATEGORY_RAILS.flatMap((group) => group.options.map(([id, label]) => ({ id, label, rail: group.rail })));
+type Category = (typeof CATEGORY_RAILS)[number]['options'][number][0];
+const railLabel = (rail: string) => DISCOVERY_RAIL_LABELS[DISCOVERY_RAIL_TOKENS.indexOf(rail)] ?? rail;
+const categoryOf = (id: string) => CATEGORIES.find((c) => c.id === id);
 type Provider = BookingProvider;
 
 type Count = { total: number; last30: number };
@@ -299,9 +312,14 @@ function PlaceForm({ draft, onChange, onSaved, onCancel }: {
         Filed under{' '}
         <select className="admin-select" value={draft.category}
           onChange={(e) => onChange({ ...draft, category: e.target.value as Category })}>
-          {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          {CATEGORY_RAILS.map((group) => (
+            <optgroup key={group.rail} label={railLabel(group.rail)}>
+              {group.options.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </optgroup>
+          ))}
         </select>
       </label>
+      <p className="admin-muted">Shows on the {railLabel(categoryOf(draft.category)?.rail ?? 'eat_drink')} pill in Discover.</p>
       {!noLink && (
         <label className="admin-check">
           <input type="checkbox" checked={draft.opened} onChange={(e) => onChange({ ...draft, opened: e.target.checked })} />
@@ -616,7 +634,7 @@ function PlacesTab() {
   });
   const edit = (p: ListedPlace) => p.placeId && setDraft({
     placeId: p.placeId, name: p.name, address: p.address, provider: p.booking?.provider ?? 'none',
-    url: p.booking?.url ?? '', category: (CATEGORIES.some((c) => c.id === p.category) ? p.category : 'restaurant') as Category, opened: false,
+    url: p.booking?.url ?? '', category: (categoryOf(p.category) ? p.category : 'restaurant') as Category, opened: false,
     endsOn: p.bookingExpired ? '' : dayInput(p.expiresAt),
   });
   const saved = () => { setDraft(null); setCandidates(null); setQuery(''); void load(); };
@@ -704,6 +722,9 @@ function PlacesTab() {
                       <a href={p.booking.url} target="_blank" rel="noopener noreferrer" className="admin-link">
                         {p.booking.label} ↗
                       </a>
+                    )}
+                    {categoryOf(p.category) && (
+                      <span className="admin-tag">{railLabel(categoryOf(p.category)!.rail)} · {categoryOf(p.category)!.label}</span>
                     )}
                     <span className="admin-tag">{p.booking ? `checked ${dateLabel(p.checkedAt)}` : 'no booking link'}</span>
                     {p.booking && p.expiresAt && (

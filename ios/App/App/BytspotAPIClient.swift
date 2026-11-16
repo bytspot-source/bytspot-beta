@@ -4035,7 +4035,22 @@ enum NativeDiscoverPlaceTypes {
 }
 
 enum NativeDiscoverCategoryNormalizer {
+    /// Categories repeat (restaurant, bar, ...) and are read every time a card is drawn,
+    /// so each answer is remembered instead of scanning the phrase lists again.
+    private static let cache: NSCache<NSString, NSString> = {
+        let cache = NSCache<NSString, NSString>()
+        cache.countLimit = 2_000
+        return cache
+    }()
+
     static func type(for rawType: String) -> String {
+        if let known = cache.object(forKey: rawType as NSString) { return known as String }
+        let resolved = uncachedType(for: rawType)
+        cache.setObject(resolved as NSString, forKey: rawType as NSString)
+        return resolved
+    }
+
+    static func uncachedType(for rawType: String) -> String {
         let text = rawType.lowercased().replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: "-", with: " ")
         let tokens = Set(text.split { !$0.isLetter && !$0.isNumber }.map(String.init))
         if tokens == ["retreat"] || tokens == ["retreats"] { return "boutique_apartment" }

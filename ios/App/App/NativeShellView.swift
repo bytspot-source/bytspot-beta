@@ -478,8 +478,8 @@ struct BytspotNativeShellView: View {
                 // Only the background, not controls/content, ignores safe areas.
                 shellNavigationRow
                 ZStack {
-                    // Home and Discover stay alive once opened, so going back
-                    // to them shows what was loaded instead of rebuilding it.
+                    // Tabs stay alive once opened, so going back to one shows
+                    // what was loaded, and where you were, instead of rebuilding it.
                     if selectedTab == .home || keptAliveTabs.contains(.home) {
                         keptAliveTab(.home) {
                             NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth, openFeedback: { navigation.requestedFeedback = $0 }, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) })
@@ -490,21 +490,33 @@ struct BytspotNativeShellView: View {
                             NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                         }
                     }
+                    if selectedTab == .map || keptAliveTabs.contains(.map) {
+                        keptAliveTab(.map) {
+                            NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membershipTier: membershipStore.tier, mapOpenState: $mapOpenState, handoffMapCenter: navigation.requestedMapCenter)
+                                .environmentObject(pairingStore)
+                                .environmentObject(directMapRouteStore)
+                                .environmentObject(saleMeetStore)
+                        }
+                    }
+                    if selectedTab == .concierge || keptAliveTabs.contains(.concierge) {
+                        keptAliveTab(.concierge) {
+                            NativeConciergeView(model: conciergeModel, openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) })
+                        }
+                    }
+                    if selectedTab == .plan || keptAliveTabs.contains(.plan) {
+                        keptAliveTab(.plan) {
+                            NativePlanTabView(sessionStore: sessionStore, openDiscoverFilter: openDiscoverFilter, openMap: { selectNativeTab(.map) }, onCancel: { selectNativeTab(.home) }, onSavingChanged: { isPlanSaving = $0 }, onSignIn: { openNativeAuth(mode: .login) })
+                        }
+                    }
+                    if selectedTab == .host || keptAliveTabs.contains(.host) {
+                        keptAliveTab(.host) {
+                            NativeHostStudioView(circles: hostStudioCircles, membershipTier: membershipStore.tier, presentation: .tab)
+                                .task { await loadHostStudioCircles() }
+                        }
+                    }
                     switch selectedTab {
-                    case .home, .discover:
+                    case .home, .discover, .map, .concierge, .plan, .host:
                         EmptyView()
-                    case .host:
-                        NativeHostStudioView(circles: hostStudioCircles, membershipTier: membershipStore.tier, presentation: .tab)
-                            .task { await loadHostStudioCircles() }
-                    case .plan:
-                        NativePlanTabView(sessionStore: sessionStore, openDiscoverFilter: openDiscoverFilter, openMap: { selectNativeTab(.map) }, onCancel: { selectNativeTab(.home) }, onSavingChanged: { isPlanSaving = $0 }, onSignIn: { openNativeAuth(mode: .login) })
-                    case .map:
-                        NativeMapExploreView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAuth: { openNativeAuth(mode: .login) }, openNativeProfile: { panel in openNativeProfile(panel: panel) }, openNativeAccess: { openNativeEquivalent(for: .access) }, activeTier: activeTier, membershipTier: membershipStore.tier, mapOpenState: $mapOpenState, handoffMapCenter: navigation.requestedMapCenter)
-                            .environmentObject(pairingStore)
-                            .environmentObject(directMapRouteStore)
-                            .environmentObject(saleMeetStore)
-                    case .concierge:
-                        NativeConciergeView(model: conciergeModel, openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) })
                     case .profile:
                         NativeProfileTabView(
                             initialPanel: pendingProfilePanel,
@@ -517,7 +529,7 @@ struct BytspotNativeShellView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped() // Scroll content cannot paint over the navigation row.
                 .environment(\.nativeDeepSpaceGroundDrawn, true)
-                .animation(.interpolatingSpring(mass: 0.8, stiffness: 380, damping: 34, initialVelocity: 0), value: selectedTab)
+                .animation(.easeOut(duration: 0.15), value: selectedTab)
                 .onAppear { keepAlive(selectedTab) }
                 .onChange(of: selectedTab) { keepAlive($0) }
                 // Another account must not inherit kept screens.
@@ -772,7 +784,7 @@ struct BytspotNativeShellView: View {
         true
     }
 
-    static let keptAliveTabKinds: Set<BytspotNativeTab> = [.home, .discover]
+    static let keptAliveTabKinds: Set<BytspotNativeTab> = [.home, .discover, .map, .concierge, .plan, .host]
 
     private func keepAlive(_ tab: BytspotNativeTab) {
         if Self.keptAliveTabKinds.contains(tab) { keptAliveTabs.insert(tab) }
@@ -12031,6 +12043,7 @@ private struct NativeDiscoverView: View {
     /// places.rankDiscover's order for the current deck. Nil until it answers,
     /// and on failure, so the deck keeps the local order.
     @State private var discoverRanking: NativeDiscoverServerRanking?
+    @State private var deckCache = NativeDiscoverDeckCache()
     @AppStorage(NativeLaunchPersonalizationStorage.vibeKey) private var rankVibe = ""
     @AppStorage(NativeLaunchPersonalizationStorage.walkKey) private var rankWalk = ""
     @AppStorage(NativeLaunchPersonalizationStorage.crewKey) private var rankCrew = ""
@@ -12141,7 +12154,8 @@ private struct NativeDiscoverView: View {
         }
         .onChange(of: handoffFilter ?? "") { _ in applyShellFilterHandoffIfRequested() }
         .onChange(of: selectedFilter) { _ in discoverCardIndex = 0 }
-        .onChange(of: rankedCards.map(\.browseID)) { ids in
+        .onChange(of: isTabActive ? rankedCards.map(\.browseID) : []) { ids in
+            guard isTabActive else { return }
             discoverCardIndex = min(discoverCardIndex, max(ids.count - 1, 0))
         }
         .sheet(isPresented: $showRideHandoff) {
@@ -12562,12 +12576,16 @@ private struct NativeDiscoverView: View {
     }
 
     /// Sorts the whole deck, so a view reads it once per render and hands the result down.
+    /// Behind another tab the last deck is reused: nothing on screen needs a new order.
     private var rankedCards: [DiscoverCardSpec] {
-        NativeDiscoverBrowsePolicy.ordered(browseCards(matching: selectedFilter), ranking: discoverRanking) { card in
+        if !isTabActive, let kept = deckCache.cards { return kept }
+        let cards = NativeDiscoverBrowsePolicy.ordered(browseCards(matching: selectedFilter), ranking: discoverRanking) { card in
             NativeDiscoverBrowsePolicy.LocalOrderKey(
                 isParty: card.isParty, supported: card.presentation.primaryActionTitle != nil,
                 relevance: searchScore(for: card), id: card.browseID)
         }
+        deckCache.cards = cards
+        return cards
     }
 
     private func browseCards(matching filter: String?) -> [DiscoverCardSpec] {
@@ -12607,6 +12625,7 @@ private struct NativeDiscoverView: View {
     }
 
     private var rankTaskID: String {
+        guard isTabActive else { return "inactive" }
         let location = locationStore.coordinate
         let place = location.isFallback ? "none" : String(format: "%.3f,%.3f", location.latitude, location.longitude)
         let answers = [rankVibe, rankWalk, rankCrew, rankPreferences.avoid.joined(separator: ","), String(rankPreferences.priceCeiling ?? 0)]
@@ -12614,6 +12633,7 @@ private struct NativeDiscoverView: View {
     }
 
     @MainActor private func loadRanking() async {
+        guard isTabActive else { return }
         let candidates = rankCandidates
         let location = locationStore.coordinate
         guard !candidates.isEmpty, !location.isFallback else { discoverRanking = nil; return }
@@ -12791,6 +12811,12 @@ private struct NativeDiscoverView: View {
 /// Which ranked cards the "More nearby" list shows under the Discover card:
 /// those within walking distance of a fresh location, closest first, except
 /// the one on screen. Ties keep Discover's order.
+/// The last sorted Discover deck. A plain reference so writing it while drawing
+/// does not ask SwiftUI to draw again.
+private final class NativeDiscoverDeckCache {
+    var cards: [NativeDiscoverView.DiscoverCardSpec]?
+}
+
 enum NativeDiscoverMoreNearbyPolicy {
     static let limit = 6
     static let radiusMiles = 1.0
@@ -16876,6 +16902,7 @@ private struct NativeMapExploreView: View {
     @State private var userMovedCamera = false
     @Environment(\.accessibilityReduceMotion) private var reduceMapMotion
     @Environment(\.colorScheme) private var mapColorScheme
+    @Environment(\.nativeTabIsActive) private var isTabActive
     @State private var pairedPatchVenueID: String? = Self.previewPairedPatchVenueID
     @State private var guestMapPromptTitle: String?
     @State private var guestMapPromptSubtitle = "Sign in to keep this map pick, route, and parking context synced."
@@ -17371,7 +17398,18 @@ private struct NativeMapExploreView: View {
         .onChange(of: locationStore.lastLocation?.timestamp) { _ in handleMapLocationChange() }
         .onChange(of: tabContentStore.snapshot) { _ in applySelectedPinPreviewIfRequested() }
         .onDisappear { headingProvider.stopLocating(); headingProvider.stop() }
-        .task(id: communityReportsAreaKey) { await followCommunityReports() }
+        // The shell keeps Map alive behind other tabs: coming back is an appear, leaving is a disappear.
+        .onChange(of: isTabActive) { active in
+            if active {
+                handleMapAppear(); consumeHandoffMapCenterIfNeeded(); focusSaleMeetIfNeeded()
+            } else {
+                headingProvider.stopLocating(); headingProvider.stop()
+            }
+        }
+        .task(id: isTabActive ? communityReportsAreaKey : "inactive") {
+            guard isTabActive else { return }
+            await followCommunityReports()
+        }
         .task(id: nearbyParkingAreaKey) { await loadNearbyParking() }
         .onChange(of: reportRelay.lastDelivery) { delivery in showDeliveredReports(delivery) }
     }
@@ -20901,6 +20939,7 @@ private struct NativeConciergeView: View {
     @AppStorage(NativeConciergeHandoffStore.promptKey) private var handoffPrompt = ""
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var locationStore: NativeLocationStore
+    @Environment(\.nativeTabIsActive) private var isTabActive
     @Environment(\.openURL) private var openURL
 
     nonisolated static let headerTitle = "Bytspot Concierge"
@@ -20927,6 +20966,10 @@ private struct NativeConciergeView: View {
             runPreviewPromptIfNeeded()
         }
         .onDisappear { model.leaveScreen() }
+        .onChange(of: isTabActive) { active in
+            if active { model.observe(session: sessionStore, location: locationStore); consumeNativeHandoffIfNeeded() }
+            else { model.leaveScreen() }
+        }
         .onChange(of: model.searchState) { state in announce(state) }
         .onChange(of: handoffPrompt) { _ in consumeNativeHandoffIfNeeded() }
         .sheet(item: $model.detailVenue) { venue in

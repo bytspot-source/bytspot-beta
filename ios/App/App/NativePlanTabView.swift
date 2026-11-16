@@ -18,7 +18,11 @@ struct NativePlanTabView: View {
         NativePlanCreateSheet(
             sessionStore: sessionStore,
             isEmbedded: true,
-            onCancel: onCancel,
+            onCancel: {
+                // The tab stays alive behind others, so cancelling starts the next Plan fresh.
+                draftID = UUID()
+                onCancel()
+            },
             onSavingChanged: onSavingChanged,
             onSignIn: onSignIn,
             onCreated: { createdPlan = CreatedPlan(id: $0) }

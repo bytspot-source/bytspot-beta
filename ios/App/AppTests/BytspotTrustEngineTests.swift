@@ -1755,8 +1755,21 @@ final class BytspotTrustEngineTests: XCTestCase {
     }
 
     @MainActor
-    func testOnlyHomeAndDiscoverAreKeptAliveBetweenTabs() {
-        XCTAssertEqual(BytspotNativeShellView.keptAliveTabKinds, [.home, .discover])
+    func testEveryBarTabAndMapAreKeptAliveBetweenTabsButProfileIsRebuilt() {
+        XCTAssertEqual(BytspotNativeShellView.keptAliveTabKinds, [.home, .discover, .map, .concierge, .plan, .host])
+        XCTAssertTrue(Set(BytspotNativeTab.barTabs).isSubset(of: BytspotNativeShellView.keptAliveTabKinds),
+                      "switching between bar tabs never rebuilds one")
+        XCTAssertFalse(BytspotNativeShellView.keptAliveTabKinds.contains(.profile))
+    }
+
+    func testRememberedCategoriesGiveTheSameAnswerAsAFreshScan() {
+        let categories = ["restaurant", "bar", "night_club", "coffee", "transport", "cabin", "retreat", "Retreat", "hotel",
+                          "museum", "spa", "parking garage", "private jet", "live music venue", "", "unknown thing"]
+        for category in categories {
+            let fresh = NativeDiscoverCategoryNormalizer.uncachedType(for: category)
+            XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: category), fresh, category)
+            XCTAssertEqual(NativeDiscoverCategoryNormalizer.type(for: category), fresh, "second read of \(category)")
+        }
     }
 
     @MainActor

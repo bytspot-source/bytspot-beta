@@ -147,9 +147,32 @@ async function bootAdmin() {
   createRoot(document.getElementById('root')!).render(createElement(AdminApp));
 }
 
+/** A pitch link an admin sent a business: a plain web page, not the app hand-off. */
+function isPitchPath(): boolean {
+  return window.location.pathname.startsWith('/for-business/');
+}
+
+async function bootPitch() {
+  const [{ createRoot }, { createElement }, { PitchPage }, { pitchCodeFromPath }] = await Promise.all([
+    import('react-dom/client'),
+    import('react'),
+    import('./pitch/PitchPage.tsx'),
+    import('./pitch/pitchPath.ts'),
+  ]);
+  document.title = 'Bytspot for business';
+  document.querySelector('meta[name="apple-itunes-app"]')?.remove();
+  const robots = document.createElement('meta');
+  robots.name = 'robots';
+  robots.content = 'noindex';
+  document.head.appendChild(robots);
+  createRoot(document.getElementById('root')!).render(createElement(PitchPage, { code: pitchCodeFromPath(window.location.pathname) }));
+}
+
 unregisterLegacyServiceWorkers();
 if (!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && isAdminPath()) {
   void bootAdmin();
+} else if (!APP_STORE_CONSUMER_ONLY_COMPILE_TIME && isPitchPath()) {
+  void bootPitch();
 } else if (!renderNativeHandoffOnly()) {
   void bootLegalPages();
 }

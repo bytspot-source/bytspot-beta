@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { API_BASE_URL, trpc } from '../utils/trpc';
 import { BOOKING_PROVIDERS, BOOKING_PROVIDER_IDS, tableBookingFrom, type BookingProvider, type TableBooking } from '../utils/tableBooking';
 import { DISCOVERY_ALSO_ON, DISCOVERY_RAIL_LABELS, DISCOVERY_RAIL_TOKENS } from '../utils/discoveryRails';
+import { pitchMessage, type PitchLink } from './pitchMessage.ts';
+import { GrowthTab } from './GrowthTab.tsx';
 import './admin.css';
 import { MenuEvidenceReview } from './MenuEvidenceReview.tsx';
 import { MenuSourcePreview } from '../vendor/MenuDishEditor.tsx';
@@ -605,6 +607,19 @@ function PlacesTab() {
   const [places, setPlaces] = useState<ListedPlace[] | null>(null);
   const [recheck, setRecheck] = useState<Recheck[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [pitch, setPitch] = useState<{ venueId: string; url: string; message: string; copied: boolean } | null>(null);
+
+  const makePitch = async (p: ListedPlace) => {
+    setError(null);
+    try {
+      const result: PitchLink = await trpc.admin.places.pitchLink.mutate({ venueId: p.venueId });
+      const message = pitchMessage(p.name, result);
+      const copied = await navigator.clipboard?.writeText(message).then(() => true, () => false) ?? false;
+      setPitch({ venueId: p.venueId, url: result.url, message, copied });
+    } catch (err) {
+      setError(errorText(err));
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -743,8 +758,16 @@ function PlacesTab() {
                   <div className="admin-inline">
                     <Button kind="quiet" onClick={() => edit(p)}>Edit</Button>
                     <Button kind="quiet" onClick={() => setHidden(p, !p.hidden)}>{p.hidden ? 'Show' : 'Hide'}</Button>
+                    <Button kind="quiet" onClick={() => makePitch(p)}>Pitch link</Button>
                   </div>
                 </div>
+                {pitch?.venueId === p.venueId && (
+                  <div className="admin-stack" style={{ gap: 8 }}>
+                    <p className="admin-muted">{pitch.copied ? 'Message copied. Paste it into an email or DM to the business.' : 'Copy this message and send it to the business:'}</p>
+                    <textarea className="admin-input" readOnly rows={4} value={pitch.message} onFocus={(e) => e.currentTarget.select()} />
+                    <p className="admin-muted">The link shows their numbers and how to join. It works for 60 days. <a className="admin-link" href={pitch.url} target="_blank" rel="noopener noreferrer">Open it ↗</a></p>
+                  </div>
+                )}
                 <div className="admin-numbers">
                   <Numbers label="Check-ins" count={p.numbers.checkIns} />
                   <Numbers label="Booking taps" count={p.numbers.bookingTaps} />
@@ -1396,7 +1419,7 @@ function Dashboard() {
 export default function AdminApp() {
   const [signedIn, setSignedIn] = useState(() => Boolean(localStorage.getItem(TOKEN_KEY)));
   const [access, setAccess] = useState<'checking' | 'ok' | string>('checking');
-  const [tab, setTab] = useState<'places' | 'vendors' | 'reports' | 'fees'>('places');
+  const [tab, setTab] = useState<'places' | 'vendors' | 'reports' | 'fees' | 'growth'>('places');
   const [awaiting, setAwaiting] = useState(0);
   const [openReports, setOpenReports] = useState(0);
 
@@ -1445,9 +1468,10 @@ export default function AdminApp() {
                   Reports{openReports > 0 ? ` (${openReports} open)` : ''}
                 </Button>
                 <Button kind={tab === 'fees' ? 'primary' : 'quiet'} onClick={() => setTab('fees')}>Fees</Button>
+                <Button kind={tab === 'growth' ? 'primary' : 'quiet'} onClick={() => setTab('growth')}>Growth</Button>
               </nav>
               {tab === 'places' ? <PlacesTab /> : tab === 'vendors' ? <VendorsTab onCount={setAwaiting} />
-                : tab === 'reports' ? <ReportsTab onCount={setOpenReports} /> : <FeesTab />}
+                : tab === 'reports' ? <ReportsTab onCount={setOpenReports} /> : tab === 'growth' ? <GrowthTab /> : <FeesTab />}
             </>
           )}
         </div>

@@ -33,3 +33,8 @@
 .admin-signin { max-width: 360px; margin: 96px auto 0; display: flex; flex-direction: column; gap: 12px; }
 .admin-check { display: flex; gap: 8px; align-items: center; font-size: 14px; }
 .admin-stack { display: flex; flex-direction: column; gap: 20px; }
+.admin-scroll { overflow-x: auto; }
+.admin-table { border-collapse: collapse; font-size: 14px; min-width: 100%; }
+.admin-table th, .admin-table td { padding: 8px 10px; text-align: right; border-top: 1px solid rgba(255,255,255,.1); white-space: nowrap; }
+.admin-table thead th { border-top: 0; color: rgba(255,255,255,.6); font-weight: 600; }
+.admin-table tbody th { text-align: left; font-weight: 600; cursor: help; }

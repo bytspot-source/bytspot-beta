@@ -2,16 +2,16 @@
  * Privacy Policy — required for App Store submission.
  * Accessible at /privacy (no auth required).
  * Must match ios/App/App/PrivacyInfo.xcprivacy and the App Store privacy labels.
- * Last updated: 2026-11-11
+ * Last updated: 2026-11-19
  */
 export function PrivacyPolicy() {
   return (
     <div className="min-h-screen bg-black text-white/90 px-6 py-12 max-w-2xl mx-auto leading-relaxed">
       <h1 className="text-3xl font-bold mb-2">Privacy Policy</h1>
-      <p className="text-white/50 text-sm mb-8">Last updated: November 11, 2026</p>
+      <p className="text-white/50 text-sm mb-8">Last updated: November 19, 2026</p>
 
       <p className="mb-6">
-        Bytspot ("we", "us", or "our") operates the Bytspot iPhone app and App Clip (the "App").
+        Bytspot Inc., a Delaware corporation ("we", "us", or "our"), operates the Bytspot iPhone app and App Clip (the "App").
         This policy explains what we collect, why, who we share it with, and the choices you have.
       </p>
 
@@ -98,11 +98,12 @@ export function PrivacyPolicy() {
         <p>
           Questions about this policy or a safety concern:{' '}
           <a href="mailto:bytspotapp@gmail.com" className="text-blue-400 underline">bytspotapp@gmail.com</a>.
+          Mailing address: Bytspot Inc., 8735 Dunwoody Place #13893, Atlanta, GA 30350, USA.
         </p>
       </Section>
 
       <div className="mt-12 pt-6 border-t border-white/10 text-white/40 text-xs text-center">
-        © {new Date().getFullYear()} Bytspot. All rights reserved.
+        © {new Date().getFullYear()} Bytspot Inc. All rights reserved.
       </div>
     </div>
   );

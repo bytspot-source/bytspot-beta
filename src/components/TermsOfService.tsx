@@ -1,17 +1,24 @@
 /**
  * Terms of Service / EULA — required for App Store submission and litigation protection.
- * Accessible at /terms (no auth required).
- * Last updated: 2026-11-11
+ * Accessible at /terms (no auth required). Section 3 is also shown at /refunds.
+ * Last updated: 2026-11-19
  */
+import { useEffect } from 'react';
+
 export function TermsOfService() {
+  useEffect(() => {
+    if (window.location.hash.replace(/^#/, '') !== 'refunds') return;
+    document.getElementById('refunds')?.scrollIntoView();
+  }, []);
+
   return (
     <div className="min-h-screen bg-black text-white/90 px-6 py-12 max-w-2xl mx-auto leading-relaxed">
       <h1 className="text-3xl font-bold mb-2">Terms of Service</h1>
-      <p className="text-white/50 text-sm mb-8">Last updated: November 11, 2026</p>
+      <p className="text-white/50 text-sm mb-8">Last updated: November 19, 2026</p>
 
       <p className="mb-6">
         These Terms of Service ("Terms") govern your use of the Bytspot mobile application
-        and App Clip ("App") operated by Bytspot ("Company", "we", "us", or "our"). By downloading,
+        and App Clip ("App") operated by Bytspot Inc., a Delaware corporation ("Company", "we", "us", or "our"). By downloading,
         installing, or using the App, you agree to be bound by these Terms.
       </p>
 
@@ -42,15 +49,8 @@ export function TermsOfService() {
         ]} />
       </Section>
 
-      <Section title="3. Passes, Payments, and Refunds">
-        <BulletList items={[
-          <>Prices are shown before you pay. Payments are processed by Stripe, and you authorize us to charge your chosen payment method.</>,
-          <>If a host cancels a party, or closes it before it takes place, paid passes are refunded automatically to the original payment method.</>,
-          <>Other refund requests go to the host or business. A pass that has been used, or an event that took place, is not refundable except where the law requires.</>,
-          <>Bottle minimums and other spending at a venue are paid to the venue, not through Bytspot.</>,
-          <>A pass is for the person it was issued to. Passes may not be resold above face value.</>,
-          <>If a payment is disputed, refunded, or flagged as fraud, the related pass may be cancelled.</>,
-        ]} />
+      <Section title="3. Passes, Payments, and Refunds" id="refunds">
+        <RefundPolicyList />
       </Section>
 
       <Section title="4. Private Sales">
@@ -162,7 +162,7 @@ export function TermsOfService() {
 
       <Section title="13. Apple">
         <p>
-          These Terms are between you and Bytspot, not Apple. Apple is not responsible for the App or its content,
+          These Terms are between you and Bytspot Inc., not Apple. Apple is not responsible for the App or its content,
           and has no obligation to provide support for it. Apple and its subsidiaries are third-party beneficiaries
           of these Terms and may enforce them against you. If these Terms conflict with Apple's Licensed Application
           End User License Agreement, these Terms control.
@@ -183,11 +183,12 @@ export function TermsOfService() {
           <a href="mailto:legal@bytspot.com" className="text-blue-400 underline">legal@bytspot.com</a>.
           To report abuse or a safety concern, email{' '}
           <a href="mailto:bytspotapp@gmail.com" className="text-blue-400 underline">bytspotapp@gmail.com</a>.
+          Mailing address: Bytspot Inc., 8735 Dunwoody Place #13893, Atlanta, GA 30350, USA.
         </p>
       </Section>
 
       <div className="mt-12 pt-6 border-t border-white/10 text-white/40 text-xs text-center">
-        © {new Date().getFullYear()} Bytspot. All rights reserved.
+        © {new Date().getFullYear()} Bytspot Inc. All rights reserved.
       </div>
     </div>
   );
@@ -195,12 +196,26 @@ export function TermsOfService() {
 
 /* ── Helpers (same as PrivacyPolicy) ── */
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, id, children }: { title: string; id?: string; children: React.ReactNode }) {
   return (
-    <section className="mb-8">
+    <section className="mb-8" id={id}>
       <h2 className="text-lg font-semibold text-white mb-3">{title}</h2>
       <div className="text-[15px] text-white/75">{children}</div>
     </section>
+  );
+}
+
+/** Section 3, shared with /refunds so the two pages cannot drift. */
+export function RefundPolicyList() {
+  return (
+    <BulletList items={[
+      <>Prices are shown before you pay. Payments are processed by Stripe, and you authorize us to charge your chosen payment method.</>,
+      <>If a host cancels a party, or closes it before it takes place, the pass holder is eligible for a refund to the original payment method, which Bytspot will process. Our goal is to process an eligible refund within 10 business days of the cancellation or closure.</>,
+      <>Other refund requests go to the host or business. A pass that has been used, or an event that took place, is not refundable except where the law requires.</>,
+      <>Bottle minimums and other spending at a venue are paid to the venue, not through Bytspot.</>,
+      <>A pass is for the person it was issued to. Passes may not be resold above face value.</>,
+      <>If a payment is disputed, refunded, or flagged as fraud, the related pass may be cancelled.</>,
+    ]} />
   );
 }
 

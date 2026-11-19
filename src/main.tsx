@@ -1,5 +1,5 @@
 import './index.css';
-import { canonicalLegalPath, nativeHandoffContext } from './utils/nativeHandoffGuard';
+import { canonicalLegalPath, HOME_HANDOFF_SUBTITLE, HOME_HANDOFF_TITLE, nativeHandoffContext } from './utils/nativeHandoffGuard';
 
 const APP_STORE_CONSUMER_ONLY_COMPILE_TIME = import.meta.env.VITE_APP_STORE_CONSUMER_ONLY === 'true';
 
@@ -19,7 +19,7 @@ body{margin:0;background:#050816;color:#F5F7FB;font-family:-apple-system,BlinkMa
 .bh-primary{background:#00BFFF;color:#04111F}
 .bh-secondary{border:1px solid rgba(255,255,255,.22);color:#F5F7FB}
 .bh-note{margin:16px 0 0;font-size:13px;line-height:1.5;color:#9AA5BD}
-.bh-links{display:flex;gap:18px;margin-top:24px;padding-top:18px;border-top:1px solid rgba(255,255,255,.1)}
+.bh-links{display:flex;flex-wrap:wrap;gap:18px;margin-top:24px;padding-top:18px;border-top:1px solid rgba(255,255,255,.1)}
 .bh-links a{color:#9AA5BD;font-size:13px;text-decoration:none}
 `;
 
@@ -79,8 +79,8 @@ function renderNativeHandoffOnly() {
 
   const context = nativeHandoffContext(window.location.href) ?? {
     kind: 'app' as const,
-    title: 'Plan the night with Bytspot',
-    subtitle: 'Find places nearby, make plans with friends, and join parties. Free on iPhone.',
+    title: HOME_HANDOFF_TITLE,
+    subtitle: HOME_HANDOFF_SUBTITLE,
     appArgument: window.location.href,
     appSchemeURL: 'bytspot://home',
   };
@@ -106,7 +106,7 @@ function renderNativeHandoffOnly() {
         <a class="bh-btn bh-primary" href="${APP_STORE_URL}">Download on the App Store</a>
         <a class="bh-btn bh-secondary" href="${appSchemeURL}">Open in Bytspot</a>
         <p class="bh-note">Already have Bytspot? Tap Open in Bytspot.</p>
-        <nav class="bh-links"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/support">Support</a></nav>
+        <nav class="bh-links"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/refunds">Refunds</a><a href="/support">Support</a></nav>
       </section>
     </main>`;
   wireOpenInBytspot(root, context.appSchemeURL);
@@ -125,7 +125,9 @@ async function bootLegalPages() {
         ? import('./components/Disclaimer').then((m) => ({ component: m.Disclaimer, title: 'Disclaimer' }))
         : legalPath === '/support'
           ? import('./components/Support').then((m) => ({ component: m.Support, title: 'Support' }))
-          : import('./components/PrivacyPolicy').then((m) => ({ component: m.PrivacyPolicy, title: 'Privacy Policy' })),
+          : legalPath === '/refunds'
+            ? import('./components/Refunds').then((m) => ({ component: m.Refunds, title: 'Refunds' }))
+            : import('./components/PrivacyPolicy').then((m) => ({ component: m.PrivacyPolicy, title: 'Privacy Policy' })),
   ]);
   document.title = `${page.title} · Bytspot`;
   createRoot(document.getElementById('root')!).render(createElement(page.component));

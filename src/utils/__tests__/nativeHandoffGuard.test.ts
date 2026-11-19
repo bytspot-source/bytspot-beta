@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   canonicalLegalPath,
+  HOME_HANDOFF_SUBTITLE,
+  HOME_HANDOFF_TITLE,
   nativeAppClipArgumentFor,
   nativeHandoffContext,
   shouldBlockLegacyPwaFallback,
@@ -117,7 +119,21 @@ test('product routes never boot the web app; legal pages stay on the web', () =>
   // The support page has to be reachable on the web: App Review requires a
   // working support URL, and a member locked out of the app needs a way in.
   assert.equal(shouldBlockLegacyPwaFallback('https://bytspot.app/support'), false);
+  // Stripe and the App Store need a refunds URL that stays on the web.
+  assert.equal(shouldBlockLegacyPwaFallback('https://bytspot.app/refunds'), false);
   assert.equal(shouldBlockLegacyPwaFallback('https://example.com/p/BYT424'), false);
+});
+
+test('the homepage handoff covers the day, not only the night', () => {
+  const home = nativeHandoffContext('https://bytspot.app/');
+  assert.equal(home?.title, HOME_HANDOFF_TITLE);
+  assert.equal(home?.subtitle, HOME_HANDOFF_SUBTITLE);
+  assert.equal(HOME_HANDOFF_TITLE, "Plan your day out. Send one link. Everyone's in.");
+  assert.match(HOME_HANDOFF_SUBTITLE, /brunch through after hours/i);
+  assert.doesNotMatch(`${HOME_HANDOFF_TITLE} ${HOME_HANDOFF_SUBTITLE}`, /\bnight\b/i);
+  const main = readFileSync(new URL('../../main.tsx', import.meta.url), 'utf8');
+  assert.match(main, /href="\/refunds">Refunds/);
+  assert.doesNotMatch(main, /Plan the night/);
 });
 
 test('legal web paths canonicalize identically for the bootstrap and the router', () => {
@@ -130,6 +146,9 @@ test('legal web paths canonicalize identically for the bootstrap and the router'
   assert.equal(canonicalLegalPath('/privacy/'), '/privacy');
   assert.equal(canonicalLegalPath('/terms/'), '/terms');
   assert.equal(canonicalLegalPath('/disclaimer/'), '/disclaimer');
+  assert.equal(canonicalLegalPath('/refunds'), '/refunds');
+  assert.equal(canonicalLegalPath('/refunds/'), '/refunds');
+  assert.equal(canonicalLegalPath('/Refunds'), '/refunds');
 
   // Everything else stays native-only.
   assert.equal(canonicalLegalPath('/discover'), null);
@@ -137,8 +156,26 @@ test('legal web paths canonicalize identically for the bootstrap and the router'
   assert.equal(canonicalLegalPath('/'), null);
 });
 
+test('published legal pages do not promise an automatic refund', () => {
+  const terms = readFileSync(new URL('../../components/TermsOfService.tsx', import.meta.url), 'utf8');
+  const privacy = readFileSync(new URL('../../components/PrivacyPolicy.tsx', import.meta.url), 'utf8');
+  const support = readFileSync(new URL('../../components/Support.tsx', import.meta.url), 'utf8');
+  const refunds = readFileSync(new URL('../../components/Refunds.tsx', import.meta.url), 'utf8');
+  for (const source of [terms, privacy, support, refunds]) {
+    assert.doesNotMatch(source, /refunded automatically/i);
+    assert.doesNotMatch(source, /starts the refund automatically/i);
+  }
+  assert.match(terms, /eligible for a refund to the original payment method, which Bytspot will process/);
+  assert.match(terms, /Our goal is to process an eligible refund within 10 business days/);
+  assert.match(terms, /operated by Bytspot Inc\., a Delaware corporation/);
+  assert.match(privacy, /Bytspot Inc\., a Delaware corporation \("we", "us", or "our"\), operates/);
+  assert.match(terms, /Last updated: November 19, 2026/);
+  assert.match(privacy, /Last updated: November 19, 2026/);
+  assert.match(refunds, /href="\/terms#refunds"/);
+});
+
 test('a trailing slash on a legal path never reopens the retired web app', () => {
-  for (const path of ['/support/', '/privacy/', '/terms/', '/disclaimer/', '/Support']) {
+  for (const path of ['/support/', '/privacy/', '/terms/', '/disclaimer/', '/refunds/', '/Support']) {
     assert.equal(shouldBlockLegacyPwaFallback(`https://bytspot.app${path}`), false, path);
   }
   assert.equal(shouldBlockLegacyPwaFallback('https://bytspot.app/discover/'), true);

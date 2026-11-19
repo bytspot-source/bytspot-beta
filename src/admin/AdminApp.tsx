@@ -203,8 +203,17 @@ function tiedToOther(c: Candidate): string | null {
 /** The same check the API makes, so a bad link is caught before it is sent. */
 function linkProblem(provider: Provider, url: string): string | null {
   if (!url.trim()) return 'Paste the booking link.';
+  const host = (() => { try { return new URL(url.trim()).hostname; } catch { return ''; } })();
+  if (SHARE_HOSTS[host]) {
+    return `That is a ${SHARE_HOSTS[host]} share link. Open it in a browser and copy the full ${BOOKING_PROVIDERS[provider].hosts[0]} address from the address bar.`;
+  }
   return tableBookingFrom({ provider, url: url.trim() }) ? null : `That is not an https link on ${BOOKING_PROVIDERS[provider].hosts[0]}.`;
 }
+
+/** Short share hosts that hide the real page; the API refuses them too. */
+const SHARE_HOSTS: Record<string, string> = { 'abnb.me': 'Airbnb', 'airbnb.app.link': 'Airbnb', 'booking.page.link': 'Booking.com' };
+/** The API keeps only the listing's page for these, so dates and tracking in a pasted link are dropped. */
+const PATH_ONLY_PROVIDERS = new Set<string>(['airbnb', 'hipcamp', 'bookingcom', 'bookretreats']);
 
 function Card({ children }: { children: ReactNode }) {
   return <section className="admin-card">{children}</section>;
@@ -335,6 +344,13 @@ function PlaceForm({ draft, onChange, onSaved, onCancel }: {
           <input className={input} placeholder={draft.provider === 'none' ? '' : BOOKING_PROVIDERS[draft.provider].example}
             value={draft.url} onChange={(e) => onChange({ ...draft, url: e.target.value, opened: false })} />
           {draft.url && problem && <p className="admin-warn">{problem}</p>}
+          {!problem && draft.url.trim().length > 120 && (
+            <p className="admin-muted">
+              {PATH_ONLY_PROVIDERS.has(draft.provider)
+                ? 'Long link: when you save, only the listing\u2019s page is kept. Dates, guests and tracking are dropped.'
+                : 'Long link: when you save, tracking parts (like utm_ and fbclid) are dropped. The page it opens stays the same.'}
+            </p>
+          )}
           {!problem && (
             <a href={draft.url.trim()} target="_blank" rel="noopener noreferrer" className="admin-link">Open the link to check it ↗</a>
           )}

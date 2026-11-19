@@ -4,6 +4,7 @@ import { BOOKING_PROVIDERS, BOOKING_PROVIDER_IDS, tableBookingFrom, type Booking
 import { DISCOVERY_ALSO_ON, DISCOVERY_RAIL_LABELS, DISCOVERY_RAIL_TOKENS } from '../utils/discoveryRails';
 import { pitchMessage, type PitchLink } from './pitchMessage.ts';
 import { GrowthTab } from './GrowthTab.tsx';
+import { Chips, LetterBar, Pager, SearchBox, SortSelect, useDebounced, type Option } from './ListControls.tsx';
 import './admin.css';
 import { MenuEvidenceReview } from './MenuEvidenceReview.tsx';
 import { MenuSourcePreview } from '../vendor/MenuDishEditor.tsx';
@@ -44,6 +45,17 @@ type Provider = BookingProvider;
 
 type Count = { total: number; last30: number };
 type Recheck = { venueId: string; status: 'due_soon' | 'stale' | 'expired'; dueAt: string | null };
+type PlaceFilters = { rail: string | null; provider: string | null; status: string | null; letter: string | null; sort: string; offset: number };
+const NO_PLACE_FILTERS: PlaceFilters = { rail: null, provider: null, status: null, letter: null, sort: 'newest', offset: 0 };
+type PlacesAttention = { linksDue: number; hidden: number; toPitch: { venueId: string; name: string; taps: number }[] };
+const PILL_OPTIONS: Option[] = DISCOVERY_RAIL_TOKENS.filter((t) => t !== 'explore').map((id) => ({ id, label: railLabel(id) }));
+const PROVIDER_OPTIONS: Option[] = [...BOOKING_PROVIDER_IDS.map((id) => ({ id, label: BOOKING_PROVIDERS[id].label })), { id: 'none', label: 'No link' }];
+const PLACE_STATUS_OPTIONS: Option[] = [{ id: 'live', label: 'Live' }, { id: 'hidden', label: 'Hidden' }, { id: 'link_due', label: 'Link due' }, { id: 'no_link', label: 'No link' }];
+const PLACE_SORT_OPTIONS: Option[] = [
+  { id: 'newest', label: 'Newest listed' }, { id: 'az', label: 'A–Z' }, { id: 'taps', label: 'Most booking taps (30 days)' },
+  { id: 'checkins', label: 'Most check-ins (30 days)' }, { id: 'due', label: 'Link due soonest' },
+];
+
 type ListedPlace = {
   venueId: string; name: string; address: string; category: string; placeId: string | null; hidden: boolean;
   booking: TableBooking | null; checkedAt: string | null; listedAt: string | null; bookingStale?: boolean; bookingDueAt?: string | null;
@@ -73,6 +85,21 @@ function dayInput(value: string | null | undefined): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
+type VendorFilters = { status: string | null; letter: string | null; sort: string; offset: number };
+const NO_VENDOR_FILTERS: VendorFilters = { status: null, letter: null, sort: 'priority', offset: 0 };
+type VendorsAttention = Record<'waiting' | 'invite_stale' | 'stuck' | 'paused', number>;
+const VENDOR_ATTENTION: { id: keyof VendorsAttention; label: (n: number) => string }[] = [
+  { id: 'waiting', label: (n) => `${n === 1 ? 'business is' : 'businesses are'} waiting for your approval.` },
+  { id: 'invite_stale', label: (n) => `owner invite${n === 1 ? '' : 's'} not accepted after 7 days. Resend or follow up.` },
+  { id: 'stuck', label: (n) => `${n === 1 ? 'business has' : 'businesses have'} been setting up for over 14 days.` },
+  { id: 'paused', label: (n) => `paused ${n === 1 ? 'business' : 'businesses'}.` },
+];
+const VENDOR_STATUS_OPTIONS: Option[] = [
+  { id: 'waiting', label: 'Waiting' }, { id: 'live', label: 'Live' }, { id: 'setup', label: 'Setting up' },
+  { id: 'invite_stale', label: 'Invite not accepted' }, { id: 'stuck', label: 'Stuck in setup' }, { id: 'paused', label: 'Paused' },
+];
+const VENDOR_SORT_OPTIONS: Option[] = [{ id: 'priority', label: 'Waiting first' }, { id: 'az', label: 'A–Z' }, { id: 'newest', label: 'Newest' }];
+
 type Vendor = {
   sellerId: string; legalName: string; contactEmail: string | null; businessKind: string | null; state: string;
   awaitingApproval: boolean; approvedAt: string | null; createdAt: string; missing: string[];
@@ -612,11 +639,16 @@ function PlacesTab() {
   const [searching, setSearching] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [places, setPlaces] = useState<ListedPlace[] | null>(null);
-  const [recheck, setRecheck] = useState<Recheck[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pitch, setPitch] = useState<{ venueId: string; url: string; message: string; copied: boolean } | null>(null);
+  const [filters, setFilters] = useState<PlaceFilters>(NO_PLACE_FILTERS);
+  const [listQuery, setListQuery] = useState('');
+  const searched = useDebounced(listQuery.trim());
+  const [page, setPage] = useState<{ total: number; limit: number; letters: string[]; attention: PlacesAttention | null }>(
+    { total: 0, limit: 50, letters: [], attention: null });
+  const setFilter = (change: Partial<PlaceFilters>) => setFilters((current) => ({ ...current, offset: 0, ...change }));
 
-  const makePitch = async (p: ListedPlace) => {
+  const makePitch = async (p: { venueId: string; name: string }) => {
     setError(null);
     try {
       const result: PitchLink = await trpc.admin.places.pitchLink.mutate({ venueId: p.venueId });
@@ -630,14 +662,22 @@ function PlacesTab() {
 
   const load = useCallback(async () => {
     try {
-      const result = await trpc.admin.places.list.query();
+      const result = await trpc.admin.places.list.query({
+        ...(searched ? { query: searched } : {}),
+        ...(filters.rail ? { rail: filters.rail } : {}),
+        ...(filters.provider ? { provider: filters.provider } : {}),
+        ...(filters.status ? { status: filters.status } : {}),
+        ...(filters.letter ? { letter: filters.letter } : {}),
+        sort: filters.sort, offset: filters.offset,
+      });
       setPlaces(result.places);
-      setRecheck(Array.isArray(result.recheck) ? result.recheck : []);
+      setPage({ total: result.total ?? result.places.length, limit: result.limit ?? 50, letters: result.letters ?? [], attention: result.attention ?? null });
     } catch (err) {
       setError(errorText(err));
     }
-  }, []);
+  }, [searched, filters]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setFilters((current) => (current.offset === 0 ? current : { ...current, offset: 0 })); }, [searched]);
 
   const search = async (event: FormEvent) => {
     event.preventDefault();
@@ -703,39 +743,54 @@ function PlacesTab() {
 
       {error && <p className="admin-warn">{error}</p>}
 
-      {places && recheck.length > 0 && (
+      {page.attention && (page.attention.linksDue > 0 || page.attention.hidden > 0 || page.attention.toPitch.length > 0) && (
         <Card>
-          <h2>Re-check these links</h2>
-          <p className="admin-muted">
-            Guests stop seeing a booking link 90 days after it was last checked. Open each one, make sure it still books
-            the place, then Edit and Save. A list is also emailed every Monday.
-          </p>
-          <ul className="admin-list">
-            {recheck.map((r) => {
-              const p = places.find((place) => place.venueId === r.venueId);
-              if (!p) return null;
-              return (
-                <li key={r.venueId} className="admin-row" style={{ alignItems: 'center' }}>
-                  <div>
-                    <p className="admin-strong">{p.name}</p>
-                    <p className={r.status === 'due_soon' ? 'admin-muted' : 'admin-warn'}>
-                      {r.status === 'expired' ? `Event over ${dateLabel(r.dueAt)}: add the next one or remove the link`
-                        : r.status === 'stale' ? `Hidden from guests${r.dueAt ? ` since ${dateLabel(r.dueAt)}` : ''}` : `Hidden from guests on ${dateLabel(r.dueAt)}`}
-                    </p>
-                  </div>
-                  <Button kind="quiet" onClick={() => edit(p)}>Edit</Button>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="admin-stack admin-attention" style={{ gap: 10 }}>
+            <h2>Needs attention</h2>
+            {page.attention.linksDue > 0 && (
+              <div className="admin-attention-item">
+                <p>{page.attention.linksDue} booking link{page.attention.linksDue === 1 ? '' : 's'} to re-check: hidden from guests soon or already. Open each, then Edit and Save. A list is also emailed every Monday.</p>
+                <Button kind="quiet" onClick={() => setFilter({ status: 'link_due', sort: 'due', letter: null })}>Show</Button>
+              </div>
+            )}
+            {page.attention.toPitch.map((t) => (
+              <div key={t.venueId} className="admin-attention-item">
+                <p>{t.name}: {t.taps} booking taps in 30 days and not on Bytspot yet.</p>
+                <Button kind="quiet" onClick={() => makePitch(t)}>Pitch link</Button>
+              </div>
+            ))}
+            {page.attention.hidden > 0 && (
+              <div className="admin-attention-item">
+                <p>{page.attention.hidden} hidden place{page.attention.hidden === 1 ? '' : 's'}.</p>
+                <Button kind="quiet" onClick={() => setFilter({ status: 'hidden', letter: null })}>Show</Button>
+              </div>
+            )}
+            {pitch && page.attention.toPitch.some((t) => t.venueId === pitch.venueId) && (
+              <div className="admin-stack" style={{ gap: 8 }}>
+                <p className="admin-muted">{pitch.copied ? 'Message copied. Paste it into an email or DM to the business.' : 'Copy this message and send it to the business:'}</p>
+                <textarea className="admin-input" readOnly rows={4} value={pitch.message} onFocus={(e) => e.currentTarget.select()} />
+              </div>
+            )}
+          </div>
         </Card>
       )}
 
       <Card>
         <h2>Listed places</h2>
         <p className="admin-muted">Last 30 days / all time. Check-ins count only when the guest was at the place.</p>
+        <SearchBox value={listQuery} onChange={setListQuery} placeholder="Search listed places by name or address" />
+        <Chips label="Pill" options={PILL_OPTIONS} value={filters.rail} onChange={(rail) => setFilter({ rail })} />
+        <Chips label="Booking" options={PROVIDER_OPTIONS} value={filters.provider} onChange={(provider) => setFilter({ provider })} />
+        <Chips label="Status" options={PLACE_STATUS_OPTIONS} value={filters.status} onChange={(status) => setFilter({ status })} />
+        <div className="admin-row" style={{ alignItems: 'center' }}>
+          <SortSelect options={PLACE_SORT_OPTIONS} value={filters.sort} onChange={(sort) => setFilter({ sort })} />
+          {(searched || filters.rail || filters.provider || filters.status || filters.letter) && (
+            <Button kind="quiet" onClick={() => { setListQuery(''); setFilters(NO_PLACE_FILTERS); }}>Clear filters</Button>
+          )}
+        </div>
+        <LetterBar available={page.letters} value={filters.letter} onChange={(letter) => setFilter({ letter })} />
         {places === null ? <p className="admin-muted">Loading…</p> : places.length === 0 ? (
-          <p className="admin-muted">Nothing listed yet.</p>
+          <p className="admin-muted">{page.total === 0 && !searched && !filters.rail && !filters.provider && !filters.status && !filters.letter ? 'Nothing listed yet.' : 'No places match. Try fewer filters.'}</p>
         ) : (
           <ul className="admin-list">
             {places.map((p) => (
@@ -784,6 +839,9 @@ function PlacesTab() {
               </li>
             ))}
           </ul>
+        )}
+        {places && places.length > 0 && (
+          <Pager offset={filters.offset} limit={page.limit} total={page.total} onChange={(offset) => setFilters((current) => ({ ...current, offset }))} />
         )}
       </Card>
 
@@ -1124,17 +1182,31 @@ function VendorsTab({ onCount }: { onCount: (awaiting: number) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
+  const [filters, setFilters] = useState<VendorFilters>(NO_VENDOR_FILTERS);
+  const [listQuery, setListQuery] = useState('');
+  const searched = useDebounced(listQuery.trim());
+  const [page, setPage] = useState<{ total: number; limit: number; letters: string[]; attention: VendorsAttention | null }>(
+    { total: 0, limit: 50, letters: [], attention: null });
+  const setFilter = (change: Partial<VendorFilters>) => setFilters((current) => ({ ...current, offset: 0, ...change }));
 
   const load = useCallback(async () => {
     try {
-      const result = await trpc.admin.vendors.list.query();
+      const result = await trpc.admin.vendors.list.query({
+        ...(searched ? { query: searched } : {}),
+        ...(filters.status ? { status: filters.status } : {}),
+        ...(filters.letter ? { letter: filters.letter } : {}),
+        sort: filters.sort, offset: filters.offset,
+      });
       setVendors(result.sellers);
+      setPage({ total: result.total ?? result.sellers.length, limit: result.limit ?? 50, letters: result.letters ?? [], attention: result.attention ?? null });
       onCount(result.awaiting);
     } catch (err) {
       setError(errorText(err));
     }
-  }, [onCount]);
+  }, [onCount, searched, filters]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setFilters((current) => (current.offset === 0 ? current : { ...current, offset: 0 })); }, [searched]);
+  const attentionItems = page.attention ? VENDOR_ATTENTION.filter((a) => page.attention![a.id] > 0) : [];
 
   const approve = async (v: Vendor) => {
     setBusy(v.sellerId); setError(null);
@@ -1171,8 +1243,28 @@ function VendorsTab({ onCount }: { onCount: (awaiting: number) => void }) {
       <NewVendorForm onCreated={load} />
       {error && <p className="admin-warn">{error}</p>}
       {removed && <p className="admin-small">{removed}</p>}
+      {attentionItems.length > 0 && (
+        <div className="admin-stack admin-attention" style={{ gap: 8 }}>
+          <p className="admin-strong">Needs attention</p>
+          {attentionItems.map((a) => (
+            <div key={a.id} className="admin-attention-item">
+              <p>{page.attention![a.id]} {a.label(page.attention![a.id])}</p>
+              <Button kind="quiet" onClick={() => setFilter({ status: a.id, letter: null })}>Show</Button>
+            </div>
+          ))}
+        </div>
+      )}
+      <SearchBox value={listQuery} onChange={setListQuery} placeholder="Search businesses by name, email or address" />
+      <Chips label="Status" options={VENDOR_STATUS_OPTIONS} value={filters.status} onChange={(status) => setFilter({ status })} />
+      <div className="admin-row" style={{ alignItems: 'center' }}>
+        <SortSelect options={VENDOR_SORT_OPTIONS} value={filters.sort} onChange={(sort) => setFilter({ sort })} />
+        {(searched || filters.status || filters.letter) && (
+          <Button kind="quiet" onClick={() => { setListQuery(''); setFilters(NO_VENDOR_FILTERS); }}>Clear filters</Button>
+        )}
+      </div>
+      <LetterBar available={page.letters} value={filters.letter} onChange={(letter) => setFilter({ letter })} />
       {vendors === null ? <p className="admin-muted">Loading…</p> : vendors.length === 0 ? (
-        <p className="admin-muted">No businesses yet.</p>
+        <p className="admin-muted">{searched || filters.status || filters.letter ? 'No businesses match. Try fewer filters.' : 'No businesses yet.'}</p>
       ) : (
         <ul className="admin-list">
           {vendors.map((v) => (
@@ -1211,6 +1303,9 @@ function VendorsTab({ onCount }: { onCount: (awaiting: number) => void }) {
             </li>
           ))}
         </ul>
+      )}
+      {vendors && vendors.length > 0 && (
+        <Pager offset={filters.offset} limit={page.limit} total={page.total} onChange={(offset) => setFilters((current) => ({ ...current, offset }))} />
       )}
     </Card>
     </>

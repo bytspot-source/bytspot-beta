@@ -946,12 +946,31 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         }
     }
 
+    func testAIConsentIsRememberedSeparatelyForConciergeAndDishPhotos() {
+        let suite = "ai-consent-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        XCTAssertFalse(NativeAIConsentStore.hasAllowed(.concierge, defaults: defaults))
+        XCTAssertFalse(NativeAIConsentStore.hasAllowed(.dishPhoto, defaults: defaults))
+        XCTAssertEqual(NativeAIConsentFeature.concierge.promptTitle, "Send this to OpenAI?")
+        XCTAssertTrue(NativeAIConsentFeature.concierge.promptMessage.contains("OpenAI"))
+        XCTAssertTrue(NativeAIConsentFeature.concierge.promptMessage.contains("location if you shared it"))
+        XCTAssertEqual(NativeAIConsentFeature.dishPhoto.promptMessage, NativeDishPhotoContract.disclosure)
+        XCTAssertTrue(NativeDishPhotoContract.disclosure.contains("OpenAI"))
+        XCTAssertTrue(NativeDishPhotoContract.disclosure.contains("does not save the photo"))
+        NativeAIConsentStore.allow(.concierge, defaults: defaults)
+        XCTAssertTrue(NativeAIConsentStore.hasAllowed(.concierge, defaults: defaults))
+        XCTAssertFalse(NativeAIConsentStore.hasAllowed(.dishPhoto, defaults: defaults))
+        defaults.removePersistentDomain(forName: suite)
+    }
+
     func testUnsignedModelDoesNotAppendPrivateHistoryOrStartSearch() {
         let model = NativeConciergeModel()
         model.draft = "Coffee near me"
         model.send(model.draft)
         XCTAssertTrue(model.turns.isEmpty)
         XCTAssertFalse(model.isSearching)
+        XCTAssertNil(model.pendingAIConsent)
         XCTAssertEqual(model.notice, "Sign in to search for nearby places.")
         model.clear()
         XCTAssertTrue(model.draft.isEmpty)

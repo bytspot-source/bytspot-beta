@@ -176,7 +176,7 @@ export function NotificationSettings({ isDarkMode, onBack }: NotificationSetting
               {subscribing ? <Loader2 className="w-5 h-5 text-purple-300 animate-spin" strokeWidth={2.5} /> : <BellRing className="w-5 h-5 text-purple-300" strokeWidth={2.5} />}
               <div className="text-left flex-1">
                 <p className="text-[14px] text-white" style={{ fontWeight: 600 }}>Enable Push Notifications</p>
-                <p className="text-[12px] text-white/60" style={{ fontWeight: 400 }}>Get real-time crowd alerts in your browser</p>
+                <p className="text-[12px] text-white/60" style={{ fontWeight: 400 }}>Get alerts about places you follow</p>
               </div>
             </motion.button>
           )}

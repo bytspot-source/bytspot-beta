@@ -215,6 +215,46 @@ enum NativeDishPhotoContract {
     }
 }
 
+/// One-time, on-device permission before the first Concierge question or dish photo.
+/// Allow is remembered on this iPhone. Not now sends nothing and asks again next time.
+enum NativeAIConsentFeature: String, Equatable {
+    case concierge
+    case dishPhoto
+
+    var storageKey: String {
+        switch self {
+        case .concierge: return "bytspot_ai_consent_concierge"
+        case .dishPhoto: return "bytspot_ai_consent_dish_photo"
+        }
+    }
+
+    var promptTitle: String {
+        switch self {
+        case .concierge: return "Send this to OpenAI?"
+        case .dishPhoto: return "Send this photo to OpenAI?"
+        }
+    }
+
+    var promptMessage: String {
+        switch self {
+        case .concierge:
+            return "Your question, the recent messages in this chat, your location if you shared it, and preferences saved on this iPhone are sent to OpenAI to suggest places."
+        case .dishPhoto:
+            return NativeDishPhotoContract.disclosure
+        }
+    }
+}
+
+enum NativeAIConsentStore {
+    static func hasAllowed(_ feature: NativeAIConsentFeature, defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: feature.storageKey)
+    }
+
+    static func allow(_ feature: NativeAIConsentFeature, defaults: UserDefaults = .standard) {
+        defaults.set(true, forKey: feature.storageKey)
+    }
+}
+
 struct NativeDishIdentification: Decodable, Equatable {
     enum Status: String, Decodable { case identified, uncertain, notFood = "not_food", invalidPhoto = "invalid_photo", unavailable }
     enum Confidence: String, Decodable { case high, medium, low }

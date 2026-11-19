@@ -43,8 +43,8 @@ const discoveryStages: DiscoveryStage[] = [
   },
   {
     id: 'realtime',
-    title: 'Live Data Integration',
-    description: 'Fetching real-time availability and pricing',
+    title: 'Place details',
+    description: 'Fetching typical busyness, availability, and pricing',
     icon: <TrendingUp className="w-6 h-6" />,
     progress: 80,
     color: 'from-green-500 to-emerald-500',

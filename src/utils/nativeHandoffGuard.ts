@@ -12,7 +12,11 @@ const APP_HOSTS = new Set(['bytspot.app', 'www.bytspot.app', 'bytspot.com', 'www
 const PATCH_PATHS = new Set(['p', 'patch', 't']);
 const PATCH_QUERY_KEYS = ['patchId', 'patch', 'p'];
 const ACCESS_COMPATIBILITY_PATHS = new Set(['access', 'patch', 'clip']);
-const LEGAL_PATHS = new Set(['privacy', 'terms', 'disclaimer', 'support']);
+const LEGAL_PATHS = new Set(['privacy', 'terms', 'disclaimer', 'support', 'refunds']);
+
+/** Homepage handoff. The product covers the whole day, brunch through after hours. */
+export const HOME_HANDOFF_TITLE = "Plan your day out. Send one link. Everyone's in.";
+export const HOME_HANDOFF_SUBTITLE = 'From brunch through after hours, including day outings. Find places nearby, make a plan, and send one link. Free on iPhone.';
 
 function isLikelyBytspotTag(value: string | undefined): boolean {
   return Boolean(value && /^BYT[A-Z0-9_-]{2,}$/i.test(value));
@@ -133,8 +137,8 @@ export function nativeHandoffContext(rawUrl: string): NativeHandoffContext | nul
   cloneQuery(url, nativeURL);
   return {
     kind: 'app',
-    title: 'Plan the night with Bytspot',
-    subtitle: 'Find places nearby, make plans with friends, and join parties. Free on iPhone.',
+    title: HOME_HANDOFF_TITLE,
+    subtitle: HOME_HANDOFF_SUBTITLE,
     appArgument: url.toString(),
     appSchemeURL: nativeURL.toString(),
   };

@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test';
 
 /**
- * The web surface is a kill-switch plus four legal pages. Everything the old
+ * The web surface is a kill-switch plus legal pages. Everything the old
  * Playwright smoke suite drove — Map, provider, vendor, Google sign-in — is a
  * retired PWA, so this gate protects what actually ships instead.
  */
 
-const LEGAL_PATHS = ['/privacy', '/terms', '/disclaimer', '/support'] as const;
+const LEGAL_PATHS = ['/privacy', '/terms', '/disclaimer', '/support', '/refunds'] as const;
 
 test.describe('Retired PWA stays retired', () => {
   for (const path of ['/', '/map', '/provider', '/vendor', '/host'] as const) {
@@ -18,6 +18,11 @@ test.describe('Retired PWA stays retired', () => {
       await expect(page.getByRole('link', { name: 'Open in Bytspot' })).toHaveCount(0);
       await expect(page.locator('#root')).toContainText('Bytspot is available on iPhone.');
       await expect(page.locator('#root')).not.toContainText(/old (web|React) app/);
+      if (path === '/') {
+        await expect(page.getByRole('heading', { level: 1 })).toHaveText("Plan your day out. Send one link. Everyone's in.");
+        await expect(page.locator('#root')).toContainText('From brunch through after hours, including day outings.');
+        await expect(page.getByRole('link', { name: 'Refunds' })).toHaveAttribute('href', '/refunds');
+      }
     });
   }
 
@@ -68,5 +73,33 @@ test.describe('Legal pages still load', () => {
     await page.goto('/privacy/');
     await expect(page.locator('#root')).not.toBeEmpty();
     await expect(page.locator('[data-native-handoff]')).toHaveCount(0);
+  });
+
+  test('/refunds shows the pass refund policy and links to Terms', async ({ page }) => {
+    await page.goto('/refunds');
+    await expect(page.locator('[data-native-handoff]')).toHaveCount(0);
+    await expect(page.getByRole('heading', { level: 1, name: 'Refunds' })).toBeVisible();
+    await expect(page.locator('#root')).toContainText('eligible for a refund to the original payment method, which Bytspot will process');
+    await expect(page.locator('#root')).toContainText('Our goal is to process an eligible refund within 10 business days');
+    await expect(page.locator('#root')).not.toContainText(/refunded automatically/i);
+    await expect(page.locator('a[href="/terms#refunds"]')).toBeVisible();
+  });
+
+  test('/disclaimer describes typical busyness and defers liability to the Terms', async ({ page }) => {
+    await page.goto('/disclaimer');
+    await expect(page.getByRole('heading', { level: 1, name: 'Disclaimer' })).toBeVisible();
+    await expect(page.locator('#root')).toContainText('typical pattern for that hour');
+    await expect(page.locator('#root')).toContainText('Bytspot Inc., a Delaware corporation');
+    await expect(page.locator('#root')).toContainText('section 7 of the');
+    await expect(page.locator('#root')).not.toContainText(/real-time crowd|sensor data/i);
+    await expect(page.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms');
+  });
+
+  test('/terms#refunds shows the same refund policy', async ({ page }) => {
+    await page.goto('/terms#refunds');
+    const section = page.locator('#refunds');
+    await expect(section).toContainText('eligible for a refund to the original payment method, which Bytspot will process');
+    await expect(section).not.toContainText(/refunded automatically/i);
+    await expect(page.getByRole('heading', { level: 1, name: 'Terms of Service' })).toBeVisible();
   });
 });

@@ -116,7 +116,7 @@ export function MapMenuSlideUp({
     } else {
       const messages: Record<MapFunction, string> = {
         'trending-hotspots': '🔥 Loading trending hotspots near you...',
-        'live-venue-data': '📊 Fetching real-time venue data...',
+        'live-venue-data': '📊 Fetching venue details...',
         'smart-parking': '🚗 Finding available parking spots...',
         'ai-navigation': '🧠 Calculating optimal route...',
         'spot-radar': '📡 Scanning for hidden gems...',

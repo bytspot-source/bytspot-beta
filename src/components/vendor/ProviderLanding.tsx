@@ -50,7 +50,7 @@ export function ProviderLanding({ isDarkMode, onGetStarted, onBackToMain }: Prov
       icon: TrendingUp,
       title: 'AI-Optimized Pricing',
       teaser: 'Never leave money on the table',
-      description: 'Bytspot\'s pricing engine monitors local demand, events, and competitor rates in real time — automatically adjusting your price to maximize revenue. Providers who use dynamic pricing earn up to 40% more than those with fixed rates.',
+      description: 'Bytspot\'s pricing engine can use local demand, events, and competitor rates when it suggests a price. Providers who use dynamic pricing earn up to 40% more than those with fixed rates.',
       gradient: 'from-orange-500 to-red-500',
     },
     {
@@ -62,9 +62,9 @@ export function ProviderLanding({ isDarkMode, onGetStarted, onBackToMain }: Prov
     },
     {
       icon: BarChart2,
-      title: 'Live Analytics Dashboard',
+      title: 'Analytics Dashboard',
       teaser: 'Know exactly what\'s working',
-      description: 'Your Provider dashboard gives you a real-time view of bookings, occupancy rates, and earnings trends. Spot your busiest hours, track monthly growth, and export reports — all from one clean mobile interface.',
+      description: 'Your Provider dashboard shows bookings and earnings. Spot your busiest hours, track monthly growth, and export reports — all from one clean mobile interface.',
       gradient: 'from-yellow-500 to-amber-500',
     },
   ];

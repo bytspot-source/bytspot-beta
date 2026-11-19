@@ -1123,6 +1123,7 @@ function VendorsTab({ onCount }: { onCount: (awaiting: number) => void }) {
   const [vendors, setVendors] = useState<Vendor[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [removed, setRemoved] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -1169,6 +1170,7 @@ function VendorsTab({ onCount }: { onCount: (awaiting: number) => void }) {
       <p className="admin-muted">A business goes live only after you approve it. Approving early lets it go live the moment it finishes setting up.</p>
       <NewVendorForm onCreated={load} />
       {error && <p className="admin-warn">{error}</p>}
+      {removed && <p className="admin-small">{removed}</p>}
       {vendors === null ? <p className="admin-muted">Loading…</p> : vendors.length === 0 ? (
         <p className="admin-muted">No businesses yet.</p>
       ) : (
@@ -1196,7 +1198,7 @@ function VendorsTab({ onCount }: { onCount: (awaiting: number) => void }) {
                 <p className="admin-small">Joined {dateLabel(v.createdAt)}{v.approvedAt ? ` · Approved ${dateLabel(v.approvedAt)}` : ''}</p>
                 <p className="admin-small">{v.videoHostingAt ? `Premium video hosting since ${dateLabel(v.videoHostingAt)}` : 'No premium video hosting'}</p>
                 <VendorBands vendor={v} onChanged={load} />
-                <VendorDecisions vendor={v} onChanged={load} />
+                <VendorDecisions vendor={v} onChanged={load} onRemoved={setRemoved} />
               </div>
               <div className="admin-inline">
                 {!v.approvedAt && (

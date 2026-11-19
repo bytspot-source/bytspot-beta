@@ -146,6 +146,13 @@ const MISSING_LABELS: Record<string, string> = {
   legalName: 'Business name', contactEmail: 'Contact email', activeLocation: 'A live place', payoutAccount: 'Payout account',
 };
 
+/** Same rule as the API: ignores case, extra spaces and curly or straight apostrophes. */
+export function sameBusinessName(typed: string, name: string): boolean {
+  const plain = (value: string) => value.normalize('NFKC').replace(/[\u2018\u2019\u02BC\u0060\u00B4]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"').replace(/\s+/g, ' ').trim().toLowerCase();
+  return plain(typed) === plain(name);
+}
+
 function errorText(error: unknown): string {
   const code = (error as { data?: { code?: string } })?.data?.code;
   if (code === 'UNAUTHORIZED') return 'Sign in again.';
@@ -1036,7 +1043,7 @@ function VendorPlaceLink({ location, onChanged }: { location: VendorLocationRow;
 }
 
 /** Disapprove, restore, resend the owner invite, or close a business for good. */
-function VendorDecisions({ vendor, onChanged }: { vendor: Vendor; onChanged: () => Promise<void> }) {
+function VendorDecisions({ vendor, onChanged, onRemoved }: { vendor: Vendor; onChanged: () => Promise<void>; onRemoved: (message: string) => void }) {
   const [mode, setMode] = useState<'none' | 'pause' | 'close'>('none');
   const [reason, setReason] = useState('');
   const [confirmName, setConfirmName] = useState('');
@@ -1068,6 +1075,9 @@ function VendorDecisions({ vendor, onChanged }: { vendor: Vendor; onChanged: () 
     const result = await trpc.admin.vendors.close.mutate({ sellerId: vendor.sellerId, confirmName });
     if (!result.closed) { setBlockers(result.blockers); return; }
     setMode('none'); setConfirmName(''); setBlockers([]);
+    onRemoved(result.deleted
+      ? `${vendor.legalName} was deleted. It had no bookings or payments, so nothing was kept.`
+      : `${vendor.legalName} was closed. Its past bookings and payouts are kept.`);
     await onChanged();
   });
 
@@ -1094,10 +1104,10 @@ function VendorDecisions({ vendor, onChanged }: { vendor: Vendor; onChanged: () 
       )}
       {mode === 'close' && (
         <div className="admin-stack">
-          <p className="admin-warn">Closes {vendor.legalName} for good. It disappears from guests and from this list, and its sign-in stops working. Past bookings and payouts are kept. This cannot be undone.</p>
+          <p className="admin-warn">Removes {vendor.legalName} from guests and from this list, and its sign-in stops working. If it never had a booking, ticket or payment, it is deleted completely and the owner can be invited again. Otherwise it is closed and its past bookings and payouts are kept. This cannot be undone.</p>
           <div className="admin-inline">
             <input className={input} placeholder={`Type ${vendor.legalName} to confirm`} value={confirmName} onChange={(e) => setConfirmName(e.target.value)} />
-            <Button disabled={busy || confirmName.trim().toLowerCase() !== vendor.legalName.toLowerCase()} onClick={close}>{busy ? 'Closing…' : 'Close for good'}</Button>
+            <Button disabled={busy || !sameBusinessName(confirmName, vendor.legalName)} onClick={close}>{busy ? 'Deleting…' : 'Delete for good'}</Button>
           </div>
           {blockers.length > 0 && <p className="admin-warn">Can't close yet. Still open: {blockers.join(', ')}.</p>}
         </div>

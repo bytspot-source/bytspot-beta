@@ -85,6 +85,16 @@ test.describe('Legal pages still load', () => {
     await expect(page.locator('a[href="/terms#refunds"]')).toBeVisible();
   });
 
+  test('/disclaimer describes typical busyness and defers liability to the Terms', async ({ page }) => {
+    await page.goto('/disclaimer');
+    await expect(page.getByRole('heading', { level: 1, name: 'Disclaimer' })).toBeVisible();
+    await expect(page.locator('#root')).toContainText('typical pattern for that hour');
+    await expect(page.locator('#root')).toContainText('Bytspot Inc., a Delaware corporation');
+    await expect(page.locator('#root')).toContainText('section 7 of the');
+    await expect(page.locator('#root')).not.toContainText(/real-time crowd|sensor data/i);
+    await expect(page.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms');
+  });
+
   test('/terms#refunds shows the same refund policy', async ({ page }) => {
     await page.goto('/terms#refunds');
     const section = page.locator('#refunds');

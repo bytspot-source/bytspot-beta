@@ -2622,7 +2622,7 @@ private struct NativeProfilePanelSheet: View {
         case .termsOfService:
             return [("Terms summary", "Use Bytspot responsibly for venue, parking, and access services.", "doc.text.fill"), ("Your consent", "Payments and account changes require clear confirmation.", "checkmark.seal.fill"), ("Review anytime", "Terms stay available in Profile.", "checkmark.shield.fill")]
         case .disclaimer:
-            return [("Availability", "Crowd, parking, and access details can change in real time.", "exclamationmark.triangle.fill"), ("Safety", "Always follow posted venue and parking instructions.", "figure.walk"), ("Review anytime", "Disclaimer details stay available in Profile.", "checkmark.shield.fill")]
+            return [("Availability", "Busyness is a typical pattern for the hour, not a live reading, unless a screen says it is live.", "exclamationmark.triangle.fill"), ("Safety", "Always follow posted venue and parking instructions.", "figure.walk"), ("Review anytime", "Disclaimer details stay available in Profile.", "checkmark.shield.fill")]
         }
     }
 }
@@ -4551,16 +4551,16 @@ private enum NativeLegalDocument: CaseIterable, Identifiable {
     case privacyPolicy, termsOfService, disclaimer
     var id: String { title }
     var title: String { switch self { case .privacyPolicy: return "Privacy Policy"; case .termsOfService: return "Terms of Service"; case .disclaimer: return "Disclaimer" } }
-    var updated: String { switch self { case .privacyPolicy: return "April 3, 2026"; case .termsOfService: return "October 10, 2026"; case .disclaimer: return "April 13, 2026" } }
+    var updated: String { switch self { case .privacyPolicy, .termsOfService, .disclaimer: return "November 19, 2026" } }
     var contact: String { switch self { case .termsOfService: return "legal@bytspot.com"; default: return "support@bytspot.com" } }
     var sections: [(String, String, String)] {
         switch self {
         case .privacyPolicy:
-            return [("Information we collect", "Account information, when-in-use location, usage data, notification settings, and protected contact matching.", "lock.doc.fill"), ("How we use it", "Nearby venues, parking intelligence, opt-in alerts, authentication, and aggregated improvement.", "sparkles"), ("Your rights", "Delete your account, revoke permissions, and clear local preferences from Profile settings.", "hand.raised.fill")]
+            return [("Information we collect", "Account information, when-in-use location, usage data, notification settings, and protected contact matching.", "lock.doc.fill"), ("How we use it", "Nearby places and opt-in alerts. Concierge prompts and dish photos are sent to OpenAI to generate results.", "sparkles"), ("Your rights", "Delete your account, revoke permissions, and clear local preferences from Profile settings.", "hand.raised.fill")]
         case .termsOfService:
             return [("License", "Personal, non-commercial use of Bytspot with no copying, reverse engineering, or competing reuse.", "doc.text.fill"), ("Service notes", "Crowd, parking, AI, venue, payment, and provider information can change and needs user judgment.", "checkmark.seal.fill"), ("User conduct", "Use Bytspot lawfully, keep account credentials safe, and do not interfere with app security.", "person.crop.circle.badge.checkmark"), ("Objectionable content", "There is no tolerance for objectionable content or abusive users. You can report any member, party, review or Private Sale from its menu, and block any member. We review reports within 24 hours; content that breaks these Terms is removed and accounts that post it are suspended or removed. Safety concerns: bytspotapp@gmail.com.", "exclamationmark.shield.fill")]
         case .disclaimer:
-            return [("Accuracy of data", "Crowd levels, wait times, venue details, and availability are estimates and may differ in real time.", "chart.bar.fill"), ("Parking information", "Always verify posted signs, pricing, availability, and physical lot rules before parking.", "parkingsign.circle.fill"), ("AI recommendations", "Concierge and recommendation outputs are informational and should not be the sole basis for safety decisions.", "sparkles")]
+            return [("Accuracy of data", "Busyness is a typical pattern for the hour and may be inaccurate. It is not a live reading unless a screen says it is live.", "chart.bar.fill"), ("Parking information", "Always verify posted signs, pricing, availability, and physical lot rules before parking.", "parkingsign.circle.fill"), ("AI recommendations", "Concierge and recommendation outputs are informational and should not be the sole basis for safety decisions.", "sparkles")]
         }
     }
 }
@@ -20351,7 +20351,7 @@ enum NativeConciergeRegionPresentation {
     static let genericWelcomeMessage = "Ask for anything nearby, or send a photo of a dish."
     static let openingTitle = "What are you in the mood for?"
     static let statusLabels = ["Ready", "Searching nearby…", "Search unavailable", "Sign in to search"]
-    static let privacyNotice = "Concierge sends your messages, location and saved preferences to Bytspot to search. AI and place-search providers may process them. This chat stays in memory on this device until you clear it, sign out, change area, or leave the app in the background for 30 minutes."
+    static let privacyNotice = "Concierge sends your question, your location if you shared it, and preferences saved on this iPhone to OpenAI to suggest places. A dish photo is sent to OpenAI only after you allow it, and Bytspot does not save that photo. This chat stays in memory on this device until you clear it, sign out, change area, or leave the app in the background for 30 minutes."
 
     static func isVerifiedAtlanta(_ location: NativeLocationCoordinate) -> Bool {
         !location.isFallback && NativeHomeRegionPresentation.isAtlanta(location)
@@ -20436,6 +20436,10 @@ final class NativeConciergeModel: ObservableObject {
     @Published private(set) var identification: NativeDishIdentification?
     @Published private(set) var photoNotice: String?
     @Published private(set) var canRetryPhoto = false
+    /// Shown once before the first Concierge question or dish photo. Nil means nothing is waiting.
+    @Published var pendingAIConsent: NativeAIConsentFeature?
+    var aiConsentDefaults: UserDefaults = .standard
+    private var deferredConciergeSend: (text: String, notes: [String])?
     private var photoJPEG: Data?
     private var photoTask: Task<Void, Never>?
     private var photoGeneration = UUID()
@@ -20559,6 +20563,8 @@ final class NativeConciergeModel: ObservableObject {
         pendingArrival = nil
         notice = nil
         canRetry = false
+        pendingAIConsent = nil
+        deferredConciergeSend = nil
         detailVenue = nil
         scrollAnchor = nil
         searchState = .idle
@@ -20620,6 +20626,10 @@ final class NativeConciergeModel: ObservableObject {
     func identifyPhoto() {
         guard let jpeg = photoJPEG, !isIdentifying, let session, session.canAttachBearerToken,
               let accountID = session.authenticatedUserID else { return }
+        guard NativeAIConsentStore.hasAllowed(.dishPhoto, defaults: aiConsentDefaults) else {
+            pendingAIConsent = .dishPhoto
+            return
+        }
         let authorization = session.token
         let generation = UUID()
         photoGeneration = generation
@@ -20843,6 +20853,36 @@ final class NativeConciergeModel: ObservableObject {
             notice = isSignedIn ? NativeConciergeContract.locationRequired : "Sign in to search for nearby places."
             return
         }
+        guard NativeAIConsentStore.hasAllowed(.concierge, defaults: aiConsentDefaults) else {
+            deferredConciergeSend = (text, suggestionNotes)
+            pendingAIConsent = .concierge
+            return
+        }
+        commitSend(text, suggestionNotes: suggestionNotes)
+    }
+
+    /// Remember Allow for this feature, then send the question or photo that was waiting.
+    func allowAIConsent() {
+        guard let feature = pendingAIConsent else { return }
+        let waiting = deferredConciergeSend
+        NativeAIConsentStore.allow(feature, defaults: aiConsentDefaults)
+        pendingAIConsent = nil
+        deferredConciergeSend = nil
+        switch feature {
+        case .concierge:
+            if let waiting { commitSend(waiting.text, suggestionNotes: waiting.notes) }
+        case .dishPhoto:
+            identifyPhoto()
+        }
+    }
+
+    /// Not now. Nothing is sent. The next attempt asks again.
+    func declineAIConsent() {
+        pendingAIConsent = nil
+        deferredConciergeSend = nil
+    }
+
+    private func commitSend(_ text: String, suggestionNotes: [String]) {
         activeSuggestionNotes = suggestionNotes.filter { !NativeConciergeSuggestionCopy.claimsScarcity($0) }
         turns.append(Turn(message: NativeConciergeMessage(role: .user, content: text)))
         turns = Array(turns.suffix(NativeConciergeContract.maximumMessages))
@@ -20998,6 +21038,15 @@ private struct NativeConciergeView: View {
                                  fixedPlan: model.savedPlan.map { NativeWindowAskPlanChoice(id: $0.planID, title: $0.title) })
         }
         .accessibilityIdentifier("native-concierge-preview")
+        .alert(model.pendingAIConsent?.promptTitle ?? "", isPresented: Binding(
+            get: { model.pendingAIConsent != nil },
+            set: { _ in }
+        )) {
+            Button("Allow") { model.allowAIConsent() }
+            Button("Not now", role: .cancel) { model.declineAIConsent() }
+        } message: {
+            Text(model.pendingAIConsent?.promptMessage ?? "")
+        }
     }
 
     private var conciergeHeader: some View {

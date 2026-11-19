@@ -172,6 +172,17 @@ test('published legal pages do not promise an automatic refund', () => {
   assert.match(terms, /Last updated: November 19, 2026/);
   assert.match(privacy, /Last updated: November 19, 2026/);
   assert.match(refunds, /href="\/terms#refunds"/);
+  const disclaimer = readFileSync(new URL('../../components/Disclaimer.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(disclaimer, /real-time crowd|sensor data/i);
+  assert.match(disclaimer, /typical pattern for that hour/);
+  assert.match(disclaimer, /section 7 of the/);
+  assert.match(disclaimer, /Bytspot Inc\., a Delaware corporation/);
+  assert.match(disclaimer, /Last updated: November 19, 2026/);
+  assert.match(terms, /18 or older to buy a pass/);
+  assert.match(terms, /weapons; drugs and drug paraphernalia/);
+  assert.match(privacy, /dish photo finder/);
+  assert.match(privacy, /protect personal information at least as well as this policy/);
+  assert.match(privacy, /18 or older to buy a pass/);
 });
 
 test('a trailing slash on a legal path never reopens the retired web app', () => {

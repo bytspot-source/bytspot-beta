@@ -1,27 +1,26 @@
 /**
- * Disclaimer — accuracy disclaimer for crowd data, parking prices, AI recommendations.
+ * Disclaimer — accuracy disclaimer for typical busyness, parking, and AI suggestions.
  * Accessible at /disclaimer (no auth required).
- * Last updated: 2026-04-13
+ * Last updated: 2026-11-19
  */
 export function Disclaimer() {
   return (
     <div className="min-h-screen bg-black text-white/90 px-6 py-12 max-w-2xl mx-auto leading-relaxed">
       <h1 className="text-3xl font-bold mb-2">Disclaimer</h1>
-      <p className="text-white/50 text-sm mb-8">Last updated: April 13, 2026</p>
+      <p className="text-white/50 text-sm mb-8">Last updated: November 19, 2026</p>
 
       <p className="mb-6">
-        Bytspot ("App") provides real-time crowd data, parking information, venue details, and
-        AI-powered recommendations for informational purposes only. By using the App, you
-        acknowledge and agree to the following disclaimers.
+        The Bytspot app ("App"), operated by Bytspot Inc., a Delaware corporation, shows places,
+        typical busyness by hour, parking information, venue details, and AI-powered suggestions
+        for informational purposes only. By using the App, you acknowledge and agree to the following.
       </p>
 
       <Section title="1. Accuracy of Data">
         <p className="mb-3">
-          Crowd levels, wait times, and venue capacity indicators displayed in the App are
-          <strong> estimates</strong> based on aggregated data sources including user reports,
-          sensor data, and algorithmic modeling. These figures may not reflect actual real-time
-          conditions. Bytspot does not guarantee the accuracy, completeness, or timeliness of
-          any crowd data shown.
+          Busyness shown in the App is a typical pattern for that hour. It is an estimate and may
+          be inaccurate. It is not a live reading of who is there right now, and it does not come
+          from sensors, unless the screen clearly labels that figure as live. Bytspot does not
+          guarantee that any busyness, wait, or capacity figure matches the conditions you will find.
         </p>
       </Section>
 
@@ -66,19 +65,19 @@ export function Disclaimer() {
       <Section title="6. No Professional Advice">
         <p className="mb-3">
           Nothing in the App constitutes professional advice (legal, financial, safety, or
-          otherwise). The App is a convenience tool for discovering venues, checking crowd
-          conditions, and finding parking. Users should exercise their own judgment and due
+          otherwise). The App is a convenience tool for discovering venues, seeing typical
+          busyness, and finding parking. Users should exercise their own judgment and due
           diligence.
         </p>
       </Section>
 
       <Section title="7. Limitation of Liability">
         <p className="mb-3">
-          To the maximum extent permitted by applicable law, Bytspot and its officers, directors,
-          employees, and agents shall not be liable for any direct, indirect, incidental, special,
-          consequential, or punitive damages arising out of or relating to your use of the App,
-          including but not limited to reliance on crowd data, parking information, AI
-          recommendations, or venue details.
+          Liability for your use of the App is limited as stated in section 7 of the{' '}
+          <a href="/terms" className="text-cyan-400 underline">Terms of Service</a>{' '}
+          (Limitation of Liability). That section is the limit that applies, including the cap
+          of the amount you paid to us in the twelve (12) months before the claim, or fifty US
+          dollars ($50), whichever is greater. This Disclaimer does not replace or widen that limit.
         </p>
       </Section>
 
@@ -90,8 +89,11 @@ export function Disclaimer() {
       </Section>
 
       <div className="mt-12 pt-6 border-t border-white/10 text-white/40 text-xs">
-        <p>© {new Date().getFullYear()} Bytspot. All rights reserved.</p>
-        <p className="mt-1">Questions? Contact us at bytspotapp@gmail.com</p>
+        <p>© {new Date().getFullYear()} Bytspot Inc. All rights reserved.</p>
+        <p className="mt-1">
+          Questions? Contact us at bytspotapp@gmail.com. Mailing address: Bytspot Inc.,
+          8735 Dunwoody Place #13893, Atlanta, GA 30350, USA.
+        </p>
       </div>
     </div>
   );

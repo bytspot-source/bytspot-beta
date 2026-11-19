@@ -23,7 +23,7 @@ export function PrivacyPolicy() {
           <><B>Payments and purchases</B> — When you buy a party pass or ticket, or save a card, payment is handled by Stripe. We receive the card brand, last four digits, expiry, and your purchase history. We never see or store full card numbers. Hosts who are paid through Bytspot provide payout details to Stripe.</>,
           <><B>Content you create</B> — Plans, parties, Private Sale listings, reviews, photos, reports, and messages you send in the App.</>,
           <><B>Check-ins and points</B> — Where and when you check in, and the points you earn.</>,
-          <><B>Concierge and voice</B> — Questions you ask the AI Concierge. If you use voice input, your speech is converted to text and used the same way as a typed request.</>,
+          <><B>Concierge and voice</B> — Questions you ask the AI Concierge, and a photo if you use the dish photo finder. If you use voice input, your speech is converted to text and used the same way as a typed request. What is sent to OpenAI is described under Service Providers.</>,
           <><B>Device and app activity</B> — Your push notification token if you turn on notifications, how you use features, and crash and error reports.</>,
         ]} />
       </Section>
@@ -53,14 +53,14 @@ export function PrivacyPolicy() {
         <p className="mb-3">We share information only with providers that help us run the App:</p>
         <BulletList items={[
           <><B>Stripe</B> — payments, saved cards, refunds, and host payouts.</>,
-          <><B>OpenAI</B> — AI Concierge answers. Your question and venue information are sent; your contacts and location history are not.</>,
+          <><B>OpenAI</B> — the AI Concierge and the dish photo finder, so OpenAI can generate the results. For the Concierge, we send your prompt and the recent messages in that chat, your location if you shared it for the search, and preferences saved on your device. For the dish photo finder, we send the photo. Bytspot does not save that photo. We do not send your contacts or your location history.</>,
           <><B>Google</B> — place details and photos, and Google sign-in if you use it.</>,
           <><B>Apple</B> — Sign in with Apple and push notifications.</>,
           <><B>Resend</B> — sign-in codes and account email.</>,
           <><B>Sentry</B> — crash and error reports.</>,
           <><B>Render</B> and <B>Cloudflare</B> — hosting, storage, and network security.</>,
         ]} />
-        <p className="mt-3">We do not sell your personal information, and we do not use it to track you across other companies' apps or websites.</p>
+        <p className="mt-3">Service providers are required to protect personal information at least as well as this policy. We do not sell your personal information, and we do not use it to track you across other companies' apps or websites.</p>
       </Section>
 
       <Section title="5. Storage and Security">
@@ -83,6 +83,7 @@ export function PrivacyPolicy() {
       <Section title="7. Children">
         <p>
           Bytspot is not meant for children under 13, and we do not knowingly collect their information.
+          You must be 18 or older to buy a pass, host a party, or buy or sell in Private Sales.
           Parties with alcohol are for guests 21 and older. If we learn an account belongs to a child under 13, we remove it.
         </p>
       </Section>

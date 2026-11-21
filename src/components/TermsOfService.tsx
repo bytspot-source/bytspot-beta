@@ -180,7 +180,7 @@ export function TermsOfService() {
       <Section title="15. Contact Us">
         <p>
           Questions about these Terms? Contact us at{' '}
-          <a href="mailto:legal@bytspot.com" className="text-blue-400 underline">legal@bytspot.com</a>.
+          <a href="mailto:update@bytspot.app" className="text-blue-400 underline">update@bytspot.app</a>.
           To report abuse or a safety concern, email{' '}
           <a href="mailto:update@bytspot.app" className="text-blue-400 underline">update@bytspot.app</a>.
           Mailing address: Bytspot Inc., 8735 Dunwoody Place #13893, Atlanta, GA 30350, USA.

@@ -4552,7 +4552,7 @@ private enum NativeLegalDocument: CaseIterable, Identifiable {
     var id: String { title }
     var title: String { switch self { case .privacyPolicy: return "Privacy Policy"; case .termsOfService: return "Terms of Service"; case .disclaimer: return "Disclaimer" } }
     var updated: String { switch self { case .privacyPolicy, .termsOfService, .disclaimer: return "November 19, 2026" } }
-    var contact: String { switch self { case .termsOfService: return "legal@bytspot.com"; default: return "support@bytspot.com" } }
+    var contact: String { "update@bytspot.app" }
     var sections: [(String, String, String)] {
         switch self {
         case .privacyPolicy:
@@ -6862,7 +6862,7 @@ private struct NativeBoutiqueStayWalletSection: View {
 
     private func contactHost(_ stay: NativeStayRequestRecord) {
         guard let subject = "Stay \(stay.requestCode) · \(stay.venueName)".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "mailto:host@bytspot.com?subject=\(subject)") else { return }
+              let url = URL(string: "mailto:update@bytspot.app?subject=\(subject)") else { return }
         UIApplication.shared.open(url)
     }
 

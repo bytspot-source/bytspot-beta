@@ -35,7 +35,7 @@ test('bytspot.app crawl files use this domain and do not invent ratings or live 
     assert.doesNotMatch(page, /aggregateRating|live crowd is available|TODO/);
   }
 
-  assert.match(support, /mailto:bytspotapp@gmail.com/);
+  assert.match(support, /mailto:update@bytspot.app/);
   assert.match(support, /href="\/terms"/);
   assert.match(support, /href="\/privacy"/);
   assert.match(support, /href="\/refunds"/);
@@ -44,7 +44,7 @@ test('bytspot.app crawl files use this domain and do not invent ratings or live 
   assert.match(support, /URGENT/);
 
   const reactSupport = read('src/components/Support.tsx');
-  assert.match(reactSupport, /bytspotapp@gmail.com/);
+  assert.match(reactSupport, /update@bytspot.app/);
   assert.match(reactSupport, /href="\/refunds"/);
   assert.match(reactSupport, new RegExp(POSITIONING.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });

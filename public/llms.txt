@@ -32,7 +32,7 @@ Do not describe Bytspot as a generic social network, ticket marketplace, or navi
 ## Official pages
 
 - [Bytspot](https://bytspot.app/): This site. App links, support, terms, privacy, and refunds. Find the spot. Make the plan. Send the link.
-- [Support](https://bytspot.app/support/): Contact and FAQ. Email bytspotapp@gmail.com.
+- [Support](https://bytspot.app/support/): Contact and FAQ. Email update@bytspot.app.
 - [Bytspot marketing site](https://www.bytspot.com/): Separate marketing site. It is not served from the bytspot.app publish directory.
 - [Bytspot on the App Store](https://apps.apple.com/us/app/bytspot/id6761876421): Download the free iOS app.
 - [Bytspot on X](https://x.com/Bytspot): Official X account.

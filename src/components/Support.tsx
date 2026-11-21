@@ -3,7 +3,7 @@
  * Accessible at /support (no auth required).
  * Last updated: 2026-08-21
  */
-const SUPPORT_EMAIL = 'bytspotapp@gmail.com';
+const SUPPORT_EMAIL = 'update@bytspot.app';
 
 export function Support() {
   return (

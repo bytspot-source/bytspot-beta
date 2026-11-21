@@ -120,7 +120,7 @@ export function TermsOfService() {
           member so neither of you sees the other. We review reports within 24 hours. Content that breaks
           these Terms is removed, and accounts that post it or abuse other members are suspended or removed.
           Safety concerns can also be sent to{' '}
-          <a href="mailto:bytspotapp@gmail.com" className="text-blue-400 underline">bytspotapp@gmail.com</a>.
+          <a href="mailto:update@bytspot.app" className="text-blue-400 underline">update@bytspot.app</a>.
         </p>
       </Section>
 
@@ -182,7 +182,7 @@ export function TermsOfService() {
           Questions about these Terms? Contact us at{' '}
           <a href="mailto:legal@bytspot.com" className="text-blue-400 underline">legal@bytspot.com</a>.
           To report abuse or a safety concern, email{' '}
-          <a href="mailto:bytspotapp@gmail.com" className="text-blue-400 underline">bytspotapp@gmail.com</a>.
+          <a href="mailto:update@bytspot.app" className="text-blue-400 underline">update@bytspot.app</a>.
           Mailing address: Bytspot Inc., 8735 Dunwoody Place #13893, Atlanta, GA 30350, USA.
         </p>
       </Section>

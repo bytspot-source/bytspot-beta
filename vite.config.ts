@@ -1,4 +1,6 @@
 
+  import { existsSync, readFileSync } from 'node:fs';
+  import { fileURLToPath } from 'node:url';
   import { defineConfig, type Plugin } from 'vite';
   import react from '@vitejs/plugin-react-swc';
   import path from 'path';
@@ -19,8 +21,61 @@
     },
   });
 
+  const rootDir = path.dirname(fileURLToPath(import.meta.url));
+
+  /**
+   * Static crawl files win over the SPA shell.
+   * /support and /support/ serve public/support/index.html (plain HTML).
+   * A missing .txt or .xml (robots, llms, sitemap) is a 404, not index.html.
+   * Extensionless app routes (/terms, /party/*, /admin) still fall through.
+   */
+  const crawlSurfacePlugin = (): Plugin => {
+    const supportFile = path.join(rootDir, 'public/support/index.html');
+    const sendSupport = (res: { statusCode: number; setHeader: (name: string, value: string) => void; end: (body?: string) => void }) => {
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.end(readFileSync(supportFile, 'utf8'));
+    };
+    const pathnameOf = (url: string | undefined) => decodeURIComponent((url || '/').split('?')[0] || '/');
+    const attach = (server: { middlewares: { use: (fn: (req: { url?: string }, res: { statusCode: number; setHeader: (name: string, value: string) => void; end: (body?: string) => void }, next: () => void) => void) => void } }, preview: boolean) => {
+      server.middlewares.use((req, res, next) => {
+        const pathname = pathnameOf(req.url);
+        if (pathname === '/support' || pathname === '/support/') {
+          sendSupport(res);
+          return;
+        }
+        if (!preview) {
+          next();
+          return;
+        }
+        const last = pathname.split('/').pop() || '';
+        if (/\.(txt|xml)$/i.test(last)) {
+          const rel = pathname.replace(/^\//, '');
+          const found = [path.join(rootDir, 'dist', rel), path.join(rootDir, 'public', rel)].some((file) => existsSync(file));
+          if (!found) {
+            res.statusCode = 404;
+            res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+            res.end('Not found');
+            return;
+          }
+        }
+        next();
+      });
+    };
+    return {
+      name: 'bytspot:crawl-surface',
+      configureServer(server) {
+        attach(server, false);
+      },
+      configurePreviewServer(server) {
+        attach(server, true);
+      },
+    };
+  };
+
   export default defineConfig({
-    plugins: [react(), analyticsStubPlugin()],
+    plugins: [react(), analyticsStubPlugin(), crawlSurfacePlugin()],
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
       alias: {

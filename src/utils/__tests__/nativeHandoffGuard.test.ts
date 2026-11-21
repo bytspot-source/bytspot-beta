@@ -101,13 +101,21 @@ test('search structured data parses and claims only what ships', () => {
   const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)];
   assert.equal(blocks.length, 1);
 
-  const graph = JSON.parse(blocks[0][1])['@graph'];
-  assert.deepEqual(graph.map((n: { '@type': string }) => n['@type']), ['Organization', 'WebSite', 'MobileApplication']);
+  const graph = JSON.parse(blocks[0][1])['@graph'] as Array<{ '@type': string | string[] }>;
+  assert.equal(graph[0]['@type'], 'Organization');
+  assert.equal(graph[1]['@type'], 'WebSite');
+  assert.deepEqual(graph[2]['@type'], ['SoftwareApplication', 'MobileApplication']);
 
-  // Unverifiable markup is a manual-action risk and would contradict the
-  // Typical-never-Live contract, so these must stay absent.
+  // Ratings and a "live" crowd would contradict the Typical contract.
+  // A free price of 0 is the App Store price.
   const serialized = blocks[0][1];
-  assert.doesNotMatch(serialized, /aggregateRating|reviewCount|"Offer"|priceCurrency/);
+  assert.doesNotMatch(serialized, /aggregateRating|reviewCount|ratingValue|\blive\b/i);
+  assert.match(serialized, /"price": "0"/);
+  assert.match(serialized, /"priceCurrency": "USD"/);
+  const body = html.slice(html.indexOf('<body'));
+  assert.match(body, /Bytspot is an intent app for people to find spots and plan outings\./);
+  assert.match(body, /chill date night under \$50 near Midtown/);
+  assert.match(body, /Find the spot\. Make the plan\. Send the link\./);
 });
 
 test('product routes never boot the web app; legal pages stay on the web', () => {
@@ -128,11 +136,15 @@ test('the homepage handoff covers the day, not only the night', () => {
   const home = nativeHandoffContext('https://bytspot.app/');
   assert.equal(home?.title, HOME_HANDOFF_TITLE);
   assert.equal(home?.subtitle, HOME_HANDOFF_SUBTITLE);
-  assert.equal(HOME_HANDOFF_TITLE, "Plan your day out. Send one link. Everyone's in.");
+  assert.equal(HOME_HANDOFF_TITLE, 'Find the spot. Make the plan. Send the link.');
+  assert.match(HOME_HANDOFF_SUBTITLE, /intent app for people to find spots and plan outings/);
+  assert.match(HOME_HANDOFF_SUBTITLE, /chill date night under \$50 near Midtown/);
   assert.match(HOME_HANDOFF_SUBTITLE, /brunch through after hours/i);
-  assert.doesNotMatch(`${HOME_HANDOFF_TITLE} ${HOME_HANDOFF_SUBTITLE}`, /\bnight\b/i);
+  assert.doesNotMatch(HOME_HANDOFF_TITLE, /\bnight\b/i);
+  assert.doesNotMatch(`${HOME_HANDOFF_TITLE} ${HOME_HANDOFF_SUBTITLE}`, /\blive\b/i);
   const main = readFileSync(new URL('../../main.tsx', import.meta.url), 'utf8');
   assert.match(main, /href="\/refunds">Refunds/);
+  assert.match(main, /href="\/support\/">Support/);
   assert.doesNotMatch(main, /Plan the night/);
 });
 

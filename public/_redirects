@@ -1,3 +1,17 @@
-/.well-known/* /.well-known/:splat 200
-/* /index.html 200
+# Existing files are served before these rules on Netlify and Cloudflare Pages.
+# Render ignores this file. On Render, a file that exists still wins over a
+# dashboard rewrite; a path with no file follows that dashboard rule.
+# /support/index.html is the crawlable support page. The slashless /support
+# rule below is for hosts that honor _redirects.
 
+/support    /support/index.html   200
+/support/   /support/index.html   200
+
+# A missing text or XML file must not be rewritten to the homepage.
+/*.txt   /404.html   404
+/*.xml   /404.html   404
+
+/.well-known/* /.well-known/:splat 200
+
+# Client routes (legal pages, party links, admin) have no file of their own.
+/*    /index.html   200

@@ -14,9 +14,9 @@ const PATCH_QUERY_KEYS = ['patchId', 'patch', 'p'];
 const ACCESS_COMPATIBILITY_PATHS = new Set(['access', 'patch', 'clip']);
 const LEGAL_PATHS = new Set(['privacy', 'terms', 'disclaimer', 'support', 'refunds']);
 
-/** Homepage handoff. The product covers the whole day, brunch through after hours. */
-export const HOME_HANDOFF_TITLE = "Plan your day out. Send one link. Everyone's in.";
-export const HOME_HANDOFF_SUBTITLE = 'From brunch through after hours, including day outings. Find places nearby, make a plan, and send one link. Free on iPhone.';
+/** Homepage handoff. Tagline chosen 20 Nov 2026. The product covers the whole day. */
+export const HOME_HANDOFF_TITLE = 'Find the spot. Make the plan. Send the link.';
+export const HOME_HANDOFF_SUBTITLE = 'Bytspot is an intent app for people to find spots and plan outings. Tell Bytspot what you want to do, like a chill date night under $50 near Midtown, and it finds spots that fit and builds a plan you can share with friends. From brunch through after hours, including day outings. Free on iPhone. Atlanta, starting in Midtown.';
 
 function isLikelyBytspotTag(value: string | undefined): boolean {
   return Boolean(value && /^BYT[A-Z0-9_-]{2,}$/i.test(value));

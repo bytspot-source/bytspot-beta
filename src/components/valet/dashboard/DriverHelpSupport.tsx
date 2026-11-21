@@ -36,7 +36,7 @@ export function DriverHelpSupport({ isDarkMode, onBack }: DriverHelpSupportProps
 
   const contactOptions = [
     { icon: MessageCircle, label: 'Live Chat', description: 'Avg. response < 2 min', color: 'text-green-400', bg: 'bg-green-500/20 border-green-400/30' },
-    { icon: Mail, label: 'Email Support', description: 'support@bytspot.com', color: 'text-purple-400', bg: 'bg-purple-500/20 border-purple-400/30' },
+    { icon: Mail, label: 'Email Support', description: 'update@bytspot.app', color: 'text-purple-400', bg: 'bg-purple-500/20 border-purple-400/30' },
     { icon: BookOpen, label: 'Driver Handbook', description: 'Full policy & tips', color: 'text-cyan-400', bg: 'bg-cyan-500/20 border-cyan-400/30' },
     { icon: Users, label: 'Driver Community', description: 'Connect with other drivers', color: 'text-yellow-400', bg: 'bg-yellow-500/20 border-yellow-400/30' },
   ];

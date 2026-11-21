@@ -91,7 +91,7 @@ export function Disclaimer() {
       <div className="mt-12 pt-6 border-t border-white/10 text-white/40 text-xs">
         <p>© {new Date().getFullYear()} Bytspot Inc. All rights reserved.</p>
         <p className="mt-1">
-          Questions? Contact us at bytspotapp@gmail.com. Mailing address: Bytspot Inc.,
+          Questions? Contact us at update@bytspot.app. Mailing address: Bytspot Inc.,
           8735 Dunwoody Place #13893, Atlanta, GA 30350, USA.
         </p>
       </div>

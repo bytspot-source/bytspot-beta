@@ -4552,13 +4552,13 @@ private enum NativeLegalDocument: CaseIterable, Identifiable {
     var id: String { title }
     var title: String { switch self { case .privacyPolicy: return "Privacy Policy"; case .termsOfService: return "Terms of Service"; case .disclaimer: return "Disclaimer" } }
     var updated: String { switch self { case .privacyPolicy, .termsOfService, .disclaimer: return "November 19, 2026" } }
-    var contact: String { switch self { case .termsOfService: return "legal@bytspot.com"; default: return "support@bytspot.com" } }
+    var contact: String { "update@bytspot.app" }
     var sections: [(String, String, String)] {
         switch self {
         case .privacyPolicy:
             return [("Information we collect", "Account information, when-in-use location, usage data, notification settings, and protected contact matching.", "lock.doc.fill"), ("How we use it", "Nearby places and opt-in alerts. Concierge prompts and dish photos are sent to OpenAI to generate results.", "sparkles"), ("Your rights", "Delete your account, revoke permissions, and clear local preferences from Profile settings.", "hand.raised.fill")]
         case .termsOfService:
-            return [("License", "Personal, non-commercial use of Bytspot with no copying, reverse engineering, or competing reuse.", "doc.text.fill"), ("Service notes", "Crowd, parking, AI, venue, payment, and provider information can change and needs user judgment.", "checkmark.seal.fill"), ("User conduct", "Use Bytspot lawfully, keep account credentials safe, and do not interfere with app security.", "person.crop.circle.badge.checkmark"), ("Objectionable content", "There is no tolerance for objectionable content or abusive users. You can report any member, party, review or Private Sale from its menu, and block any member. We review reports within 24 hours; content that breaks these Terms is removed and accounts that post it are suspended or removed. Safety concerns: bytspotapp@gmail.com.", "exclamationmark.shield.fill")]
+            return [("License", "Personal, non-commercial use of Bytspot with no copying, reverse engineering, or competing reuse.", "doc.text.fill"), ("Service notes", "Crowd, parking, AI, venue, payment, and provider information can change and needs user judgment.", "checkmark.seal.fill"), ("User conduct", "Use Bytspot lawfully, keep account credentials safe, and do not interfere with app security.", "person.crop.circle.badge.checkmark"), ("Objectionable content", "There is no tolerance for objectionable content or abusive users. You can report any member, party, review or Private Sale from its menu, and block any member. We review reports within 24 hours; content that breaks these Terms is removed and accounts that post it are suspended or removed. Safety concerns: update@bytspot.app.", "exclamationmark.shield.fill")]
         case .disclaimer:
             return [("Accuracy of data", "Busyness is a typical pattern for the hour and may be inaccurate. It is not a live reading unless a screen says it is live.", "chart.bar.fill"), ("Parking information", "Always verify posted signs, pricing, availability, and physical lot rules before parking.", "parkingsign.circle.fill"), ("AI recommendations", "Concierge and recommendation outputs are informational and should not be the sole basis for safety decisions.", "sparkles")]
         }
@@ -6862,7 +6862,7 @@ private struct NativeBoutiqueStayWalletSection: View {
 
     private func contactHost(_ stay: NativeStayRequestRecord) {
         guard let subject = "Stay \(stay.requestCode) · \(stay.venueName)".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "mailto:host@bytspot.com?subject=\(subject)") else { return }
+              let url = URL(string: "mailto:update@bytspot.app?subject=\(subject)") else { return }
         UIApplication.shared.open(url)
     }
 

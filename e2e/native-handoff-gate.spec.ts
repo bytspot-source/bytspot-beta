@@ -19,7 +19,7 @@ test.describe('Retired PWA stays retired', () => {
       await expect(page.locator('#root')).toContainText('Bytspot is available on iPhone.');
       await expect(page.locator('#root')).not.toContainText(/old (web|React) app/);
       if (path === '/') {
-        await expect(page.getByRole('heading', { level: 1 })).toHaveText("Plan your day out. Send one link. Everyone's in.");
+        await expect(page.getByRole('heading', { level: 1 })).toHaveText('Find the spot. Make the plan. Send the link.');
         await expect(page.locator('#root')).toContainText('From brunch through after hours, including day outings.');
         await expect(page.getByRole('link', { name: 'Refunds' })).toHaveAttribute('href', '/refunds');
       }

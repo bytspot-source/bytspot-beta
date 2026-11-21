@@ -2629,7 +2629,7 @@ export default function App() {
             animate={{ scale: [1, 1.05, 1] }}
             transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
             onClick={() => {
-              window.location.href = 'mailto:bytspotapp@gmail.com?subject=Bytspot%20Feedback%20%26%20Suggestions';
+              window.location.href = 'mailto:update@bytspot.app?subject=Bytspot%20Feedback%20%26%20Suggestions';
             }}
             aria-label="Share feedback"
           >

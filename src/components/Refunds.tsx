@@ -26,7 +26,7 @@ export function Refunds() {
 
       <p className="mb-6">
         Questions about a refund? Email{' '}
-        <a href="mailto:bytspotapp@gmail.com" className="text-blue-400 underline">bytspotapp@gmail.com</a>.
+        <a href="mailto:update@bytspot.app" className="text-blue-400 underline">update@bytspot.app</a>.
         Mailing address: Bytspot Inc., 8735 Dunwoody Place #13893, Atlanta, GA 30350, USA.
       </p>
 

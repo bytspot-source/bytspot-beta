@@ -76,7 +76,7 @@ export function PrivacyPolicy() {
           <><B>Delete your account</B> in the App: Profile, then Safety & Legal, then Delete Account. You are signed out right away and your account is permanently erased after 30 days. Signing in again within 30 days cancels the deletion. We may keep records we must keep for payments, tax, disputes, or legal reasons.</>,
           'Turn location, contacts, camera, photos, microphone, and notification permissions on or off at any time in iOS Settings.',
           'Edit your profile and notification preferences in the App.',
-          <>Ask us for a copy of your data, or for a correction, by emailing <a href="mailto:bytspotapp@gmail.com" className="text-blue-400 underline">bytspotapp@gmail.com</a>.</>,
+          <>Ask us for a copy of your data, or for a correction, by emailing <a href="mailto:update@bytspot.app" className="text-blue-400 underline">update@bytspot.app</a>.</>,
         ]} />
       </Section>
 
@@ -98,7 +98,7 @@ export function PrivacyPolicy() {
       <Section title="9. Contact Us">
         <p>
           Questions about this policy or a safety concern:{' '}
-          <a href="mailto:bytspotapp@gmail.com" className="text-blue-400 underline">bytspotapp@gmail.com</a>.
+          <a href="mailto:update@bytspot.app" className="text-blue-400 underline">update@bytspot.app</a>.
           Mailing address: Bytspot Inc., 8735 Dunwoody Place #13893, Atlanta, GA 30350, USA.
         </p>
       </Section>

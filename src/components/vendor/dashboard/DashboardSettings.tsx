@@ -227,7 +227,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
       return;
     }
     if (label === 'Contact Support') {
-      window.location.href = 'mailto:bytspotapp@gmail.com?subject=Provider%20Dashboard%20Support';
+      window.location.href = 'mailto:update@bytspot.app?subject=Provider%20Dashboard%20Support';
       return;
     }
     if (label === 'Legal & Policies') {
@@ -460,7 +460,7 @@ export function DashboardSettings({ isDarkMode, access }: DashboardSettingsProps
           {activePanel === 'help' && (
             <div className="grid gap-3 md:grid-cols-3">
               {['Create a service from My Services.', 'Create one patch per entrance, lot, booth, or checkpoint.', 'Use Payout Methods for Stripe bank/tax changes.'].map((item) => <div key={item} className={`rounded-2xl border p-4 text-[13px] leading-5 ${isDarkMode ? 'border-slate-500 bg-slate-700 text-slate-100' : 'border-slate-200 bg-slate-50 text-slate-800'}`}>{item}</div>)}
-              <button type="button" onClick={() => { window.location.href = 'mailto:bytspotapp@gmail.com?subject=Provider%20Help%20Center'; }} className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-500 px-4 py-3 text-[13px] font-black text-white md:col-span-3"><Mail className="h-4 w-4" /> Email Provider Support</button>
+              <button type="button" onClick={() => { window.location.href = 'mailto:update@bytspot.app?subject=Provider%20Help%20Center'; }} className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-500 px-4 py-3 text-[13px] font-black text-white md:col-span-3"><Mail className="h-4 w-4" /> Email Provider Support</button>
             </div>
           )}
         </motion.div>

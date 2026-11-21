@@ -106,7 +106,7 @@ function renderNativeHandoffOnly() {
         <a class="bh-btn bh-primary" href="${APP_STORE_URL}">Download on the App Store</a>
         <a class="bh-btn bh-secondary" href="${appSchemeURL}">Open in Bytspot</a>
         <p class="bh-note">Already have Bytspot? Tap Open in Bytspot.</p>
-        <nav class="bh-links"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/refunds">Refunds</a><a href="/support">Support</a></nav>
+        <nav class="bh-links"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/refunds">Refunds</a><a href="/support/">Support</a></nav>
       </section>
     </main>`;
   wireOpenInBytspot(root, context.appSchemeURL);

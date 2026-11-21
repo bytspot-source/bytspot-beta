@@ -3,13 +3,17 @@
  * Accessible at /support (no auth required).
  * Last updated: 2026-08-21
  */
-const SUPPORT_EMAIL = 'bytspotapp@gmail.com';
+const SUPPORT_EMAIL = 'update@bytspot.app';
 
 export function Support() {
   return (
     <div className="min-h-screen bg-black text-white/90 px-6 py-12 max-w-2xl mx-auto leading-relaxed">
       <h1 className="text-3xl font-bold mb-2">Support</h1>
       <p className="text-white/50 text-sm mb-8">We read every message.</p>
+
+      <p className="mb-6">
+        Bytspot is an intent app for people to find spots and plan outings. Tell Bytspot what you want to do, like a chill date night under $50 near Midtown, and it finds spots that fit and builds a plan you can share with friends.
+      </p>
 
       <p className="mb-6">
         Email{' '}
@@ -69,7 +73,8 @@ export function Support() {
         </p>
         <p className="mb-3">
           See our <a className="text-cyan-400 underline" href="/privacy">Privacy Policy</a>,{' '}
-          <a className="text-cyan-400 underline" href="/terms">Terms of Service</a>, and{' '}
+          <a className="text-cyan-400 underline" href="/terms">Terms of Service</a>,{' '}
+          <a className="text-cyan-400 underline" href="/refunds">Refunds</a>, and{' '}
           <a className="text-cyan-400 underline" href="/disclaimer">Disclaimer</a>.
         </p>
       </Section>

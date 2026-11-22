@@ -2475,7 +2475,7 @@ private struct NativeProfilePanelSheet: View {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("native-saved-places-visited-row")
                 }
-                NativeProfileSavedSpotsPanel(snapshot: tabContentStore.snapshot(for: locationStore.coordinate))
+                NativeProfileSavedSpotsPanel(sessionStore: sessionStore)
             }
         case .placesVisited:
             NativeProfilePlacesVisitedPanel(snapshot: tabContentStore.snapshot(for: locationStore.coordinate))
@@ -3852,18 +3852,24 @@ enum NativeVibeFocusCatalog {
         ("events", "Events", "Something happening"),
         ("parking", "Parking", "Somewhere to leave the car"),
         ("work", "Work", "Quiet enough to think"),
+        ("date_night", "Date night", "Dinner and drinks"),
+        ("sleep", "A place to stay", "Somewhere to sleep"),
+        ("ride", "A ride", "Getting there or home"),
     ]
 
+    /// Same labels and tokens as the setup questions, so an answer given there shows here.
     static let walks: [Choice] = [
         ("closest", "Right nearby", "Within a mile"),
-        ("medium", "A short walk", "Within three miles"),
-        ("far", "Worth the trip", "No limit"),
+        ("close", "A short walk", "Within a mile"),
+        ("medium", "Across town", "Within three miles"),
+        ("far", "Somewhere new", "No limit"),
     ]
 
     static let crews: [Choice] = [
         ("solo", "Just me", "No preference"),
-        ("date_night", "Date night", "Dining and nightlife"),
+        ("date_night", "Two of us", "Dining and nightlife"),
         ("group", "A group", "Room for everyone"),
+        ("work", "Work", "Quiet, not too busy"),
     ]
 
     /// Only tokens the ranking actually distinguishes may be offered; a label
@@ -3878,6 +3884,7 @@ enum NativeVibeFocusCatalog {
     private static let typeNames: [String: String] = [
         "dining": "Dining", "nightlife": "Nightlife", "coffee": "Coffee",
         "entertainment": "Events", "parking": "Parking", "venue": "Venues",
+        "boutique_apartment": "Stays", "mobility": "Rides",
     ]
 
     /// The catalog is the seam: Home's dashboard is file-private, so this is
@@ -4726,9 +4733,19 @@ private struct NativeProfileTextField: View {
 }
 
 private struct NativeProfileSavedSpotsPanel: View {
-    let snapshot: NativeTabContentSnapshot
-    @AppStorage("bytspot_saved_spots_last_reviewed_id") private var reviewedSpotID = ""
-    private var spots: [NativeProfileSavedSpot] { NativeProfileSavedSpot.saved(from: snapshot) }
+    @ObservedObject var sessionStore: BytspotSessionStore
+    @State private var places: [NativeSavedPlace] = []
+    @Environment(\.openURL) private var openURL
+
+    private var userID: String? {
+        guard sessionStore.canAttachBearerToken, let id = sessionStore.authenticatedUserID, !id.isEmpty else { return nil }
+        return id
+    }
+
+    private var api: NativeSavedPlacesAPI {
+        NativeSavedPlacesAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in
+            sessionStore?.canAttachBearerToken == true ? sessionStore?.token : nil }))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -4736,14 +4753,15 @@ private struct NativeProfileSavedSpotsPanel: View {
             savedSection
         }
         .accessibilityIdentifier(NativeSavedPlacesBoardContract.accessibilityID)
+        .task(id: userID) { await load() }
     }
 
     private var boardSummary: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("\(spots.count) saved place\(spots.count == 1 ? "" : "s")")
+            Text("\(places.count) saved place\(places.count == 1 ? "" : "s")")
                 .font(.system(size: 15, weight: .black))
                 .foregroundColor(NativeTheme.textPrimary)
-            Text("Open a saved place to review its details.").nativeBody(size: 12)
+            Text(userID == nil ? "Sign in to save places from Discover and Concierge." : "Places you saved in Discover and Concierge, newest first.").nativeBody(size: 12)
         }
         .padding(14)
         .background(NativePolish.mapPanelSurface.opacity(0.92))
@@ -4753,27 +4771,38 @@ private struct NativeProfileSavedSpotsPanel: View {
 
     private var savedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("SAVED").font(.system(size: 10.5, weight: .black)).tracking(1.0).foregroundColor(NativeTheme.textTertiary)
-                Text("Places worth returning to or reviewing.").nativeBody(size: 12)
-            }
-            if spots.isEmpty {
+            Text("SAVED").font(.system(size: 10.5, weight: .black)).tracking(1.0).foregroundColor(NativeTheme.textTertiary)
+            if places.isEmpty {
                 Text(NativeSavedPlacesBoardContract.emptyMessage).nativeBody(size: 12)
                     .accessibilityIdentifier("native-saved-places-empty")
             }
-            ForEach(spots) { spot in
-                NativeSavedPlaceBoardCard(
-                    spot: spot,
-                    isReviewed: reviewedSpotID == spot.id,
-                    detailsAction: { review(spot) }
-                )
+            ForEach(places) { place in
+                NativeSavedPlaceBoardCard(place: place, directions: { directions(to: place) }, remove: { remove(place) })
             }
         }
     }
 
-    private func review(_ spot: NativeProfileSavedSpot) {
+    @MainActor private func load() async {
+        guard let userID else { places = []; return }
+        places = NativeSavedPlace.all(userID: userID)
+        if let remote = try? await api.list(), !Task.isCancelled, self.userID == userID {
+            places = NativeSavedPlace.merge(remote, userID: userID)
+        }
+    }
+
+    private func remove(_ place: NativeSavedPlace) {
+        guard let userID else { return }
         nativeImpactLight()
-        reviewedSpotID = spot.id
+        NativeSavedPlace.remove(id: place.id, userID: userID)
+        places.removeAll { $0.id == place.id }
+        if place.isBytspotVenue { let api = api; Task { try? await api.setSaved(false, venueID: place.id) } }
+    }
+
+    private func directions(to place: NativeSavedPlace) {
+        nativeImpactLight()
+        var parts = URLComponents(string: "https://maps.apple.com/")!
+        parts.queryItems = [URLQueryItem(name: "daddr", value: "\(place.latitude),\(place.longitude)"), URLQueryItem(name: "q", value: place.name)]
+        if let url = parts.url { openURL(url) }
     }
 }
 
@@ -4784,70 +4813,36 @@ private enum NativeSavedPlacesBoardContract {
 }
 
 private struct NativeSavedPlaceBoardCard: View {
-    let spot: NativeProfileSavedSpot
-    let isReviewed: Bool
-    let detailsAction: () -> Void
-
-    private var statusColor: Color {
-        if spot.verified { return NativeTransactionVisuals.confirmedAccent }
-        return NativeTheme.textSecondary
-    }
-
-    private var statusLabel: String {
-        if spot.verified { return "VERIFIED" }
-        return "SAVED"
-    }
+    let place: NativeSavedPlace
+    let directions: () -> Void
+    let remove: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(spot.kindLabel.uppercased()).font(.system(size: 10, weight: .black)).tracking(0.8).foregroundColor(NativeTheme.textTertiary)
-                        Text(statusLabel).font(.system(size: 10, weight: .black)).foregroundColor(statusColor).padding(.horizontal, 7).frame(height: 20).background(statusColor.opacity(0.11)).clipShape(Capsule())
-                    }
-                    Text(spot.title).nativeTitle(16)
-                    Text(spot.subtitle).nativeBody(size: 12)
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(NativeDiscoverBrowsePolicy.categoryLabel(NativeDiscoverBookablePresentation.referenceRail(type: NativeDiscoverCategoryNormalizer.type(for: place.category), sourceCategory: place.category) ?? place.category).uppercased())
+                    .font(.system(size: 10, weight: .black)).tracking(0.8).foregroundColor(NativeTheme.textTertiary)
+                Text(place.name).nativeTitle(16)
+                if !place.address.isEmpty { Text(place.address).nativeBody(size: 12) }
+                Text("Saved \(place.savedAt.formatted(date: .abbreviated, time: .omitted))").nativeBody(size: 11)
+            }
+            HStack(spacing: 8) {
+                Button(action: directions) {
+                    Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill").font(.system(size: 13, weight: .bold))
+                        .frame(maxWidth: .infinity, minHeight: 44)
                 }
-                Spacer(minLength: 0)
+                .buttonStyle(.bordered)
+                Button(role: .destructive, action: remove) {
+                    Label("Remove", systemImage: "heart.slash").font(.system(size: 13, weight: .bold)).frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("native-saved-place-remove-\(place.id)")
             }
-            VStack(spacing: 0) {
-                savedPlaceFactRow("Why saved", spot.savedReason)
-                Rectangle().fill(NativePolish.softBorder).frame(height: 1)
-                savedPlaceFactRow("Context", spot.meta)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 4)
-            .background(NativePolish.elevatedSurface.opacity(0.72))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            Button(action: { nativeImpactLight(); detailsAction() }) { detailsActionLabel }
-                .buttonStyle(.plain)
         }
         .padding(14)
         .background(NativePolish.mapPanelSurface.opacity(0.92))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(isReviewed ? NativeTheme.textSecondary.opacity(0.35) : NativePolish.softBorder, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private var detailsActionLabel: some View {
-        Text(isReviewed ? "Details Viewed" : "View Details")
-            .font(.system(size: 12.5, weight: .black))
-            .foregroundColor(NativeTheme.textPrimary)
-            .frame(maxWidth: .infinity)
-            .frame(height: 38)
-            .background(NativeTheme.selectedControlSurface)
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private func savedPlaceFactRow(_ title: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(title).font(.system(size: 12, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
-            Spacer(minLength: 12)
-            Text(value).font(.system(size: 12.5, weight: .black)).foregroundColor(NativeTheme.textPrimary).multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.vertical, 10)
     }
 }
 
@@ -8590,6 +8585,7 @@ private struct NativeHomeDashboardView: View {
         case "coffee", "work": types.append("coffee")
         case "events": types.append("entertainment")
         case "parking", "covered_parking": types.append("parking")
+        case "date_night", "date": types.append(contentsOf: ["dining", "nightlife"])
         case "ride": types.append("mobility")
         case "sleep", "stay": types.append("boutique_apartment")
         case "fitness": types.append("fitness")
@@ -14764,9 +14760,10 @@ private struct NativeVenueDetailView: View {
             handleDevice(action.id)
         case .local:
             if let userID = detailUserID {
-                isSaved = NativeVenueSavedState.toggle(venueID: venue.id, userID: userID)
-                statusMessage = isSaved ? "Saved \(venue.name) on this device." : "Removed this device's saved marker for \(venue.name)."
-            } else { presentGuestPrompt(title: "Save \(venue.name)?", subtitle: "Sign in to keep a saved marker for this place on this device.", cta: "Sign in to save") }
+                isSaved = NativeVenueSavedState.toggle(venue, userID: userID)
+                syncSavedPlace(isSaved)
+                statusMessage = isSaved ? "Saved \(venue.name). Find it in Profile → Saved." : "Removed \(venue.name) from your saved places."
+            } else { presentGuestPrompt(title: "Save \(venue.name)?", subtitle: "Sign in to save this place. It shows in Profile → Saved.", cta: "Sign in to save") }
         case .capability:
             // The shared place surface never infers fulfillment from category.
             statusMessage = "This listing does not offer controlled booking."
@@ -14825,6 +14822,15 @@ private struct NativeVenueDetailView: View {
             statusMessage = "Starting native Concierge for \(venue.name)."
             openNativeTab?(.concierge)
         }
+    }
+
+    /// A listed Bytspot venue is also saved to the account, so it is there on another iPhone.
+    private func syncSavedPlace(_ saved: Bool) {
+        guard NativeSavedPlace(venue).isBytspotVenue else { return }
+        let api = NativeSavedPlacesAPI(client: BytspotAPIClient(tokenProvider: { [weak sessionStore] in
+            sessionStore?.canAttachBearerToken == true ? sessionStore?.token : nil }))
+        let id = venue.id
+        Task { try? await api.setSaved(saved, venueID: id) }
     }
 
     private func presentGuestPrompt(title: String, subtitle: String, cta: String, action: NativeVenueGuestPromptAction = .openAuthOnly) {
@@ -20693,9 +20699,14 @@ final class NativeConciergeModel: ObservableObject {
             return nil
         }
         if pending.action == .save {
-            let saved = NativeVenueSavedState.toggle(venueID: pending.card.venueSummary.id, userID: pending.accountID)
+            let saved = NativeVenueSavedState.toggle(pending.card.venueSummary, userID: pending.accountID)
             savedRevision += 1
-            actionNotice = saved ? "Saved \(pending.card.name) on this device." : "Removed \(pending.card.name) from saved places on this device."
+            actionNotice = saved ? "Saved \(pending.card.name). Find it in Profile → Saved." : "Removed \(pending.card.name) from your saved places."
+            let place = NativeSavedPlace(pending.card.venueSummary)
+            if place.isBytspotVenue, let session {
+                let api = NativeSavedPlacesAPI(client: BytspotAPIClient(tokenProvider: { [weak session] in session?.canAttachBearerToken == true ? session?.token : nil }))
+                Task { try? await api.setSaved(saved, venueID: place.id) }
+            }
         } else if pending.action == .addToPlan {
             actionNotice = nil
             beginAddToPlan(pending.card, accountID: pending.accountID)

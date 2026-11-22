@@ -8112,8 +8112,8 @@ extension BytspotTrustEngineTests {
             XCTAssertFalse(types.isEmpty, "intent \(token) produces no ranking preference")
             leadingTypes.append(types[0])
         }
-        XCTAssertEqual(Set(leadingTypes).count, Set(NativeVibeFocusCatalog.offeredIntentTokens).count - 1,
-                       "coffee and work intentionally share a leading type; every other intent must differ")
+        XCTAssertEqual(Set(leadingTypes).count, Set(NativeVibeFocusCatalog.offeredIntentTokens).count - 2,
+                       "coffee and work, and food and date night, intentionally share a leading type; every other intent must differ")
     }
 
     func testVibeFocusWalkChoicesMatchTheDistanceTheyPromise() {
@@ -8189,6 +8189,24 @@ extension BytspotTrustEngineTests {
             XCTAssertNotEqual(NativeLaunchPersonalizationStorage.token(for: option), "parking")
         }
         XCTAssertTrue(NativeVibeFocusCatalog.offeredCrewTokens.contains("group"))
+    }
+
+    func testEverySetupAnswerShowsAsAChoiceInProfile() {
+        // An answer the panel has no choice for reads back as nothing selected.
+        let contexts: [NativeLaunchQuizContext] = [.day, .evening, .lateNight]
+        let vibes = Set(contexts.flatMap { NativePersonalizationStep.vibe.options(context: $0, selectedIntent: "") })
+        for option in vibes {
+            XCTAssertTrue(NativeVibeFocusCatalog.offeredIntentTokens.contains(NativeLaunchPersonalizationStorage.token(for: option)), option)
+        }
+        for option in NativeAuthLaunchContract.walkOptions {
+            let token = NativeLaunchPersonalizationStorage.token(for: option)
+            XCTAssertTrue(NativeVibeFocusCatalog.offeredWalkTokens.contains(token), option)
+            XCTAssertEqual(NativeVibeFocusCatalog.walks.first { $0.value == token }?.label, option, "same wording as the setup question")
+        }
+        for option in NativeAuthLaunchContract.crewOptions {
+            XCTAssertTrue(NativeVibeFocusCatalog.offeredCrewTokens.contains(NativeLaunchPersonalizationStorage.token(for: option)), option)
+        }
+        XCTAssertEqual(NativeVibeFocusCatalog.focusSummary(intent: "date_night", walk: "close", crew: "date_night"), "Home leads with Dining, within 1 mile.")
     }
 }
 

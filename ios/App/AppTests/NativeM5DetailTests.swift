@@ -1864,6 +1864,34 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertFalse(NativeVenueSavedState.toggle(venueID: "venue", userID: "one", defaults: defaults))
     }
 
+    func testSavedPlacesShowInProfileForTheAccountThatSavedThem() throws {
+        let name = "NativeSavedPlaceTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        func venue(_ id: String, _ title: String) -> NativeVenueSummary {
+            NativeVenueSummary(id: id, name: title, category: "restaurant", address: "Midtown", distance: "0.4 mi", rating: nil,
+                               latitude: 33.78, longitude: -84.38, crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: ""),
+                               verifiedPatchId: nil, imageUrl: nil)
+        }
+        XCTAssertTrue(NativeVenueSavedState.toggle(venue("cmwh56sug001qpb24rsfcfu4n", "Prestige Helicopters"), userID: "one", defaults: defaults))
+        XCTAssertTrue(NativeVenueSavedState.toggle(venue("place-ChIJabc", "Ponce City Market"), userID: "one", defaults: defaults))
+        XCTAssertEqual(NativeSavedPlace.all(userID: "one", defaults: defaults).map(\.name), ["Ponce City Market", "Prestige Helicopters"], "newest first")
+        XCTAssertTrue(NativeSavedPlace.all(userID: "two", defaults: defaults).isEmpty, "another account sees none")
+        XCTAssertEqual(NativeSavedPlace.all(userID: "one", defaults: defaults).map(\.isBytspotVenue), [false, true], "only Bytspot venues sync to the account")
+
+        XCTAssertFalse(NativeVenueSavedState.toggle(venue("place-ChIJabc", "Ponce City Market"), userID: "one", defaults: defaults))
+        XCTAssertEqual(NativeSavedPlace.all(userID: "one", defaults: defaults).map(\.name), ["Prestige Helicopters"])
+
+        let elsewhere = NativeSavedPlace(id: "cmwhp1dnb00k5pb242ni80ya1", name: "Rumi's Kitchen", address: "Colony Square", category: "restaurant",
+                                         latitude: 33.78, longitude: -84.38, savedAt: Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(NativeSavedPlace.merge([elsewhere], userID: "one", defaults: defaults).map(\.name), ["Prestige Helicopters", "Rumi's Kitchen"])
+        XCTAssertTrue(NativeVenueSavedState.contains(venueID: elsewhere.id, userID: "one", defaults: defaults), "an account save reads as saved on this iPhone")
+
+        NativeSavedPlace.remove(id: elsewhere.id, userID: "one", defaults: defaults)
+        XCTAssertFalse(NativeVenueSavedState.contains(venueID: elsewhere.id, userID: "one", defaults: defaults))
+        XCTAssertEqual(NativeSavedPlace.all(userID: "one", defaults: defaults).count, 1)
+    }
+
     func testDiscoverAndMountedDetailReloadOnAccountInvalidationNotOnlyUserID() throws {
         let shell = try shellSource()
         XCTAssertTrue(shell.contains(".task(id: transactions.accountRevision) { await refreshTransactions() }"))

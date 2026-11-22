@@ -20,8 +20,110 @@ enum NativeVenueSavedState {
         return ids.contains(venueID)
     }
 
+    /// Saves or unsaves a place and keeps what Profile needs to list it.
+    @discardableResult
+    static func toggle(_ venue: NativeVenueSummary, userID: String, defaults: UserDefaults = .standard) -> Bool {
+        let saved = toggle(venueID: venue.id, userID: userID, defaults: defaults)
+        var places = NativeSavedPlace.all(userID: userID, defaults: defaults).filter { $0.id != venue.id }
+        if saved { places.insert(NativeSavedPlace(venue), at: 0) }
+        NativeSavedPlace.store(places, userID: userID, defaults: defaults)
+        return saved
+    }
+
+    static func ids(userID: String, defaults: UserDefaults = .standard) -> [String] {
+        defaults.stringArray(forKey: key(userID)) ?? []
+    }
+
     private static func key(_ userID: String) -> String { "bytspot.native.place-saves.\(userID)" }
 }
+
+/// A place the member saved, as Profile lists it. Kept on the iPhone per
+/// account; a listed Bytspot venue is also saved to the account.
+struct NativeSavedPlace: Codable, Equatable, Identifiable {
+    let id: String
+    let name: String
+    let address: String
+    let category: String
+    let latitude: Double
+    let longitude: Double
+    let savedAt: Date
+
+    init(id: String, name: String, address: String, category: String, latitude: Double, longitude: Double, savedAt: Date = Date()) {
+        self.id = id; self.name = name; self.address = address; self.category = category
+        self.latitude = latitude; self.longitude = longitude; self.savedAt = savedAt
+    }
+
+    init(_ venue: NativeVenueSummary, savedAt: Date = Date()) {
+        self.init(id: venue.id, name: venue.name, address: venue.address, category: venue.sourceCategory ?? venue.category,
+                  latitude: venue.latitude, longitude: venue.longitude, savedAt: savedAt)
+    }
+
+    /// Bytspot venue ids are cuids; Google and Apple places are not, and have no account row to save to.
+    var isBytspotVenue: Bool { id.range(of: #"^c[a-z0-9]{20,32}$"#, options: .regularExpression) != nil }
+
+    /// Saved places for this account, newest first. A save made before details were kept is left out until it is saved again.
+    static func all(userID: String, defaults: UserDefaults = .standard) -> [NativeSavedPlace] {
+        guard !userID.isEmpty, let data = defaults.data(forKey: key(userID)),
+              let places = try? JSONDecoder().decode([NativeSavedPlace].self, from: data) else { return [] }
+        let saved = Set(NativeVenueSavedState.ids(userID: userID, defaults: defaults))
+        return places.filter { saved.contains($0.id) }
+    }
+
+    static func store(_ places: [NativeSavedPlace], userID: String, defaults: UserDefaults = .standard) {
+        guard !userID.isEmpty, let data = try? JSONEncoder().encode(Array(places.prefix(500))) else { return }
+        defaults.set(data, forKey: key(userID))
+    }
+
+    /// Adds account saves this iPhone does not know yet (another device, a reinstall) and marks them saved here.
+    @discardableResult
+    static func merge(_ remote: [NativeSavedPlace], userID: String, defaults: UserDefaults = .standard) -> [NativeSavedPlace] {
+        var places = all(userID: userID, defaults: defaults)
+        for place in remote where !places.contains(where: { $0.id == place.id }) {
+            if !NativeVenueSavedState.contains(venueID: place.id, userID: userID, defaults: defaults) {
+                NativeVenueSavedState.toggle(venueID: place.id, userID: userID, defaults: defaults)
+            }
+            places.append(place)
+        }
+        places.sort { $0.savedAt > $1.savedAt }
+        store(places, userID: userID, defaults: defaults)
+        return places
+    }
+
+    /// Removes a place from this iPhone's saved list.
+    static func remove(id: String, userID: String, defaults: UserDefaults = .standard) {
+        if NativeVenueSavedState.contains(venueID: id, userID: userID, defaults: defaults) {
+            NativeVenueSavedState.toggle(venueID: id, userID: userID, defaults: defaults)
+        }
+        store(all(userID: userID, defaults: defaults).filter { $0.id != id }, userID: userID, defaults: defaults)
+    }
+
+    private static func key(_ userID: String) -> String { "bytspot.native.place-save-details.\(userID)" }
+}
+
+/// The account copy of saved places (user.savedSpots). Only listed Bytspot venues have one.
+struct NativeSavedPlacesAPI {
+    let client: BytspotAPIClient
+
+    func list() async throws -> [NativeSavedPlace] {
+        let payload = try await client.json(path: "/trpc/user.savedSpots.list")
+        let rows = BytspotAPIClient.unwrapTRPCData(payload) as? [[String: Any]] ?? []
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return rows.compactMap { row in
+            guard let venue = row["venue"] as? [String: Any], let id = venue["id"] as? String, let name = venue["name"] as? String,
+                  let lat = venue["lat"] as? Double, let lng = venue["lng"] as? Double else { return nil }
+            let savedAt = (row["savedAt"] as? String).flatMap { formatter.date(from: $0) } ?? Date()
+            return NativeSavedPlace(id: id, name: name, address: venue["address"] as? String ?? "", category: venue["category"] as? String ?? "",
+                                    latitude: lat, longitude: lng, savedAt: savedAt)
+        }
+    }
+
+    func setSaved(_ saved: Bool, venueID: String) async throws {
+        _ = try await client.trpcPayload(path: saved ? "/trpc/user.savedSpots.save" : "/trpc/user.savedSpots.remove",
+                                         method: "POST", input: ["venueId": venueID])
+    }
+}
+
 
 /// A photograph is an endorsement. Only media Bytspot owns, or media a host
 /// uploaded to their own Party, may fill a detail hero; anything borrowed from

@@ -221,8 +221,8 @@ function ScopedMediaPicker({ session, transport, parent, parentId, authorizedFet
         if (!stillActive()) return;
         if (prepared.ok === false) {
           setBlockers([prepared.reason === 'unreadable'
-            ? 'This browser can\u2019t open that photo. Save it as a JPEG or PNG and try again.'
-            : 'That photo is too detailed to shrink under 2 MB. Try a different photo.']);
+            ? 'This browser can\u2019t open that file. Save it as a JPEG or PNG and try again.'
+            : 'That image is too detailed to shrink under 2 MB. Try a different one.']);
           return;
         }
         picked = prepared.file;

@@ -102,8 +102,13 @@ export function MenuDishEditor({ authorizedFetch, locationId, media, mediaBusy }
     <button type="button" className="vendor-chip" disabled={busy || mediaBusy} onClick={() => setRevision((v) => v + 1)}>Reload menu dishes</button>
     {busy && <p role="status">Loading or saving menu dishes…</p>}
     {list && <>
-      <p>{list.venueId ? `Venue binding: ${list.venueId}` : 'Needs admin venue binding before any dish can be approved.'}</p>
-      {!menus.some((m) => m.reviewStatus === 'approved') && <p>No approved menu yet. Upload a menu above and wait for separate source-media approval. You can submit dishes for review now.</p>}
+      <p>{list.venueId
+        ? 'This place is linked to its Bytspot listing, so approved dishes show to guests.'
+        : 'Bytspot still has to link this place to its public listing. You can add dishes now; they show to guests once that is done and they are approved. Nothing to do on your side.'}</p>
+      {!menus.length
+        ? <p role="note"><strong>Upload your menu first.</strong> Add a photo or PDF of your menu under Menu above, then choose it here as the source for each dish.</p>
+        : !menus.some((m) => m.reviewStatus === 'approved')
+          && <p>Your menu is waiting for Bytspot to review it. You can add dishes now; they are reviewed after the menu.</p>}
       {!list.dishes.length && <p>No menu dishes submitted yet.</p>}
       <ul className="vendor-demand-list">{list.dishes.map((dish) => <li key={dish.id}>
         <strong>{dish.dishName}</strong>
@@ -122,7 +127,7 @@ export function MenuDishEditor({ authorizedFetch, locationId, media, mediaBusy }
           <legend>{editing ? `Edit ${editing.dishName}` : 'Submit a menu dish'}</legend>
           <label className="vendor-field">Source menu
             <select required value={mediaId} onChange={(e) => setMediaId(e.target.value)}>
-              <option value="">Choose an uploaded menu</option>
+              <option value="">{menus.length ? 'Choose an uploaded menu' : 'No menu uploaded yet'}</option>
               {menus.map((m, i) => <option key={m.id} value={m.id}>Menu {i + 1} · {m.mimeType === 'application/pdf' ? 'PDF' : 'Image'} · {m.reviewStatus ?? 'pending'}</option>)}
             </select>
           </label>
@@ -134,6 +139,8 @@ export function MenuDishEditor({ authorizedFetch, locationId, media, mediaBusy }
           </div>)}
           <button type="button" disabled={aliases.length >= 5} onClick={() => setAliases((rows) => [...rows, ''])}>Add alias (up to 5)</button>
           <button type="submit" disabled={!menus.length || (!editing && list.dishes.length >= 100)}>{editing ? 'Save and request new review' : 'Submit for review'}</button>
+          {!menus.length && <p className="vendor-muted">Submit is off until a menu is uploaded above.</p>}
+          {!!menus.length && !mediaId && name.trim() && <p className="vendor-muted">Choose which uploaded menu shows this dish.</p>}
           {editing && <button type="button" onClick={clearForm}>Cancel edit</button>}
         </fieldset>
       </form>

@@ -18,6 +18,7 @@ import type { MediaTransport } from './mediaTransport.ts';
 import type { AuthorizedFetch } from './setupTransport.ts';
 import { canSeeBookable, canSeeLocation, type VendorSession } from './seller.ts';
 import { MenuDishEditor, MenuSourcePreview } from './MenuDishEditor.tsx';
+import { isPhotoFile, PHOTO_PICK_MIME, preparePhoto } from './photoPrep.ts';
 import { canManageMenuDishes } from './menuDishes.ts';
 
 export interface MediaPickerProps {
@@ -159,7 +160,7 @@ function ScopedMediaPicker({ session, transport, parent, parentId, authorizedFet
     setBlockers([]);
     const input = fileInput.current;
     if (!input) return;
-    input.accept = acceptFor(kind);
+    input.accept = kind === 'video' ? acceptFor(kind) : [...new Set([...acceptFor(kind).split(','), ...PHOTO_PICK_MIME])].join(',');
     input.click();
   };
 
@@ -214,7 +215,19 @@ function ScopedMediaPicker({ session, transport, parent, parentId, authorizedFet
         return;
       }
 
-      const encoded = encodePickedFile(kind, file, await readAsDataUri(file));
+      let picked = file;
+      if (isPhotoFile(file)) {
+        const prepared = await preparePhoto(file);
+        if (!stillActive()) return;
+        if (prepared.ok === false) {
+          setBlockers([prepared.reason === 'unreadable'
+            ? 'This browser can\u2019t open that photo. Save it as a JPEG or PNG and try again.'
+            : 'That photo is too detailed to shrink under 2 MB. Try a different photo.']);
+          return;
+        }
+        picked = prepared.file;
+      }
+      const encoded = encodePickedFile(kind, picked, await readAsDataUri(picked));
       if (!stillActive()) return;
       if (encoded.ok === false) {
         setBlockers([MEDIA_REFUSALS[encoded.reason]]);

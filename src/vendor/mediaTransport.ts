@@ -62,6 +62,21 @@ function blockersFrom(json: Record<string, unknown>): string[] | undefined {
   return json.blockers.filter((item): item is string => typeof item === 'string');
 }
 
+/** What to tell the vendor when the API refused without naming a fixable reason. */
+export function refusalFor(status: number, json: Record<string, unknown>): string[] {
+  const given = blockersFrom(json);
+  if (given?.length) return given;
+  const error = typeof json.error === 'string' ? json.error : '';
+  if (status === 401) return ['Your sign-in has expired. Sign in again, then try once more.'];
+  if (status === 403 && /closed/i.test(error)) return ['This business is closed, so files cannot be added. Contact Bytspot if that is a mistake.'];
+  if (status === 403 && /no seat/i.test(error)) return ['You are no longer on this business\u2019s team. Sign out and back in, or ask the owner to invite you again.'];
+  if (status === 403) return ['Your role cannot add files here. Ask the owner or a manager.'];
+  if (status === 404) return ['This place no longer exists or you cannot see it any more. Reload the page.'];
+  if (status === 413) return ['That file is too large. Photos must be under 2 MB, menu PDFs under 3 MB and videos under 80 MB.'];
+  if (status >= 500) return ['Bytspot could not save it because of a problem on our side. Try again in a minute; if it keeps happening, tell Bytspot.'];
+  return ['Could not save that file. Reload the page and try again.'];
+}
+
 function reviveItem(raw: unknown): VendorMediaItem | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const entry = raw as Record<string, unknown>;
@@ -126,7 +141,7 @@ export function httpMediaTransport(authorized: AuthorizedFetch): MediaTransport 
   ): Promise<SetupResult<T>> => {
     const response = await authorized(path, init);
     const json = await readJson(response);
-    if (!response.ok) return { status: response.status, blockers: blockersFrom(json) };
+    if (!response.ok) return { status: response.status, blockers: refusalFor(response.status, json) };
     return { status: response.status, value: map(json) };
   };
 

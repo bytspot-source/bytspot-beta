@@ -321,7 +321,7 @@ extension NativeFindResult {
     func toVenueSummary() -> NativeVenueSummary? {
         guard let lat = latitude, let lng = longitude,
               NativeVenueSummary.hasValidMapCoordinate(latitude: lat, longitude: lng) else { return nil }
-        return NativeVenueSummary(
+        var venue = NativeVenueSummary(
             id: id,
             name: name,
             category: category ?? "venue",
@@ -335,6 +335,8 @@ extension NativeFindResult {
             verifiedPatchId: nil,
             imageUrl: imageURL
         )
+        venue.googlePlaceID = googlePlaceId.flatMap(NativeVenueDetailsDTO.exactGooglePlaceID)
+        return venue
     }
 }
 

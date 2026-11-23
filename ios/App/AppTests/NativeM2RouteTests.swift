@@ -396,4 +396,85 @@ struct NativeM2RouteTests {
             return { [weak self] in self?.cancellations.append(index) }
         }
     }
+
+    @Test func appleMapsHandoffCarriesExactCoordinatesAndNameAndNeverAWebLink() throws {
+        let item = try #require(NativeAppleMapsHandoff.mapItem(name: "  Tribe & Spice ", latitude: 33.787812345, longitude: -84.383298765))
+        #expect(item.placemark.coordinate.latitude == 33.787812345)
+        #expect(item.placemark.coordinate.longitude == -84.383298765)
+        #expect(item.name == "Tribe & Spice")
+        #expect(NativeAppleMapsHandoff.launchOptions[MKLaunchOptionsDirectionsModeKey] as? String == MKLaunchOptionsDirectionsModeDefault)
+        for (latitude, longitude) in [(Double?.none, -84.0), (33, nil), (0, 0), (91, -84)] as [(Double?, Double?)] {
+            #expect(NativeAppleMapsHandoff.mapItem(name: "X", latitude: latitude, longitude: longitude) == nil)
+        }
+    }
+
+    /// Every Apple Maps hand-off goes through NativeAppleMapsHandoff, so Maps
+    /// opens once at the exact spot: no maps.apple.com link that can open a
+    /// Safari window too, and no name-only search.
+    @Test func noScreenOpensAppleMapsThroughAWebLink() throws {
+        let app = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("App")
+        for file in ["NativeShellView.swift", "NativePrivateSales.swift", "BytspotAPIClient.swift", "NativePlansPanel.swift", "NativePartyArrival.swift"] {
+            let source = try String(contentsOf: app.appendingPathComponent(file), encoding: .utf8)
+            #expect(!source.contains("maps.apple.com/?"), "\(file) builds a maps.apple.com link")
+            #expect(!source.contains("components.host = \"maps.apple.com\""), "\(file) builds a maps.apple.com link")
+        }
+    }
+
+    @Test func openStatusSaysWhenItChangesInThePlacesOwnClock() throws {
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-11-23T22:00:00Z")) // 5 PM in Atlanta
+        let atlanta = -300
+        let open = NativeOpenStatus(isOpen: true, closesAt: now.addingTimeInterval(6 * 3600), opensAt: nil, utcOffsetMinutes: atlanta)
+        #expect(open.label(now: now) == "Open · closes 11 PM")
+        #expect(open.tone(now: now) == .open)
+        let late = NativeOpenStatus(isOpen: true, closesAt: now.addingTimeInterval(9 * 3600 + 30 * 60), opensAt: nil, utcOffsetMinutes: atlanta)
+        #expect(late.label(now: now) == "Open · closes 2:30 AM")
+        let soon = NativeOpenStatus(isOpen: true, closesAt: now.addingTimeInterval(25 * 60), opensAt: nil, utcOffsetMinutes: atlanta)
+        #expect(soon.label(now: now) == "Open · closes in 25 min")
+        #expect(soon.tone(now: now) == .closingSoon)
+        let tomorrow = NativeOpenStatus(isOpen: false, closesAt: nil, opensAt: now.addingTimeInterval(16 * 3600), utcOffsetMinutes: atlanta)
+        #expect(tomorrow.label(now: now) == "Closed · opens tomorrow 9 AM")
+        #expect(tomorrow.tone(now: now) == .closed)
+        let later = NativeOpenStatus(isOpen: false, closesAt: nil, opensAt: now.addingTimeInterval(64 * 3600), utcOffsetMinutes: atlanta)
+        #expect(later.label(now: now) == "Closed · opens Thu 9 AM")
+        #expect(NativeOpenStatus.unknown.label(now: now) == "Hours unknown")
+        #expect(NativeOpenStatus(isOpen: true, closesAt: nil, opensAt: nil, utcOffsetMinutes: nil).label(now: now) == "Open now")
+        let stale = NativeOpenStatus(isOpen: true, closesAt: now.addingTimeInterval(-60), opensAt: nil, utcOffsetMinutes: atlanta)
+        #expect(stale.label(now: now) == "Hours unknown")
+        #expect(stale.tone(now: now) == .unknown)
+    }
+
+    @Test func openStatusDecodesTheServerAnswer() {
+        let decoded = NativeOpenStatusDecoder.statuses(from: ["statuses": [
+            ["placeId": "abc", "isOpen": true, "closesAt": "2026-11-24T04:00:00Z", "opensAt": NSNull(), "utcOffsetMinutes": -300],
+            ["placeId": "def", "isOpen": NSNull(), "closesAt": NSNull(), "opensAt": NSNull(), "utcOffsetMinutes": NSNull()],
+        ]])
+        #expect(decoded["abc"]?.isOpen == true)
+        #expect(decoded["abc"]?.closesAt == ISO8601DateFormatter().date(from: "2026-11-24T04:00:00Z"))
+        #expect(decoded["abc"]?.utcOffsetMinutes == -300)
+        #expect(decoded["def"] == .unknown)
+    }
+
+    @MainActor @Test func openStatusStoreAsksOncePerPlaceAndRetriesAfterAFailure() async {
+        let store = NativeOpenStatusStore()
+        var asked: [[String]] = []
+        var fail = true
+        store.fetch = { ids in
+            asked.append(ids)
+            if fail { throw URLError(.notConnectedToInternet) }
+            return ["abc": NativeOpenStatus(isOpen: true, closesAt: nil, opensAt: nil, utcOffsetMinutes: nil)]
+        }
+        let now = Date()
+        await store.load(["abc", "abc", nil, "bad id"], now: now)
+        #expect(asked == [["abc"]])
+        #expect(store.status(for: "abc") == nil)
+        await store.load(["abc"], now: now.addingTimeInterval(10))
+        #expect(asked.count == 1)
+        fail = false
+        await store.load(["abc", "xyz"], now: now.addingTimeInterval(NativeOpenStatusStore.retryAfter))
+        #expect(asked.last == ["abc", "xyz"])
+        #expect(store.status(for: "abc")?.isOpen == true)
+        #expect(store.status(for: "xyz") == .unknown)
+        await store.load(["abc"], now: now.addingTimeInterval(NativeOpenStatusStore.retryAfter + 60))
+        #expect(asked.count == 2)
+    }
 }

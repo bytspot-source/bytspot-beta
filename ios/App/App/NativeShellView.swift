@@ -482,12 +482,12 @@ struct BytspotNativeShellView: View {
                     // what was loaded, and where you were, instead of rebuilding it.
                     if selectedTab == .home || keptAliveTabs.contains(.home) {
                         keptAliveTab(.home) {
-                            NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth, openFeedback: { navigation.requestedFeedback = $0 }, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) })
+                            NativeHomeDashboardView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDiscoverFilter: openDiscoverFilter, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: openNativeAuth, openFeedback: { navigation.requestedFeedback = $0 }, openDirectRoute: { venue in NativeAppleMapsHandoff.open(venue) })
                         }
                     }
                     if selectedTab == .discover || keptAliveTabs.contains(.discover) {
                         keptAliveTab(.discover) {
-                            NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
+                            NativeDiscoverView(openHybrid: openHybrid, openNativeTab: selectNativeTab, openDirectRoute: { venue in NativeAppleMapsHandoff.open(venue) }, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, onRideBookingCompleted: { ride in navigation.presentBooking(ride: ride) }, handoffFilter: pendingDiscoverFilter, consumeHandoffFilter: { pendingDiscoverFilter = nil })
                         }
                     }
                     if selectedTab == .map || keptAliveTabs.contains(.map) {
@@ -500,7 +500,7 @@ struct BytspotNativeShellView: View {
                     }
                     if selectedTab == .concierge || keptAliveTabs.contains(.concierge) {
                         keptAliveTab(.concierge) {
-                            NativeConciergeView(model: conciergeModel, openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, openDirectRoute: { venue in directMapRouteStore.stageRoute(to: venue); selectNativeTab(.map) })
+                            NativeConciergeView(model: conciergeModel, openNativeTab: selectNativeTab, openNativeAccess: { openNativeEquivalent(for: .access) }, openNativeAuth: { openNativeAuth(mode: .login) }, openDirectRoute: { venue in NativeAppleMapsHandoff.open(venue) })
                         }
                     }
                     if selectedTab == .plan || keptAliveTabs.contains(.plan) {
@@ -4800,9 +4800,7 @@ private struct NativeProfileSavedSpotsPanel: View {
 
     private func directions(to place: NativeSavedPlace) {
         nativeImpactLight()
-        var parts = URLComponents(string: "https://maps.apple.com/")!
-        parts.queryItems = [URLQueryItem(name: "daddr", value: "\(place.latitude),\(place.longitude)"), URLQueryItem(name: "q", value: place.name)]
-        if let url = parts.url { openURL(url) }
+        NativeAppleMapsHandoff.open(name: place.name, latitude: place.latitude, longitude: place.longitude)
     }
 }
 
@@ -6862,10 +6860,7 @@ private struct NativeBoutiqueStayWalletSection: View {
     }
 
     private func navigate(to stay: NativeStayRequestRecord) {
-        let lat = stay.latitude ?? 33.7866
-        let lng = stay.longitude ?? -84.3833
-        let query = stay.venueName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? stay.venueName
-        if let url = URL(string: "http://maps.apple.com/?ll=\(lat),\(lng)&q=\(query)") { UIApplication.shared.open(url) }
+        NativeAppleMapsHandoff.open(name: stay.venueName, latitude: stay.latitude, longitude: stay.longitude)
     }
 }
 
@@ -9103,6 +9098,44 @@ private struct NativeFindResultsSection: View {
     }
 }
 
+/// "Open · closes 11 PM", "Closed · opens 5 PM" or "Hours unknown" for a
+/// Google-listed place. Shows nothing for a place without a Google id.
+struct NativeOpenStatusLine: View {
+    let placeID: String?
+    var size: CGFloat = 12
+    @ObservedObject private var store = NativeOpenStatusStore.shared
+
+    var body: some View {
+        Group {
+            if let status = store.status(for: placeID) {
+                TimelineView(.periodic(from: Date(), by: 60)) { context in
+                    let tone = status.tone(now: context.date)
+                    HStack(spacing: 5) {
+                        Circle().fill(Self.color(tone)).frame(width: 7, height: 7)
+                        Text(status.label(now: context.date))
+                            .font(.system(size: size, weight: .bold))
+                            .foregroundColor(tone == .unknown ? NativeTheme.textSecondary : Self.color(tone))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("native-open-status")
+                }
+            }
+        }
+        .task(id: placeID) { await store.load([placeID]) }
+    }
+
+    static func color(_ tone: NativeOpenStatus.Tone) -> Color {
+        switch tone {
+        case .open: return BytspotTheme.emerald
+        case .closingSoon: return BytspotTheme.amber
+        case .closed: return NativeTheme.danger
+        case .unknown: return NativeTheme.textTertiary
+        }
+    }
+}
+
 private struct NativeFindResultRow: View {
     let result: NativeFindResult
     let action: () -> Void
@@ -9136,6 +9169,7 @@ private struct NativeFindResultRow: View {
                         .font(.system(size: 12, weight: .bold))
                         .foregroundColor(NativeTheme.textSecondary)
                         .lineLimit(1)
+                    NativeOpenStatusLine(placeID: result.googlePlaceId, size: 11.5)
                 }
                 Spacer(minLength: 8)
                 // DETAILS-lock: a Find row is never Book/Request.
@@ -13131,7 +13165,7 @@ private struct NativeVenueCheckInChip: View {
     private func route(_ message: String) {
         guard venue.hasKnownCoordinates else { return }
         navigationMessage = message
-        showRoute = true
+        NativeAppleMapsHandoff.open(venue)
     }
 
     private func openLocationSettings() {
@@ -14876,7 +14910,6 @@ private struct NativeVenueDetailView: View {
 
     private func openRoute() {
         if let openDirectRoute, venue.hasKnownCoordinates {
-            dismiss()
             openDirectRoute(venue)
         } else {
             showRoute = true
@@ -17371,7 +17404,7 @@ private struct NativeMapExploreView: View {
             }
         }
         .sheet(item: $detailVenue) { venue in
-            let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess, openDirectRoute: { directMapRouteStore.stageRoute(to: $0) })
+            let detail = NativeVenueDetailView(venue: venue, openHybrid: openHybrid, openNativeTab: openNativeTab, openNativeAuth: openNativeAuth, openNativeAccess: openNativeAccess, openDirectRoute: { NativeAppleMapsHandoff.open($0) })
             if #available(iOS 16.0, *) {
                 detail
                     .presentationDetents([.large])
@@ -18439,6 +18472,7 @@ private struct NativeMapExploreView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(pin.title).font(.system(size: 17, weight: .heavy)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
                 Text(pin.subtitle).font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2)
+                NativeOpenStatusLine(placeID: pin.venue?.googlePlaceID)
             }
             if !isRouteCardShowing(for: pin) {
                 Button(action: { handleNonPartnerPrimary(pin) }) {
@@ -18491,6 +18525,7 @@ private struct NativeMapExploreView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(isRouteActive(pin) ? "Route active" : "Route").font(.system(size: 13.5, weight: .black)).foregroundColor(NativeTheme.textPrimary)
                     Text("Destination set to \(pin.title).").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(1).minimumScaleFactor(0.78)
+                    NativeOpenStatusLine(placeID: pin.venue?.googlePlaceID, size: 11.5)
                 }
                 Spacer(minLength: 0)
                 Text(routeEstimate(for: pin)).font(.system(size: 11, weight: .black, design: .monospaced)).foregroundColor(.black).padding(.horizontal, 8).frame(height: 24).background(NativeTheme.cyan).clipShape(Capsule())
@@ -18606,9 +18641,7 @@ private struct NativeMapExploreView: View {
 
     private func startTurnByTurn(to pin: NativeMapPin) {
         nativeImpactLight()
-        let url = URL(string: "http://maps.apple.com/?daddr=\(pin.coordinate.latitude),\(pin.coordinate.longitude)&dirflg=d")
-        guard let url else { return }
-        UIApplication.shared.open(url)
+        NativeAppleMapsHandoff.open(name: pin.title, latitude: pin.coordinate.latitude, longitude: pin.coordinate.longitude)
     }
 
     /// Resolves the full venue backing a peek-card pin for the native detail
@@ -18652,6 +18685,7 @@ private struct NativeMapExploreView: View {
                 Spacer(minLength: 0)
                 tierBadge
             }
+            NativeOpenStatusLine(placeID: pin.venue?.googlePlaceID)
             VStack(alignment: .leading, spacing: 10) {
                 Text(Self.partnerCardServiceSectionLabel)
                     .font(.system(size: 10.5, weight: .black))
@@ -19003,6 +19037,7 @@ private struct NativeMapExploreView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(pin.title).nativeTitle(16)
                 Text(pin.subtitle).nativeBody(size: 12.5, color: NativeTheme.textSecondary)
+                NativeOpenStatusLine(placeID: pin.venue?.googlePlaceID, size: 11.5)
             }
             Spacer()
             Image(systemName: "chevron.right").font(.system(size: 18, weight: .black)).foregroundColor(NativeTheme.textTertiary)
@@ -20987,6 +21022,7 @@ private struct NativeConciergeView: View {
     @State private var showingLibrary = false
     @State private var signInAfterPlan = false
     @State private var askingListing: NativeWindowListing?
+    @State private var openedPlan: NativeConciergeOpenedPlan?
     @AppStorage(NativeConciergeHandoffStore.promptKey) private var handoffPrompt = ""
     @EnvironmentObject private var sessionStore: BytspotSessionStore
     @EnvironmentObject private var locationStore: NativeLocationStore
@@ -21017,6 +21053,9 @@ private struct NativeConciergeView: View {
             runPreviewPromptIfNeeded()
         }
         .onDisappear { model.leaveScreen() }
+        .sheet(item: $openedPlan) { opened in
+            NativePlanDetailSheet(planID: opened.id, sessionStore: sessionStore, onChanged: {})
+        }
         .onChange(of: isTabActive) { active in
             if active { model.observe(session: sessionStore, location: locationStore); consumeNativeHandoffIfNeeded() }
             else { model.leaveScreen() }
@@ -21443,7 +21482,9 @@ private struct NativeConciergeView: View {
                 }
                 .buttonStyle(NativeConciergeChipStyle(prominent: true))
                 .accessibilityIdentifier("native-concierge-share-plan")
-                Button("Open Plans") { openNativeTab(.plan) }.buttonStyle(NativeConciergeChipStyle())
+                Button("Open plan") { openedPlan = NativeConciergeOpenedPlan(id: saved.planID) }
+                    .buttonStyle(NativeConciergeChipStyle())
+                    .accessibilityIdentifier("native-concierge-open-saved-plan")
                 Button("Done") { model.dismissSavedPlan() }.buttonStyle(NativeConciergeChipStyle())
             }
         }
@@ -21464,7 +21505,9 @@ private struct NativeConciergeView: View {
                         .accessibilityLabel("\(step.buttonTitle) to \(arrival.stop.name)")
                         .accessibilityHint("Asks for your approval first.")
                 }
-                Button("Open Plans") { openNativeTab(.plan) }.buttonStyle(NativeConciergeChipStyle())
+                Button("Open plan") { openedPlan = NativeConciergeOpenedPlan(id: arrival.planID) }
+                    .buttonStyle(NativeConciergeChipStyle())
+                    .accessibilityIdentifier("native-concierge-open-arrival-plan")
                 Button("Done") { model.dismissArrival() }.buttonStyle(NativeConciergeChipStyle())
             }
         }
@@ -21721,6 +21764,11 @@ struct NativeConciergePendingAction: Identifiable, Equatable {
 
 /// Phase 7: arrival help for one stop just added to a Plan. The stop is the Plan's
 /// server destination when it has one, otherwise the shown card's own point.
+/// The saved Plan Concierge opens, not the Start Plan screen.
+struct NativeConciergeOpenedPlan: Identifiable, Equatable {
+    let id: String
+}
+
 struct NativeConciergeArrival: Equatable {
     let planID: String
     let planTitle: String?
@@ -22231,7 +22279,7 @@ private struct NativeMusicListingCard: View {
                 Button("Details") { open(listing.invitation) }
                     .font(.system(size: 13, weight: .black)).foregroundColor(.black)
                     .frame(maxWidth: .infinity, minHeight: 44).background(NativeTheme.cyan).clipShape(Capsule())
-                Button("Directions") { if let url = listing.directionsURL { openURL(url) } }
+                Button("Directions") { NativeAppleMapsHandoff.open(name: listing.venueName, latitude: listing.latitude, longitude: listing.longitude) }
                     .font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary)
                     .frame(maxWidth: .infinity, minHeight: 44).background(NativePolish.glassSurface).clipShape(Capsule())
             }
@@ -23373,7 +23421,7 @@ private struct NativeMapPin: Identifiable {
 
     init(venue: NativeVenueSummary) {
         let kind = NativeMapPinKind.forVenue(venue)
-        let subtitle = kind == .partner ? "Verified Tap Zone · \(venue.crowd?.label ?? "Open")" : kind == .parking ? (venue.parking.isKnown ? "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)" : venue.parking.priceLabel) : venue.address
+        let subtitle = kind == .partner ? (venue.crowd.map { "Verified Tap Zone · \($0.label)" } ?? "Verified Tap Zone") : kind == .parking ? (venue.parking.isKnown ? "\(venue.parking.totalAvailable) spots · \(venue.parking.priceLabel)" : venue.parking.priceLabel) : venue.address
         self.init(id: venue.id, title: venue.name, subtitle: subtitle, distance: venue.distance, coordinate: CLLocationCoordinate2D(latitude: venue.latitude, longitude: venue.longitude), color: kind.mapColor, kind: kind, crowdLevel: venue.crowd?.level)
         self.venue = venue
     }

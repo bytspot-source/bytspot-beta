@@ -4378,6 +4378,132 @@ struct NativeVenueDetailsAPI {
     }
 }
 
+/// Open or closed now, from `places.openStatus`. Unknown is said, never guessed.
+struct NativeOpenStatus: Equatable {
+    enum Tone: Equatable { case open, closingSoon, closed, unknown }
+
+    let isOpen: Bool?
+    let closesAt: Date?
+    let opensAt: Date?
+    /// The place's own UTC offset, so "closes 11 PM" reads in its local clock.
+    let utcOffsetMinutes: Int?
+
+    static let unknown = NativeOpenStatus(isOpen: nil, closesAt: nil, opensAt: nil, utcOffsetMinutes: nil)
+
+    /// A change time already behind us means the answer is out of date.
+    func isCurrent(now: Date = Date()) -> Bool {
+        guard isOpen != nil else { return true }
+        if let closesAt, closesAt <= now { return false }
+        if let opensAt, opensAt <= now { return false }
+        return true
+    }
+
+    func tone(now: Date = Date()) -> Tone {
+        guard let isOpen, isCurrent(now: now) else { return .unknown }
+        guard isOpen else { return .closed }
+        if let closesAt, closesAt.timeIntervalSince(now) <= 3600 { return .closingSoon }
+        return .open
+    }
+
+    func label(now: Date = Date()) -> String {
+        guard let isOpen, isCurrent(now: now) else { return "Hours unknown" }
+        if isOpen {
+            guard let closesAt else { return "Open now" }
+            let minutes = Int((closesAt.timeIntervalSince(now) / 60).rounded(.up))
+            if minutes <= 60 { return "Open · closes in \(max(1, minutes)) min" }
+            return "Open · closes \(when(closesAt, now: now))"
+        }
+        guard let opensAt else { return "Closed now" }
+        return "Closed · opens \(when(opensAt, now: now))"
+    }
+
+    private var timeZone: TimeZone {
+        utcOffsetMinutes.flatMap { TimeZone(secondsFromGMT: $0 * 60) } ?? .current
+    }
+
+    /// "11 PM" today or overnight, "tomorrow 9 AM", or "Mon 9 AM" further out.
+    private func when(_ date: Date, now: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = calendar.component(.minute, from: date) == 0 ? "h a" : "h:mm a"
+        let time = formatter.string(from: date)
+        let hours = date.timeIntervalSince(now) / 3600
+        if calendar.isDate(date, inSameDayAs: now) || (hours < 12 && calendar.component(.hour, from: date) < 6) { return time }
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(date, inSameDayAs: tomorrow) { return "tomorrow \(time)" }
+        formatter.dateFormat = "EEE"
+        return "\(formatter.string(from: date)) \(time)"
+    }
+}
+
+enum NativeOpenStatusDecoder {
+    static func statuses(from payload: Any) -> [String: NativeOpenStatus] {
+        let rows = (payload as? [String: Any])?["statuses"] as? [Any] ?? []
+        var result: [String: NativeOpenStatus] = [:]
+        for case let row as [String: Any] in rows {
+            guard let id = row["placeId"] as? String, !id.isEmpty else { continue }
+            let offset = (row["utcOffsetMinutes"] as? Int) ?? (row["utcOffsetMinutes"] as? Double).map { Int($0) }
+            result[id] = NativeOpenStatus(
+                isOpen: row["isOpen"] as? Bool,
+                closesAt: (row["closesAt"] as? String).flatMap(NativeAccountDeletionFormat.date(fromISO:)),
+                opensAt: (row["opensAt"] as? String).flatMap(NativeAccountDeletionFormat.date(fromISO:)),
+                utcOffsetMinutes: offset
+            )
+        }
+        return result
+    }
+}
+
+/// One shared answer per place, so a list, its map pin and its card agree and
+/// Google is asked once. Kept five minutes, and never past the next change.
+@MainActor
+final class NativeOpenStatusStore: ObservableObject {
+    static let shared = NativeOpenStatusStore()
+    static let path = "/trpc/places.openStatus"
+    static let freshFor: TimeInterval = 5 * 60
+    static let retryAfter: TimeInterval = 60
+    static let batchSize = 25
+
+    @Published private(set) var statuses: [String: NativeOpenStatus] = [:]
+    private var checkedAt: [String: Date] = [:]
+    private var inFlight: Set<String> = []
+
+    var fetch: @MainActor ([String]) async throws -> [String: NativeOpenStatus] = { ids in
+        let store = NativeSessionRenewer.shared.sessionStore
+        let token = (store?.canAttachBearerToken ?? false) ? store?.token : nil
+        let payload = try await BytspotAPIClient(tokenProvider: { token }).trpcQueryPayload(path: NativeOpenStatusStore.path, input: ["placeIds": ids])
+        return NativeOpenStatusDecoder.statuses(from: payload)
+    }
+
+    func status(for placeID: String?) -> NativeOpenStatus? {
+        guard let placeID else { return nil }
+        return statuses[placeID]
+    }
+
+    func load(_ placeIDs: [String?], now: Date = Date()) async {
+        var seen = Set<String>()
+        let wanted = placeIDs.compactMap { $0 }.filter { id in
+            guard NativeVenueDetailsDTO.exactGooglePlaceID(id) == id, seen.insert(id).inserted, !inFlight.contains(id) else { return false }
+            if let status = statuses[id], !status.isCurrent(now: now) { return true }
+            guard let checked = checkedAt[id] else { return true }
+            return now.timeIntervalSince(checked) >= (statuses[id] == nil ? Self.retryAfter : Self.freshFor)
+        }
+        guard !wanted.isEmpty else { return }
+        inFlight.formUnion(wanted)
+        defer { inFlight.subtract(wanted) }
+        for start in stride(from: 0, to: wanted.count, by: Self.batchSize) {
+            let batch = Array(wanted[start..<min(start + Self.batchSize, wanted.count)])
+            let answered = try? await fetch(batch)
+            for id in batch {
+                checkedAt[id] = now
+                if let answered { statuses[id] = answered[id] ?? .unknown }
+            }
+        }
+    }
+}
+
 /// The outside booking sites a listed place may link to, and each one's exact hosts.
 /// Same table as the API's services/bookingProviders.ts; keep the two in step.
 enum NativeBookingProviders {
@@ -4658,15 +4784,6 @@ struct NativeMusicListing: Identifiable, Equatable {
         }
         formatter.dateFormat = "EEE"
         return "\(formatter.string(from: anchor)) · \(noun) \(time)"
-    }
-
-    var directionsURL: URL? {
-        var components = URLComponents()
-        components.scheme = "https"
-        components.host = "maps.apple.com"
-        components.path = "/"
-        components.queryItems = [URLQueryItem(name: "daddr", value: "\(latitude),\(longitude)"), URLQueryItem(name: "dirflg", value: "d")]
-        return components.url
     }
 
     private static func dollars(_ cents: Int) -> String {
@@ -6322,7 +6439,7 @@ final class NativeTabContentStore: ObservableObject {
     }
 
     private static func venueFeatureChips(_ venue: NativeVenueSummary) -> [String] {
-        var chips = [label(for: venue.discoverType), venue.crowd?.label ?? "Open"]
+        var chips = [label(for: venue.discoverType)] + [venue.crowd?.label].compactMap { $0 }
         if venue.parking.totalAvailable > 0 { chips.append("\(venue.parking.totalAvailable) spots") }
         if venue.verifiedPatchId != nil { chips.append("Bytspot verified") }
         return Array(chips.prefix(4))

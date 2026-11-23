@@ -298,16 +298,6 @@ enum NativePrivateSalePolicy {
         return now >= start.addingTimeInterval(-30 * 60) && now < end
     }
 
-    /// Apple Maps directions, matching the Map's own hand-off.
-    static func directionsURL(to point: NativeM2RoutePoint) -> URL? {
-        var components = URLComponents()
-        components.scheme = "https"
-        components.host = "maps.apple.com"
-        components.path = "/"
-        components.queryItems = [URLQueryItem(name: "daddr", value: point.queryValue), URLQueryItem(name: "dirflg", value: "d")]
-        return components.url
-    }
-
     /// Missing, ended, sold, cancelled and not-approved all read as one answer from the server.
     static func isUnavailable(_ error: Error) -> Bool {
         guard case let BytspotAPIClient.APIError.server(status, _) = error else { return false }
@@ -1674,8 +1664,8 @@ struct NativePrivateSaleBuyerView: View {
                     .accessibilityIdentifier("native-private-sale-show-on-map")
             }
             HStack(spacing: 8) {
-                if let point = card.meetRoutePoint, let url = NativePrivateSalePolicy.directionsURL(to: point) {
-                    NativeSaleSecondaryButton(title: "Directions", icon: "arrow.triangle.turn.up.right.diamond.fill") { openURL(url) }
+                if let point = card.meetRoutePoint {
+                    NativeSaleSecondaryButton(title: "Directions", icon: "arrow.triangle.turn.up.right.diamond.fill") { NativeAppleMapsHandoff.open(name: card.meetName, latitude: point.latitude, longitude: point.longitude) }
                 }
                 arrivedControl(card)
             }
@@ -1773,8 +1763,8 @@ struct NativePrivateSaleMapCard: View {
             }
             NativeSaleMeetSummary(card: card, travelSeconds: travelSeconds)
             HStack(spacing: 8) {
-                if let point = card.meetRoutePoint, let url = NativePrivateSalePolicy.directionsURL(to: point) {
-                    NativeSaleSecondaryButton(title: "Start", icon: "location.fill") { openURL(url) }
+                if let point = card.meetRoutePoint {
+                    NativeSaleSecondaryButton(title: "Start", icon: "location.fill") { NativeAppleMapsHandoff.open(name: card.meetName, latitude: point.latitude, longitude: point.longitude) }
                 }
                 if card.arrivedAt != nil {
                     Label("Seller knows", systemImage: "checkmark.circle.fill").font(.system(size: 12, weight: .black))

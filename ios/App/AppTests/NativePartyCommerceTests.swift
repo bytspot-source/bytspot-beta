@@ -604,7 +604,7 @@ struct NativePartyMusicTests {
         #expect(listing.performerLine == "With DJ Kofi")
         #expect(listing.confirmationLine == "Host-published · Performer confirmed")
         #expect(listing.distanceLine == "1.2 mi")
-        #expect(listing.directionsURL?.absoluteString == "https://maps.apple.com/?daddr=33.787,-84.384&dirflg=d")
+        #expect(listing.latitude == 33.787 && listing.longitude == -84.384)
         #expect(listing.invitation.partyID == "party-1")
     }
 

@@ -67,6 +67,9 @@ function ScopedMediaPicker({ session, transport, parent, parentId, authorizedFet
   const [blockers, setBlockers] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [pendingKind, setPendingKind] = useState<MediaKind | undefined>(undefined);
+  /** The section the last upload was for, so its result shows there and not only at the bottom. */
+  const [resultKind, setResultKind] = useState<MediaKind | null>(null);
+  const [uploaded, setUploaded] = useState<MediaKind | null>(null);
   const [videoAvailable, setVideoAvailable] = useState(false);
   const inputId = useId();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -158,6 +161,8 @@ function ScopedMediaPicker({ session, transport, parent, parentId, authorizedFet
     if (!canEdit || busy || !loaded || locked.current) return;
     setPendingKind(kind);
     setBlockers([]);
+    setResultKind(kind);
+    setUploaded(null);
     const input = fileInput.current;
     if (!input) return;
     input.accept = kind === 'video' ? acceptFor(kind) : [...new Set([...acceptFor(kind).split(','), ...PHOTO_PICK_MIME])].join(',');
@@ -209,6 +214,7 @@ function ScopedMediaPicker({ session, transport, parent, parentId, authorizedFet
         if (finished.value) {
           setBlockers([]);
           await reload();
+          if (stillActive()) setUploaded(kind);
         } else {
           setBlockers(finished.blockers ?? ['Could not save that clip. Try again.']);
         }
@@ -238,6 +244,7 @@ function ScopedMediaPicker({ session, transport, parent, parentId, authorizedFet
       if (result.value) {
         setBlockers([]);
         await reload();
+        if (stillActive()) setUploaded(kind);
       } else {
         setLoaded(false); setBlockers(result.blockers ?? ['Could not save that file. Reload before trying again.']);
       }
@@ -251,6 +258,7 @@ function ScopedMediaPicker({ session, transport, parent, parentId, authorizedFet
   const remove = async (item: VendorMediaItem) => {
     const active = lifecycle.current;
     if (!canEdit || busy || !loaded || locked.current || !active || active.signal.aborted) return;
+    setResultKind(null); setUploaded(null);
     const current = ++generation.current;
     locked.current = true; setBusy(true); setMediaRevision((value) => value + 1);
     try {
@@ -350,6 +358,15 @@ function ScopedMediaPicker({ session, transport, parent, parentId, authorizedFet
                 ))}
               </ul>
             )}
+            {resultKind === kind && busy ? <p className="vendor-muted" role="status">Uploading…</p> : null}
+            {uploaded === kind && !busy ? (
+              <p className="vendor-upload-ok" role="status">Uploaded. Bytspot will review it before guests see it.</p>
+            ) : null}
+            {resultKind === kind && blockers.length > 0 ? (
+              <ul className="vendor-reasons vendor-upload-error" role="alert">
+                {blockers.map((blocker) => <li key={blocker} className="vendor-reason-fixable">{blocker}</li>)}
+              </ul>
+            ) : null}
             {kind === 'menu' && parent === 'location' && (
               !canManageDishes ? <p className="vendor-muted">Menu evidence requires an active seat with Publish permission for this place.</p>
                 : !authorizedFetch ? <p className="vendor-muted">Optional menu evidence is unavailable without an authenticated connection. No sample dishes are shown.</p>
@@ -364,7 +381,7 @@ function ScopedMediaPicker({ session, transport, parent, parentId, authorizedFet
       {!videoAvailable ? <p className="vendor-muted">{VIDEO_HOSTING_NOTE}</p> : null}
       <p className="vendor-muted">Bytspot reviews every new photo, menu and video before guests see it.</p>
 
-      {blockers.length > 0 ? (
+      {blockers.length > 0 && (resultKind === null || !kinds.includes(resultKind)) ? (
         <ul className="vendor-reasons">
           {blockers.map((blocker) => (
             <li key={blocker} className="vendor-reason-fixable">

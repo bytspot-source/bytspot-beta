@@ -611,3 +611,16 @@ fieldset.vendor-field {
 .vendor-patch-url {
   overflow-wrap: anywhere;
 }
+
+.vendor-upload-ok {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(52, 211, 153, 0.14);
+  color: #34d399;
+  font-weight: 600;
+}
+
+.vendor-upload-error .vendor-reason-fixable {
+  color: #f87171;
+}

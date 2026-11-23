@@ -110,3 +110,15 @@ test('the demo store keeps a cover unique and a gallery stacked', async () => {
   const after = await transport.list('location', 'loc_1');
   assert.equal(after.value?.media.some((item) => item.kind === 'gallery'), false);
 });
+
+test('a refusal without a reason still tells the vendor what happened and what to do', async () => {
+  const { refusalFor } = await import('../mediaTransport.ts');
+  assert.deepEqual(refusalFor(413, { error: 'Could not save', blockers: ['That file is too large'] }), ['That file is too large'], 'the API reason wins');
+  assert.match(refusalFor(401, { error: 'Invalid or expired token' })[0], /sign-in has expired/);
+  assert.match(refusalFor(403, { error: 'This business is closed' })[0], /business is closed/);
+  assert.match(refusalFor(403, { error: 'No seat at this business' })[0], /no longer on this business/);
+  assert.match(refusalFor(404, { error: 'Not found' })[0], /no longer exists/);
+  assert.match(refusalFor(413, {})[0], /under 2 MB/);
+  assert.match(refusalFor(500, { error: 'Internal server error' })[0], /problem on our side/);
+  assert.equal(refusalFor(500, { error: 'Internal server error' })[0].includes('Internal'), false, 'no server wording leaks');
+});

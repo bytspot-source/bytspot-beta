@@ -9130,7 +9130,7 @@ struct NativeOpenStatusLine: View {
         switch tone {
         case .open: return BytspotTheme.emerald
         case .closingSoon: return BytspotTheme.amber
-        case .closed: return NativeTheme.danger
+        case .closed: return Color(hex: 0xF87171)
         case .unknown: return NativeTheme.textTertiary
         }
     }

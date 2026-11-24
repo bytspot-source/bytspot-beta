@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { trpc } from '../utils/trpc';
 import { passLabel, passQrValue } from '../utils/guestAsk';
-import { ticketsTransport, ticketWhen, type MyTicket, type TicketsClient } from '../utils/guestTickets';
+import { ticketRefund, ticketsTransport, ticketWhen, type MyTicket, type TicketsClient } from '../utils/guestTickets';
 
 const POLL_MS = 15_000;
 
@@ -10,6 +10,23 @@ const POLL_MS = 15_000;
 export function GuestTickets() {
   const transport = useMemo(() => ticketsTransport(trpc as unknown as TicketsClient), []);
   const [rows, setRows] = useState<MyTicket[]>([]);
+  const [cancelling, setCancelling] = useState<string | null>(null);
+  const [problem, setProblem] = useState<{ orderId: string; text: string } | null>(null);
+
+  const cancel = async (row: MyTicket) => {
+    if (cancelling) return;
+    if (!window.confirm(`Cancel ${row.title} and get $${(row.priceCents / 100).toFixed(2)} back? Your pass stops working.`)) return;
+    setCancelling(row.orderId);
+    setProblem(null);
+    try {
+      await transport.cancel(row.orderId);
+      setRows(await transport.mine());
+    } catch (error) {
+      setProblem({ orderId: row.orderId, text: error instanceof Error && error.message ? error.message : 'Could not cancel. Try again.' });
+    } finally {
+      setCancelling(null);
+    }
+  };
 
   useEffect(() => {
     let live = true;
@@ -54,6 +71,30 @@ export function GuestTickets() {
               </div>
             </div>
           ) : null}
+          {(() => {
+            const refund = ticketRefund(row);
+            if (!refund.line) return null;
+            return (
+              <div className="mt-2 space-y-2">
+                <p className="text-[12px] text-slate-400">{refund.line}</p>
+                {refund.canCancel ? (
+                  <button
+                    type="button"
+                    onClick={() => void cancel(row)}
+                    disabled={cancelling !== null}
+                    className="rounded-full border border-slate-500 px-4 py-2 text-[13px] text-white disabled:opacity-50"
+                    style={{ fontWeight: 700 }}
+                    data-testid="ticket-cancel"
+                  >
+                    {cancelling === row.orderId ? 'Cancelling…' : 'Cancel & refund'}
+                  </button>
+                ) : null}
+                {problem?.orderId === row.orderId ? (
+                  <p className="text-[12px]" style={{ color: '#fda4af' }} role="alert">{problem.text}</p>
+                ) : null}
+              </div>
+            );
+          })()}
           {row.payment === 'paying' ? (
             <p className="mt-1 text-[12px] text-slate-400">Waiting for Stripe to confirm the payment. Your pass appears here.</p>
           ) : null}

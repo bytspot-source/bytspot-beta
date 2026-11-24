@@ -101,6 +101,8 @@ struct NativePartyCommercePurchase: Decodable, Identifiable {
     let completedAt: String?
     let party: NativePartyCommerceParty
     let session: NativePartyCommerceSession?
+    /// Cancel for a full refund until this instant. Nil when the guest cannot; older servers omit it.
+    let refundableUntil: String?
     var selection: NativePartyCommerceSelection {
         .init(ticketTierName: ticketTierName, sessionID: session?.id)
     }
@@ -115,6 +117,20 @@ struct NativePartyCommercePurchase: Decodable, Identifiable {
                   let starts = NativeAccountDeletionFormat.date(fromISO: session.startsAt), starts > now else { return false }
         }
         return true
+    }
+    /// Cancel & refund shows only while the server says it will work.
+    func canCancel(now: Date = Date()) -> Bool {
+        guard status == "completed", let raw = refundableUntil,
+              let until = NativeAccountDeletionFormat.date(fromISO: raw) else { return false }
+        return until > now
+    }
+    /// "Free cancellation until Thu, Dec 3, 9:00 PM", or who to contact once refunds have closed.
+    func refundLine(now: Date = Date()) -> String? {
+        guard status == "completed", !party.isPast else { return nil }
+        guard canCancel(now: now), let raw = refundableUntil else {
+            return "Refunds closed 24 hours before the party. Contact the host."
+        }
+        return "Free cancellation until \(NativePartyCommerceFormat.date(raw)). You get the full price back."
     }
     var statusLabel: String {
         switch status {
@@ -187,6 +203,12 @@ enum NativePartyCommerceFormat {
     static func date(_ raw: String) -> String {
         NativeAccountDeletionFormat.date(fromISO: raw)?.formatted(date: .abbreviated, time: .shortened) ?? "Date unavailable"
     }
+    /// The server's refusal names the next step (contact the host, try again), so it is shown as written.
+    static func cancelFailure(_ error: Error) -> String {
+        guard case let BytspotAPIClient.APIError.server(_, body) = error else { return "Couldn't reach Bytspot. Try again." }
+        let said = NativePlanDemandFailure.serverMessage(in: body)
+        return said.isEmpty ? "Couldn't cancel right now. Try again." : said
+    }
     /// Exact Stripe checkout origin only: no suffix matching, user-info,
     /// alternate ports, protocol-relative URLs or backslash normalization.
     static func checkoutURL(_ raw: String) -> URL? {
@@ -254,6 +276,10 @@ struct NativePartyCommerceAPI {
               (kind != "purchases" || page.purchases != nil),
               (kind != "claims" || page.claims != nil) else { throw BytspotAPIClient.APIError.invalidResponse }
         return page
+    }
+    /// Cancel a paid purchase for a full refund. The server enforces the 24-hour cutoff.
+    func cancelPurchase(_ checkoutID: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/events.commerce.cancelPurchase", method: "POST", input: ["checkoutId": checkoutID])
     }
     func credential(_ partyID: String) async throws -> NativePartyCommerceCredential {
         let requestedAt = Date()
@@ -665,6 +691,8 @@ struct NativePartyWalletView: View {
     @State private var loading = false
     @State private var message = ""
     @State private var pageTask: Task<Void, Never>?
+    @State private var cancelling: NativePartyCommercePurchase?
+    @State private var cancellingID: String?
     private var scope: NativePartyCommerceScope { NativePartyCommerceScope(sessionStore) }
 
     var body: some View {
@@ -686,6 +714,14 @@ struct NativePartyWalletView: View {
                                 Text("Admission: \(NativePartyCommerceFormat.money(purchase.amountCents - purchase.sessionAmountCents, currency: purchase.currency)) · Session: \(NativePartyCommerceFormat.money(purchase.sessionAmountCents, currency: purchase.currency))").font(.footnote)
                             }
                             if let session = purchase.session { sessionDetails(session) }
+                            if let line = purchase.refundLine() {
+                                Text(line).font(.footnote).foregroundColor(.secondary)
+                            }
+                            if purchase.canCancel() {
+                                Button(cancellingID == purchase.id ? "Cancelling…" : "Cancel & refund", role: .destructive) { cancelling = purchase }
+                                    .frame(minHeight: 44).disabled(cancellingID != nil)
+                                    .accessibilityIdentifier("native-party-cancel-purchase-\(purchase.id)")
+                            }
                             NavigationLink("Check personal admission") { NativePartyPersonalPassView(partyID: purchase.party.id) }
                         }.padding(.vertical, 4)
                     }
@@ -712,6 +748,19 @@ struct NativePartyWalletView: View {
             Button("Refresh records") { revision = UUID() }.disabled(loading)
         }
         .navigationTitle("My parties")
+        .confirmationDialog(
+            cancelling.map { "Cancel \($0.session?.name ?? $0.ticketTierName ?? "this purchase")?" } ?? "",
+            isPresented: Binding(get: { cancelling != nil }, set: { if !$0 { cancelling = nil } }),
+            titleVisibility: .visible,
+            presenting: cancelling
+        ) { purchase in
+            Button("Cancel & refund \(NativePartyCommerceFormat.money(purchase.amountCents, currency: purchase.currency))", role: .destructive) {
+                Task { await cancel(purchase) }
+            }
+            Button("Keep it", role: .cancel) {}
+        } message: { _ in
+            Text("You get the full price back to your card in 5–10 days. Your pass and any table stop working.")
+        }
         .task(id: NativePartyCommerceLoadKey(scope: scope, revision: revision, partyID: partyID)) { await load() }
         .refreshable { await load() }
         .onChange(of: scenePhase) { if $0 == .active { revision = UUID() } }
@@ -719,6 +768,19 @@ struct NativePartyWalletView: View {
         // their source rows on disappear can pop NavigationView's destination.
         // Account changes still hide them immediately through loadedScope.
         .onDisappear { pageTask?.cancel(); generation.invalidate(); loading = false }
+    }
+    @MainActor private func cancel(_ purchase: NativePartyCommercePurchase) async {
+        let captured = scope
+        guard captured.signedIn, cancellingID == nil else { return }
+        cancellingID = purchase.id
+        defer { cancellingID = nil }
+        do {
+            try await NativePartyCommerceAPI(client: captured.client).cancelPurchase(purchase.id)
+            await load()
+            message = "Cancelled. \(NativePartyCommerceFormat.money(purchase.amountCents, currency: purchase.currency)) is on its way back to your card."
+        } catch {
+            message = NativePartyCommerceFormat.cancelFailure(error)
+        }
     }
     private func passSection(_ title: String, past: Bool) -> some View {
         Section(title) {

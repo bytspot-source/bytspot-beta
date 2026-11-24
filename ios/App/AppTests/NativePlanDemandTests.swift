@@ -136,7 +136,7 @@ final class NativePlanDemandTests: XCTestCase {
         bookedAsk.targetWindowId = "window-3"
         var otherPlan = ask(id: "elsewhere", planId: "plan-2")
         otherPlan.targetWindowId = "window-4"
-        var finished = ask(id: "withdrawn", state: "WITHDRAWN")
+        var finished = ask(id: "withdrawn", state: "WITHDRAWN", category: "shopping")
         finished.targetWindowId = "window-5"
 
         var state = NativePlanDemandState()

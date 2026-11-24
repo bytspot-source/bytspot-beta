@@ -35,6 +35,8 @@ export interface MyTicket {
   refundReason?: string;
   pass?: string;
   checkedIn: boolean;
+  /** Cancel for a full refund until this instant. Absent when the guest cannot. */
+  refundableUntil?: string;
 }
 
 export interface TicketsClient {
@@ -42,6 +44,7 @@ export interface TicketsClient {
     get: { query: (input: { ticketId: string }) => Promise<GuestTicket> };
     checkout: { mutate: (input: { ticketId: string }) => Promise<{ url: string }> };
     mine: { query: () => Promise<MyTicket[]> };
+    cancel: { mutate: (input: { orderId: string }) => Promise<{ orderId: string; refundedCents: number }> };
   };
 }
 
@@ -51,7 +54,21 @@ export function ticketsTransport(client: TicketsClient) {
     /** A hosted checkout URL; the ticket is counted when the payment is confirmed. */
     buy: async (ticketId: string) => (await client.tickets.checkout.mutate({ ticketId })).url,
     mine: () => client.tickets.mine.query(),
+    /** Cancel a paid ticket for a full refund; the server enforces the 24-hour cutoff. */
+    cancel: (orderId: string) => client.tickets.cancel.mutate({ orderId }),
   };
+}
+
+/** Whether Cancel & refund should show, and the line saying until when. */
+export function ticketRefund(ticket: Pick<MyTicket, 'payment' | 'refundableUntil' | 'timezone'>, now: Date = new Date()): { canCancel: boolean; line?: string } {
+  if (ticket.payment !== 'paid') return { canCancel: false };
+  const until = ticket.refundableUntil ? new Date(ticket.refundableUntil) : undefined;
+  if (!until || Number.isNaN(until.getTime()) || until <= now) {
+    return { canCancel: false, line: 'Refunds closed 24 hours before the start. Contact the business.' };
+  }
+  const zone = ticket.timezone ? { timeZone: ticket.timezone } : {};
+  const when = until.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', ...zone });
+  return { canCancel: true, line: `Free cancellation until ${when}. You get the full price back.` };
 }
 
 /** Kept across sign-in, so a guest who opened a ticket link signed out lands back on it. */

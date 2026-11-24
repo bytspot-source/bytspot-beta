@@ -213,6 +213,35 @@ struct NativePartyCommerceTests {
         }
     }
 
+    @Test func aPaidPurchaseOffersCancelAndRefundUntilTheServersCutoff() throws {
+        let now = try #require(NativeAccountDeletionFormat.date(fromISO: "2098-01-01T00:00:00Z"))
+        let open = try activeReceipt(overrides: ["status": "completed", "refundableUntil": "2098-01-03T00:00:00Z"])
+        #expect(open.canCancel(now: now))
+        #expect(open.refundLine(now: now)?.hasPrefix("Free cancellation until ") == true)
+        #expect(open.refundLine(now: now)?.hasSuffix("You get the full price back.") == true)
+
+        let closed = try activeReceipt(overrides: ["status": "completed", "refundableUntil": NSNull()])
+        #expect(!closed.canCancel(now: now))
+        #expect(closed.refundLine(now: now) == "Refunds closed 24 hours before the party. Contact the host.")
+
+        let older = try activeReceipt(overrides: ["status": "completed"])
+        #expect(!older.canCancel(now: now), "an older server sends no cutoff, so no button")
+
+        let lapsed = try activeReceipt(overrides: ["status": "completed", "refundableUntil": "2097-12-31T23:00:00Z"])
+        #expect(!lapsed.canCancel(now: now))
+
+        let pending = try activeReceipt(overrides: ["status": "pending", "refundableUntil": "2098-01-03T00:00:00Z"])
+        #expect(!pending.canCancel(now: now))
+        #expect(pending.refundLine(now: now) == nil)
+    }
+
+    @Test func aRefusedCancelShowsTheServersReason() {
+        let body = #"{"error":{"message":"Refunds close 24 hours before the party starts. Contact the host.","code":-32009}}"#
+        #expect(NativePartyCommerceFormat.cancelFailure(BytspotAPIClient.APIError.server(status: 409, body: body))
+                == "Refunds close 24 hours before the party starts. Contact the host.")
+        #expect(NativePartyCommerceFormat.cancelFailure(URLError(.notConnectedToInternet)) == "Couldn't reach Bytspot. Try again.")
+    }
+
     private func activeReceipt(overrides: [String: Any] = [:]) throws -> NativePartyCommercePurchase {
         var row = CommerceProtocol.purchase
         row["reservationExpiresAt"] = "2098-01-01T00:00:00Z"

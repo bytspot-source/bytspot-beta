@@ -22,6 +22,33 @@ struct NativeM2RoutePoint: Equatable, Sendable {
     var queryValue: String { "\(latitude),\(longitude)" }
 }
 
+/// The one way Bytspot hands a destination to Apple Maps: the exact
+/// coordinates and the place's name, straight into the Maps app, once. A web
+/// link can open a Safari window as well, and a name alone makes Maps search
+/// for the place again.
+enum NativeAppleMapsHandoff {
+    static let launchOptions: [String: Any] = [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDefault]
+
+    static func mapItem(name: String, latitude: Double?, longitude: Double?) -> MKMapItem? {
+        guard let point = NativeM2RoutePoint(latitude: latitude, longitude: longitude) else { return nil }
+        let item = MKMapItem(placemark: MKPlacemark(coordinate: point.coordinate))
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        item.name = trimmed.isEmpty ? nil : trimmed
+        return item
+    }
+
+    @discardableResult
+    static func open(name: String, latitude: Double?, longitude: Double?) -> Bool {
+        guard let item = mapItem(name: name, latitude: latitude, longitude: longitude) else { return false }
+        return item.openInMaps(launchOptions: launchOptions)
+    }
+
+    @discardableResult
+    static func open(_ venue: NativeVenueSummary) -> Bool {
+        open(name: venue.name, latitude: venue.latitude, longitude: venue.longitude)
+    }
+}
+
 struct NativeM2RouteDestination: Equatable {
     let name: String
     let address: String
@@ -338,6 +365,10 @@ struct NativeM2RouteSheet: View {
     }
 
     private func handoff(to provider: NativeM2RouteProvider) {
+        if provider == .apple {
+            handoffError = NativeAppleMapsHandoff.open(venue) ? nil : "Could not open Apple Maps. Try again or choose another Maps app."
+            return
+        }
         guard let url = destination.directionsURL(for: provider) else {
             handoffError = NativeM2RouteCopy.missingDestination
             return

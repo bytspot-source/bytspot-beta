@@ -184,6 +184,9 @@ final class NativeMapOpenLifecycleTests: XCTestCase {
         let call = try XCTUnwrap(source.range(of: "startTurnByTurn(to: pin)"))
         let panelEnd = try XCTUnwrap(source.range(of: "native-map-route-active-panel", range: panel.upperBound..<source.endIndex))
         XCTAssertTrue(panel.upperBound < call.lowerBound && call.upperBound < panelEnd.lowerBound)
+        let start = try XCTUnwrap(source.range(of: "    private func startTurnByTurn(to pin: NativeMapPin) {"))
+        let startBody = source[start.upperBound...].prefix(400)
+        XCTAssertTrue(startBody.contains("NativeAppleMapsHandoff.open(name: pin.title"))
         let peek = try XCTUnwrap(source.range(of: "    private func nonPartnerPeekCard(for pin: NativeMapPin) -> some View {"))
         let navigate = try XCTUnwrap(source.range(of: "Button(action: { handleNonPartnerPrimary(pin) })", range: peek.upperBound..<source.endIndex))
         XCTAssertTrue(source[peek.upperBound..<navigate.lowerBound].contains("if !isRouteCardShowing(for: pin) {"))
@@ -6137,8 +6140,10 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertEqual(card.pay.map(\.provider), [.venmo])
         XCTAssertEqual(NativePrivateSalePolicy.reminders(card.pay + card.pay), ["Pay only after you see the item."])
         let point = try XCTUnwrap(card.meetRoutePoint)
-        XCTAssertEqual(NativePrivateSalePolicy.directionsURL(to: point)?.absoluteString,
-                       "https://maps.apple.com/?daddr=33.757,-84.364&dirflg=d")
+        let meet = try XCTUnwrap(NativeAppleMapsHandoff.mapItem(name: card.meetName, latitude: point.latitude, longitude: point.longitude))
+        XCTAssertEqual(meet.placemark.coordinate.latitude, 33.757)
+        XCTAssertEqual(meet.placemark.coordinate.longitude, -84.364)
+        XCTAssertEqual(meet.name, "Krog Street Market")
 
         let start = try XCTUnwrap(card.windowStartDate), end = try XCTUnwrap(card.windowEndDate)
         XCTAssertFalse(NativePrivateSalePolicy.canSayArrived(start: start, end: end, now: start.addingTimeInterval(-31 * 60)))

@@ -146,6 +146,7 @@ struct NativePlanDemandAsk: Codable, Identifiable, Equatable {
     /// Who a Discover ask went to, so it can be named before anyone answers.
     var askedOf: NativeAskedOf? = nil
     var earliest: String? = nil
+    var note: String? = nil
 
     /// The offer the guest took, if they have taken one.
     var booked: NativePlanDemandOffer? { offers.first(where: { $0.accepted }) }
@@ -232,6 +233,8 @@ struct NativePlanDemandState: Equatable {
     var asking: String?
     /// Why the last ask was refused, against the need it was refused for.
     var refusal: [String: String] = [:]
+    /// Live requests this Plan sent to one business that no need row above shows.
+    var requests: [NativePlanDemandAsk] = []
 
     mutating func record(_ ask: NativePlanDemandAsk, for need: String) {
         asks[need] = ask
@@ -254,6 +257,9 @@ struct NativePlanDemandState: Equatable {
             }
         }
         asks = matched
+        let shown = Set(matched.values.map(\.id))
+        requests = mine.filter { $0.planId == planID && $0.targetWindowId != nil && $0.booked == nil
+            && NativeWindowAskRules.isLive($0) && !shown.contains($0.id) }
     }
 }
 
@@ -595,6 +601,18 @@ enum NativeWindowAskRules {
     }
 
     static func isLive(_ ask: NativePlanDemandAsk) -> Bool { liveStates.contains(ask.state) }
+
+    /// Two ISO instants are the same moment, whatever fractional-second form each was written in.
+    static func sameInstant(_ a: String, _ b: String?) -> Bool {
+        guard let b else { return false }
+        let parse = { (value: String) -> Date? in
+            let precise = ISO8601DateFormatter()
+            precise.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return precise.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+        }
+        guard let left = parse(a), let right = parse(b) else { return a == b }
+        return left == right
+    }
 
     /// Reopening a card resumes its open ask instead of asking twice.
     static func liveAsk(in mine: [NativePlanDemandAsk], windowID: String) -> NativePlanDemandAsk? {
@@ -969,6 +987,9 @@ struct NativeWindowAskSheet: View {
     var fixedPlan: NativeWindowAskPlanChoice? = nil
     /// The scanned patch code that brought the guest here, credited by the server.
     var viaPatch: String? = nil
+    /// A request already sent, opened to change its time, group size or note.
+    var changing: NativePlanDemandAsk? = nil
+    var changeRequest: ((_ partySize: Int, _ startsAt: String, _ note: String) async throws -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -1005,7 +1026,7 @@ struct NativeWindowAskSheet: View {
                 .padding(18)
             }
             .background(NativeDeepSpaceGround())
-            .navigationTitle(ask == nil ? "Ask \(listing.sellerName)" : listing.sellerName)
+            .navigationTitle(ask == nil ? (changing == nil ? "Ask \(listing.sellerName)" : "Change request") : listing.sellerName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1085,7 +1106,7 @@ struct NativeWindowAskSheet: View {
             Button(action: { Task { await send() } }) {
                 HStack(spacing: 8) {
                     if sending { ProgressView().controlSize(.mini).tint(.black) }
-                    Text(sending ? "Sending…" : "Send request").font(.system(size: 15, weight: .bold))
+                    Text(sending ? "Sending…" : changing == nil ? "Send request" : "Send change").font(.system(size: 15, weight: .bold))
                 }
                 .foregroundColor(.black)
                 .frame(maxWidth: .infinity, minHeight: 48)
@@ -1095,7 +1116,8 @@ struct NativeWindowAskSheet: View {
             .disabled(sending)
             .accessibilityIdentifier("native-window-ask-send")
 
-            Text("Free to ask. Nothing is booked until you accept an offer.")
+            Text(changing == nil ? "Free to ask. Nothing is booked until you accept an offer."
+                 : "\(listing.sellerName) sees the new details. Any offer on the old ones is released.")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(NativeTheme.textTertiary)
         }
@@ -1186,9 +1208,15 @@ struct NativeWindowAskSheet: View {
     }
 
     private func resume() async {
+        if let changing, ask == nil {
+            partySize = changing.partySize
+            note = changing.note ?? ""
+            slotID = listing.slots.first { NativeWindowAskRules.sameInstant($0.startsAt, changing.earliest) }?.id
+        }
         partySize = min(max(1, partySize), max(1, listing.maxGuests))
         if slotID == nil { slotID = listing.slots.first?.id }
         if let fixedPlan { planID = fixedPlan.id }
+        if changing != nil { return }
         guard let mine = try? await demand.mine() else { return }
         if ask == nil, let live = NativeWindowAskRules.liveAsk(in: mine, windowID: listing.windowId) { ask = live }
         #if DEBUG
@@ -1215,6 +1243,16 @@ struct NativeWindowAskSheet: View {
         sending = true
         problem = nil
         do {
+            if let changing, let changeRequest {
+                try await changeRequest(partySize, slot.startsAt, note)
+                ask = NativePlanDemandAsk(
+                    id: changing.id, state: "OPEN", category: changing.category, partySize: partySize,
+                    planId: changing.planId, expiresAt: changing.expiresAt, offers: [], targetWindowId: listing.windowId,
+                    askedOf: changing.askedOf, earliest: slot.startsAt, note: note
+                )
+                sending = false
+                return
+            }
             let raised = try await windows.ask(windowID: listing.windowId, partySize: partySize, startsAt: slot.startsAt, note: note, planID: planID, viaPatch: viaPatch)
             ask = NativePlanDemandAsk(
                 id: raised.id, state: raised.state, category: raised.category, partySize: partySize,
@@ -1242,6 +1280,187 @@ struct NativeWindowAskSheet: View {
             dismiss()
         } catch {
             problem = NativePlanDemandFailure.message(for: error)
+        }
+    }
+}
+
+/// A kind of Bytspot business that takes requests near a Plan, from `inventory.types`.
+struct NativeBookingType: Codable, Identifiable, Equatable {
+    let domain: String
+    let count: Int
+
+    var id: String { domain }
+    var title: String { Self.titles[domain] ?? domain.capitalized }
+    var symbol: String { Self.symbols[domain] ?? "sparkles" }
+
+    static let titles: [String: String] = [
+        "coffee": "Coffee", "dining": "Dinner & restaurants", "nightlife": "Drinks & nightlife",
+        "shopping": "Shopping", "fitness": "Fitness", "events": "Events", "stay": "Stays",
+    ]
+    static let symbols: [String: String] = [
+        "coffee": "cup.and.saucer.fill", "dining": "fork.knife", "nightlife": "wineglass.fill",
+        "shopping": "bag.fill", "fitness": "figure.run", "events": "ticket.fill", "stay": "bed.double.fill",
+    ]
+}
+
+/// Request a booking from a Plan, change a request before it is answered, cancel a booking after.
+struct NativePlanBookingAPI {
+    let client: BytspotAPIClient
+    /// Same reach as `inventory.list`, so every kind offered has businesses to show.
+    static let radiusMiles = 15
+
+    func types(near coordinate: NativeLocationCoordinate) async throws -> [NativeBookingType] {
+        let payload = try await client.trpcQueryPayload(path: "/trpc/inventory.types", input: ["lat": coordinate.latitude, "lng": coordinate.longitude, "radiusMiles": Self.radiusMiles])
+        let rows = (payload as? [String: Any])?["types"] ?? []
+        return try JSONDecoder().decode([NativeBookingType].self, from: JSONSerialization.data(withJSONObject: rows))
+    }
+
+    func window(id: String) async throws -> NativeWindowListing {
+        let payload = try await client.trpcQueryPayload(path: "/trpc/inventory.window", input: ["windowId": id])
+        return try JSONDecoder().decode(NativeWindowListing.self, from: JSONSerialization.data(withJSONObject: payload))
+    }
+
+    func change(demandID: String, partySize: Int, startsAt: String, note: String) async throws {
+        var input: [String: Any] = ["demandId": demandID, "partySize": partySize, "startsAt": startsAt]
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { input["note"] = trimmed }
+        _ = try await client.trpcPayload(path: "/trpc/demand.change", method: "POST", input: input)
+    }
+
+    func cancelBooking(offerID: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/demand.cancelBooking", method: "POST", input: ["offerId": offerID])
+    }
+}
+
+/// Request a booking for a Plan: choose what you need, then a Bytspot business that offers it.
+/// Only kinds a live Bytspot business near the Plan sells are offered; nothing outside Bytspot is.
+struct NativePlanBookingRequestSheet: View {
+    let plan: NativeWindowAskPlanChoice
+    let coordinate: NativeLocationCoordinate
+    let client: BytspotAPIClient
+    let onSent: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var types: [NativeBookingType]?
+    @State private var chosen: NativeBookingType?
+    @State private var listings: [NativeWindowListing]?
+    @State private var asking: NativeWindowListing?
+    @State private var problem: String?
+
+    static let noneNearby = "No Bytspot businesses take booking requests near this Plan yet."
+    static let noneOfType = "No Bytspot businesses offer this here yet."
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let chosen {
+                        listingsView(chosen)
+                    } else {
+                        typesView
+                    }
+                    if let problem {
+                        Text(problem).font(.system(size: 13, weight: .semibold)).foregroundColor(NativeTheme.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(18)
+            }
+            .background(NativeDeepSpaceGround())
+            .navigationTitle(chosen?.title ?? "Request a booking")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    if chosen != nil {
+                        Button("Back") { chosen = nil; listings = nil; problem = nil }.foregroundColor(NativeTheme.textSecondary)
+                    } else {
+                        Button("Close") { dismiss() }.foregroundColor(NativeTheme.textSecondary)
+                    }
+                }
+            }
+            .task { await loadTypes() }
+            .sheet(item: $asking, onDismiss: onSent) { listing in
+                NativeWindowAskSheet(listing: listing, windows: NativeWindowAskAPI(client: client),
+                                     demand: NativePlanDemandAPI(client: client), fixedPlan: plan)
+            }
+        }
+        .navigationViewStyle(.stack)
+        .environment(\.nativeDeepSpaceGroundDrawn, false)
+        .preferredColorScheme(.dark)
+        .accessibilityIdentifier("native-plan-booking-request")
+    }
+
+    @ViewBuilder private var typesView: some View {
+        Text("What do you need?").font(.system(size: 17, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
+        Text("Requests go to Bytspot businesses near this Plan. Nothing is booked until you accept an offer.")
+            .font(.system(size: 13, weight: .medium)).foregroundColor(NativeTheme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        if let types {
+            if types.isEmpty {
+                Text(Self.noneNearby).font(.system(size: 14, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("native-plan-booking-none")
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+                    ForEach(types) { type in
+                        Button(action: { Task { await choose(type) } }) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Image(systemName: type.symbol).font(.system(size: 18, weight: .bold)).foregroundColor(NativeTheme.cyan)
+                                Text(type.title).font(.system(size: 14, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
+                                    .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                                Text(type.count == 1 ? "1 business" : "\(type.count) businesses")
+                                    .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 88, alignment: .topLeading)
+                            .padding(12)
+                            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.06)))
+                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.12)))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("native-plan-booking-type-\(type.domain)")
+                    }
+                }
+            }
+        } else {
+            ProgressView().tint(NativeTheme.textSecondary).frame(maxWidth: .infinity, minHeight: 80)
+        }
+    }
+
+    @ViewBuilder private func listingsView(_ type: NativeBookingType) -> some View {
+        if let listings {
+            if listings.isEmpty {
+                Text(Self.noneOfType).font(.system(size: 14, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                    .accessibilityIdentifier("native-plan-booking-none-of-type")
+            } else {
+                ForEach(listings) { listing in
+                    NativeWindowListingCard(listing: listing) { asking = listing }
+                }
+            }
+        } else {
+            ProgressView().tint(NativeTheme.textSecondary).frame(maxWidth: .infinity, minHeight: 80)
+        }
+    }
+
+    private func loadTypes() async {
+        guard types == nil else { return }
+        do {
+            types = try await NativePlanBookingAPI(client: client).types(near: coordinate)
+        } catch {
+            types = []
+            problem = "Couldn't load Bytspot businesses. Try again."
+        }
+    }
+
+    private func choose(_ type: NativeBookingType) async {
+        chosen = type
+        listings = nil
+        problem = nil
+        do {
+            listings = try await NativeWindowAskAPI(client: client).listings(near: coordinate, domain: type.domain).filter(\.takesAsks)
+        } catch {
+            listings = []
+            problem = "Couldn't load \(type.title.lowercased()). Try again."
         }
     }
 }

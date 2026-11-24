@@ -123,6 +123,70 @@ final class NativePlanDemandTests: XCTestCase {
         XCTAssertNil(state.refusal["dining"] ?? nil)
     }
 
+    // MARK: - Request a booking
+
+    func testARequestToOneBusinessShowsUnderRequestsUnlessANeedRowAlreadyShowsIt() {
+        var targeted = ask(id: "to-tribe", category: "dining")
+        targeted.targetWindowId = "window-1"
+        var coffee = ask(id: "to-cafe", category: "coffee")
+        coffee.targetWindowId = "window-2"
+        var bookedAsk = ask(id: "booked", category: "fitness", offers: [NativePlanDemandOffer(
+            id: "o", where: "Gym", startsAt: "2026-09-19T23:00:00.000Z", durationMins: 60, priceCents: 0,
+            terms: nil, holdExpiresAt: "2026-09-19T22:00:00.000Z", accepted: true)])
+        bookedAsk.targetWindowId = "window-3"
+        var otherPlan = ask(id: "elsewhere", planId: "plan-2")
+        otherPlan.targetWindowId = "window-4"
+        var finished = ask(id: "withdrawn", state: "WITHDRAWN", category: "shopping")
+        finished.targetWindowId = "window-5"
+
+        var state = NativePlanDemandState()
+        state.adopt([targeted, coffee, bookedAsk, otherPlan, finished], planID: "plan-1", needs: ["dining"])
+        XCTAssertEqual(state.asks["dining"]?.id, "to-tribe", "the dining need row shows its ask")
+        XCTAssertEqual(state.requests.map(\.id), ["to-cafe"], "only live, unbooked, unshown asks for this Plan")
+    }
+
+    func testAChangeOpensOnTheSlotTheRequestWasFor() {
+        XCTAssertTrue(NativeWindowAskRules.sameInstant("2026-11-24T23:00:00.000Z", "2026-11-24T23:00:00Z"))
+        XCTAssertFalse(NativeWindowAskRules.sameInstant("2026-11-24T23:00:00.000Z", "2026-11-24T23:30:00.000Z"))
+        XCTAssertFalse(NativeWindowAskRules.sameInstant("2026-11-24T23:00:00.000Z", nil))
+    }
+
+    func testBookingTypesDecodeAndReadInPlainWords() throws {
+        let data = Data(#"[{"domain":"dining","count":3},{"domain":"stay","count":1}]"#.utf8)
+        let types = try JSONDecoder().decode([NativeBookingType].self, from: data)
+        XCTAssertEqual(types.map(\.title), ["Dinner & restaurants", "Stays"])
+        XCTAssertEqual(types.first?.symbol, "fork.knife")
+        XCTAssertEqual(NativeBookingType(domain: "karaoke", count: 1).title, "Karaoke")
+    }
+
+    func testEachPlanItemOffersOnlyWhatItCanHonestlyDo() {
+        let base = NativePlan.Item(id: "i1", needKind: "dining", title: "Lucian", partyId: nil, coffeeReservationId: nil,
+                                   capability: "details", status: "available", reservation: nil)
+        XCTAssertEqual(NativePlanDisplay.itemOptions(base, isCreator: true, canEdit: true), [.remove])
+        XCTAssertEqual(NativePlanDisplay.itemOptions(base, isCreator: false, canEdit: true), [], "only the creator edits")
+        XCTAssertEqual(NativePlanDisplay.itemOptions(base, isCreator: true, canEdit: false), [], "a closed Plan keeps its items")
+
+        var outside = base
+        outside.tableBooking = NativePlan.TableBooking(provider: "resy", label: "Resy", url: "https://resy.com/cities/atl/lucian")
+        XCTAssertEqual(NativePlanDisplay.itemOptions(outside, isCreator: true, canEdit: true), [.book("Resy"), .markBooked, .remove])
+
+        var bytspot = NativePlan.Item(id: "i2", needKind: "dining", title: "Tribe & Spice", partyId: nil, coffeeReservationId: nil,
+                                      capability: "book", status: "booked", reservation: nil)
+        bytspot.offerId = "offer-1"
+        bytspot.booked = true
+        XCTAssertEqual(NativePlanDisplay.itemOptions(bytspot, isCreator: true, canEdit: true), [.cancelBooking],
+                       "a booking is cancelled, never just removed")
+
+        var cancelled = NativePlan.Item(id: "i3", needKind: "dining", title: "Tribe & Spice", partyId: nil, coffeeReservationId: nil,
+                                        capability: "book", status: "cancelled", reservation: nil)
+        cancelled.offerId = "offer-1"
+        XCTAssertEqual(NativePlanDisplay.itemOptions(cancelled, isCreator: true, canEdit: true), [])
+
+        var heldParty = base
+        heldParty.booked = true
+        XCTAssertEqual(NativePlanDisplay.itemOptions(heldParty, isCreator: true, canEdit: true), [], "booked outside the vendor rail stays")
+    }
+
     // MARK: - Contract with the server
 
     func testTheClientDoesNotDecideWhichNeedsCanBeAsked() throws {

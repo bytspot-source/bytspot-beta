@@ -44,6 +44,8 @@ struct NativePlan: Codable, Identifiable, Equatable {
         /// The guest's own record that they booked it there. Never `booked`:
         /// Bytspot cannot see that booking.
         var guestBooking: GuestBooking? = nil
+        /// The accepted Bytspot offer behind a booked item, for Cancel booking.
+        var offerId: String? = nil
     }
     struct TableBooking: Codable, Equatable {
         let provider: String
@@ -491,6 +493,11 @@ struct NativePlanAPI: NativeDiscoverPlanAdding {
         _ = try await client.trpcPayload(path: "/trpc/plans.reportTableBooking", method: "POST", input: input)
     }
 
+    /// Takes an item off the Plan. The server refuses a booked item; cancel the booking first.
+    func detach(planID: String, itemID: String) async throws {
+        _ = try await client.trpcPayload(path: "/trpc/plans.detach", method: "POST", input: ["planId": planID, "itemId": itemID])
+    }
+
     func primePath(_ planID: String) async throws -> NativePrimePathResponse {
         let payload = try await client.trpcQueryPayload(path: "/trpc/plans.primePath", input: ["planId": planID])
         return try JSONDecoder().decode(NativePrimePathResponse.self, from: JSONSerialization.data(withJSONObject: payload))
@@ -793,6 +800,27 @@ enum NativePlanDisplay {
     /// Status and readiness together, so "Confirmed" is never shown alone.
     static func rowSubtitle(state: String, readiness: NativePlan.Readiness) -> String {
         "\(stateLabel(state)) · \(readinessLabel(readiness))"
+    }
+
+    /// What tapping an item's chip offers the Plan's creator.
+    enum ItemOption: Hashable {
+        case book(String)
+        case markBooked
+        case cancelBooking
+        case remove
+    }
+
+    /// A Bytspot booking can be cancelled; an outside place can be booked there,
+    /// marked booked, or removed. Anything booked stays until its booking is cancelled.
+    static func itemOptions(_ item: NativePlan.Item, isCreator: Bool, canEdit: Bool) -> [ItemOption] {
+        guard isCreator, item.status != "cancelled" else { return [] }
+        if item.offerId != nil, item.status == "booked" || item.booked == true { return [.cancelBooking] }
+        var options: [ItemOption] = []
+        if let booking = tableBooking(item), item.guestBooking == nil {
+            options += [.book(booking.label), .markBooked]
+        }
+        if canEdit, item.booked != true, item.status != "booked" { options.append(.remove) }
+        return options
     }
 
     /// What a caller reads on a capability chip, in the one vocabulary every
@@ -2024,6 +2052,10 @@ struct NativePlanDetailSheet: View {
     @State private var hiddenMembers = NativeSafetyHiddenSet()
     @State private var showEdit = false
     @State private var partyPass: NativePlanPartyPassTarget?
+    @State private var showBookingRequest = false
+    @State private var changingRequest: NativePlanChangingRequest?
+    @State private var cancellingBooking: NativePlan.Item?
+    @State private var removingItem: NativePlan.Item?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -2278,6 +2310,143 @@ struct NativePlanDetailSheet: View {
                 Task { await run { try await api().reportTableBooking(planID: planID, itemID: item.id, booked: true, bookedFor: bookedFor) } }
             }
         }
+        .sheet(isPresented: $showBookingRequest, onDismiss: { Task { await loadAsks() } }) {
+            if let plan {
+                if let place = plan.place {
+                    NativePlanBookingRequestSheet(
+                        plan: NativeWindowAskPlanChoice(id: plan.id, title: plan.title),
+                        coordinate: NativeLocationCoordinate(latitude: place.latitude, longitude: place.longitude, isFallback: false),
+                        client: authorizedClient(),
+                        onSent: { Task { await loadAsks() } }
+                    )
+                } else {
+                    NativePlanNeedsPlaceView(onEdit: { showBookingRequest = false; showEdit = true })
+                }
+            }
+        }
+        .sheet(item: $changingRequest, onDismiss: { Task { await loadAsks() } }) { target in
+            NativeWindowAskSheet(
+                listing: target.listing, windows: NativeWindowAskAPI(client: authorizedClient()), demand: demandAPI(),
+                fixedPlan: NativeWindowAskPlanChoice(id: planID, title: plan?.title ?? "this Plan"),
+                changing: target.request,
+                changeRequest: { size, startsAt, note in
+                    try await NativePlanBookingAPI(client: authorizedClient()).change(demandID: target.request.id, partySize: size, startsAt: startsAt, note: note)
+                }
+            )
+        }
+        .confirmationDialog(
+            cancellingBooking.map { "Cancel \($0.title)?" } ?? "",
+            isPresented: Binding(get: { cancellingBooking != nil }, set: { if !$0 { cancellingBooking = nil } }),
+            titleVisibility: .visible,
+            presenting: cancellingBooking
+        ) { item in
+            Button("Cancel booking", role: .destructive) {
+                guard let offerID = item.offerId else { return }
+                Task { await run { try await NativePlanBookingAPI(client: authorizedClient()).cancelBooking(offerID: offerID) } }
+            }
+            Button("Keep it", role: .cancel) {}
+        } message: { _ in
+            Text("The business is told and the time goes back on sale. Bookings paid in Bytspot are cancelled with the business directly.")
+        }
+        .confirmationDialog(
+            removingItem.map { "Remove \($0.title) from this Plan?" } ?? "",
+            isPresented: Binding(get: { removingItem != nil }, set: { if !$0 { removingItem = nil } }),
+            titleVisibility: .visible,
+            presenting: removingItem
+        ) { item in
+            Button("Remove", role: .destructive) { Task { await run { try await api().detach(planID: planID, itemID: item.id) } } }
+            Button("Keep it", role: .cancel) {}
+        }
+    }
+
+    private func requestRow(_ request: NativePlanDemandAsk) -> some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(NativeWindowAskRules.name(of: request)).font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
+                Text(NativeWindowAskRules.detail(of: request)).font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if request.offers.isEmpty {
+                    Text(request.status).font(.footnote).foregroundColor(NativeTheme.textSecondary)
+                } else {
+                    Button(action: { showingOffers = request }) {
+                        Text("\(request.status) · See").font(.footnote.weight(.bold)).foregroundColor(NativeTheme.cyan)
+                    }
+                    .buttonStyle(.plain).frame(minHeight: 32)
+                    .accessibilityIdentifier("native-plan-request-offers-\(request.id)")
+                }
+            }
+            Spacer()
+            Menu {
+                Button { Task { await openChange(request) } } label: { Label("Change time, size or note", systemImage: "pencil") }
+                Button(role: .destructive) { Task { await withdrawRequest(request) } } label: { Label("Cancel request", systemImage: "xmark") }
+            } label: {
+                NativePlanItemChip(title: "Request", editable: true)
+            }
+            .disabled(busy)
+            .accessibilityIdentifier("native-plan-request-menu-\(request.id)")
+        }
+        .padding(10)
+        .background(planRowBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    @ViewBuilder private func itemChip(_ item: NativePlan.Item, plan: NativePlan) -> some View {
+        let options = NativePlanDisplay.itemOptions(item, isCreator: isCreator, canEdit: NativePlanDisplay.canAddBookables(plan, userID: sessionStore.authenticatedUserID))
+        if options.isEmpty {
+            NativePlanItemChip(title: NativePlanDisplay.capabilityLabel(item.capability), editable: false)
+        } else {
+            Menu {
+                ForEach(options, id: \.self) { option in
+                    switch option {
+                    case .book(let label):
+                        Button { openTableBooking(item) } label: { Label("Book on \(label) ↗", systemImage: "arrow.up.right") }
+                    case .markBooked:
+                        Button { recordingBooking = item } label: { Label("I booked it", systemImage: "checkmark") }
+                    case .cancelBooking:
+                        Button(role: .destructive) { cancellingBooking = item } label: { Label("Cancel booking", systemImage: "xmark.circle") }
+                    case .remove:
+                        Button(role: .destructive) { removingItem = item } label: { Label("Remove from Plan", systemImage: "trash") }
+                    }
+                }
+            } label: {
+                NativePlanItemChip(title: NativePlanDisplay.capabilityLabel(item.capability), editable: true)
+            }
+            .disabled(busy)
+            .accessibilityIdentifier("native-plan-item-menu-\(item.id)")
+        }
+    }
+
+    private func authorizedClient() -> BytspotAPIClient {
+        BytspotAPIClient(tokenProvider: { [weak sessionStore] in sessionStore?.token })
+    }
+
+    private func openTableBooking(_ item: NativePlan.Item) {
+        guard let booking = NativePlanDisplay.tableBooking(item) else { return }
+        if isCreator { leftForTableBooking = item }
+        if let placeID = item.placeId {
+            let client = authorizedClient()
+            Task { await NativeTableBookingTapAPI(client: client).record(placeID: placeID, surface: .plan) }
+        }
+        openURL(booking.url)
+    }
+
+    private func openChange(_ request: NativePlanDemandAsk) async {
+        guard let windowID = request.targetWindowId else { return }
+        do {
+            let listing = try await NativePlanBookingAPI(client: authorizedClient()).window(id: windowID)
+            changingRequest = NativePlanChangingRequest(request: request, listing: listing)
+        } catch {
+            errorMessage = NativePlanDemandFailure.message(for: error)
+        }
+    }
+
+    private func withdrawRequest(_ request: NativePlanDemandAsk) async {
+        do {
+            try await demandAPI().withdraw(demandID: request.id)
+            await loadAsks()
+        } catch {
+            errorMessage = NativePlanDemandFailure.message(for: error)
+        }
     }
 
     private func avatarInitial(_ seat: NativePlan.Participant, name: String) -> String {
@@ -2346,6 +2515,15 @@ struct NativePlanDetailSheet: View {
                 // long gone by the time anyone reads this.
                 Text(NativePlanDisplay.openNeedsFootnote)
                     .font(.system(size: 11, weight: .semibold)).foregroundColor(NativeTheme.textTertiary)
+            }
+        }
+
+        if isCreator && !demandState.requests.isEmpty {
+            sectionHeader("Requests")
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(demandState.requests) { request in
+                    requestRow(request)
+                }
             }
         }
 
@@ -2424,12 +2602,7 @@ struct NativePlanDetailSheet: View {
                             }
                         }
                         Spacer()
-                        Text(NativePlanDisplay.capabilityLabel(item.capability))
-                            .font(.system(size: 11, weight: .black))
-                            .foregroundColor(NativeTheme.textPrimary)
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(NativeTheme.purple.opacity(0.25))
-                            .clipShape(Capsule())
+                        itemChip(item, plan: plan)
                     }
                     .padding(10)
                     .background(planRowBackground)
@@ -2698,13 +2871,12 @@ struct NativePlanDetailSheet: View {
     @ViewBuilder private func actions(for plan: NativePlan) -> some View {
         // Add a stop, sharing the link and a guest's answer live on the card.
         if isCreator {
-            // Coffee is the one supply Bytspot can hold today, so it is the
-            // one attach the Plan offers. The verb is Add, not Book: what
-            // follows is a hold ask the spot still has to answer.
-            Button(action: { suggestedCoffeeSpotID = nil; showCoffeeAttach = true }) {
-                ctaLabel("Request a coffee table", background: planRowBackground, foreground: NativeTheme.textPrimary)
+            // Requests go only to Bytspot businesses; what follows is an ask
+            // the business still has to answer.
+            Button(action: { showBookingRequest = true }) {
+                ctaLabel("Request a booking", background: planRowBackground, foreground: NativeTheme.textPrimary)
             }
-            .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-add-coffee")
+            .buttonStyle(.plain).disabled(busy).accessibilityIdentifier("native-plan-request-booking")
             if plan.lifecycle == "proposed" {
                 Button(action: { Task { await run { try await api().confirm(planID) } } }) {
                     ctaLabel(busy ? "Working..." : "Confirm this Plan", background: NativeTheme.purple, foreground: .white)
@@ -2788,7 +2960,7 @@ struct NativePlanDetailSheet: View {
             // they closed while the request was in flight would reopen a
             // decision they walked away from.
             guard showingOffers?.id == ask.id else { return NativePlanDemandFailure.message(for: error) }
-            if let refreshed = demandState.asks.values.first(where: { $0.id == ask.id }) {
+            if let refreshed = demandState.asks.values.first(where: { $0.id == ask.id }) ?? demandState.requests.first(where: { $0.id == ask.id }) {
                 showingOffers = refreshed
             }
             return NativePlanDemandFailure.message(for: error)
@@ -3876,5 +4048,55 @@ extension NativePlanDisplay {
         if let partyID = item.partyId, !partyID.isEmpty, candidate.capability != "details" { return .openParty(partyID) }
         if canEdit, let spotID = coffeeRequestSpotID(item) { return .requestCoffee(spotID) }
         return nil
+    }
+}
+
+/// An item's capability chip. Editable chips open a menu, so they show a chevron.
+struct NativePlanItemChip: View {
+    let title: String
+    let editable: Bool
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Text(title).font(.system(size: 11, weight: .black))
+            if editable { Image(systemName: "chevron.down").font(.system(size: 8, weight: .black)) }
+        }
+        .foregroundColor(NativeTheme.textPrimary)
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(NativeTheme.purple.opacity(editable ? 0.4 : 0.25))
+        .clipShape(Capsule())
+        .frame(minHeight: 32)
+        .accessibilityHint(editable ? "Shows options for this item" : "")
+    }
+}
+
+/// A sent request and the offering it went to, opened to change it.
+struct NativePlanChangingRequest: Identifiable {
+    let request: NativePlanDemandAsk
+    let listing: NativeWindowListing
+    var id: String { request.id }
+}
+
+/// Requests go to businesses near the Plan, so a Plan without a place cannot send one yet.
+struct NativePlanNeedsPlaceView: View {
+    let onEdit: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Where is this Plan?").font(.system(size: 17, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
+            Text("Add a place to the Plan to see Bytspot businesses you can request a booking from.")
+                .font(.system(size: 14, weight: .medium)).foregroundColor(NativeTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(action: onEdit) {
+                Text("Edit time, size & place").font(.system(size: 15, weight: .bold)).foregroundColor(.black)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(NativeTheme.cyan))
+            }
+            .buttonStyle(.plain)
+            Spacer()
+        }
+        .padding(18)
+        .background(NativeDeepSpaceGround())
+        .preferredColorScheme(.dark)
     }
 }

@@ -8789,7 +8789,7 @@ private struct NativeHomeDashboardView: View {
 
     private func openOnMap(_ venue: NativeVenueSummary) {
         nativeImpactLight()
-        NativeMapFocusHandoff.store(venue: venue, modeOverride: "Route")
+        NativeMapFocusHandoff.store(venue: venue, modeOverride: "Nearby")
         openNativeTab(.map)
     }
 
@@ -16339,7 +16339,7 @@ enum NativeMapStartupResetPolicy {
 }
 
 private struct NativeMapCameraRequest {
-    enum Action { case focus(CLLocationCoordinate2D), zoom(Double) }
+    enum Action { case focus(CLLocationCoordinate2D), reveal(CLLocationCoordinate2D), zoom(Double) }
     let id = UUID()
     let action: Action
 }
@@ -16711,6 +16711,17 @@ private struct NativeGeographicMap: UIViewRepresentable {
                     return
                 }
                 coordinator.focus(on: coordinate, map: map)
+            case .reveal(let coordinate):
+                // A place the guest picked elsewhere: street level on its pin, whatever the map showed before.
+                if map.bounds.isEmpty, let deferring = map as? NativeLayoutDeferringMapView {
+                    deferring.whenLaidOut = { [weak coordinator, weak deferring] in
+                        guard let coordinator, let deferring else { return }
+                        coordinator.reveal(coordinate, map: deferring)
+                        coordinator.hasEstablishedCamera = true
+                    }
+                    return
+                }
+                coordinator.reveal(coordinate, map: map)
             case .zoom(let factor):
                 let camera = map.camera.copy() as! MKMapCamera
                 camera.altitude = min(40_000_000, max(80, camera.altitude * factor))
@@ -16766,6 +16777,12 @@ private struct NativeGeographicMap: UIViewRepresentable {
             guard !parent.reduceMotion else { map.setCamera(target, animated: false); return }
             map.setCamera(start, animated: false)
             map.setCamera(target, animated: true)
+        }
+
+        func reveal(_ coordinate: CLLocationCoordinate2D, map: MKMapView) {
+            let region = MKCoordinateRegion(center: coordinate, span: NativeMapRegionPresentation.span(forZoomScale: 1))
+            let lifted = NativeMapViewportPolicy.liftedRegion(region, mapHeight: map.bounds.height, margins: map.layoutMargins)
+            moveCamera(on: map) { map.setRegion(lifted, animated: !UIAccessibility.isReduceMotionEnabled) }
         }
 
         func focus(on coordinate: CLLocationCoordinate2D, map: MKMapView) {
@@ -17741,7 +17758,7 @@ private struct NativeMapExploreView: View {
         activeRoutePinID = resolvedMode == "Route" ? focused.id : nil
         if focused.kind == .parking { showParking = true }
         selectedPin = focused
-        focusGeographicCamera(on: focused.coordinate)
+        revealGeographicCamera(on: focused.coordinate)
         showFunctionSheet = false
         NativeMapFocusHandoff.clear()
     }
@@ -19325,6 +19342,15 @@ private struct NativeMapExploreView: View {
         selectMarker(marker)
     }
 
+    /// Zooms to street level on a place handed over from another screen.
+    private func revealGeographicCamera(on coordinate: CLLocationCoordinate2D) {
+        guard NativeVenueSummary.hasValidMapCoordinate(latitude: coordinate.latitude, longitude: coordinate.longitude) else { return }
+        didResolveInitialCamera = true
+        cameraActionGeneration += 1
+        dropRecenterModeForUserPan()
+        cameraRequest = NativeMapCameraRequest(action: .reveal(coordinate))
+    }
+
     private func focusGeographicCamera(on coordinate: CLLocationCoordinate2D) {
         guard NativeVenueSummary.hasValidMapCoordinate(latitude: coordinate.latitude, longitude: coordinate.longitude) else { return }
         didResolveInitialCamera = true
@@ -20465,7 +20491,7 @@ enum NativeConciergeRegionPresentation {
     static let genericWelcomeMessage = "Ask for anything nearby, or send a photo of a dish."
     static let openingTitle = "What are you in the mood for?"
     static let statusLabels = ["Ready", "Searching nearby…", "Search unavailable", "Sign in to search"]
-    static let privacyNotice = "Concierge sends your question, your location if you shared it, and preferences saved on this iPhone to OpenAI to suggest places. A dish photo is sent to OpenAI only after you allow it, and Bytspot does not save that photo. This chat stays in memory on this device until you clear it, sign out, change area, or leave the app in the background for 30 minutes."
+    static let privacyNotice = "Concierge answers with Bytspot's own search; nothing is sent to an AI service unless you turn on Smarter answers, which sends your message text, not your location, to OpenAI. A dish photo is sent to OpenAI only after you allow it, and Bytspot does not save that photo. This chat stays on this device until you clear it, sign out, or leave the app in the background for 30 minutes."
 
     static func isVerifiedAtlanta(_ location: NativeLocationCoordinate) -> Bool {
         !location.isFallback && NativeHomeRegionPresentation.isAtlanta(location)
@@ -20574,8 +20600,8 @@ final class NativeConciergeModel: ObservableObject {
     private func updateLocation(_ fix: CLLocation?, authorized: Bool) {
         let coordinate = NativeConciergeContract.searchCoordinate(location: fix, authorized: authorized)
         let next = NativeConciergeContract.stableOrigin(coordinate, previous: searchOrigin)
-        // The store publishes before it stores the new fix, so the new origin is passed in.
-        if next != searchOrigin { clear(using: next) }
+        // A new area changes where the next search looks. The conversation on screen stays.
+        if next != searchOrigin, turns.isEmpty { refreshOpeningSuggestions(location: .some(next)) }
         searchOrigin = next
     }
     var isSignedIn: Bool {
@@ -20614,7 +20640,6 @@ final class NativeConciergeModel: ObservableObject {
         updateLocation(location.lastLocation, authorized: location.authorizationState == .allowed)
         // These stores are main-actor isolated. Do not defer these sinks to a Task:
         // every transition must advance the generation before a response can apply.
-        session.$token.dropFirst().sink { [weak self] _ in self?.clear() }.store(in: &observations)
         session.$authenticatedUserID.dropFirst().sink { [weak self] _ in self?.clear() }.store(in: &observations)
         location.$lastLocation.dropFirst().sink { [weak self] fix in
             guard let self else { return }
@@ -20694,13 +20719,14 @@ final class NativeConciergeModel: ObservableObject {
         openingSuggestions = NativeConciergeSuggestionFallback.chips(now: now, location: location)
         guard turns.isEmpty, isSignedIn, let session, let accountID = session.authenticatedUserID else { return }
         let authorization = session.token
+        let smarter = smarterAnswers
         let generation = UUID()
         suggestionsGeneration = generation
         let api = NativeConciergeAPI(client: BytspotAPIClient(tokenProvider: { authorization }))
         suggestionsTask = Task { @MainActor [weak self] in
-            let response = try? await api.suggestions(location: location)
+            let response = try? await api.suggestions(location: location, smarter: smarter)
             guard let self, !Task.isCancelled, self.suggestionsGeneration == generation, self.turns.isEmpty,
-                  self.session?.authenticatedUserID == accountID, self.session?.token == authorization else { return }
+                  self.session?.authenticatedUserID == accountID else { return }
             self.openingSuggestions = NativeConciergeSuggestionFallback.resolved(response, now: now, location: location)
             self.suggestionsTask = nil
         }
@@ -20972,11 +20998,6 @@ final class NativeConciergeModel: ObservableObject {
             notice = isSignedIn ? NativeConciergeContract.locationRequired : "Sign in to search for nearby places."
             return
         }
-        guard NativeAIConsentStore.hasAllowed(.concierge, defaults: aiConsentDefaults) else {
-            deferredConciergeSend = (text, suggestionNotes)
-            pendingAIConsent = .concierge
-            return
-        }
         commitSend(text, suggestionNotes: suggestionNotes)
     }
 
@@ -20989,9 +21010,28 @@ final class NativeConciergeModel: ObservableObject {
         deferredConciergeSend = nil
         switch feature {
         case .concierge:
+            setSmarterAnswers(true)
             if let waiting { commitSend(waiting.text, suggestionNotes: waiting.notes) }
         case .dishPhoto:
             identifyPhoto()
+        }
+    }
+
+    var smarterAnswers: Bool { NativeConciergeSmarterAnswers.isOn(aiConsentDefaults) }
+
+    /// The switch in Concierge's settings. Turning it on asks once on this iPhone; off sends nothing to an AI service.
+    func requestSmarterAnswers(_ on: Bool) {
+        guard on else { setSmarterAnswers(false); return }
+        if NativeAIConsentStore.hasAllowed(.concierge, defaults: aiConsentDefaults) { setSmarterAnswers(true) } else { pendingAIConsent = .concierge }
+    }
+
+    private func setSmarterAnswers(_ on: Bool) {
+        objectWillChange.send()
+        aiConsentDefaults.set(on, forKey: NativeConciergeSmarterAnswers.key)
+        guard let session, session.canAttachBearerToken else { return }
+        let authorization = session.token
+        Task.detached(priority: .utility) {
+            _ = try? await BytspotAPIClient(tokenProvider: { authorization }).trpcPayload(path: "/trpc/consent.setAiConsent", method: "POST", input: ["consent": on])
         }
     }
 
@@ -21022,7 +21062,7 @@ final class NativeConciergeModel: ObservableObject {
         }
         let coordinate = realLocation
         guard let request = try? NativeConciergeRequest(messages: turns.map(\.message), location: coordinate,
-                                                       quizAnswers: .saved(), preferences: .saved()),
+                                                       quizAnswers: .saved(), preferences: .saved(), smarter: smarterAnswers),
               let ticket = requestGuard.begin(accountID: accountID, location: coordinate) else { return }
         let authorization = session.token
         let api = NativeConciergeAPI(client: BytspotAPIClient(tokenProvider: { authorization }))
@@ -21066,14 +21106,12 @@ final class NativeConciergeModel: ObservableObject {
     }
 
     private func accepts(_ ticket: NativeConciergeRequestGuard.Ticket, authorization: String?) -> Bool {
-        let accepted = session?.canAttachBearerToken == true && session?.token == authorization &&
-            requestGuard.accepts(ticket, accountID: session?.authenticatedUserID,
-                                 location: realLocation, isCancelled: Task.isCancelled)
-        // A fix can age out while awaiting the network without publishing a new location.
-        // Finish that request too; never leave a spinner running after rejecting its reply.
+        let accepted = session?.canAttachBearerToken == true &&
+            requestGuard.accepts(ticket, accountID: session?.authenticatedUserID, isCancelled: Task.isCancelled)
+        // Rejected only when signed out or a different account: never leave a spinner running.
         if !accepted && requestGuard.isCurrent(ticket) {
             clear()
-            notice = session?.canAttachBearerToken == true ? NativeConciergeContract.locationRequired : "Sign in to search for nearby places."
+            notice = "Sign in to search for nearby places."
         }
         return accepted
     }
@@ -21161,8 +21199,9 @@ private struct NativeConciergeView: View {
                                  fixedPlan: model.savedPlan.map { NativeWindowAskPlanChoice(id: $0.planID, title: $0.title) })
         }
         .accessibilityIdentifier("native-concierge-preview")
+        // Smarter answers asks inside its own settings sheet; this alert is the dish photo's.
         .alert(model.pendingAIConsent?.promptTitle ?? "", isPresented: Binding(
-            get: { model.pendingAIConsent != nil },
+            get: { model.pendingAIConsent == .dishPhoto },
             set: { _ in }
         )) {
             Button("Allow") { model.allowAIConsent() }
@@ -21193,10 +21232,8 @@ private struct NativeConciergeView: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 6)
         .background(NativePolish.glassSurface)
-        .alert("Concierge and your data", isPresented: $showingPrivacyNotice) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(Self.privacyNotice)
+        .sheet(isPresented: $showingPrivacyNotice) {
+            NativeConciergeSettingsSheet(model: model, privacyNotice: Self.privacyNotice)
         }
     }
 
@@ -24345,5 +24382,46 @@ enum NativeDiscoverTypeFocus: Equatable {
         if let focus { return "No \(focus == .coffee ? "coffee places" : "restaurants") near you yet." }
         guard let rail, let index = NativeDiscoverBookablePresentation.railTokens.firstIndex(of: rail) else { return "Nothing here near you yet." }
         return "No \(NativeDiscoverBookablePresentation.railLabels[index]) near you yet."
+    }
+}
+
+/// Concierge's settings: Smarter answers, and how Concierge uses messages.
+private struct NativeConciergeSettingsSheet: View {
+    @ObservedObject var model: NativeConciergeModel
+    let privacyNotice: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            List {
+                Section {
+                    Toggle(isOn: Binding(get: { model.smarterAnswers }, set: { model.requestSmarterAnswers($0) })) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(NativeConciergeSmarterAnswers.title).font(.headline)
+                            Text(NativeConciergeSmarterAnswers.disclosure).font(.footnote).foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .accessibilityIdentifier("native-concierge-smarter-answers")
+                } footer: {
+                    Text("Off: Concierge understands your request with Bytspot's own search, and nothing is sent to an AI service.")
+                }
+                Section("How Concierge uses your messages") {
+                    Text(privacyNotice).font(.footnote).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .navigationTitle("Concierge")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .alert(NativeAIConsentFeature.concierge.promptTitle, isPresented: Binding(
+                get: { model.pendingAIConsent == .concierge }, set: { _ in }
+            )) {
+                Button("Turn on") { model.allowAIConsent() }
+                Button("Not now", role: .cancel) { model.declineAIConsent() }
+            } message: {
+                Text(NativeAIConsentFeature.concierge.promptMessage)
+            }
+        }
+        .navigationViewStyle(.stack)
     }
 }

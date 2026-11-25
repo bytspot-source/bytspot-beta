@@ -880,9 +880,8 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertFalse(encoded.contains("\"location\""), encoded)
         var unlocatedGate = NativeConciergeRequestGuard()
         let unlocatedTicket = try XCTUnwrap(unlocatedGate.begin(accountID: "account-a", location: nil))
-        XCTAssertTrue(unlocatedGate.accepts(unlocatedTicket, accountID: "account-a", location: nil, isCancelled: false))
-        XCTAssertFalse(unlocatedGate.accepts(unlocatedTicket, accountID: "account-a", location: seattle, isCancelled: false),
-                       "A fix that arrives mid-search starts a new search instead of reusing the old answer.")
+        XCTAssertTrue(unlocatedGate.accepts(unlocatedTicket, accountID: "account-a", isCancelled: false),
+                      "A fix that arrives mid-search keeps the answer to the question as asked.")
         let invalidCoordinates: [NativeLocationCoordinate?] = [.midtown,
             .init(latitude: .nan, longitude: 1, isFallback: false),
             .init(latitude: 1, longitude: .infinity, isFallback: false),
@@ -914,18 +913,16 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
     func testGenerationScopeCancellationAndAccountRoundTripRejectOldReplies() throws {
         var gate = NativeConciergeRequestGuard()
         let firstA = try XCTUnwrap(gate.begin(accountID: "account-a", location: seattle))
-        XCTAssertTrue(gate.accepts(firstA, accountID: "account-a", location: seattle, isCancelled: false))
-        XCTAssertFalse(gate.accepts(firstA, accountID: "account-a", location: seattle, isCancelled: true))
-        XCTAssertFalse(gate.accepts(firstA, accountID: "account-b", location: seattle, isCancelled: false))
-        XCTAssertFalse(gate.accepts(firstA, accountID: "account-a", location: .verifiedMidtown, isCancelled: false))
-        XCTAssertFalse(gate.accepts(firstA, accountID: "account-a", location: nil, isCancelled: false))
-        gate.invalidate() // Stop, token refresh, logout, location change or disappearance.
-        XCTAssertFalse(gate.accepts(firstA, accountID: "account-a", location: seattle, isCancelled: false))
+        XCTAssertTrue(gate.accepts(firstA, accountID: "account-a", isCancelled: false))
+        XCTAssertFalse(gate.accepts(firstA, accountID: "account-a", isCancelled: true))
+        XCTAssertFalse(gate.accepts(firstA, accountID: "account-b", isCancelled: false))
+        gate.invalidate() // Stop, logout or a newer question.
+        XCTAssertFalse(gate.accepts(firstA, accountID: "account-a", isCancelled: false))
         let b = try XCTUnwrap(gate.begin(accountID: "account-b", location: seattle))
         let secondA = try XCTUnwrap(gate.begin(accountID: "account-a", location: seattle))
-        XCTAssertFalse(gate.accepts(firstA, accountID: "account-a", location: seattle, isCancelled: false))
-        XCTAssertFalse(gate.accepts(b, accountID: "account-b", location: seattle, isCancelled: false))
-        XCTAssertTrue(gate.accepts(secondA, accountID: "account-a", location: seattle, isCancelled: false))
+        XCTAssertFalse(gate.accepts(firstA, accountID: "account-a", isCancelled: false))
+        XCTAssertFalse(gate.accepts(b, accountID: "account-b", isCancelled: false))
+        XCTAssertTrue(gate.accepts(secondA, accountID: "account-a", isCancelled: false))
         XCTAssertNil(gate.begin(accountID: nil, location: seattle))
         XCTAssertFalse(gate.isCurrent(secondA))
         XCTAssertNil(gate.begin(accountID: "account-a", location: .midtown))
@@ -952,9 +949,9 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         defaults.removePersistentDomain(forName: suite)
         XCTAssertFalse(NativeAIConsentStore.hasAllowed(.concierge, defaults: defaults))
         XCTAssertFalse(NativeAIConsentStore.hasAllowed(.dishPhoto, defaults: defaults))
-        XCTAssertEqual(NativeAIConsentFeature.concierge.promptTitle, "Send this to OpenAI?")
-        XCTAssertTrue(NativeAIConsentFeature.concierge.promptMessage.contains("OpenAI"))
-        XCTAssertTrue(NativeAIConsentFeature.concierge.promptMessage.contains("location if you shared it"))
+        XCTAssertEqual(NativeAIConsentFeature.concierge.promptTitle, "Turn on Smarter answers?")
+        XCTAssertEqual(NativeAIConsentFeature.concierge.promptMessage, "Sends your message text, not your location, to OpenAI to understand complex requests.")
+        XCTAssertFalse(NativeConciergeRegionPresentation.privacyNotice.contains("your location if you shared it"), "location is not sent to OpenAI")
         XCTAssertEqual(NativeAIConsentFeature.dishPhoto.promptMessage, NativeDishPhotoContract.disclosure)
         XCTAssertTrue(NativeDishPhotoContract.disclosure.contains("OpenAI"))
         XCTAssertTrue(NativeDishPhotoContract.disclosure.contains("does not save the photo"))
@@ -962,6 +959,35 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertTrue(NativeAIConsentStore.hasAllowed(.concierge, defaults: defaults))
         XCTAssertFalse(NativeAIConsentStore.hasAllowed(.dishPhoto, defaults: defaults))
         defaults.removePersistentDomain(forName: suite)
+    }
+
+    func testSmarterAnswersIsOffByDefaultAndOnlyTheSwitchAsks() throws {
+        let suite = "concierge-smarter-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = NativeConciergeModel()
+        model.aiConsentDefaults = defaults
+        XCTAssertFalse(model.smarterAnswers)
+        model.requestSmarterAnswers(true)
+        XCTAssertEqual(model.pendingAIConsent, .concierge, "turning it on asks once")
+        model.declineAIConsent()
+        XCTAssertFalse(model.smarterAnswers, "Not now keeps it off")
+        model.requestSmarterAnswers(true)
+        model.allowAIConsent()
+        XCTAssertTrue(model.smarterAnswers)
+        model.requestSmarterAnswers(false)
+        XCTAssertFalse(model.smarterAnswers)
+        model.requestSmarterAnswers(true)
+        XCTAssertNil(model.pendingAIConsent, "already allowed on this iPhone: no second ask")
+        XCTAssertTrue(model.smarterAnswers)
+    }
+
+    func testRequestsCarrySmarterOnlyWhenOn() throws {
+        let messages: [NativeConciergeMessage] = [.init(role: .user, content: "Coffee")]
+        let off = try NativeConciergeRequest(messages: messages, location: nil, quizAnswers: .init(vibe: nil, walk: nil, crew: nil))
+        XCTAssertFalse((String(data: try JSONEncoder().encode(off), encoding: .utf8) ?? "").contains("smarter"))
+        let on = try NativeConciergeRequest(messages: messages, location: nil, quizAnswers: .init(vibe: nil, walk: nil, crew: nil), smarter: true)
+        XCTAssertTrue((String(data: try JSONEncoder().encode(on), encoding: .utf8) ?? "").contains("\"smarter\":true"))
     }
 
     func testUnsignedModelDoesNotAppendPrivateHistoryOrStartSearch() {
@@ -1003,9 +1029,12 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         let start = try XCTUnwrap(shell.range(of: "final class NativeConciergeModel:"))
         let end = try XCTUnwrap(shell.range(of: "private struct NativeHorizontalSection", range: start.upperBound..<shell.endIndex))
         let concierge = String(shell[start.lowerBound..<end.lowerBound])
-        for binding in ["session.$token.dropFirst()", "session.$authenticatedUserID.dropFirst()", "location.$lastLocation.dropFirst()", "location.$authorizationState.dropFirst()"] {
+        for binding in ["session.$authenticatedUserID.dropFirst()", "location.$lastLocation.dropFirst()", "location.$authorizationState.dropFirst()"] {
             XCTAssertTrue(concierge.contains(binding), binding)
         }
+        // A sign-in refresh is not a sign-out, and a location update does not erase the conversation.
+        XCTAssertFalse(concierge.contains("session.$token.dropFirst()"))
+        XCTAssertFalse(concierge.contains("if next != searchOrigin { clear(using: next) }"))
         XCTAssertTrue(concierge.contains("NativeVenueDetailView(venue: venue"))
         XCTAssertTrue(concierge.contains("model.detailVenue = card.venueSummary"))
         XCTAssertTrue(concierge.contains(".sheet(item: $model.detailVenue)"))
@@ -1050,7 +1079,7 @@ final class NativeConciergeDiscoveryTests: XCTestCase {
         XCTAssertFalse(concierge.contains("native-concierge-suggestion-notes"))
         XCTAssertFalse(concierge.contains("Text(Self.privacyNotice).font(.footnote)"))
         XCTAssertTrue(concierge.contains("native-concierge-privacy"))
-        XCTAssertTrue(concierge.contains("Text(Self.privacyNotice)"))
+        XCTAssertTrue(concierge.contains("NativeConciergeSettingsSheet(model: model, privacyNotice: Self.privacyNotice)"))
         XCTAssertTrue(concierge.contains("refreshOpeningSuggestions"))
         XCTAssertFalse(concierge.contains("Coffee nearby\", \"Dinner tonight\", \"Something to do nearby\""))
         for retired in ["concierge.chat", "concierge.actions", "Concierge review required", "mic.fill", "Check stay dates", "openNativeTab(.discover)", "asyncAfter"] {
@@ -2210,6 +2239,15 @@ final class NativeM5DetailTests: XCTestCase {
     }
 
     /// Every Home tap leads somewhere specific: a place's pin, a Discover pill, Get a ride, or a named screen.
+    /// A place handed to the Map zooms to street level on its pin, whatever zoom the Map was left at.
+    func testHandedOverPlaceZoomsToItsPin() throws {
+        let shell = try shellSource()
+        let apply = try region(in: shell, from: "    private func applyNativeMapFocusHandoffIfRequested() {", to: "    private func rejectPendingNativeMapFocusHandoff()")
+        XCTAssertTrue(apply.contains("revealGeographicCamera(on: focused.coordinate)"))
+        XCTAssertFalse(apply.contains("focusGeographicCamera(on: focused.coordinate)"))
+        XCTAssertTrue(shell.contains("case .reveal(let coordinate):"))
+    }
+
     func testHomeTapsNeverLandOnABareTab() throws {
         let shell = try shellSource()
         let home = try region(in: shell, from: "private struct NativeHomeDashboardView: View {", to: "private struct NativeHomeSearchSheet: View {")
@@ -2217,7 +2255,7 @@ final class NativeM5DetailTests: XCTestCase {
         let near = try region(in: home, from: "    @ViewBuilder private var nearYouNowSection: some View {", to: "    private func openOnMap(")
         XCTAssertTrue(near.contains("action: { openOnMap(venue) }"))
         let openOnMap = try region(in: home, from: "    private func openOnMap(", to: "    /// Weather, music and Explore")
-        XCTAssertTrue(openOnMap.contains("NativeMapFocusHandoff.store(venue: venue, modeOverride: \"Route\")"))
+        XCTAssertTrue(openOnMap.contains("NativeMapFocusHandoff.store(venue: venue, modeOverride: \"Nearby\")"), "pin and card, no route")
         XCTAssertFalse(home.contains("NativeHomeServiceRecommendationCard(card: card) { card.id == Self.valetRideServiceID ? handleRideHandoff() : openNativeTab(.discover) }"))
         let aiPick = try region(in: home, from: "    private func routeToAIPick(", to: "    private func triggerPrimaryAIPick(")
         XCTAssertTrue(aiPick.contains("NativeMapFocusHandoff.store(venue: venue"))

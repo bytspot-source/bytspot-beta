@@ -7280,7 +7280,7 @@ enum NativeHomeCopyContract {
     }
 
     static let boutiqueStayQuickActionSubtitle = "Find a stay"
-    static let visibleSurfaceLabels = ["Today's Pick", "Start here", "Local services", "What's Happening Tonight", "Right Now Near You", "Trending Now", "What are you feeling?", "Nearby"]
+    static let visibleSurfaceLabels = ["Today's Pick", "Start here", "Near you now", "Local services", "What's Happening Tonight"]
 
     static func containsUnprovenAvailabilityClaim(_ values: [String]) -> Bool {
         let prohibitedClaims = ["available tonight", "open spots"]
@@ -7585,6 +7585,7 @@ private struct NativeHomeDashboardView: View {
     @State private var homePartyInvitation: NativeNearbyParty?
     @State private var musicListings: [NativeMusicListing] = []
     @State private var musicWindow: NativeMusicWindow = .tonight
+    @AppStorage(NativeHomeTimedCards.hiddenKey) private var hiddenTimedCards = ""
     @State private var showGuestSavePrompt = false
     @State private var guestHomePromptTitle = "Save your picks?"
     @State private var guestHomePromptSubtitle = "Sign in to keep favorites, routes, and parking preferences across devices."
@@ -7610,20 +7611,10 @@ private struct NativeHomeDashboardView: View {
     static let quickActionSpecs: [QuickActionSpec] = [
         QuickActionSpec(id: "coffee", title: "Coffee", subtitle: "Find a stop", icon: "cup.and.saucer.fill", color: NativeTheme.cyan, target: .discoverFilter("coffee")),
         QuickActionSpec(id: "food", title: "Food", subtitle: "Find dinner", icon: "fork.knife", color: NativeTheme.pink, target: .discoverFilter("dining")),
-        QuickActionSpec(id: "boutique-stay", title: "Boutique Stay", subtitle: NativeHomeCopyContract.boutiqueStayQuickActionSubtitle, icon: "house.fill", color: NativeTheme.purple, target: .discoverFilter("boutique_apartment")),
-        QuickActionSpec(id: "valet-ride", title: "Mobility", subtitle: "Uber or Lyft", icon: "car.fill", color: NativeTheme.cyan, target: .rideHandoff),
+        QuickActionSpec(id: "boutique-stay", title: "Stay", subtitle: NativeHomeCopyContract.boutiqueStayQuickActionSubtitle, icon: "house.fill", color: NativeTheme.purple, target: .discoverFilter("boutique_apartment")),
+        QuickActionSpec(id: "valet-ride", title: "Ride", subtitle: "Uber or Lyft", icon: "car.fill", color: NativeTheme.cyan, target: .rideHandoff),
         QuickActionSpec(id: "parking", title: "Parking", subtitle: "Near you", icon: "parkingsign.circle.fill", color: NativeTheme.emerald, target: .nativeTab(.map)),
         QuickActionSpec(id: "concierge", title: "Concierge", subtitle: "Ask for ideas", icon: "sparkles", color: NativeTheme.orange, target: .nativeTab(.concierge))
-    ]
-
-    static let categoryQuickSearchSpecs: [(label: String, filter: String)] = [
-        ("Coffee", "coffee"),
-        ("Dining", "dining"),
-        ("Mobility", "mobility"),
-        ("Shopping", "shopping"),
-        ("Nightlife", "nightlife"),
-        ("Fitness", "fitness"),
-        ("Events", "entertainment")
     ]
 
     static let recommendationTitles = ["Reserved parking near you", "Broni Home Taste", "GH Akwaaba Pass"]
@@ -7726,19 +7717,20 @@ private struct NativeHomeDashboardView: View {
                 NativeFeedbackHomeCard(item: item) { openFeedback(item.target) }
             }
             if showsVibeCard { homeVibeCard }
-            if usesServerRecommendations || hasTrustedLocalRecommendations || typicalHomePlan != nil { tonightPickCard }
-            exploreAroundYouSection
+            if usesServerRecommendations || hasTrustedLocalRecommendations || typicalHomePlan != nil {
+                tonightPickCard.countsHomeTaps(.todaysPick)
+            }
+            quickActionsSection.countsHomeTaps(.startHere)
+            nearYouNowSection.countsHomeTaps(.nearYouNow)
             if shouldShowHomeEmptyState { noLocalRecommendationsSection }
-            NativeHomeMusicSection(listings: musicListings, window: musicWindow, open: { homePartyInvitation = $0 })
-            quickActionsSection
             if showsFindFriendsCard { findFriendsCard }
-            weatherSmartCard
-            categoryQuickSearchSection
-            recommendationsSection
-            tonightEventsSection
-            rightNowSection
-            trendingNowSection
-            nearbySection
+            ForEach(timedCards, id: \.self) { kind in
+                timedCard(kind)
+            }
+            if NativeHomeTimedCards.showsTonightEvents(now: headerNow) {
+                tonightEventsSection.countsHomeTaps(.tonightEvents)
+            }
+            recommendationsSection.countsHomeTaps(.localServices)
         }
         .accessibilityIdentifier("native-home-dashboard")
         .onAppear(perform: homeDidShow)
@@ -8320,7 +8312,11 @@ private struct NativeHomeDashboardView: View {
     @ViewBuilder private var exploreAroundYouSection: some View {
         if let places = serverRecommendations?.explore, !places.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Things to see nearby").nativeTitle(20)
+                HStack {
+                    Text("Things to see nearby").nativeTitle(20)
+                    Spacer()
+                    NativeHomeHideButton { hideToday(.explore) }
+                }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(places) { place in
@@ -8649,7 +8645,14 @@ private struct NativeHomeDashboardView: View {
     }
 
     private func routeToAIPick(_ venue: NativeVenueSummary) {
-        NativeOnboardingMapHandoff.write(destination: venue.name, mode: venue.discoverType == "parking" ? "Smart Parking" : "Route")
+        let mode = venue.discoverType == "parking" ? "Smart Parking" : "Route"
+        // The pin itself, so the Map opens on this place rather than searching its name again.
+        if venue.hasKnownCoordinates {
+            NativeOnboardingMapHandoff.clear()
+            NativeMapFocusHandoff.store(venue: venue, modeOverride: mode)
+        } else {
+            NativeOnboardingMapHandoff.write(destination: venue.name, mode: mode)
+        }
         openNativeTab(.map)
     }
 
@@ -8768,61 +8771,54 @@ private struct NativeHomeDashboardView: View {
         }
     }
 
-    @ViewBuilder private var rightNowSection: some View {
-        let venues = Array(NativeHomeRegionPresentation.venueRailVenues(in: regionalSnapshot).filter { $0.crowd != nil }.prefix(6))
+    /// One row of nearby places with open or closed. A tap opens the Map on that place's pin, Route ready.
+    @ViewBuilder private var nearYouNowSection: some View {
+        let venues = Array(NativeHomeRegionPresentation.venueRailVenues(in: regionalSnapshot).prefix(6))
         if !venues.isEmpty {
-            NativeHorizontalSection(title: NativeHomeRegionPresentation.isAtlanta(locationStore.coordinate) ? "Right Now in Midtown" : "Right Now Near You", subtitle: nativeContentFreshnessLabel) {
+            NativeHorizontalSection(title: "Near you now", subtitle: nativeContentFreshnessLabel) {
                 ForEach(venues) { venue in
-                NativeMiniCard(eyebrow: crowdBadge(venue.crowd), title: venue.name, subtitle: venue.crowd?.waitMins.map { "~\($0)m wait" } ?? venue.address, iconText: categoryEmoji(venue.discoverType), accent: crowdColor(venue.crowd)) { openNativeTab(.map) }
+                    NativeMiniCard(eyebrow: venue.distance, title: venue.name, subtitle: venue.address, iconText: categoryEmoji(venue.discoverType), accent: NativeTheme.cyan,
+                                   action: { openOnMap(venue) },
+                                   statusPlaceID: NativeOpenStatusLine.placeID(id: venue.id, googlePlaceID: venue.googlePlaceID))
+                        .accessibilityIdentifier("native-home-near-you-\(venue.id)")
                 }
             }
-            .accessibilityIdentifier("native-home-right-now")
+            .accessibilityIdentifier("native-home-near-you-now")
         }
     }
 
-    @ViewBuilder private var trendingNowSection: some View {
-        let venues = NativeHomeRegionPresentation.venueRailVenues(in: regionalSnapshot).filter { $0.crowd != nil }
-        if !venues.isEmpty {
-            NativeHorizontalSection(title: "🔥 Trending Now", subtitle: nativeCrowdFreshnessLabel) {
-                ForEach(Array(venues.sorted { ($0.crowd?.level ?? 0) > ($1.crowd?.level ?? 0) }.prefix(6))) { venue in
-                    NativeMiniCard(eyebrow: venue.crowd?.label ?? "Typical", title: venue.name, subtitle: venue.address, iconText: categoryEmoji(venue.discoverType), accent: NativeTheme.orange) { openNativeTab(.map) }
-                }
-            }
-            .accessibilityIdentifier("native-home-trending-now")
-        }
+    private func openOnMap(_ venue: NativeVenueSummary) {
+        nativeImpactLight()
+        NativeMapFocusHandoff.store(venue: venue, modeOverride: "Route")
+        openNativeTab(.map)
     }
 
-    private var categoryQuickSearchSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("What are you feeling?").nativeTitle(21)
-                Spacer()
-                NativeStatusPill(title: "For You", color: NativeTheme.purple)
-            }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 9) {
-                    ForEach(Self.categoryQuickSearchSpecs, id: \.label) { spec in
-                        Button(action: { perform(.discoverFilter(spec.filter)) }) {
-                            Text(spec.label).font(.system(size: 14, weight: .black)).foregroundColor(NativeTheme.textPrimary).padding(.horizontal, 14).padding(.vertical, 10).background(NativePolish.glassSurface).overlay(Capsule().stroke(NativeTheme.purple.opacity(0.28), lineWidth: 1)).clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("native-home-category-chip-\(spec.filter)")
-                    }
-                }
-            }
-        }
-        .accessibilityIdentifier("native-home-category-search")
+    /// Weather, music and Explore show only when they apply, at most two at once.
+    private var timedCards: [NativeHomeTimedCards.Kind] {
+        NativeHomeTimedCards.visible(
+            now: headerNow,
+            weatherAlert: NativeHomeTimedCards.isWeatherAlert(weatherSnapshot),
+            upcomingMusic: musicListings.contains { $0.startsAt > headerNow },
+            musicWindow: musicWindow,
+            hasExplore: !(serverRecommendations?.explore.isEmpty ?? true),
+            hidden: NativeHomeTimedCards.hiddenToday(hiddenTimedCards, now: headerNow)
+        )
     }
 
-    @ViewBuilder private var nearbySection: some View {
-        let venues = NativeHomeRegionPresentation.venueRailVenues(in: regionalSnapshot)
-        if !venues.isEmpty {
-            NativeHorizontalSection(title: "Nearby", subtitle: nativeContentFreshnessLabel) {
-                ForEach(Array(venues.prefix(6))) { venue in
-                    NativeMiniCard(eyebrow: venue.distance, title: venue.name, subtitle: NativeHomeRegionPresentation.nearbySubtitle(for: venue), iconText: "📍", accent: NativeTheme.cyan) { openNativeTab(.map) }
-                }
-            }
-            .accessibilityIdentifier("native-home-nearby")
+    private func hideToday(_ kind: NativeHomeTimedCards.Kind) {
+        nativeImpactLight()
+        hiddenTimedCards = NativeHomeTimedCards.hiding(kind, in: hiddenTimedCards, now: headerNow)
+    }
+
+    @ViewBuilder private func timedCard(_ kind: NativeHomeTimedCards.Kind) -> some View {
+        switch kind {
+        case .weather:
+            weatherSmartCard.countsHomeTaps(.weather)
+        case .music:
+            NativeHomeMusicSection(listings: musicListings, window: musicWindow, open: { homePartyInvitation = $0 }, onHide: { hideToday(.music) })
+                .countsHomeTaps(.music)
+        case .explore:
+            exploreAroundYouSection.countsHomeTaps(.explore)
         }
     }
 
@@ -8856,6 +8852,10 @@ private struct NativeHomeDashboardView: View {
                 Text(weather.detail).font(.system(size: 12, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2)
             }
             Spacer()
+            Button("Got it") { hideToday(.weather) }
+                .font(.system(size: 11, weight: .black)).foregroundColor(NativeTheme.textSecondary)
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityIdentifier("native-home-weather-hide")
             Text(weather.badge).font(.system(size: 10, weight: .black)).foregroundColor(NativeTheme.cyan).padding(.horizontal, 8).padding(.vertical, 5).background(NativeTheme.cyan.opacity(0.12)).clipShape(Capsule())
         }
         .padding(12)
@@ -8899,7 +8899,7 @@ private struct NativeHomeDashboardView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(picks) { card in
-                        NativeHomeServiceRecommendationCard(card: card) { card.id == Self.valetRideServiceID ? handleRideHandoff() : openNativeTab(.discover) }
+                        NativeHomeServiceRecommendationCard(card: card) { card.id == Self.valetRideServiceID ? handleRideHandoff() : perform(.discoverFilter("service")) }
                         .frame(width: 280)
                     }
                 }
@@ -8913,6 +8913,8 @@ private struct NativeHomeDashboardView: View {
         switch target {
         case .nativeTab(let tab): openNativeTab(tab)
         case .discoverFilter(let filter):
+            // Every ride or mobility tap opens Get a ride, never the Move pill.
+            if NativeHomeTimedCards.isRideFilter(filter) { handleRideHandoff(); return }
             openDiscoverFilter(filter)
         case .rideHandoff:
             handleRideHandoff()
@@ -12064,6 +12066,8 @@ private struct NativeDiscoverView: View {
     var consumeHandoffFilter: () -> Void = {}
     @Environment(\.nativeTabIsActive) private var isTabActive
     @State private var selectedFilter: String? = Self.previewFilter
+    /// Narrows Eat & Drink to coffee places or restaurants when Home's Coffee or Food opened it.
+    @State private var typeFocus: NativeDiscoverTypeFocus?
     @State private var discoverCardIndex = 0
     @State private var nearbyBookings: [String: NativeDiscoverNearbyBooking] = [:]
     @State private var checkedNearbyBookingPlaceIDs: Set<String> = []
@@ -12197,6 +12201,7 @@ private struct NativeDiscoverView: View {
         }
         .onChange(of: handoffFilter ?? "") { _ in applyShellFilterHandoffIfRequested() }
         .onChange(of: selectedFilter) { _ in discoverCardIndex = 0 }
+        .onChange(of: typeFocus) { _ in deckCache.cards = nil; discoverCardIndex = 0 }
         .onChange(of: isTabActive ? rankedCards.map(\.browseID) : []) { ids in
             guard isTabActive else { return }
             discoverCardIndex = min(discoverCardIndex, max(ids.count - 1, 0))
@@ -12324,6 +12329,7 @@ private struct NativeDiscoverView: View {
                         title: label,
                         active: active(label)
                     ) {
+                        typeFocus = nil
                         selectedFilter = Self.filterValue(for: label)
                     }
                 }
@@ -12340,6 +12346,16 @@ private struct NativeDiscoverView: View {
         let cards = rankedCards
         return VStack(spacing: 24) {
             NativeWindowAskRail(coordinate: locationStore.coordinate, openAuth: openNativeAuth)
+            if let typeFocus {
+                Button(action: { self.typeFocus = nil }) {
+                    Label("\(typeFocus.title) only · Show all Eat & Drink", systemImage: "xmark.circle.fill")
+                        .font(.system(size: 13, weight: .bold)).foregroundColor(NativeTheme.textPrimary)
+                        .padding(.horizontal, 14).frame(minHeight: 40)
+                        .background(Capsule().fill(Color.white.opacity(0.08)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("native-discover-type-focus")
+            }
             if cards.isEmpty {
                 if selectedFilter == nil {
                     VStack(spacing: 6) {
@@ -12349,8 +12365,19 @@ private struct NativeDiscoverView: View {
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .accessibilityIdentifier("native-discover-empty")
                 } else {
-                    Button("No options in this category yet. Explore all") { selectedFilter = nil }
-                        .font(.headline).foregroundColor(.white).frame(minHeight: 44)
+                    VStack(spacing: 10) {
+                        Text(NativeDiscoverTypeFocus.emptyMessage(rail: selectedFilter, focus: typeFocus))
+                            .font(.headline).foregroundColor(.white).multilineTextAlignment(.center)
+                        HStack(spacing: 10) {
+                            Button("Explore all") { typeFocus = nil; selectedFilter = nil }
+                                .font(.system(size: 14, weight: .bold)).frame(minHeight: 44)
+                            Button("Ask Concierge") { openNativeTab(.concierge) }
+                                .font(.system(size: 14, weight: .bold)).frame(minHeight: 44)
+                        }
+                        .foregroundColor(NativeTheme.cyan)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("native-discover-empty-category")
                 }
             } else {
                 if let card = cards.indices.contains(discoverCardIndex) ? cards[discoverCardIndex] : cards.first {
@@ -12622,7 +12649,7 @@ private struct NativeDiscoverView: View {
     /// Behind another tab the last deck is reused: nothing on screen needs a new order.
     private var rankedCards: [DiscoverCardSpec] {
         if !isTabActive, let kept = deckCache.cards { return kept }
-        let cards = NativeDiscoverBrowsePolicy.ordered(browseCards(matching: selectedFilter), ranking: discoverRanking) { card in
+        let cards = NativeDiscoverBrowsePolicy.ordered(browseCards(matching: selectedFilter).filter { typeFocus?.matches(type: $0.type) ?? true }, ranking: discoverRanking) { card in
             NativeDiscoverBrowsePolicy.LocalOrderKey(
                 isParty: card.isParty, supported: card.presentation.primaryActionTitle != nil,
                 relevance: searchScore(for: card), id: card.browseID)
@@ -12724,6 +12751,7 @@ private struct NativeDiscoverView: View {
         UserDefaults.standard.removeObject(forKey: Self.filterDefaultsKey)
         UserDefaults.standard.synchronize()
         detailVenue = nil
+        typeFocus = NativeDiscoverTypeFocus(handoff: handoffFilter)
         selectedFilter = filter
         consumeHandoffFilter()
     }
@@ -22186,6 +22214,7 @@ private struct NativeHomeMusicSection: View {
     let listings: [NativeMusicListing]
     let window: NativeMusicWindow
     let open: (NativeNearbyParty) -> Void
+    var onHide: (() -> Void)? = nil
     @State private var filter = NativeMusicFilter()
     @State private var showingAll = false
 
@@ -22215,6 +22244,7 @@ private struct NativeHomeMusicSection: View {
                             .frame(minHeight: 44)
                             .accessibilityIdentifier("native-home-music-see-all")
                     }
+                    if let onHide { NativeHomeHideButton(action: onHide) }
                 }
                 NativeMusicFilterChips(listings: listings, filter: $filter)
                 let shown = filter.apply(listings)
@@ -22384,13 +22414,16 @@ private struct NativeHorizontalSection<Content: View>: View {
 
 private struct NativeMiniCard: View {
     let eyebrow: String; let title: String; let subtitle: String; let iconText: String; let accent: Color; let action: () -> Void
+    /// When set, the place's open or closed line replaces the subtitle's second line.
+    var statusPlaceID: String? = nil
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack { Text(iconText).font(.system(size: 21)); Spacer(); Text(eyebrow).font(.system(size: 10, weight: .black)).foregroundColor(accent).lineLimit(1) }
                 Spacer(minLength: 0)
                 Text(title).font(.system(size: 13, weight: .black)).foregroundColor(NativeTheme.textPrimary).lineLimit(2)
-                Text(subtitle).font(.system(size: 11, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2)
+                Text(subtitle).font(.system(size: 11, weight: .bold)).foregroundColor(NativeTheme.textSecondary).lineLimit(statusPlaceID == nil ? 2 : 1)
+                if let statusPlaceID { NativeOpenStatusLine(placeID: statusPlaceID, size: 10.5) }
             }
             .frame(width: 150, height: 132, alignment: .leading)
             .padding(13)
@@ -23641,14 +23674,12 @@ enum NativeHomeParitySelfTests {
 
     private static func run() {
         let actions = NativeHomeDashboardView.quickActionSpecs
-        precondition(actions.map(\.title) == ["Coffee", "Food", "Boutique Stay", "Mobility", "Parking", "Concierge"], "NativeHomeParitySelfTests: quick-action titles drifted from Home command-center model.")
+        precondition(actions.map(\.title) == ["Coffee", "Food", "Stay", "Ride", "Parking", "Concierge"], "NativeHomeParitySelfTests: quick-action titles drifted from Home command-center model.")
         precondition(actions.map(\.subtitle) == ["Find a stop", "Find dinner", "Find a stay", "Uber or Lyft", "Near you", "Ask for ideas"], "NativeHomeParitySelfTests: quick-action subtitles drifted from Home command-center model.")
         precondition(actions.map(\.icon) == ["cup.and.saucer.fill", "fork.knife", "house.fill", "car.fill", "parkingsign.circle.fill", "sparkles"], "NativeHomeParitySelfTests: quick-action SF Symbols drifted.")
         precondition(actions[0].target == .discoverFilter("coffee") && actions[1].target == .discoverFilter("dining") && actions[2].target == .discoverFilter("boutique_apartment"), "NativeHomeParitySelfTests: intent actions must open Discover with category context.")
         precondition(actions[3].target == .rideHandoff, "NativeHomeParitySelfTests: Book Ride must open the native Valet flow, not hybrid web.")
         precondition(actions[4].target == .nativeTab(.map) && actions[5].target == .nativeTab(.concierge), "NativeHomeParitySelfTests: Parking/Concierge must route to their native tabs.")
-        precondition(NativeHomeDashboardView.categoryQuickSearchSpecs.map(\.label) == ["Coffee", "Dining", "Mobility", "Shopping", "Nightlife", "Fitness", "Events"], "NativeHomeParitySelfTests: category chip labels drifted.")
-        precondition(NativeHomeDashboardView.categoryQuickSearchSpecs.map(\.filter) == ["coffee", "dining", "mobility", "shopping", "nightlife", "fitness", "entertainment"], "NativeHomeParitySelfTests: category chips must hand off Discover filters.")
         precondition(NativeHomeDashboardView.recommendationTitles == ["Reserved parking near you", "Broni Home Taste", "GH Akwaaba Pass"], "NativeHomeParitySelfTests: native Home recommendation rail drifted.")
         precondition(NativeHomeDashboardView.aiPickEyebrow == "Today's Pick" && NativeHomeDashboardView.aiPickSecondaryCTA == "Details", "NativeHomeParitySelfTests: Home hero label/secondary CTA drifted.")
         let visibleHomeCopy = NativeHomeDashboardView.visibleHomeSurfaceLabels.joined(separator: " | ")
@@ -24206,4 +24237,113 @@ private extension Text {
     func nativeTitle(_ size: CGFloat) -> some View { self.font(.system(size: size, weight: .black)).foregroundColor(NativeTheme.textPrimary) }
     func nativeBody(size: CGFloat = 13.5, color: Color = NativeTheme.textSecondary) -> some View { self.font(.system(size: size, weight: .semibold)).foregroundColor(color).lineSpacing(2) }
     func serviceChip(color: Color, foreground: Color) -> some View { self.font(.system(size: 10, weight: .black)).foregroundColor(foreground).padding(.horizontal, 8).padding(.vertical, 5).background(color).clipShape(Capsule()) }
+}
+/// When a Home card that only sometimes matters shows, and the guest's "hide for today".
+enum NativeHomeTimedCards {
+    enum Kind: String, CaseIterable, Hashable { case weather, music, explore }
+
+    static let hiddenKey = "bytspot_home_hidden_timed_cards"
+    static let maxShown = 2
+
+    static func visible(now: Date, weatherAlert: Bool, upcomingMusic: Bool, musicWindow: NativeMusicWindow,
+                        hasExplore: Bool, hidden: Set<Kind>, calendar: Calendar = .current) -> [Kind] {
+        let hour = calendar.component(.hour, from: now)
+        let weekend = calendar.isDateInWeekend(now)
+        var shown: [Kind] = []
+        if weatherAlert { shown.append(.weather) }
+        if upcomingMusic, weekend || musicWindow == .weekend || hour >= 15 { shown.append(.music) }
+        if hasExplore, hour >= 9, weekend || hour < 17 { shown.append(.explore) }
+        return Array(shown.filter { !hidden.contains($0) }.prefix(maxShown))
+    }
+
+    /// Tonight's events take over from Explore in the evening.
+    static func showsTonightEvents(now: Date, calendar: Calendar = .current) -> Bool {
+        let hour = calendar.component(.hour, from: now)
+        return hour >= 17 || hour < 3
+    }
+
+    /// Weather that changes plans: rain, snow or storms now, or a feels-like of 90°F or more, or 40°F or less.
+    static func isWeatherAlert(_ snapshot: NativeWeatherSnapshot) -> Bool {
+        guard snapshot.source != .fallback else { return false }
+        if snapshot.precipitationIn > 0 || (51...99).contains(snapshot.weatherCode) { return true }
+        return snapshot.feelsLikeF >= 90 || snapshot.feelsLikeF <= 40
+    }
+
+    static func isRideFilter(_ filter: String) -> Bool {
+        ["mobility", "ride", "rides", "transport", "valet"].contains(filter.lowercased())
+    }
+
+    /// Stored as "yyyy-MM-dd|weather,music": anything from an earlier day is forgotten.
+    static func hiddenToday(_ raw: String, now: Date, calendar: Calendar = .current) -> Set<Kind> {
+        let parts = raw.split(separator: "|", maxSplits: 1).map(String.init)
+        guard parts.count == 2, parts[0] == day(now, calendar: calendar) else { return [] }
+        return Set(parts[1].split(separator: ",").compactMap { Kind(rawValue: String($0)) })
+    }
+
+    static func hiding(_ kind: Kind, in raw: String, now: Date, calendar: Calendar = .current) -> String {
+        let kinds = hiddenToday(raw, now: now, calendar: calendar).union([kind])
+        return "\(day(now, calendar: calendar))|" + Kind.allCases.filter(kinds.contains).map(\.rawValue).joined(separator: ",")
+    }
+
+    private static func day(_ date: Date, calendar: Calendar) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
+}
+
+/// A small ✕ that hides a Home card until tomorrow.
+struct NativeHomeHideButton: View {
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark").font(.system(size: 12, weight: .black)).foregroundColor(NativeTheme.textTertiary)
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Hide for today")
+    }
+}
+
+/// Counts taps on Home blocks for the admin Growth tab. The block only; nothing about the guest.
+enum NativeHomeTapCounter {
+    enum Block: String { case todaysPick = "todays_pick", startHere = "start_here", nearYouNow = "near_you_now", weather, music, explore, tonightEvents = "tonight_events", localServices = "local_services" }
+
+    static func note(_ block: Block) {
+        Task.detached(priority: .utility) {
+            _ = try? await BytspotAPIClient().trpcPayload(path: "/trpc/home.tap", method: "POST", input: ["block": block.rawValue])
+        }
+    }
+}
+
+extension View {
+    /// Counts a tap anywhere on this Home block, without taking it from the buttons inside.
+    func countsHomeTaps(_ block: NativeHomeTapCounter.Block) -> some View {
+        simultaneousGesture(TapGesture().onEnded { NativeHomeTapCounter.note(block) })
+    }
+}
+
+/// Home's Coffee and Food both open Eat & Drink, narrowed to coffee places or to restaurants.
+enum NativeDiscoverTypeFocus: Equatable {
+    case coffee, food
+
+    init?(handoff raw: String?) {
+        switch raw?.lowercased() {
+        case "coffee", "cafe", "café": self = .coffee
+        case "dining", "food", "restaurant", "restaurants": self = .food
+        default: return nil
+        }
+    }
+
+    var title: String { self == .coffee ? "Coffee" : "Restaurants" }
+
+    func matches(type: String) -> Bool {
+        self == .coffee ? type == "coffee" : type != "coffee"
+    }
+
+    /// Says plainly that nothing is here, by name.
+    static func emptyMessage(rail: String?, focus: NativeDiscoverTypeFocus?) -> String {
+        if let focus { return "No \(focus == .coffee ? "coffee places" : "restaurants") near you yet." }
+        guard let rail, let index = NativeDiscoverBookablePresentation.railTokens.firstIndex(of: rail) else { return "Nothing here near you yet." }
+        return "No \(NativeDiscoverBookablePresentation.railLabels[index]) near you yet."
+    }
 }

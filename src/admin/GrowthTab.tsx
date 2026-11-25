@@ -4,6 +4,8 @@ import { trpc } from '../utils/trpc';
 type Week = {
   weekStart: string; activeUsers: number; newUsers: number; newFromInvites: number; plansCreated: number;
   plansWithFriends: number; planJoins: number; partyJoins: number; shareViews: number; bookingTaps: number; checkIns: number;
+  /** Absent from servers before Home tap counting. */
+  homeTaps?: Record<string, number>;
 };
 type Cohort = { weekStart: string; signedUp: number; day1: number | null; week1: number | null; month1: number | null };
 type Range = '8w' | '3m' | '6m' | '12m';
@@ -13,7 +15,7 @@ const RANGES: { id: Range; label: string }[] = [
   { id: '8w', label: '8 weeks' }, { id: '3m', label: '3 months' }, { id: '6m', label: '6 months' }, { id: '12m', label: '12 months' },
 ];
 
-const ROWS: { key: keyof Week; label: string; hint: string }[] = [
+const ROWS: { key: Exclude<keyof Week, 'homeTaps'>; label: string; hint: string }[] = [
   { key: 'activeUsers', label: 'Active members', hint: 'Used the signed-in app at least once that week' },
   { key: 'newUsers', label: 'New members', hint: 'Accounts created' },
   { key: 'newFromInvites', label: 'New from invites', hint: "Joined a friend's Plan or Party within a day of signing up, or used a member's invite code" },
@@ -24,6 +26,12 @@ const ROWS: { key: keyof Week; label: string; hint: string }[] = [
   { key: 'plansWithFriends', label: 'Plans with friends', hint: 'Plans made that week that at least one friend joined' },
   { key: 'bookingTaps', label: 'Booking taps', hint: 'Taps on a Book on … button' },
   { key: 'checkIns', label: 'Check-ins at the place', hint: 'Check-ins made at the place, not from home' },
+];
+
+const HOME_BLOCKS: { key: string; label: string }[] = [
+  { key: 'todays_pick', label: "Today's Pick" }, { key: 'start_here', label: 'Start here' }, { key: 'near_you_now', label: 'Near you now' },
+  { key: 'weather', label: 'Weather' }, { key: 'music', label: 'Music' }, { key: 'explore', label: 'Things to see nearby' },
+  { key: 'tonight_events', label: "Tonight's events" }, { key: 'local_services', label: 'Local services' },
 ];
 
 const weekLabel = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
@@ -79,6 +87,27 @@ export function GrowthTab() {
                 <tr key={row.key}>
                   <th title={row.hint}>{row.label}</th>
                   {report.weeks.map((w) => <td key={w.weekStart}>{w[row.key]}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section className="admin-card">
+        <h2>Home taps</h2>
+        <p className="admin-muted">
+          Taps on each block of the app's Home screen. Only the block and the time are recorded, never who tapped. Counting started with the Home update.
+        </p>
+        <div className="admin-scroll">
+          <table className="admin-table">
+            <thead>
+              <tr><th />{report.weeks.map((w) => <th key={w.weekStart}>{columnLabel(w.weekStart)}</th>)}</tr>
+            </thead>
+            <tbody>
+              {HOME_BLOCKS.map((block) => (
+                <tr key={block.key}>
+                  <th>{block.label}</th>
+                  {report.weeks.map((w) => <td key={w.weekStart}>{w.homeTaps ? (w.homeTaps[block.key] ?? 0) : '—'}</td>)}
                 </tr>
               ))}
             </tbody>

@@ -2194,6 +2194,89 @@ final class NativeM5DetailTests: XCTestCase {
         }
     }
 
+    // MARK: - Home free-up
+
+    func testHomeShowsOnlyTheFocusedBlocksInOrder() throws {
+        let shell = try shellSource()
+        let home = try region(in: shell, from: "private struct NativeHomeDashboardView: View {", to: "private struct NativeHomeSearchSheet: View {")
+        for removed in ["categoryQuickSearchSection", "rightNowSection", "trendingNowSection", "nearbySection", "What are you feeling?", "Right Now in Midtown", "Trending Now"] {
+            XCTAssertFalse(home.contains(removed), "\(removed) was removed from Home")
+        }
+        let body = try region(in: home, from: "    var body: some View {", to: ".accessibilityIdentifier(\"native-home-dashboard\")")
+        let order = ["tonightPickCard", "quickActionsSection", "nearYouNowSection", "timedCard(kind)", "tonightEventsSection", "recommendationsSection"]
+        let positions = try order.map { try XCTUnwrap(body.range(of: $0), $0).lowerBound }
+        XCTAssertEqual(positions, positions.sorted(), "Today's Pick, then Start here, then Near you now, timed cards, tonight, services")
+        XCTAssertTrue(home.contains("title: \"Stay\"") && home.contains("title: \"Ride\""))
+    }
+
+    /// Every Home tap leads somewhere specific: a place's pin, a Discover pill, Get a ride, or a named screen.
+    func testHomeTapsNeverLandOnABareTab() throws {
+        let shell = try shellSource()
+        let home = try region(in: shell, from: "private struct NativeHomeDashboardView: View {", to: "private struct NativeHomeSearchSheet: View {")
+        XCTAssertFalse(home.contains("{ openNativeTab(.map) }\n                }"), "a card tap opening a bare Map")
+        let near = try region(in: home, from: "    @ViewBuilder private var nearYouNowSection: some View {", to: "    private func openOnMap(")
+        XCTAssertTrue(near.contains("action: { openOnMap(venue) }"))
+        let openOnMap = try region(in: home, from: "    private func openOnMap(", to: "    /// Weather, music and Explore")
+        XCTAssertTrue(openOnMap.contains("NativeMapFocusHandoff.store(venue: venue, modeOverride: \"Route\")"))
+        XCTAssertFalse(home.contains("NativeHomeServiceRecommendationCard(card: card) { card.id == Self.valetRideServiceID ? handleRideHandoff() : openNativeTab(.discover) }"))
+        let aiPick = try region(in: home, from: "    private func routeToAIPick(", to: "    private func triggerPrimaryAIPick(")
+        XCTAssertTrue(aiPick.contains("NativeMapFocusHandoff.store(venue: venue"))
+    }
+
+    func testTimedCardsShowOnlyWhenTheyApply() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        func at(_ iso: String) throws -> Date { try XCTUnwrap(ISO8601DateFormatter().date(from: iso)) }
+        let tuesdayNoon = try at("2026-11-24T17:00:00Z"), tuesdayEvening = try at("2026-11-24T22:30:00Z"), saturdayNoon = try at("2026-11-28T17:00:00Z")
+        func visible(_ now: Date, weather: Bool = false, music: Bool = false, window: NativeMusicWindow = .tonight, explore: Bool = false, hidden: Set<NativeHomeTimedCards.Kind> = []) -> [NativeHomeTimedCards.Kind] {
+            NativeHomeTimedCards.visible(now: now, weatherAlert: weather, upcomingMusic: music, musicWindow: window, hasExplore: explore, hidden: hidden, calendar: calendar)
+        }
+        XCTAssertEqual(visible(tuesdayNoon, music: true, explore: true), [.explore], "music waits until 3 PM on a weekday")
+        XCTAssertEqual(visible(tuesdayEvening, music: true, explore: true), [.music], "Explore gives way after 5 PM")
+        XCTAssertEqual(visible(saturdayNoon, music: true, explore: true), [.music, .explore], "weekends show both all day")
+        XCTAssertEqual(visible(saturdayNoon, weather: true, music: true, explore: true), [.weather, .music], "at most two")
+        XCTAssertEqual(visible(saturdayNoon, weather: true, music: true, explore: true, hidden: [.weather]), [.music, .explore])
+        XCTAssertFalse(NativeHomeTimedCards.showsTonightEvents(now: tuesdayNoon, calendar: calendar))
+        XCTAssertTrue(NativeHomeTimedCards.showsTonightEvents(now: tuesdayEvening, calendar: calendar))
+    }
+
+    func testHideForTodayLastsOnlyToday() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let today = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-11-24T17:00:00Z"))
+        let tomorrow = today.addingTimeInterval(86_400)
+        let raw = NativeHomeTimedCards.hiding(.music, in: NativeHomeTimedCards.hiding(.weather, in: "", now: today, calendar: calendar), now: today, calendar: calendar)
+        XCTAssertEqual(raw, "2026-11-24|weather,music")
+        XCTAssertEqual(NativeHomeTimedCards.hiddenToday(raw, now: today, calendar: calendar), [.weather, .music])
+        XCTAssertEqual(NativeHomeTimedCards.hiddenToday(raw, now: tomorrow, calendar: calendar), [])
+    }
+
+    func testWeatherShowsOnlyWhenItChangesPlans() {
+        func weather(code: Int = 1, precip: Double = 0, feels: Int = 72, source: NativeWeatherSnapshot.Source = .live) -> NativeWeatherSnapshot {
+            NativeWeatherSnapshot(temperatureF: feels, feelsLikeF: feels, humidity: 50, windMph: 5, precipitationIn: precip, weatherCode: code, isDay: true, updatedAt: Date(), source: source)
+        }
+        XCTAssertFalse(NativeHomeTimedCards.isWeatherAlert(weather()))
+        XCTAssertTrue(NativeHomeTimedCards.isWeatherAlert(weather(code: 61)))
+        XCTAssertTrue(NativeHomeTimedCards.isWeatherAlert(weather(precip: 0.1)))
+        XCTAssertTrue(NativeHomeTimedCards.isWeatherAlert(weather(feels: 94)))
+        XCTAssertTrue(NativeHomeTimedCards.isWeatherAlert(weather(feels: 35)))
+        XCTAssertFalse(NativeHomeTimedCards.isWeatherAlert(weather(code: 95, source: .fallback)), "no alert from a made-up reading")
+    }
+
+    func testCoffeeAndFoodNarrowEatAndDrinkAndRidesOpenGetARide() {
+        XCTAssertEqual(NativeDiscoverTypeFocus(handoff: "coffee"), .coffee)
+        XCTAssertEqual(NativeDiscoverTypeFocus(handoff: "dining"), .food)
+        XCTAssertNil(NativeDiscoverTypeFocus(handoff: "nightlife"))
+        XCTAssertTrue(NativeDiscoverTypeFocus.coffee.matches(type: "coffee"))
+        XCTAssertFalse(NativeDiscoverTypeFocus.coffee.matches(type: "dining"))
+        XCTAssertTrue(NativeDiscoverTypeFocus.food.matches(type: "dining"))
+        XCTAssertFalse(NativeDiscoverTypeFocus.food.matches(type: "coffee"))
+        XCTAssertEqual(NativeDiscoverTypeFocus.emptyMessage(rail: "eat_drink", focus: .coffee), "No coffee places near you yet.")
+        XCTAssertEqual(NativeDiscoverTypeFocus.emptyMessage(rail: "stay", focus: nil), "No Stay near you yet.")
+        XCTAssertTrue(NativeHomeTimedCards.isRideFilter("mobility"))
+        XCTAssertFalse(NativeHomeTimedCards.isRideFilter("parking"))
+    }
+
     private func shellSource() throws -> String {
         let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("App/NativeShellView.swift")

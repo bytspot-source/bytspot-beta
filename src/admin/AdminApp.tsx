@@ -60,6 +60,7 @@ type ListedPlace = {
   venueId: string; name: string; address: string; category: string; placeId: string | null; hidden: boolean;
   booking: TableBooking | null; checkedAt: string | null; listedAt: string | null; bookingStale?: boolean; bookingDueAt?: string | null;
   expiresAt?: string | null; bookingExpired?: boolean;
+  online?: boolean; website?: string | null; manual?: boolean; verificationNote?: string | null; verifiedAt?: string | null;
   numbers: { checkIns: Count; bookingTaps: Count; planAdds: Count; bookedByGuests: Count };
 };
 type VenueControlRow = { venueId: string; name: string; address: string; category: string; control: 'bytspot' | 'listed'; controlledAt: string | null; placeId: string | null };
@@ -649,11 +650,83 @@ function ControlledVenues() {
   );
 }
 
+/** For a business Google has no listing for, such as one that only sells online. */
+function ManualPlaceForm({ onSaved, onCancel }: { onSaved: () => void; onCancel: () => void }) {
+  const [name, setName] = useState('');
+  const [address, setAddress] = useState('');
+  const [website, setWebsite] = useState('https://');
+  const [category, setCategory] = useState<Category>('service' as Category);
+  const [online, setOnline] = useState(true);
+  const [note, setNote] = useState('');
+  const [verified, setVerified] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const websiteOk = /^https:\/\/[^\s/]+\.[^\s]+$/i.test(website.trim());
+  const ready = name.trim().length >= 2 && address.trim().length >= 5 && websiteOk && note.trim().length >= 10 && verified;
+
+  const save = async () => {
+    if (!ready) return;
+    setBusy(true); setError(null);
+    try {
+      await trpc.admin.places.saveManual.mutate({
+        name: name.trim(), address: address.trim(), website: website.trim(), category, online, note: note.trim(), verified: true,
+      });
+      onSaved();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="admin-form">
+      <p className="admin-strong">Add without Google</p>
+      <p className="admin-muted">For a real business Google has no listing for. Check it yourself first, and say how.</p>
+      <input className={input} placeholder="Business name" value={name} onChange={(e) => setName(e.target.value)} />
+      <input className={input} placeholder="Registered or street address" value={address} onChange={(e) => setAddress(e.target.value)} />
+      <input className={input} placeholder="https://their-website.com" value={website} onChange={(e) => setWebsite(e.target.value)} />
+      {website.trim() !== 'https://' && !websiteOk && <p className="admin-warn">Enter the full https:// website.</p>}
+      <label className="admin-muted">
+        Filed under{' '}
+        <select className="admin-select" value={category} onChange={(e) => setCategory(e.target.value as Category)}>
+          {CATEGORY_RAILS.map((group) => (
+            <optgroup key={group.rail} label={railLabel(group.rail)}>
+              {group.options.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </optgroup>
+          ))}
+        </select>
+      </label>
+      <label className="admin-check">
+        <input type="checkbox" checked={online} onChange={(e) => setOnline(e.target.checked)} />
+        Online business (no walk-in address)
+      </label>
+      <p className="admin-small">
+        {online
+          ? 'Guests see the name, website and offers, never the address. No map pin, directions or check-in. The address only places it in the right city.'
+          : 'Guests see the address, a map pin, directions and check-in, like any listed place.'}
+      </p>
+      <textarea className={input} rows={3} maxLength={1000} placeholder="What you checked, e.g. Georgia SOS registration active, website live, owner confirmed by phone"
+        value={note} onChange={(e) => setNote(e.target.value)} />
+      <label className="admin-check">
+        <input type="checkbox" checked={verified} onChange={(e) => setVerified(e.target.checked)} />
+        I verified this business is real and run by the people who will sell on Bytspot.
+      </label>
+      {error && <p className="admin-warn">{error}</p>}
+      <div className="admin-inline">
+        <Button onClick={save} disabled={busy || !ready}>{busy ? 'Saving…' : 'Verify and list'}</Button>
+        <Button kind="quiet" onClick={onCancel}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
 function PlacesTab() {
   const [query, setQuery] = useState('');
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [manual, setManual] = useState(false);
   const [places, setPlaces] = useState<ListedPlace[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pitch, setPitch] = useState<{ venueId: string; url: string; message: string; copied: boolean } | null>(null);
@@ -755,6 +828,13 @@ function PlacesTab() {
           </ul>
         )}
         {draft && <PlaceForm draft={draft} onChange={setDraft} onSaved={saved} onCancel={() => setDraft(null)} />}
+        {!draft && !manual && (
+          <p className="admin-small">
+            Not on Google?{' '}
+            <button type="button" className="admin-link" onClick={() => setManual(true)}>Add without Google</button>
+          </p>
+        )}
+        {manual && !draft && <ManualPlaceForm onSaved={() => { setManual(false); saved(); }} onCancel={() => setManual(false)} />}
       </Card>
 
       {error && <p className="admin-warn">{error}</p>}
@@ -813,8 +893,13 @@ function PlacesTab() {
               <li key={p.venueId} className={p.hidden ? 'admin-hidden' : ''}>
                 <div className="admin-row" style={{ alignItems: 'flex-start' }}>
                   <div>
-                    <p className="admin-strong">{p.name}{p.hidden && <span className="admin-tag">Hidden</span>}</p>
+                    <p className="admin-strong">
+                      {p.name}{p.hidden && <span className="admin-tag">Hidden</span>}
+                      {p.manual && <span className="admin-tag">{p.online ? 'manual · online' : 'manual'}</span>}
+                    </p>
                     <p className="admin-muted">{p.address}</p>
+                    {p.website && <a href={p.website} target="_blank" rel="noopener noreferrer" className="admin-link">{p.website} ↗</a>}
+                    {p.verificationNote && <p className="admin-small">Verified {dateLabel(p.verifiedAt ?? null)}: {p.verificationNote}</p>}
                     {p.booking && (
                       <a href={p.booking.url} target="_blank" rel="noopener noreferrer" className="admin-link">
                         {p.booking.label} ↗
@@ -834,7 +919,7 @@ function PlacesTab() {
                     )}
                   </div>
                   <div className="admin-inline">
-                    <Button kind="quiet" onClick={() => edit(p)}>Edit</Button>
+                    {p.placeId && <Button kind="quiet" onClick={() => edit(p)}>Edit</Button>}
                     <Button kind="quiet" onClick={() => setHidden(p, !p.hidden)}>{p.hidden ? 'Show' : 'Hide'}</Button>
                     <Button kind="quiet" onClick={() => makePitch(p)}>Pitch link</Button>
                   </div>

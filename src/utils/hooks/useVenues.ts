@@ -91,7 +91,13 @@ function crowdToAvailability(crowd: ApiVenue['crowd']): string {
 }
 
 /** Convert an ApiVenue → DiscoverCard. Pass userCoords to get a real distance string. */
+/** Rows a map can pin: an online business has no walk-in spot. */
+export function walkInVenues<T>(rows: T[]): T[] {
+  return rows.filter((row) => (row as { online?: unknown }).online !== true);
+}
+
 export function venueToCard(v: ApiVenue, index: number, userCoords?: { lat: number; lng: number }): DiscoverCard {
+  const online = (v as any).online === true;
   const cardType = mapCategory(v.category);
   const image = resolveVenuePhoto({ imageUrl: v.imageUrl, category: v.category, name: v.name });
   const features = [
@@ -101,8 +107,8 @@ export function venueToCard(v: ApiVenue, index: number, userCoords?: { lat: numb
       : []),
   ];
 
-  let distance = '—';
-  if (userCoords && typeof v.lat === 'number' && typeof v.lng === 'number') {
+  let distance = online ? 'Online' : '—';
+  if (!online && userCoords && typeof v.lat === 'number' && typeof v.lng === 'number') {
     const miles = haversineMiles(userCoords.lat, userCoords.lng, v.lat, v.lng);
     distance = formatDistance(miles);
   }
@@ -129,10 +135,11 @@ export function venueToCard(v: ApiVenue, index: number, userCoords?: { lat: numb
     ticketUrl: (v as any).ticketUrl || null,
     placeId: (v as any).googlePlaceId ?? undefined,
     tableBooking: tableBookingFrom((v as any).booking),
+    ...(online ? { onlineOnly: true } : {}),
+    ...(typeof (v as any).website === 'string' && /^https:\/\//i.test((v as any).website) ? { website: (v as any).website } : {}),
     // Stash the slug for detail lookups
     _slug: v.slug,
-    _lat: v.lat,
-    _lng: v.lng,
+    ...(online ? {} : { _lat: v.lat, _lng: v.lng }),
   } as DiscoverCard & { _slug: string; _lat: number; _lng: number };
 }
 
@@ -317,7 +324,7 @@ export function useVenues(): UseVenuesResult {
 
     try {
       const [venuesResult, vendorCardsResult, inventoryCardsResult] = await Promise.allSettled([
-        trpc.venues.list.query(),
+        trpc.venues.list.query({ includeOnline: true }),
         fetchVendorServiceCards(),
         fetchVendorInventoryCards(),
       ]);
@@ -340,7 +347,7 @@ export function useVenues(): UseVenuesResult {
           try { fallback = JSON.parse(cached); } catch { /* ignore malformed cache */ }
         }
         venuesRef.current = fallback;
-        setVenues(fallback);
+        setVenues(walkInVenues(fallback));
         setCombinedCards(fallback, vendorCards);
         setError(null);
         setLoading(false);
@@ -349,7 +356,7 @@ export function useVenues(): UseVenuesResult {
 
       const liveVenues = venuesResult.value?.venues ?? [];
       venuesRef.current = liveVenues;
-      setVenues(liveVenues);
+      setVenues(walkInVenues(liveVenues));
       setCombinedCards(liveVenues, vendorCards);
       setError(null);
       // Cache successful API response for offline/cold-start resilience.
@@ -365,7 +372,7 @@ export function useVenues(): UseVenuesResult {
       }
       venuesRef.current = fallback;
       vendorServiceCardsRef.current = [];
-      setVenues(fallback);
+      setVenues(walkInVenues(fallback));
       setCombinedCards(fallback, []);
       setError(null);
     }
@@ -401,25 +408,21 @@ export function useVenues(): UseVenuesResult {
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === 'snapshot') {
-          setVenues((prev) => {
-            if (!prev.length) return prev;
-            const updated = prev.map((v) => {
-              const snap = (msg.venues as Array<{ id: string; crowd: ApiVenue['crowd'] }>).find((s) => s.id === v.id);
-              return snap ? { ...v, crowd: snap.crowd } : v;
-            });
-            venuesRef.current = updated;
-            setCombinedCards(updated, vendorServiceCardsRef.current);
-            return updated;
+          if (!venuesRef.current.length) return;
+          const updated = venuesRef.current.map((v) => {
+            const snap = (msg.venues as Array<{ id: string; crowd: ApiVenue['crowd'] }>).find((s) => s.id === v.id);
+            return snap ? { ...v, crowd: snap.crowd } : v;
           });
+          venuesRef.current = updated;
+          setCombinedCards(updated, vendorServiceCardsRef.current);
+          setVenues(walkInVenues(updated));
         } else if (msg.type === 'update') {
-          setVenues((prev) => {
-            const updated = prev.map((v) =>
-              v.id === msg.venueId ? { ...v, crowd: msg.crowd } : v
-            );
-            venuesRef.current = updated;
-            setCombinedCards(updated, vendorServiceCardsRef.current);
-            return updated;
-          });
+          const updated = venuesRef.current.map((v) =>
+            v.id === msg.venueId ? { ...v, crowd: msg.crowd } : v
+          );
+          venuesRef.current = updated;
+          setCombinedCards(updated, vendorServiceCardsRef.current);
+          setVenues(walkInVenues(updated));
         }
         // Successful message → reset retry counter
         retryCount = 0;

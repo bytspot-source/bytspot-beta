@@ -9126,6 +9126,16 @@ struct NativeOpenStatusLine: View {
         .task(id: placeID) { await store.load([placeID]) }
     }
 
+    /// The Google place a screen is showing. Search, Concierge and map hand-offs
+    /// carry it as the id ("gp:<id>", "suggestion-gp:<id>") when the field itself is lost.
+    static func placeID(id: String, googlePlaceID: String?) -> String? {
+        if let googlePlaceID, let exact = NativeVenueDetailsDTO.exactGooglePlaceID(googlePlaceID) { return exact }
+        var raw = Substring(id)
+        if raw.hasPrefix("suggestion-") { raw = raw.dropFirst("suggestion-".count) }
+        guard raw.hasPrefix("gp:") else { return nil }
+        return NativeVenueDetailsDTO.exactGooglePlaceID(String(raw.dropFirst(3)))
+    }
+
     static func color(_ tone: NativeOpenStatus.Tone) -> Color {
         switch tone {
         case .open: return BytspotTheme.emerald
@@ -13600,6 +13610,17 @@ enum NativeVenueHours {
         "default": Hours(open: 10, close: 22, days: allDays)
     ]
 
+    /// Today's line from Google's weekday list ("Tuesday: 5:00 PM – 2:00 AM"), or nil.
+    static func todayLine(_ weekdayLines: [String], date: Date = Date(), calendar: Calendar = .current) -> String? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "EEEE"
+        let today = formatter.string(from: date)
+        return weekdayLines.first { $0.hasPrefix("\(today):") }
+    }
+
     static func openStatus(category: String, date: Date = Date()) -> NativeVenueOpenStatus {
         let components = Calendar.current.dateComponents([.hour, .minute, .weekday], from: date)
         return openStatus(category: category, hour: components.hour ?? 0, minute: components.minute ?? 0, weekday: max((components.weekday ?? 1) - 1, 0))
@@ -14705,7 +14726,11 @@ private struct NativeVenueDetailView: View {
     private var infoSection: some View {
         VStack(spacing: 10) {
             if !NativeVendorExperience.isEventOrPassVenue(venue) {
-                infoRow("clock.fill", "Hours", openStatus.detail, openStatus.label, openStatus.label == "Hours pending" ? NativeTheme.neutral : NativeTheme.cyan)
+                if let placeID = NativeOpenStatusLine.placeID(id: venue.id, googlePlaceID: venue.googlePlaceID) {
+                    liveHoursRow(placeID)
+                } else {
+                    infoRow("clock.fill", "Hours", openStatus.detail, openStatus.label, openStatus.label == "Hours pending" ? NativeTheme.neutral : NativeTheme.cyan)
+                }
             }
             if !NativeVendorExperience.isEventOrPassVenue(venue) && venue.distance != "Pass" && venue.distance != "Service" {
                 infoRow("mappin.and.ellipse", "Location", venue.address, venue.distance == "—" ? "Check nearby" : "\(venue.distance) away", NativeTheme.orange)
@@ -14753,6 +14778,23 @@ private struct NativeVenueDetailView: View {
         .background(Color.white.opacity(0.09))
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+    }
+
+    /// Google's live open-or-closed answer, with today's hours when the place's details have them.
+    private func liveHoursRow(_ placeID: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "clock.fill").font(.system(size: 17, weight: .black)).foregroundColor(NativeTheme.cyan).frame(width: 34, height: 34).background(NativeTheme.cyan.opacity(0.13)).clipShape(Circle())
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Hours").font(.system(size: 15, weight: .black)).foregroundColor(NativeTheme.textPrimary)
+                NativeOpenStatusLine(placeID: placeID, size: 13.5)
+                if let today = NativeVenueHours.todayLine(details?.hours ?? []) {
+                    Text(today).nativeBody(size: 13.5)
+                }
+            }
+            Spacer()
+        }
+        .padding(14).background(NativePolish.elevatedSurface).overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NativePolish.softBorder, lineWidth: 1)).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .accessibilityIdentifier("native-venue-live-hours")
     }
 
     private func infoRow(_ icon: String, _ title: String, _ primary: String, _ secondary: String, _ color: Color) -> some View {
@@ -18472,7 +18514,7 @@ private struct NativeMapExploreView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(pin.title).font(.system(size: 17, weight: .heavy)).foregroundColor(NativeTheme.textPrimary).lineLimit(1)
                 Text(pin.subtitle).font(.system(size: 12.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(2)
-                NativeOpenStatusLine(placeID: pin.venue?.googlePlaceID)
+                NativeOpenStatusLine(placeID: NativeOpenStatusLine.placeID(id: pin.id, googlePlaceID: pin.venue?.googlePlaceID))
             }
             if !isRouteCardShowing(for: pin) {
                 Button(action: { handleNonPartnerPrimary(pin) }) {
@@ -18525,7 +18567,7 @@ private struct NativeMapExploreView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(isRouteActive(pin) ? "Route active" : "Route").font(.system(size: 13.5, weight: .black)).foregroundColor(NativeTheme.textPrimary)
                     Text("Destination set to \(pin.title).").font(.system(size: 11.5, weight: .semibold)).foregroundColor(NativeTheme.textSecondary).lineLimit(1).minimumScaleFactor(0.78)
-                    NativeOpenStatusLine(placeID: pin.venue?.googlePlaceID, size: 11.5)
+                    NativeOpenStatusLine(placeID: NativeOpenStatusLine.placeID(id: pin.id, googlePlaceID: pin.venue?.googlePlaceID), size: 11.5)
                 }
                 Spacer(minLength: 0)
                 Text(routeEstimate(for: pin)).font(.system(size: 11, weight: .black, design: .monospaced)).foregroundColor(.black).padding(.horizontal, 8).frame(height: 24).background(NativeTheme.cyan).clipShape(Capsule())
@@ -18685,7 +18727,7 @@ private struct NativeMapExploreView: View {
                 Spacer(minLength: 0)
                 tierBadge
             }
-            NativeOpenStatusLine(placeID: pin.venue?.googlePlaceID)
+            NativeOpenStatusLine(placeID: NativeOpenStatusLine.placeID(id: pin.id, googlePlaceID: pin.venue?.googlePlaceID))
             VStack(alignment: .leading, spacing: 10) {
                 Text(Self.partnerCardServiceSectionLabel)
                     .font(.system(size: 10.5, weight: .black))
@@ -19037,7 +19079,7 @@ private struct NativeMapExploreView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(pin.title).nativeTitle(16)
                 Text(pin.subtitle).nativeBody(size: 12.5, color: NativeTheme.textSecondary)
-                NativeOpenStatusLine(placeID: pin.venue?.googlePlaceID, size: 11.5)
+                NativeOpenStatusLine(placeID: NativeOpenStatusLine.placeID(id: pin.id, googlePlaceID: pin.venue?.googlePlaceID), size: 11.5)
             }
             Spacer()
             Image(systemName: "chevron.right").font(.system(size: 18, weight: .black)).foregroundColor(NativeTheme.textTertiary)

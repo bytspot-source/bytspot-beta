@@ -57,6 +57,12 @@ export function validDishText(v: unknown): v is string {
     && !/(?:[a-z][a-z0-9+.-]*:\/\/|(?:https?|mailto|tel|data|javascript):|www\.|[\p{L}\p{N}-]+\.[\p{L}]{2,}(?:[^\p{L}\p{N}]|$))/iu.test(v)
     && !/(?:\d[ .()+-]*){7,}/u.test(v);
 }
+/**
+ * The API's own addresses. It names files by its public URL, which may be the
+ * Render host while this client talks to the custom domain; both are the same server.
+ */
+export const BYTSPOT_API_ORIGINS: readonly string[] = ['https://api.bytspot.app', 'https://bytspot-api.onrender.com'];
+
 /** Never navigate a server URL. Reconstruct only our exact, revision-bound source route. */
 export function menuSourcePath(raw: unknown, mediaId: string, expectedRevision?: string, apiBase = VENDOR_API_BASE_URL): string | undefined {
   if (typeof raw !== 'string' || !id(mediaId) || (expectedRevision !== undefined && !revision(expectedRevision))) return;
@@ -73,9 +79,23 @@ export function menuSourcePath(raw: unknown, mediaId: string, expectedRevision?:
     const base = new URL(apiBase);
     const localHttp = base.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(base.hostname);
     if ((base.protocol === 'https:' || localHttp) && !base.username && !base.password && !base.search && !base.hash
-      && base.pathname === '/' && url.origin === base.origin && !url.username && !url.password && !url.search && !url.hash
-      && raw === `${base.origin}${path}`) return path;
+      && base.pathname === '/' && (url.origin === base.origin || BYTSPOT_API_ORIGINS.includes(url.origin))
+      && !url.username && !url.password && !url.search && !url.hash
+      && raw === `${url.origin}${path}`) return path;
   } catch { /* Not a source route. */ }
+}
+
+/** The same rule for a vendor photo or video: only `/media/vendor/<id>` on our API. */
+export function vendorMediaPath(raw: unknown, mediaId: string, apiBase = VENDOR_API_BASE_URL): string | undefined {
+  if (typeof raw !== 'string' || !id(mediaId)) return;
+  const path = `/media/vendor/${encodeURIComponent(mediaId)}`;
+  if (raw === path) return path;
+  try {
+    const url = new URL(raw);
+    const base = new URL(apiBase);
+    if ((url.origin === base.origin || BYTSPOT_API_ORIGINS.includes(url.origin))
+      && !url.username && !url.password && !url.search && !url.hash && raw === `${url.origin}${path}`) return path;
+  } catch { /* Not a media route. */ }
 }
 export function parseMenuDish(raw: unknown): MenuDish {
   if (!record(raw) || !id(raw.id) || !id(raw.mediaId) || !validDishText(raw.dishName)

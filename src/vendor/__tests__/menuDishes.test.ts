@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   assertMenuBindingReply, assertMenuReviewReply, canApproveMenuDish, canManageMenuDishes,
   fetchMenuSource, MENU_REVIEW_MS, menuDishesTransport, menuErrorText, menuReviewInput,
-  menuReviewLabel, menuSourcePath, menuVenueBindingInput, MenuRequestError,
+  menuReviewLabel, menuSourcePath, menuVenueBindingInput, MenuRequestError, vendorMediaPath,
   parseMenuDish, parseMenuList, parseMenuQueue, parseMenuVenues, submissionProblem, validDishText,
   type MenuDish, type MenuQueueDish, type MenuReviewChecks,
 } from '../menuDishes.ts';
@@ -333,4 +333,22 @@ test('UI wiring keeps failed mutations locked for reload, resets source checks a
   assert.match(picker, /canManageMenuDishes\(session, parentId\)/);
   assert.match(admin, /menuMediaBusy \?/);
   assert.ok(!editor.includes('href={sourceUrl}') && !editor.includes('src={sourceUrl}'));
+});
+
+test('a menu or photo named by either Bytspot API address resolves to the same path', async () => {
+  for (const origin of ['https://api.bytspot.app', 'https://bytspot-api.onrender.com']) {
+    assert.equal(menuSourcePath(`${origin}${SOURCE_PATH}`, dish.mediaId, undefined, 'https://api.bytspot.app'), SOURCE_PATH, origin);
+    assert.equal(vendorMediaPath(`${origin}/media/vendor/menu_1`, 'menu_1', 'https://api.bytspot.app'), '/media/vendor/menu_1', origin);
+  }
+  const { authorized, calls } = recorder(() => new Response(new Blob(['pdf'], { type: 'application/pdf' })));
+  await fetchMenuSource(authorized, `https://bytspot-api.onrender.com${SOURCE_PATH}`, dish.mediaId);
+  assert.equal(calls[0].path, SOURCE_PATH);
+  for (const raw of [`https://bytspot-api.onrender.com.evil.example${SOURCE_PATH}`, `http://bytspot-api.onrender.com${SOURCE_PATH}`,
+    `https://user@api.bytspot.app${SOURCE_PATH}`, `https://api.bytspot.app${SOURCE_PATH}?x=1`]) {
+    assert.equal(menuSourcePath(raw, dish.mediaId, undefined, 'https://api.bytspot.app'), undefined, raw);
+  }
+  for (const raw of ['https://evil.example/media/vendor/menu_1', 'https://api.bytspot.app/media/vendor/other',
+    'https://api.bytspot.app/media/vendor/menu_1?x=1', 'javascript:alert(1)', '/media/vendor/menu_1/extra']) {
+    assert.equal(vendorMediaPath(raw, 'menu_1', 'https://api.bytspot.app'), undefined, raw);
+  }
 });

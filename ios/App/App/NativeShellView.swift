@@ -9121,6 +9121,9 @@ struct NativeOpenStatusLine: View {
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("native-open-status")
                 }
+            } else {
+                // An empty Group is no view at all, so .task would never run and the status never load.
+                Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
             }
         }
         .task(id: placeID) { await store.load([placeID]) }

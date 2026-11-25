@@ -461,6 +461,17 @@ struct NativeM2RouteTests {
         #expect(NativeVenueHours.todayLine([], date: tuesday, calendar: calendar) == nil)
     }
 
+    /// The line must be a real view before it has an answer, or its .task never runs and it never asks.
+    @Test func openStatusLineIsAViewBeforeItHasAnAnswer() throws {
+        let app = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("App")
+        let source = try String(contentsOf: app.appendingPathComponent("NativeShellView.swift"), encoding: .utf8)
+        let start = try #require(source.range(of: "struct NativeOpenStatusLine: View {"))
+        let body = String(source[start.upperBound...].prefix(2000))
+        let placeholder = try #require(body.range(of: "Color.clear.frame(width: 0, height: 0)"))
+        let task = try #require(body.range(of: ".task(id: placeID) { await store.load([placeID]) }"))
+        #expect(placeholder.lowerBound < task.lowerBound)
+    }
+
     /// Every map card and the details screen ask by the id that survives a hand-off, not only the field.
     @Test func mapCardsAndDetailsReadThePlaceFromEitherField() throws {
         let app = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("App")

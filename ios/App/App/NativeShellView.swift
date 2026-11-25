@@ -12374,7 +12374,7 @@ private struct NativeDiscoverView: View {
                             Button("Ask Concierge") { openNativeTab(.concierge) }
                                 .font(.system(size: 14, weight: .bold)).frame(minHeight: 44)
                         }
-                        .foregroundColor(NativeTheme.cyan)
+                        .foregroundColor(.white)
                     }
                     .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("native-discover-empty-category")

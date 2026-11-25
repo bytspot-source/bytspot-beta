@@ -8,7 +8,7 @@ import { Chips, LetterBar, Pager, SearchBox, SortSelect, useDebounced, type Opti
 import './admin.css';
 import { MenuEvidenceReview } from './MenuEvidenceReview.tsx';
 import { MenuSourcePreview } from '../vendor/MenuDishEditor.tsx';
-import { assertMenuReviewReply, menuSourcePath } from '../vendor/menuDishes.ts';
+import { assertMenuReviewReply, vendorMediaPath } from '../vendor/menuDishes.ts';
 
 const menuAdminApi = trpc.admin.vendors;
 
@@ -961,7 +961,7 @@ function QueuedOtherPreview({ item }: { item: QueuedMedia }) {
   useEffect(() => {
     let url: string | null = null;
     const active = new AbortController();
-    const path = menuSourcePath(item.url, item.mediaId, API_BASE_URL);
+    const path = vendorMediaPath(item.url, item.mediaId, API_BASE_URL);
     if (!path) return;
     void adminFetch(path, { signal: active.signal, cache: 'no-store', redirect: 'error' })
       .then((r) => (r.ok ? r.blob() : null))

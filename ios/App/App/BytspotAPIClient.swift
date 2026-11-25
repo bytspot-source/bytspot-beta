@@ -215,7 +215,16 @@ enum NativeDishPhotoContract {
     }
 }
 
-/// One-time, on-device permission before the first Concierge question or dish photo.
+/// Concierge answers with Bytspot's own reader. Smarter answers is the guest's opt-in to OpenAI.
+enum NativeConciergeSmarterAnswers {
+    static let key = "bytspot_concierge_smarter_answers"
+    static let title = "Smarter answers"
+    static let disclosure = "Sends your message text, not your location, to OpenAI to understand complex requests."
+
+    static func isOn(_ defaults: UserDefaults = .standard) -> Bool { defaults.bool(forKey: key) }
+}
+
+/// One-time, on-device permission before Smarter answers or the first dish photo.
 /// Allow is remembered on this iPhone. Not now sends nothing and asks again next time.
 enum NativeAIConsentFeature: String, Equatable {
     case concierge
@@ -230,7 +239,7 @@ enum NativeAIConsentFeature: String, Equatable {
 
     var promptTitle: String {
         switch self {
-        case .concierge: return "Send this to OpenAI?"
+        case .concierge: return "Turn on Smarter answers?"
         case .dishPhoto: return "Send this photo to OpenAI?"
         }
     }
@@ -238,7 +247,7 @@ enum NativeAIConsentFeature: String, Equatable {
     var promptMessage: String {
         switch self {
         case .concierge:
-            return "Your question, the recent messages in this chat, your location if you shared it, and preferences saved on this iPhone are sent to OpenAI to suggest places."
+            return NativeConciergeSmarterAnswers.disclosure
         case .dishPhoto:
             return NativeDishPhotoContract.disclosure
         }
@@ -401,9 +410,11 @@ struct NativeConciergeRequest: Encodable, Equatable {
     let quizAnswers: QuizAnswers
     /// Omitted when nothing is avoided and there is no ceiling.
     let preferences: NativePreferenceFilter?
+    /// Sent only when the guest turned on Smarter answers; omitted, the server uses no AI.
+    let smarter: Bool?
 
     init(messages: [NativeConciergeMessage], location: NativeLocationCoordinate?, quizAnswers: QuizAnswers,
-         preferences: NativePreferenceFilter = .empty) throws {
+         preferences: NativePreferenceFilter = .empty, smarter: Bool = false) throws {
         // No location is allowed. A supplied one must be a real fix, never a fallback point.
         let coordinate = NativeConciergeContract.realCoordinate(location)
         if location != nil, coordinate == nil { throw InputError.needsLocation }
@@ -415,6 +426,7 @@ struct NativeConciergeRequest: Encodable, Equatable {
         self.location = coordinate.map { Location(lat: $0.latitude, lng: $0.longitude) }
         self.quizAnswers = quizAnswers
         self.preferences = preferences.isEmpty ? nil : preferences
+        self.smarter = smarter ? true : nil
     }
 }
 
@@ -872,7 +884,7 @@ struct NativeConciergeAPI {
 
     /// Opening chips. Location is omitted until the guest has a fresh fix.
     /// Same rule as discover: a 401 is not replayed by the global renewer.
-    func makeSuggestionsRequest(location: NativeLocationCoordinate?) throws -> URLRequest {
+    func makeSuggestionsRequest(location: NativeLocationCoordinate?, smarter: Bool = false) throws -> URLRequest {
         guard let authorization = client.tokenProvider(),
               !authorization.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               authorization != "guest_session" else { throw AccessError.signInRequired }
@@ -880,15 +892,16 @@ struct NativeConciergeAPI {
         if let coordinate = NativeConciergeContract.realCoordinate(location) {
             input["location"] = ["lat": coordinate.latitude, "lng": coordinate.longitude]
         }
+        if smarter { input["smarter"] = true }
         var scopedClient = client
         scopedClient.tokenProvider = { authorization }
         let path = try BytspotAPIClient.trpcQueryPath(NativeConciergeSuggestionsContract.path, input: input)
         return try scopedClient.makeRequest(path: path, method: "GET")
     }
 
-    func suggestions(location: NativeLocationCoordinate?) async throws -> NativeConciergeSuggestions {
+    func suggestions(location: NativeLocationCoordinate?, smarter: Bool = false) async throws -> NativeConciergeSuggestions {
         try Task.checkCancellation()
-        let urlRequest = try makeSuggestionsRequest(location: location)
+        let urlRequest = try makeSuggestionsRequest(location: location, smarter: smarter)
         let (data, response) = try await client.urlSession.data(for: urlRequest)
         try Task.checkCancellation()
         guard let http = response as? HTTPURLResponse,
@@ -1259,9 +1272,10 @@ struct NativeConciergeRequestGuard {
 
     func isCurrent(_ ticket: Ticket) -> Bool { active == ticket && generation == ticket.generation }
 
-    func accepts(_ ticket: Ticket, accountID: String?, location: NativeLocationCoordinate?, isCancelled: Bool) -> Bool {
-        !isCancelled && isCurrent(ticket) &&
-            accountID == ticket.accountID && NativeConciergeContract.realCoordinate(location) == ticket.location
+    /// An answer belongs to the question as asked. A location update or sign-in refresh during the
+    /// search does not discard it; only a different account, a newer question or a cancel does.
+    func accepts(_ ticket: Ticket, accountID: String?, isCancelled: Bool) -> Bool {
+        !isCancelled && isCurrent(ticket) && accountID == ticket.accountID
     }
 }
 

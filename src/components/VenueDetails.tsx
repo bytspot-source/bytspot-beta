@@ -67,6 +67,7 @@ function formatTicketTime(value: string): string {
 }
 
 export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOpenAccessWallet, onNavigateToMap, onBookRide }: VenueDetailsProps) {
+  const online = venue.onlineOnly === true;
   const favoriteSpotId = String(venue.id || venue.placeId || venue.slug || venue.name.toLowerCase().replace(/\s+/g, '-'));
   const isEventAccess = venue.type === 'entertainment';
   const accessProduct: AccessPassInput = {
@@ -1048,8 +1049,8 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
         {/* Fixed Action Menu */}
         <div className="fixed bottom-0 left-0 right-0 bg-[#000000] border-t-2 border-white/30 backdrop-blur-xl">
           <div className="max-w-[393px] mx-auto p-4">
-            <div className={`grid ${[true, showCall, Boolean(website), Boolean(onOpenConcierge)].filter(Boolean).length > 3 ? 'grid-cols-4' : 'grid-cols-3'} gap-2 mb-3`}>
-              <motion.button
+            <div className={`grid ${[!online, showCall, Boolean(website), Boolean(onOpenConcierge)].filter(Boolean).length > 3 ? 'grid-cols-4' : 'grid-cols-3'} gap-2 mb-3`}>
+              {!online && <motion.button
                 onClick={handleNavigate}
                 className="p-3 rounded-[12px] bg-gradient-to-br from-cyan-500 to-blue-500 border-2 border-white/30 flex flex-col items-center gap-1 shadow-lg"
                 whileTap={{ scale: 0.95 }}
@@ -1058,7 +1059,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
                 <span className="text-[12px] text-white" style={{ fontWeight: 600 }}>
                   Navigate
                 </span>
-              </motion.button>
+              </motion.button>}
 
               {showCall && (
                 <motion.button
@@ -1131,7 +1132,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
                   Ask {venue.ask.sellerName}
                 </span>
               </motion.button>
-            ) : (
+            ) : online ? null : (
               <motion.button
                 onClick={handleCheckIn}
                 disabled={checkedIn || checkInPending}
@@ -1201,8 +1202,8 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
               </div>
             )}
 
-            <div className="grid grid-cols-3 gap-2">
-              <motion.button
+            <div className={`grid ${online ? 'grid-cols-2' : 'grid-cols-3'} gap-2`}>
+              {!online && <motion.button
                 onClick={handleBookValet}
                 className="p-3 rounded-[12px] bg-[#1C1C1E]/80 border-2 border-white/30 flex flex-col items-center gap-1"
                 whileTap={{ scale: 0.95 }}
@@ -1211,7 +1212,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
                 <span className="text-[12px] text-white" style={{ fontWeight: 600 }}>
                   Book Ride
                 </span>
-              </motion.button>
+              </motion.button>}
 
               <motion.button
                 onClick={handleToggleFavorite}

@@ -49,6 +49,8 @@ export interface DiscoverCard {
   _slug?: string;
   _lat?: number;
   _lng?: number;
+  /** A business with no walk-in address: no pin, directions or check-in. */
+  onlineOnly?: boolean;
   placeId?: string;
   /** A hand-checked OpenTable or Resy handoff for a Google place. */
   tableBooking?: TableBooking;

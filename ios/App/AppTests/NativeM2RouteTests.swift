@@ -443,6 +443,44 @@ struct NativeM2RouteTests {
         #expect(stale.tone(now: now) == .unknown)
     }
 
+    /// Search hands a place to the map with its id only ("gp:<id>"); the status must still find it.
+    @Test func openStatusFindsThePlaceFromAHandedOffID() {
+        #expect(NativeOpenStatusLine.placeID(id: "gp:ChIJyYG0WRcF9YgRxdLdVY_ZAZo", googlePlaceID: nil) == "ChIJyYG0WRcF9YgRxdLdVY_ZAZo")
+        #expect(NativeOpenStatusLine.placeID(id: "suggestion-gp:ChIJabc", googlePlaceID: nil) == "ChIJabc")
+        #expect(NativeOpenStatusLine.placeID(id: "venue-123", googlePlaceID: "ChIJown") == "ChIJown")
+        #expect(NativeOpenStatusLine.placeID(id: "venue-123", googlePlaceID: nil) == nil)
+        #expect(NativeOpenStatusLine.placeID(id: "gp:bad id", googlePlaceID: nil) == nil)
+    }
+
+    @Test func detailsShowTodaysHoursLine() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "America/New_York"))
+        let tuesday = try #require(ISO8601DateFormatter().date(from: "2026-11-24T22:00:00Z"))
+        let week = ["Monday: 5:00 PM – 2:00 AM", "Tuesday: 5:00 PM – 2:00 AM", "Wednesday: Closed"]
+        #expect(NativeVenueHours.todayLine(week, date: tuesday, calendar: calendar) == "Tuesday: 5:00 PM – 2:00 AM")
+        #expect(NativeVenueHours.todayLine([], date: tuesday, calendar: calendar) == nil)
+    }
+
+    /// The line must be a real view before it has an answer, or its .task never runs and it never asks.
+    @Test func openStatusLineIsAViewBeforeItHasAnAnswer() throws {
+        let app = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("App")
+        let source = try String(contentsOf: app.appendingPathComponent("NativeShellView.swift"), encoding: .utf8)
+        let start = try #require(source.range(of: "struct NativeOpenStatusLine: View {"))
+        let body = String(source[start.upperBound...].prefix(2000))
+        let placeholder = try #require(body.range(of: "Color.clear.frame(width: 0, height: 0)"))
+        let task = try #require(body.range(of: ".task(id: placeID) { await store.load([placeID]) }"))
+        #expect(placeholder.lowerBound < task.lowerBound)
+    }
+
+    /// Every map card and the details screen ask by the id that survives a hand-off, not only the field.
+    @Test func mapCardsAndDetailsReadThePlaceFromEitherField() throws {
+        let app = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("App")
+        let source = try String(contentsOf: app.appendingPathComponent("NativeShellView.swift"), encoding: .utf8)
+        #expect(!source.contains("NativeOpenStatusLine(placeID: pin.venue?.googlePlaceID"))
+        #expect(source.components(separatedBy: "NativeOpenStatusLine.placeID(id: pin.id, googlePlaceID: pin.venue?.googlePlaceID)").count - 1 == 4)
+        #expect(source.contains("NativeOpenStatusLine.placeID(id: venue.id, googlePlaceID: venue.googlePlaceID)"))
+    }
+
     @Test func openStatusDecodesTheServerAnswer() {
         let decoded = NativeOpenStatusDecoder.statuses(from: ["statuses": [
             ["placeId": "abc", "isOpen": true, "closesAt": "2026-11-24T04:00:00Z", "opensAt": NSNull(), "utcOffsetMinutes": -300],

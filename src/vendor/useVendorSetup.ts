@@ -96,17 +96,20 @@ export function useVendorSetup(
    */
   const startPayout = useCallback(async () => {
     setBusy(true);
+    // Opened during the tap: Safari blocks a tab opened after a network wait.
+    // A new tab rather than an iframe: the provider's form must not render
+    // inside a page that also shows vendor-supplied strings.
+    const tab = typeof window !== 'undefined' ? window.open('', '_blank') : null;
+    if (tab) tab.opener = null;
     try {
       const handoff = await transport.startPayoutOnboarding();
       if (!handoff.value?.url) {
+        tab?.close();
         setBlockers(handoff.blockers ?? ['Could not reach the payment provider.']);
         return;
       }
-      // A new tab rather than an iframe: the provider's form must not render
-      // inside a page that also shows vendor-supplied strings.
-      if (typeof window !== 'undefined') {
-        window.open(handoff.value.url, '_blank', 'noopener,noreferrer');
-      }
+      if (tab) tab.location.href = handoff.value.url;
+      else if (typeof window !== 'undefined') window.location.assign(handoff.value.url);
       const payout = await transport.readPayout();
       if (payout.value) setProfile((current) => ({ ...current, payout: payout.value }));
     } finally {

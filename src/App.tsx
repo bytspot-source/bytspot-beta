@@ -14,6 +14,7 @@ import type { ProviderRole } from './components/provider/ProviderLanding';
 import { MapMenuSlideUp } from './components/MapMenuSlideUp';
 import type { MapFunction, MapViewMode } from './components/map/mapTypes';
 import { VenueDetails } from './components/VenueDetails';
+import { crowdRecordedAt, isLiveOccupancyReading, venueAvailabilityLabel } from './utils/occupancyLabel';
 import { HomeConcierge } from './components/HomeConcierge';
 import { Toaster } from './components/ui/sonner';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -1998,15 +1999,12 @@ export default function App() {
 	                      </div>
 	                    </div>
 
-                    {/* ── Right Now in [City] ── Live Crowd Feed */}
+                    {/* Typical busyness for this hour. A card says Live only for a fresh door, host, or sensor reading. */}
 				                    {apiVenues.filter(v => v.crowd).length > 0 && (
 				                      <div className="mb-6">
                         <div className="mb-3 flex items-center justify-between">
-				                          <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 700 }}>Right Now in {userCity}</h2>
-                          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/20 border border-green-400/30">
-                            <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                            <span className="text-[11px] text-green-300" style={{ fontWeight: 600 }}>Live</span>
-                          </div>
+				                          <h2 className="text-[20px] leading-6 text-white" style={{ fontWeight: 700 }}>Typical for this hour</h2>
+                          <span className="text-[11px] text-white/55" style={{ fontWeight: 600 }}>{userCity}</span>
                         </div>
 				                        <div className={HOME_CAROUSEL_CLASS}>
                           {[...apiVenues]
@@ -2017,6 +2015,7 @@ export default function App() {
                               const lvl = v.crowd!.level;
                               const label = v.crowd!.label;
                               const wait = v.crowd!.waitMins;
+                              const crowdLive = isLiveOccupancyReading({ source: v.crowd?.source, recordedAt: crowdRecordedAt(v.crowd) });
                               const accentColor =
                                 lvl === 4 ? '#ef4444' :
                                 lvl === 3 ? '#f97316' :
@@ -2051,7 +2050,7 @@ export default function App() {
 		                                    <h3 className="text-white text-[13px] leading-tight mb-2 line-clamp-2 min-h-[32px] drop-shadow-sm shadow-black" style={{ fontWeight: 600 }}>{v.name}</h3>
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border ${pillBg}`} style={{ fontWeight: 700 }}>
-                                        {emoji} {label}
+                                        {emoji} {crowdLive ? label : `Typical · ${label}`}
                                       </div>
                                       {/* Entry type badge */}
                                       {(v as any).entryType === 'paid' ? (
@@ -2061,7 +2060,7 @@ export default function App() {
                                       ) : null}
                                     </div>
                                     {wait ? (
-		                                      <p className="text-white text-[11px] mt-auto pt-1 drop-shadow-sm shadow-black">~{wait}m wait</p>
+		                                      <p className="text-white text-[11px] mt-auto pt-1 drop-shadow-sm shadow-black">{venueAvailabilityLabel({ source: v.crowd?.source, waitMins: wait, recordedAt: crowdRecordedAt(v.crowd) })}</p>
                                     ) : null}
                                   </div>
                                 </motion.button>
@@ -2089,7 +2088,7 @@ export default function App() {
                         byCheckins = true;
                       }
                       if (trendingVenues.length === 0 && apiVenues.length > 0) {
-                        // fallback: top venues by live crowd level (Busy/Packed first)
+                        // fallback: top venues by typical crowd level (Busy/Packed first)
                         trendingVenues = [...apiVenues]
                           .sort((a, b) => (b.crowd?.level ?? 0) - (a.crowd?.level ?? 0))
                           .slice(0, 8);

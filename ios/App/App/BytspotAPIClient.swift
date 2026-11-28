@@ -4033,19 +4033,36 @@ struct NativeCrowdSummary: Equatable {
     /// `bytspot` / `user_report` / `sensor` are Live. Everything else — including
     /// `typical`, leftover `simulation`, and a missing source — is a catalog.
     let source: String?
+    /// When the door, host, or sensor wrote the reading. Missing is not live.
+    let recordedAt: Date?
 
-    init(level: Int, label: String, waitMins: Int?, source: String? = nil) {
+    init(level: Int, label: String, waitMins: Int?, source: String? = nil, recordedAt: Date? = nil) {
         self.level = level
         self.label = label
         self.waitMins = waitMins
         self.source = source
+        self.recordedAt = recordedAt
+    }
+
+    /// A live source counts only while the reading is 30 minutes old or newer.
+    static func recordedDate(in value: [String: Any]) -> Date? {
+        for key in ["recordedAt", "updatedAt", "observedAt"] {
+            if let raw = value[key] as? String {
+                let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let date = ISO8601DateFormatter.partyControlDate(from: trimmed) { return date }
+            }
+            if let number = value[key] as? NSNumber {
+                let raw = number.doubleValue
+                guard raw > 0 else { continue }
+                let seconds = raw > 10_000_000_000 ? raw / 1000 : raw
+                return Date(timeIntervalSince1970: seconds)
+            }
+        }
+        return nil
     }
 
     var isLiveOccupancy: Bool {
-        switch source?.lowercased() {
-        case "bytspot", "user_report", "sensor": return true
-        default: return false
-        }
+        NativeCollapseInstrument.occupancyKind(source: source, recordedAt: recordedAt) == .live
     }
 }
 
@@ -5237,7 +5254,9 @@ struct NativeRecommendedPlace: Identifiable, Equatable {
     }
 
     var badge: String {
-        if let crowd { return crowd.label }
+        if let crowd {
+            return crowd.isLiveOccupancy || crowd.label.localizedCaseInsensitiveContains("typical") ? crowd.label : "Typical · \(crowd.label)"
+        }
         if isOpen == true { return "Open now" }
         if let rating { return String(format: "%.1f★", rating) }
         return "Nearby"
@@ -5277,7 +5296,7 @@ struct NativeRecommendations: Equatable {
               NativeVenueSummary.hasValidMapCoordinate(latitude: latitude, longitude: longitude) else { return nil }
         let crowd = (item["crowd"] as? [String: Any]).flatMap { value -> NativeCrowdSummary? in
             guard let label = (value["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty else { return nil }
-            return NativeCrowdSummary(level: Int(number(value["level"]) ?? 1), label: label, waitMins: nil, source: value["source"] as? String)
+            return NativeCrowdSummary(level: Int(number(value["level"]) ?? 1), label: label, waitMins: nil, source: value["source"] as? String, recordedAt: NativeCrowdSummary.recordedDate(in: value))
         }
         return NativeRecommendedPlace(
             id: id,
@@ -6540,7 +6559,7 @@ final class NativeTabContentStore: ObservableObject {
             guard let rawLabel = string(value, ["label"]) else { return nil }
             let label = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !label.isEmpty else { return nil }
-            return NativeCrowdSummary(level: int(value, ["level"]) ?? 1, label: label, waitMins: int(value, ["waitMins"]), source: string(value, ["source"]))
+            return NativeCrowdSummary(level: int(value, ["level"]) ?? 1, label: label, waitMins: int(value, ["waitMins"]), source: string(value, ["source"]), recordedAt: NativeCrowdSummary.recordedDate(in: value))
         }
         let patch = (item["hardwarePatch"] as? [String: Any]).flatMap { string($0, ["id", "patchId"]) }
         return NativeVenueSummary(

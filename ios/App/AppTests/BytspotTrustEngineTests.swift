@@ -6532,17 +6532,27 @@ final class NativeProfileDataAPITests: XCTestCase {
         XCTAssertTrue(store.images.isEmpty)
     }
 
-    func testCrowdSummaryOnlyTreatsDoorHostOrSensorAsLive() {
-        let typical = NativeCrowdSummary(level: 3, label: "Busy", waitMins: 12, source: "typical")
+    func testCrowdSummaryOnlyTreatsAFreshDoorHostOrSensorAsLive() {
+        let now = Date()
+        let fresh = now.addingTimeInterval(-5 * 60)
+        let stale = now.addingTimeInterval(-31 * 60)
+        let typical = NativeCrowdSummary(level: 3, label: "Busy", waitMins: 12, source: "typical", recordedAt: fresh)
         let missing = NativeCrowdSummary(level: 3, label: "Busy", waitMins: 12)
-        let leftoverSim = NativeCrowdSummary(level: 4, label: "Packed", waitMins: 20, source: "simulation")
-        let door = NativeCrowdSummary(level: 4, label: "Packed", waitMins: 8, source: "bytspot")
-        let report = NativeCrowdSummary(level: 2, label: "Active", waitMins: 5, source: "user_report")
+        let leftoverSim = NativeCrowdSummary(level: 4, label: "Packed", waitMins: 20, source: "simulation", recordedAt: fresh)
+        let door = NativeCrowdSummary(level: 4, label: "Packed", waitMins: 8, source: "bytspot", recordedAt: fresh)
+        let report = NativeCrowdSummary(level: 2, label: "Active", waitMins: 5, source: "user_report", recordedAt: fresh)
+        let undatedDoor = NativeCrowdSummary(level: 4, label: "Packed", waitMins: 8, source: "bytspot")
+        let staleSensor = NativeCrowdSummary(level: 4, label: "Packed", waitMins: 8, source: "sensor", recordedAt: stale)
         XCTAssertFalse(typical.isLiveOccupancy)
         XCTAssertFalse(missing.isLiveOccupancy)
         XCTAssertFalse(leftoverSim.isLiveOccupancy)
+        XCTAssertFalse(undatedDoor.isLiveOccupancy)
+        XCTAssertFalse(staleSensor.isLiveOccupancy)
         XCTAssertTrue(door.isLiveOccupancy)
         XCTAssertTrue(report.isLiveOccupancy)
+        XCTAssertEqual(NativeCollapseInstrument.venueAvailabilityLabel(source: "typical", waitMins: 12, level: 2, availability: nil), "typically ~12m wait")
+        XCTAssertEqual(NativeCollapseInstrument.venueAvailabilityLabel(source: "bytspot", waitMins: 12, level: 4, availability: nil, recordedAt: fresh, now: now), "~12m wait")
+        XCTAssertEqual(NativeCollapseInstrument.venueAvailabilityLabel(source: "sensor", waitMins: 12, level: 4, availability: nil, recordedAt: stale, now: now), "typically ~12m wait")
     }
 
     func testPartyControlSummaryDecodesWithAndWithoutShareLinkExpiry() throws {
@@ -8034,9 +8044,9 @@ final class NativeMenuCheckoutTests: XCTestCase {
         XCTAssertFalse(plan.canCheckout)
     }
 
-    func testOnlyADoorWriteIsLive() {
+    func testOnlyAFreshDoorWriteIsLive() {
         let plan = NativeCollapseInstrument.collapse(
-            hang: NativeHangInput(id: "patio-1", name: "Chilled Patio", vibeTokens: ["chill"], occupancySource: "user_report"),
+            hang: NativeHangInput(id: "patio-1", name: "Chilled Patio", vibeTokens: ["chill"], occupancySource: "user_report", recordedAt: Date()),
             stall: NativeStallInput(name: "1380 W Peachtree Garage", source: .vendor, walkMinutes: 3, paid: true),
             detector: .room,
             settlementReady: true
@@ -8044,6 +8054,12 @@ final class NativeMenuCheckoutTests: XCTestCase {
         XCTAssertEqual(plan.occupancy.kind, .live)
         XCTAssertTrue(plan.because.localizedCaseInsensitiveContains("door wrote"))
         XCTAssertTrue(plan.canCheckout)
+        let stale = NativeCollapseInstrument.collapse(
+            hang: NativeHangInput(id: "patio-1", name: "Chilled Patio", vibeTokens: ["chill"], occupancySource: "user_report", recordedAt: Date().addingTimeInterval(-31 * 60), waitMins: 12),
+            stall: NativeStallInput(name: "1380 W Peachtree Garage", source: .vendor, walkMinutes: 3, paid: true)
+        )
+        XCTAssertEqual(stale.occupancy.kind, .typical)
+        XCTAssertEqual(stale.occupancy.label, "typically ~12m wait")
     }
 
     func testPlaceDetectorNeverSettles() {
@@ -8077,7 +8093,7 @@ final class NativeMenuCheckoutTests: XCTestCase {
             hang: NativeHangInput(id: "door", name: "Door", vibeTokens: [], occupancySource: "typical", waitMins: 10, occupancyLevel: 2, lat: 33.78, lng: -84.38),
             stall: NativeStallInput(name: "Stall", source: .fallback, walkMinutes: 4, paid: true)
         )
-        XCTAssertEqual(NativeAtlantaCorridor.crowdLabel(for: waiting), "Typical · ~10m wait")
+        XCTAssertEqual(NativeAtlantaCorridor.crowdLabel(for: waiting), "typically ~10m wait")
         let kinds = Set(NativeAtlantaCorridor.atlanta.map(\.kind))
         XCTAssertTrue(kinds.contains(.sport))
         XCTAssertTrue(kinds.contains(.event))

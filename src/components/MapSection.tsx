@@ -18,7 +18,7 @@ import { TrafficIntelligencePanel } from './TrafficIntelligencePanel';
 import { useVenues } from '../utils/hooks/useVenues';
 import { getTrendingVenueIds } from '../utils/venueHours';
 import { trpc, type ApiVenue } from '../utils/trpc';
-import { venueAvailabilityLabel, venueCrowdFallbackLabel, venueWaitFallbackLabel } from '../utils/occupancyLabel';
+import { crowdRecordedAt, isLiveOccupancyReading, venueAvailabilityLabel, venueCrowdFallbackLabel, venueWaitFallbackLabel } from '../utils/occupancyLabel';
 import { VirtualPatchScannerSheet } from './VirtualPatchScannerSheet';
 import { AITransparencyNotice } from './AITransparencyNotice';
 import { buildVerifiedVirtualPatchContext, type VirtualPatchAuditEvent, type VirtualPatchContext, type VirtualPatchScanVerification, VIRTUAL_PATCH_CONTEXT_KEY } from '../utils/virtualPatch';
@@ -214,19 +214,34 @@ function formatVenueAvailability(venue: ApiVenue): string {
     waitMins: venue.crowd?.waitMins,
     level: venue.crowd?.level,
     availability: venue.availability,
+    recordedAt: crowdRecordedAt(venue.crowd),
   });
 }
 
 function getVenueCrowdLabel(venue: ApiVenue): string {
-  return venue.crowd?.label ?? CROWD_LEVEL_LABELS[venue.crowd?.level ?? 1] ?? venueCrowdFallbackLabel(venue.crowd?.source);
+  const label = venue.crowd?.label ?? CROWD_LEVEL_LABELS[venue.crowd?.level ?? 1] ?? venueCrowdFallbackLabel(venue.crowd?.source, crowdRecordedAt(venue.crowd));
+  const live = isLiveOccupancyReading({ source: venue.crowd?.source, recordedAt: crowdRecordedAt(venue.crowd) });
+  if (live || /typical/i.test(label)) return label;
+  return `Typical · ${label}`;
 }
 
 function getVenueWaitLabel(venue: ApiVenue): string {
-  return typeof venue.crowd?.waitMins === 'number' ? `${venue.crowd.waitMins} min wait` : venueWaitFallbackLabel(venue.crowd?.source);
+  if (typeof venue.crowd?.waitMins === 'number' && venue.crowd.waitMins > 0) {
+    return venueAvailabilityLabel({
+      source: venue.crowd?.source,
+      waitMins: venue.crowd.waitMins,
+      recordedAt: crowdRecordedAt(venue.crowd),
+    });
+  }
+  return venueWaitFallbackLabel(venue.crowd?.source, crowdRecordedAt(venue.crowd));
 }
 
 function getVenueWaitShortLabel(venue: ApiVenue): string {
-  return typeof venue.crowd?.waitMins === 'number' ? `${venue.crowd.waitMins}m` : 'Now';
+  if (typeof venue.crowd?.waitMins === 'number' && venue.crowd.waitMins > 0) {
+    const live = isLiveOccupancyReading({ source: venue.crowd?.source, recordedAt: crowdRecordedAt(venue.crowd) });
+    return live ? `${venue.crowd.waitMins}m` : `typically ${venue.crowd.waitMins}m`;
+  }
+  return 'Typical';
 }
 
 export function MapSection({ isDarkMode, selectedFunction, destination, isRideBookingOpen = false, onBookRide, onOpenAccessWallet, userCoords, onAuditEvent, pendingPatchScan, onPendingPatchScanConsumed, onOpenConciergeRequest, requestServiceLocation = false, onServiceLocationRequestConsumed }: MapSectionProps) {
@@ -569,8 +584,8 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
   useEffect(() => {
     const toasts: Record<string, string> = {
       'traffic-intelligence': 'Traffic Intelligence Active',
-      'trending-hotspots': 'Trending Hotspots Active',
-      'live-venue-data': 'Live Venue Data Active',
+      'trending-hotspots': 'Trending spots',
+      'live-venue-data': 'Typical busyness',
       'smart-parking': 'Smart Parking Mode Active',
       'ai-navigation': 'AI Navigation Premium Active',
       'spot-radar': 'Spot Radar Active',
@@ -1399,7 +1414,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
                           {mapMode === 'partnered' && <span className="rounded-full border border-white/30 bg-[#080A10] px-2 py-0.5 text-[10px] text-white" style={{ fontWeight: 800 }}>{partnerVenueCount} nearby</span>}
                         </div>
                         <h3 className="truncate text-[20px] text-white" style={{ fontWeight: 900 }}>{sheetTitle}</h3>
-                        <p className="mt-0.5 text-[12px] text-white/80" style={{ fontWeight: 650 }}>{mapMode === 'partnered' ? 'Verified hardware-patch venues only' : 'Live context around your map view'}</p>
+                        <p className="mt-0.5 text-[12px] text-white/80" style={{ fontWeight: 650 }}>{mapMode === 'partnered' ? 'Verified hardware-patch venues only' : 'Places around your map view'}</p>
                       </div>
                       <div className="flex flex-shrink-0 items-center gap-2">
                         <span className="rounded-full border border-white/35 bg-[#080A10] px-2.5 py-1 text-[11px] text-white" style={{ fontWeight: 800 }}>{sheetResultCount} results</span>
@@ -1422,7 +1437,7 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
                       <div className="rounded-[22px] border border-orange-300/55 bg-[#2A1205] p-3" data-testid="trending-now-section">
                         <div className="mb-2 flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 text-white"><Zap className="h-4 w-4 text-orange-200" /><span className="text-[14px]" style={{ fontWeight: 950 }}>Trending Now</span></div>
-                          <span className="rounded-full bg-[#ff2f86] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-black" style={{ fontWeight: 950 }}>LIVE</span>
+                          <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-white" style={{ fontWeight: 950 }}>TYPICAL</span>
                         </div>
                         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
                           {liveHotspotVenues.map(venue => (
@@ -1447,7 +1462,6 @@ export function MapSection({ isDarkMode, selectedFunction, destination, isRideBo
                               <span className="mt-1 flex flex-wrap gap-1.5">
                                 <span className="rounded-full border border-orange-300/55 bg-[#2A1205] px-2 py-0.5 text-[10px] text-orange-100" style={{ fontWeight: 900 }}>Crowd Level · {result.crowdLabel}</span>
                                 <span className="rounded-full border border-white/25 bg-[#050505] px-2 py-0.5 text-[10px] text-white" style={{ fontWeight: 850 }}>{result.waitLabel}</span>
-                                {result.isTrending && <span className="rounded-full bg-[#ff2f86] px-2 py-0.5 text-[10px] text-black" style={{ fontWeight: 950 }}>LIVE</span>}
                               </span>
                             )}
                           </span>

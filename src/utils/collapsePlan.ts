@@ -31,6 +31,8 @@ export interface HangInput {
   name: string;
   vibeTokens?: string[];
   occupancySource?: string | null;
+  /** When the door, host, or sensor wrote this reading. Missing means not live. */
+  occupancyRecordedAt?: string | number | Date | null;
   waitMins?: number | null;
   occupancyLevel?: number | null;
   availability?: string | null;
@@ -152,12 +154,13 @@ export function collapsePlan(input: {
   settlementReady?: boolean;
   basis?: CollapseBasis;
 }): CollapsePlan {
-  const kind = occupancyKindLabel(input.hang.occupancySource);
+  const kind = occupancyKindLabel(input.hang.occupancySource, input.hang.occupancyRecordedAt);
   const label = venueAvailabilityLabel({
     source: input.hang.occupancySource,
     waitMins: input.hang.waitMins,
     level: input.hang.occupancyLevel,
     availability: input.hang.availability,
+    recordedAt: input.hang.occupancyRecordedAt,
   });
   const detector = input.detector ?? 'place';
   const vibeTokens = input.hang.vibeTokens ?? input.basis?.vibeTokens ?? [];

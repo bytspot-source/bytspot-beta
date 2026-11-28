@@ -44,20 +44,18 @@ const MAP_FUNCTIONS: MapFunctionItem[] = [
   {
     id: 'live-venue-data',
     icon: Activity,
-    title: 'Live Venue Data',
-    description: 'Crowd levels & wait times',
+    title: 'Typical busyness',
+    description: 'Crowd levels by hour, not a live reading',
     color: '#00BFFF',
     gradient: 'from-cyan-500 to-blue-500',
-    badge: 'LIVE',
   },
   {
     id: 'trending-hotspots',
     icon: TrendingUp,
-    title: 'Trending Hotspots',
-    description: 'Real-time popular spots & events',
+    title: 'Trending spots',
+    description: 'Places people are checking into',
     color: '#FF4500',
     gradient: 'from-orange-500 to-red-500',
-    badge: 'LIVE',
   },
 ];
 

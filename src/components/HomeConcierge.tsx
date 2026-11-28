@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { SpeechRecognition } from '@capgo/capacitor-speech-recognition';
 import { trpc } from '../utils/trpc';
+import { crowdRecordedAt, venueAvailabilityLabel } from '../utils/occupancyLabel';
 
 interface Venue {
   id?: string;
@@ -11,7 +12,7 @@ interface Venue {
   category?: string;
   type?: string;
   availability?: string;
-  crowd?: { level: number; label: string; waitMins?: number };
+  crowd?: { level: number; label: string; waitMins?: number; source?: string | null; recordedAt?: string; updatedAt?: string; observedAt?: string };
   address?: string;
   vibe?: number;
   [key: string]: any;
@@ -582,7 +583,7 @@ export function HomeConcierge({ isOpen, onClose, venues, onVenueSelect, onOpenDi
                         <p className="text-white text-[13px] truncate" style={{ fontWeight: 600 }}>{v.name}</p>
                         {v.crowd && (
                           <p className={`text-[11px] ${crowdColor(v)}`} style={{ fontWeight: 600 }}>
-                            {v.crowd.label}{v.crowd.waitMins ? ` · ~${v.crowd.waitMins}m wait` : ''}
+                            {v.crowd.label}{v.crowd.waitMins ? ` · ${venueAvailabilityLabel({ source: v.crowd.source, waitMins: v.crowd.waitMins, recordedAt: crowdRecordedAt(v.crowd) })}` : ''}
                           </p>
                         )}
                       </div>

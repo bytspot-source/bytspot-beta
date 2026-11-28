@@ -214,6 +214,7 @@ enum NativeAtlantaCorridor {
     /// than a provenance claim.
     static func crowdLabel(for plan: NativeCollapsePlan) -> String {
         let label = plan.occupancy.label
+        if plan.occupancy.kind == .live { return label }
         guard !label.localizedCaseInsensitiveContains("typical") else { return label }
         return "Typical · \(label)"
     }

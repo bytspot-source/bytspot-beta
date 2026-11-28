@@ -13,6 +13,7 @@ import { APPLE_REVIEW_HIDE_PLATINUM_MEMBERSHIP } from '../utils/reviewBuild';
 import { AskSheet } from './AskSheet';
 import { menusFrom, placeOffersFrom, placeOffersQuery, vendorVideoFrom, type PlaceOffer, type VendorInventoryCard } from '../utils/vendorExperienceCards';
 import { tableBookingFrom } from '../utils/tableBooking';
+import { crowdRecordedAt, isLiveOccupancyReading, typicalCrowdCurve, type TypicalCrowdPoint } from '../utils/occupancyLabel';
 
 interface VenueDetailsProps {
   venue: any;
@@ -27,39 +28,13 @@ interface VenueDetailsProps {
 
 const liveReviews: Array<{ id: number; user: string; avatar?: string; rating: number; vibe: number; date: string; comment: string; images: string[] }> = [];
 
-// galleryImages now computed per-venue inside the component
-
-
-/**
- * Generate estimated crowd history based on venue category and current crowd level.
- * Uses typical patterns: restaurants peak at lunch/dinner, bars peak late evening, etc.
- */
-function generateEstimatedCrowdHistory(category: string, currentCrowd: string | null) {
-  const labels: Record<number, string> = { 1: 'Chill', 2: 'Active', 3: 'Busy', 4: 'Packed' };
-  const cat = category.toLowerCase();
-  // Typical hourly patterns (12 data points = last 24h in 2h intervals)
-  let pattern: number[];
-  if (cat.includes('bar') || cat.includes('club') || cat.includes('lounge') || cat.includes('night')) {
-    pattern = [1, 1, 1, 1, 1, 2, 2, 3, 3, 4, 3, 2]; // peaks late evening
-  } else if (cat.includes('restaurant') || cat.includes('food') || cat.includes('dining')) {
-    pattern = [1, 1, 2, 3, 2, 1, 2, 3, 4, 3, 2, 1]; // lunch + dinner peaks
-  } else if (cat.includes('coffee') || cat.includes('cafe') || cat.includes('bakery')) {
-    pattern = [1, 2, 3, 4, 3, 2, 2, 2, 1, 1, 1, 1]; // morning peak
-  } else if (cat.includes('park') || cat.includes('outdoor') || cat.includes('garden')) {
-    pattern = [1, 1, 2, 3, 3, 4, 3, 3, 2, 1, 1, 1]; // afternoon peak
-  } else {
-    pattern = [1, 1, 2, 2, 3, 3, 3, 4, 3, 2, 2, 1]; // generic
-  }
-  // Adjust based on current crowd level
-  const currentLevel = currentCrowd === 'Packed' ? 4 : currentCrowd === 'Busy' ? 3 : currentCrowd === 'Active' ? 2 : 1;
-  const patternMax = Math.max(...pattern);
-  const scale = currentLevel / patternMax;
-  const now = new Date();
-  return pattern.map((level, i) => {
-    const adjusted = Math.max(1, Math.min(4, Math.round(level * scale + (Math.random() * 0.6 - 0.3))));
-    const time = new Date(now.getTime() - (pattern.length - 1 - i) * 2 * 60 * 60 * 1000);
-    return { level: adjusted, label: labels[adjusted], recordedAt: time.toISOString() };
-  });
+function liveUpdatedLabel(recordedAt: string | number | Date | null | undefined, now = Date.now()): string {
+  if (recordedAt == null) return 'Live';
+  const time = recordedAt instanceof Date ? recordedAt.getTime() : typeof recordedAt === 'number' ? recordedAt : Date.parse(recordedAt);
+  if (!Number.isFinite(time)) return 'Live';
+  const minutes = Math.max(0, Math.round((now - time) / 60_000));
+  if (minutes < 1) return 'Updated <1m ago';
+  return `Updated ${minutes}m ago`;
 }
 
 function formatTicketTime(value: string): string {
@@ -131,6 +106,8 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
   // Use real API crowd data from venue prop
   const liveVibe = venue.vibe ?? 7;
   const crowdLevel = venue.availability && venue.availability !== 'Unknown' ? venue.availability : null;
+  const crowdReadingAt = crowdRecordedAt(venue.crowd);
+  const crowdIsLive = isLiveOccupancyReading({ source: venue.crowd?.source, recordedAt: crowdReadingAt });
   const openStatus = getOpenStatusText(venue.category || venue.type || 'default');
 
   // Check-in state — 1-hour cooldown per venue
@@ -180,34 +157,22 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
     }
   }, [venueKey]);
 
-  // Crowd history for trend chart
-  const [crowdHistory, setCrowdHistory] = useState<Array<{ level: number; label: string; recordedAt: string }>>([]);
+  // Typical-by-hour curve from the venue payload. No invented series.
+  const venueSlug = venue.slug || venue._slug;
+  const [typicalCurve, setTypicalCurve] = useState<TypicalCrowdPoint[]>([]);
   useEffect(() => {
-    let cancelled = false;
-    if (venue.slug) {
-      trpc.venues.getBySlug.query({ slug: venue.slug }).then((result) => {
-        if (cancelled) return;
-        if (result?.crowd?.history?.length) {
-          setCrowdHistory(
-            result.crowd.history
-              .filter((h) => typeof h.level === 'number' && typeof h.label === 'string' && typeof h.recordedAt === 'string')
-              .map((h) => ({ level: h.level, label: h.label, recordedAt: h.recordedAt }))
-          );
-          return;
-        }
-        // Generate estimated popular times when no real history exists
-        setCrowdHistory(generateEstimatedCrowdHistory(venue.category || venue.type || 'default', crowdLevel));
-      }).catch(() => {
-        if (!cancelled) {
-          setCrowdHistory(generateEstimatedCrowdHistory(venue.category || venue.type || 'default', crowdLevel));
-        }
-      });
-    } else {
-      // No slug — still show estimated data
-      setCrowdHistory(generateEstimatedCrowdHistory(venue.category || venue.type || 'default', crowdLevel));
+    if (!venueSlug) {
+      setTypicalCurve([]);
+      return;
     }
+    let cancelled = false;
+    trpc.venues.getBySlug.query({ slug: venueSlug }).then((result) => {
+      if (!cancelled) setTypicalCurve(typicalCrowdCurve(result));
+    }).catch(() => {
+      if (!cancelled) setTypicalCurve([]);
+    });
     return () => { cancelled = true; };
-  }, [venue.slug, venue.category, venue.type, crowdLevel]);
+  }, [venueSlug]);
 
   // Similar venues
   const [similarVenues, setSimilarVenues] = useState<Array<{ id: string; name: string; slug: string; category: string; similarity: number }>>([]);
@@ -362,7 +327,9 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
       ? `https://bytspot.com/v/${slug}`
       : 'https://bytspot.com';
     const crowdEmoji = crowdLevel === 'Packed' ? '🔴' : crowdLevel === 'Busy' ? '🟠' : crowdLevel === 'Active' ? '🟡' : crowdLevel === 'Chill' ? '🟢' : '';
-    const crowdText = crowdLevel ? ` ${crowdEmoji} ${crowdLevel} right now` : '';
+    const crowdText = crowdLevel
+      ? (crowdIsLive ? ` ${crowdEmoji} ${crowdLevel} right now` : ` ${crowdEmoji} typically ${crowdLevel}`)
+      : '';
     const shareText = `${venue.name}${crowdText} — check it out on Bytspot!`;
 
     if (navigator.share) {
@@ -571,7 +538,7 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
               </motion.button>
             </div>
 
-            {/* Live Vibe Badge */}
+            {/* Busyness. Live only for a fresh door, host, or sensor reading. */}
             {crowdLevel && (
               <div className="flex items-center gap-2 mb-4">
                 <div className={`flex-1 rounded-[16px] p-4 border-2 backdrop-blur-xl ${
@@ -581,15 +548,21 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
                                            'border-green-400/50 bg-gradient-to-br from-green-500/20 to-emerald-500/20'
                 }`}>
                   <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <motion.div
-                        className="w-2 h-2 rounded-full bg-green-400"
-                        animate={{ scale: [1, 1.3, 1], opacity: [1, 0.7, 1] }}
-                        transition={{ duration: 2, repeat: Infinity }}
-                      />
-                      <span className="text-[13px] text-white" style={{ fontWeight: 600 }}>LIVE</span>
-                    </div>
-                    <span className="text-[11px] text-white/70" style={{ fontWeight: 500 }}>Updated just now</span>
+                    {crowdIsLive ? (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <motion.div
+                            className="w-2 h-2 rounded-full bg-green-400"
+                            animate={{ scale: [1, 1.3, 1], opacity: [1, 0.7, 1] }}
+                            transition={{ duration: 2, repeat: Infinity }}
+                          />
+                          <span className="text-[13px] text-white" style={{ fontWeight: 600 }}>LIVE</span>
+                        </div>
+                        <span className="text-[11px] text-white/70" style={{ fontWeight: 500 }}>{liveUpdatedLabel(crowdReadingAt)}</span>
+                      </>
+                    ) : (
+                      <span className="text-[13px] text-white" style={{ fontWeight: 600 }}>Typical for this hour</span>
+                    )}
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -705,47 +678,43 @@ export function VenueDetails({ venue, isDarkMode, onClose, onOpenConcierge, onOp
             </motion.div>
           )}
 
-          {/* Crowd Trend Chart */}
+          {typicalCurve.length > 0 && (
           <motion.div
             className="mb-6"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.35 }}
           >
-            <h3 className="text-[20px] mb-3 text-white" style={{ fontWeight: 600 }}>When to Go</h3>
+            <h3 className="text-[20px] mb-1 text-white" style={{ fontWeight: 600 }}>When to Go</h3>
+            <p className="text-[12px] text-white/60 mb-3" style={{ fontWeight: 500 }}>Typical for this hour, not live</p>
             <div className="p-4 rounded-[16px] bg-[#1C1C1E]/80 border border-white/30">
-              {crowdHistory.length > 0 ? (
-                <>
-                  <div className="flex items-end justify-between gap-1" style={{ height: 80 }}>
-                    {crowdHistory.slice(0, 12).reverse().map((reading, i) => {
-                      const heightPct = (reading.level / 4) * 100;
-                      const color =
-                        reading.level === 1 ? '#10b981' :
-                        reading.level === 2 ? '#eab308' :
-                        reading.level === 3 ? '#f97316' : '#ef4444';
-                      return (
-                        <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                          <div
-                            className="w-full rounded-t-[3px]"
-                            style={{ height: `${heightPct}%`, background: color, minHeight: 4 }}
-                          />
-                          <span className="text-[9px] text-white/40">{(crowdHistory.slice(0, 12).length - 1 - i) * 2}h</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/10">
-                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400 inline-block" /><span className="text-[11px] text-white/60">Chill</span></div>
-                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400 inline-block" /><span className="text-[11px] text-white/60">Active</span></div>
-                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block" /><span className="text-[11px] text-white/60">Busy</span></div>
-                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400 inline-block" /><span className="text-[11px] text-white/60">Packed</span></div>
-                  </div>
-                </>
-              ) : (
-                <p className="text-[13px] text-white/40 text-center py-4">Crowd data unavailable for this venue</p>
-              )}
+                <div className="flex items-end justify-between gap-1" style={{ height: 80 }}>
+                  {typicalCurve.slice(0, 12).map((reading, i) => {
+                    const heightPct = (reading.level / 4) * 100;
+                    const color =
+                      reading.level === 1 ? '#10b981' :
+                      reading.level === 2 ? '#eab308' :
+                      reading.level === 3 ? '#f97316' : '#ef4444';
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                        <div
+                          className="w-full rounded-t-[3px]"
+                          style={{ height: `${heightPct}%`, background: color, minHeight: 4 }}
+                        />
+                        <span className="text-[9px] text-white/40">{reading.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/10">
+                  <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400 inline-block" /><span className="text-[11px] text-white/60">Chill</span></div>
+                  <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400 inline-block" /><span className="text-[11px] text-white/60">Active</span></div>
+                  <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block" /><span className="text-[11px] text-white/60">Busy</span></div>
+                  <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400 inline-block" /><span className="text-[11px] text-white/60">Packed</span></div>
+                </div>
             </div>
           </motion.div>
+          )}
 
           {/* Video */}
           {venueVideo && (

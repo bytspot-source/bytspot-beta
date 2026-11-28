@@ -1824,8 +1824,9 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(surface.contains("NativeVenueHeroMedia.heroURLs(venueImage: venue.imageUrl"))
         XCTAssertFalse(surface.contains("if let url = venue.imageUrl"))
         XCTAssertTrue(surface.contains("NativeM5DetailPolicy.address(for: venue)"))
-        XCTAssertTrue(surface.contains("NativeM5DetailPolicy.hoursUnknown"))
-        XCTAssertTrue(surface.contains("NativeM5DetailPolicy.activity(for: venue)"))
+        // Unknown hours are left out; busy is shown only from a live reading.
+        XCTAssertFalse(surface.contains("NativeM5DetailPolicy.hoursUnknown"))
+        XCTAssertTrue(surface.contains("NativePartnerCardPolicy.liveActivity(venue)"))
         XCTAssertFalse(surface.contains("unsplash"))
         XCTAssertFalse(surface.contains("minimumScaleFactor"))
         XCTAssertFalse(surface.contains("lineLimit(1)"))
@@ -1867,7 +1868,7 @@ final class NativeM5DetailTests: XCTestCase {
         }
         XCTAssertTrue(rendered.contains("showVibe = true"))
         XCTAssertTrue(rendered.contains("heroControl(\"Back\""))
-        XCTAssertTrue(rendered.contains("NativeM2ArrivalModule(venue: venue"))
+        XCTAssertFalse(rendered.contains("NativeM2ArrivalModule(venue: venue"), "Route and Ride live in the bottom bar and utilities, not a second Arrival block")
         XCTAssertTrue(rendered.contains("currentTransaction?.primaryTitle"))
         XCTAssertTrue(detail.contains("requestStatusReady && currentTransaction == nil"))
         XCTAssertFalse(rendered.contains("PartnerMenu.sample"))
@@ -2005,9 +2006,12 @@ final class NativeM5DetailTests: XCTestCase {
         let shell = try shellSource()
         let detail = try region(in: shell, from: "private struct NativeVenueDetailView: View {",
                                 to: "private struct NativeEventRideBookingSheet: View {")
-        for identifier in ["native-m2-hero-empty", "native-m2-play-vibe-empty",
-                           "native-m2-description-empty", "native-m2-price-empty"] {
+        for identifier in ["native-m2-hero-empty", "native-m2-description-empty"] {
             XCTAssertTrue(detail.contains(identifier), identifier)
+        }
+        // A missing vibe or price is left out rather than announced.
+        for removed in ["native-m2-play-vibe-empty", "native-m2-price-empty"] {
+            XCTAssertFalse(detail.contains(removed), removed)
         }
         // The three utility slots share one interpolated identifier, so the
         // empty state is proven at its single source rather than per title.
@@ -2091,6 +2095,52 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(design.contains("144 stars"))
     }
 
+    func testPartnerCardSaysPartnerNamesItsRequestsAndShowsOnlyWhatIsKnown() throws {
+        let shell = try shellSource()
+        let detail = try region(in: shell, from: "private struct NativeVenueDetailView: View {", to: "private struct NativeEventRideBookingSheet: View {")
+        XCTAssertTrue(detail.contains("venue.control == .bytspot && placePresentation.capability == .details"))
+        XCTAssertTrue(detail.contains("Label(\"Bytspot partner\", systemImage: \"checkmark.seal.fill\")"))
+        XCTAssertTrue(detail.contains("} else if venue.control != .bytspot {"), "no 'does not control' line on a partner")
+        XCTAssertTrue(detail.contains(".overlay(alignment: .bottomTrailing) { photoClusterControl }"), "photo count clear of Save and Share")
+        XCTAssertTrue(detail.contains("utilityLabel(\"Ride\""))
+        XCTAssertTrue(detail.contains("NativeValetPremiumRideSheet(initialVenue: venue"))
+        XCTAssertTrue(detail.contains("== .route ? routeTitle"))
+        XCTAssertFalse(detail.contains("NativeM5DetailPolicy.hoursUnknown"))
+        XCTAssertFalse(detail.contains("NativeVenueSlotCopy.priceEmpty"))
+    }
+
+    func testPartnerOfferingWordsAndPrices() throws {
+        func listing(_ title: String, cents: Int) throws -> NativeWindowListing {
+            let json = #"{"windowId":"w-\#(cents)","sellerName":"Tribe & Spice","title":"\#(title)","priceCents":\#(cents),"maxGuests":4,"durationMins":90,"intent":"request","place":{"label":"Tribe & Spice","address":null,"phone":null,"website":null},"distanceMiles":0,"coverUrl":null,"galleryUrls":[],"nextSlot":{"startsAt":"2026-11-25T00:30:00.000Z","remaining":2}}"#
+            return try JSONDecoder().decode(NativeWindowListing.self, from: Data(json.utf8))
+        }
+        let table = try listing("Table for 4", cents: 2500), tasting = try listing("Private tasting", cents: 6000), free = try listing("Walk-in", cents: 0)
+        XCTAssertEqual(NativePartnerCardPolicy.requestTitle(table), "Request Table for 4")
+        XCTAssertEqual(NativePartnerCardPolicy.fromPrice([tasting, table, free]), "From $25")
+        XCTAssertNil(NativePartnerCardPolicy.fromPrice([free]))
+        XCTAssertTrue(NativePartnerCardPolicy.offeringLine(table).hasPrefix("$25 · up to 4 guests · Next: "))
+        XCTAssertFalse(NativePartnerCardPolicy.offeringLine(free).contains("$"))
+    }
+
+    func testOfferingsAreAskedForByVenueOrGoogleID() {
+        var listed = venue()
+        XCTAssertEqual(NativeVenueOfferingsAPI.input(for: listed)?["venueId"] as? String, listed.id)
+        listed = NativeVenueSummary(id: "gp:ChIJabc", name: "X", category: "dining", address: "", distance: "", rating: nil, latitude: 33.78, longitude: -84.38,
+                                    crowd: nil, parking: NativeParkingSummary(totalAvailable: 0, priceLabel: "", isKnown: false), verifiedPatchId: nil, imageUrl: nil)
+        XCTAssertEqual(NativeVenueOfferingsAPI.input(for: listed)?["googlePlaceId"] as? String, "ChIJabc")
+    }
+
+    func testMapBytspotButtonShowsOnlyPartnersAndFitsThem() throws {
+        let shell = try shellSource()
+        let focus = try region(in: shell, from: "    private func handlePartnerFocus() {", to: "    static let pinPoints")
+        XCTAssertTrue(focus.contains("fitGeographicCamera(to: partners.map(\\.coordinate))"))
+        XCTAssertTrue(focus.contains("revealGeographicCamera(on: partners[0].coordinate)"))
+        XCTAssertTrue(focus.contains("NativeMapPartnerPolicy.noneNearby"))
+        XCTAssertTrue(shell.contains("pin.kind == .partner || pin.kind == .access || pin.venue?.control == .bytspot"))
+        XCTAssertTrue(shell.contains("if showVerifiedOnly { return NativeMapPartnerPolicy.isPartner(pin) }"), "no parking in partner view")
+        XCTAssertTrue(shell.contains("case .fit(let coordinates):"))
+    }
+
     func testHeroIsOneFullPhotoAndExtraMediaHidesBehindTheCluster() throws {
         let shell = try shellSource()
         let detail = try region(in: shell, from: "private struct NativeVenueDetailView: View {",
@@ -2129,7 +2179,7 @@ final class NativeM5DetailTests: XCTestCase {
         // A controlled venue shows only Bytspot details, never Google's.
         XCTAssertTrue(detail.contains("guard !usesBytspotDisplay, venue.googlePlaceID != nil else { return }"))
         let listed = try region(in: detail, from: "    private var listedContent: some View {", to: "    @ViewBuilder private var listedFacts: some View {")
-        for bytspotOnly in ["placeHero", "vibeSlot", "venueUtilities", "placeFacts", "arrivalModule", "NativeVenueSlotCopy",
+        for bytspotOnly in ["placeHero", "vibeSlot", "venueUtilities", "placeFacts", "partnerOfferingsSection", "NativeVenueSlotCopy",
                             "NativeVenueHeroMedia", "hoursUnknown", "activity(for:", "statusLabel", "availabilityLine"] {
             XCTAssertFalse(listed.contains(bytspotOnly), bytspotOnly)
         }

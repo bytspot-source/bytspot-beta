@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { PayoutAccount } from './profile';
+import { payoutNeedsOwner, type PayoutAccount } from './profile';
 import { formatCents, type Analytics, type ConsoleTransport, type Earnings, type Payouts } from './consoleTransport';
 
 const RANGES = [7, 30, 90] as const;
@@ -217,7 +217,7 @@ export function PayoutsView({
         {data ? <p className="vendor-muted">{payoutLine(payout)}</p> : null}
         {payout?.detail ? <p className="vendor-muted">{payout.detail}</p> : null}
         <div className="vendor-demand-actions">
-          {data && payout?.status !== 'active' ? (
+          {data && payoutNeedsOwner(payout) ? (
             <button type="button" className="vendor-chip vendor-chip-on" disabled={busy} onClick={onStartPayout}>
               {payout ? 'Continue setup' : 'Set up payouts'}
             </button>

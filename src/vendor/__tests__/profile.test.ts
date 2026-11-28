@@ -9,6 +9,8 @@ import {
   EMPTY_PROFILE,
   payoutBlockersFor,
   payoutIsUsable,
+  payoutNeedsOwner,
+  PAYOUT_REVIEWING_DETAIL,
   reconcileSeller,
   requirementIsMet,
   satisfiedRequirements,
@@ -204,4 +206,14 @@ test('a business kind and added categories are checked before they are saved', (
   const added = applyProfileEdit(EMPTY_PROFILE, { field: 'extraBookableTypes', value: ['stay', 'stay'] });
   assert.deepEqual(added.ok && added.profile.extraBookableTypes, ['stay']);
   assert.equal(applyProfileEdit(EMPTY_PROFILE, { field: 'extraBookableTypes', value: ['yacht'] }).ok, false);
+});
+
+test('an owner is sent back to Stripe only when Stripe needs something from them', () => {
+  assert.equal(payoutNeedsOwner(undefined), true);
+  assert.equal(payoutNeedsOwner({ reference: 'a', status: 'pending' }), true);
+  assert.equal(payoutNeedsOwner({ reference: 'a', status: 'pending', detail: 'Stripe needs a few more details' }), true);
+  assert.equal(payoutNeedsOwner({ reference: 'a', status: 'restricted', detail: 'Requirements past due' }), true);
+  // While Stripe reviews, Stripe's form has nothing to fill in and returns them here.
+  assert.equal(payoutNeedsOwner({ reference: 'a', status: 'pending', detail: PAYOUT_REVIEWING_DETAIL }), false);
+  assert.equal(payoutNeedsOwner({ reference: 'a', status: 'active' }), false);
 });

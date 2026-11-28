@@ -12,7 +12,7 @@ import type { GeocodeCandidate } from './geocoding.ts';
 import { LocationForm } from './LocationForm.tsx';
 import { MediaPicker } from './MediaPicker.tsx';
 import type { MediaTransport } from './mediaTransport.ts';
-import { payoutIsUsable, type ProfileEdit, type VendorProfile } from './profile.ts';
+import { payoutIsUsable, payoutNeedsOwner, type ProfileEdit, type VendorProfile } from './profile.ts';
 import type { VendorSession } from './seller.ts';
 import type { AuthorizedFetch } from './setupTransport.ts';
 import { getBusinessKind, getVendorBookableType, listBusinessKinds, staffRoleLabel, type VendorBusinessMode } from './vendorConsole.ts';
@@ -235,6 +235,15 @@ function PayoutField({
   onStartPayout: () => void;
 }) {
   const payout = profile.payout;
+
+  if (payout && !payoutIsUsable(payout) && !payoutNeedsOwner(payout)) {
+    return (
+      <p className="vendor-muted">
+        Stripe is checking the details you sent. Nothing else is needed from you; this updates on its own, usually within
+        minutes.
+      </p>
+    );
+  }
 
   if (payout && !payoutIsUsable(payout)) {
     return (

@@ -53,6 +53,19 @@ export function payoutIsUsable(payout?: PayoutAccount): boolean {
   return payout?.status === 'active';
 }
 
+/** The API's detail while Stripe checks what the owner already sent. */
+export const PAYOUT_REVIEWING_DETAIL = 'The processor is reviewing these details';
+
+/**
+ * Whether the owner has anything left to do on Stripe. While Stripe is only
+ * reviewing, sending them back finds nothing to fill in and returns them here.
+ */
+export function payoutNeedsOwner(payout?: PayoutAccount): boolean {
+  if (!payout) return true;
+  if (payout.status === 'active') return false;
+  return !(payout.status === 'pending' && payout.detail === PAYOUT_REVIEWING_DETAIL);
+}
+
 /**
  * The one rule that decides whether a requirement is met, applied to the records
  * themselves.

@@ -99,7 +99,7 @@ async function enterMapTab(page: import('@playwright/test').Page) {
   // races the AnimatePresence mount, so we fall back to a direct DOM click.
   const mapFunctionsDialog = page.getByRole('dialog', { name: 'Map Functions' });
   if (await mapFunctionsDialog.isVisible().catch(() => false)) {
-    const liveVenueDataButton = page.getByRole('button', { name: /Live Venue Data/i });
+    const liveVenueDataButton = page.getByRole('button', { name: /Typical busyness/i });
     await liveVenueDataButton.click({ force: true }).catch(() => {});
     if (await mapFunctionsDialog.isVisible().catch(() => false)) {
       await liveVenueDataButton.evaluate((el: HTMLElement) => el.click()).catch(() => {});

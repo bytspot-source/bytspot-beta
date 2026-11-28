@@ -137,6 +137,15 @@ export function venueToCard(v: ApiVenue, index: number, userCoords?: { lat: numb
     tableBooking: tableBookingFrom((v as any).booking),
     ...(online ? { onlineOnly: true } : {}),
     ...(typeof (v as any).website === 'string' && /^https:\/\//i.test((v as any).website) ? { website: (v as any).website } : {}),
+    ...(v.crowd ? {
+      crowd: {
+        level: v.crowd.level,
+        label: v.crowd.label,
+        waitMins: v.crowd.waitMins,
+        source: v.crowd.source,
+        recordedAt: v.crowd.recordedAt ?? v.crowd.updatedAt ?? v.crowd.observedAt,
+      },
+    } : {}),
     // Stash the slug for detail lookups
     _slug: v.slug,
     ...(online ? {} : { _lat: v.lat, _lng: v.lng }),

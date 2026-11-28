@@ -32,6 +32,8 @@ struct NativeHangInput: Equatable {
     let name: String
     var vibeTokens: [String] = []
     var occupancySource: String? = nil
+    /// When the door, host, or sensor wrote this reading. Missing means not live.
+    var recordedAt: Date? = nil
     var waitMins: Int? = nil
     var occupancyLevel: Int? = nil
     var availability: String? = nil
@@ -89,21 +91,29 @@ struct NativeCollapsePlan: Equatable {
 
 enum NativeCollapseInstrument {
     static let liveOccupancySources: Set<String> = ["bytspot", "user_report", "sensor"]
+    static let liveOccupancyMaxAge: TimeInterval = 30 * 60
 
     static func isLiveOccupancySource(_ source: String?) -> Bool {
         guard let source else { return false }
         return liveOccupancySources.contains(source.lowercased())
     }
 
-    static func occupancyKind(source: String?) -> NativeOccupancyKind {
-        isLiveOccupancySource(source) ? .live : .typical
+    static func isFreshLiveReading(_ recordedAt: Date?, now: Date = Date()) -> Bool {
+        guard let recordedAt else { return false }
+        let age = now.timeIntervalSince(recordedAt)
+        return age >= 0 && age <= liveOccupancyMaxAge
     }
 
-    static func venueAvailabilityLabel(source: String?, waitMins: Int?, level: Int?, availability: String?) -> String {
-        if let waitMins, waitMins > 0 { return "~\(waitMins)m wait" }
+    static func occupancyKind(source: String?, recordedAt: Date? = nil, now: Date = Date()) -> NativeOccupancyKind {
+        isLiveOccupancySource(source) && isFreshLiveReading(recordedAt, now: now) ? .live : .typical
+    }
+
+    static func venueAvailabilityLabel(source: String?, waitMins: Int?, level: Int?, availability: String?, recordedAt: Date? = nil, now: Date = Date()) -> String {
+        let live = isLiveOccupancySource(source) && isFreshLiveReading(recordedAt, now: now)
+        if let waitMins, waitMins > 0 { return live ? "~\(waitMins)m wait" : "typically ~\(waitMins)m wait" }
         if let availability, !availability.isEmpty { return availability }
-        if (level ?? 1) >= 4 { return "High activity" }
-        return isLiveOccupancySource(source) ? "Live availability" : "Typical now"
+        if (level ?? 1) >= 4 { return live ? "High activity" : "Typically high activity" }
+        return live ? "Live availability" : "Typical now"
     }
 
     static func stallMayClaimAvailability(_ source: NativeStallProvenance) -> Bool {
@@ -126,8 +136,8 @@ enum NativeCollapseInstrument {
     }
 
     static func collapse(hang: NativeHangInput, stall: NativeStallInput, detector: NativeDetectorKind = .place, settlementReady: Bool = false, basis: NativeCollapseBasis? = nil) -> NativeCollapsePlan {
-        let kind = occupancyKind(source: hang.occupancySource)
-        let label = venueAvailabilityLabel(source: hang.occupancySource, waitMins: hang.waitMins, level: hang.occupancyLevel, availability: hang.availability)
+        let kind = occupancyKind(source: hang.occupancySource, recordedAt: hang.recordedAt)
+        let label = venueAvailabilityLabel(source: hang.occupancySource, waitMins: hang.waitMins, level: hang.occupancyLevel, availability: hang.availability, recordedAt: hang.recordedAt)
         let vibeTokens = hang.vibeTokens.isEmpty ? (basis?.vibeTokens ?? []) : hang.vibeTokens
         return NativeCollapsePlan(
             hang: .init(id: hang.id, name: hang.name, vibeTokens: vibeTokens, lat: hang.lat, lng: hang.lng),

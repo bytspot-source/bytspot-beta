@@ -65,9 +65,9 @@ test('catalog occupancy cannot be Live', () => {
   assert.equal(plan.canCheckout, false);
 });
 
-test('only a door write is Live', () => {
+test('only a fresh door write is Live', () => {
   const plan = collapsePlan({
-    hang: { ...hang, occupancySource: 'user_report' },
+    hang: { ...hang, occupancySource: 'user_report', occupancyRecordedAt: new Date().toISOString() },
     stall: { name: vendorStall.name, source: 'vendor', walkMinutes: 3, paid: true },
     detector: 'room',
     settlementReady: true,
@@ -75,6 +75,24 @@ test('only a door write is Live', () => {
   assert.equal(plan.occupancy.kind, 'Live');
   assert.match(plan.because, /door wrote/i);
   assert.equal(plan.canCheckout, true);
+});
+
+test('a door write without a fresh timestamp stays Typical', () => {
+  const missing = collapsePlan({
+    hang: { ...hang, occupancySource: 'user_report', waitMins: 12 },
+    stall: { name: vendorStall.name, source: 'vendor', walkMinutes: 3, paid: true },
+  });
+  assert.equal(missing.occupancy.kind, 'Typical');
+  assert.equal(missing.occupancy.label, 'typically ~12m wait');
+  const stale = collapsePlan({
+    hang: {
+      ...hang,
+      occupancySource: 'sensor',
+      occupancyRecordedAt: new Date(Date.now() - 31 * 60 * 1000).toISOString(),
+    },
+    stall: { name: vendorStall.name, source: 'vendor', walkMinutes: 3, paid: true },
+  });
+  assert.equal(stale.occupancy.kind, 'Typical');
 });
 
 test('a place detector never settles even if someone set settlementReady', () => {

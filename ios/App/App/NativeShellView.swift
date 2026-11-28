@@ -7397,9 +7397,9 @@ enum NativeHomeRegionPresentation {
         if venue.parking.isKnown && venue.parking.totalAvailable > 0 {
             liveDetails.append("\(venue.parking.totalAvailable) spots")
         }
-        if let rawLabel = venue.crowd?.label {
-            let label = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !label.isEmpty { liveDetails.append(label) }
+        if let crowd = venue.crowd {
+            let label = crowd.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !label.isEmpty { liveDetails.append(crowd.isLiveOccupancy ? label : "Typical · \(label)") }
         }
         if !liveDetails.isEmpty { return liveDetails.joined(separator: " · ") }
 
@@ -7532,7 +7532,12 @@ private struct NativeHomeDashboardView: View {
             self.venue = venue
             self.title = venue.name
             self.subtitle = [cleanDistance, venue.address].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: " · ")
-            self.badge = venue.crowd?.label ?? Self.categoryLabel(for: venue.discoverType)
+            if let crowd = venue.crowd {
+                let label = crowd.label.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.badge = label.isEmpty ? Self.categoryLabel(for: venue.discoverType) : (crowd.isLiveOccupancy ? label : "Typical · \(label)")
+            } else {
+                self.badge = Self.categoryLabel(for: venue.discoverType)
+            }
             self.color = NativeHomeDashboardView.launchBadgeColor(for: venue)
         }
 
@@ -8509,7 +8514,7 @@ private struct NativeHomeDashboardView: View {
                 eyebrowColor: NativeTheme.purple,
                 reason: personalizedAIReason,
                 crowdEmoji: crowdEmoji(venue.crowd),
-                crowdLabel: card.nearbyParty != nil ? card.metadataLine : (venue.crowd?.label ?? "Explore"),
+                crowdLabel: card.nearbyParty != nil ? card.metadataLine : (venue.crowd == nil ? "Explore" : crowdBadge(venue.crowd)),
                 categoryEmoji: categoryEmoji(venue.discoverType),
                 primaryCTATitle: Self.honestPrimaryCTATitle(for: card),
                 primaryCTAIcon: Self.primaryCTAIcon(forTitle: Self.honestPrimaryCTATitle(for: card)),
@@ -8823,21 +8828,13 @@ private struct NativeHomeDashboardView: View {
     }
 
     private var nativeContentFreshnessLabel: String {
+        // Snapshot `.live` only means the venue list came from the API.
+        // It is not a live crowd reading.
         switch regionalSnapshot.source {
-        case .live: return "Live"
-        case .mixed: return "Live + curated"
+        case .live: return "Places nearby"
+        case .mixed: return "Places + curated"
         case .fallback: return "Curated"
         }
-    }
-
-    private var nativeCrowdFreshnessLabel: String {
-        // Snapshot `.live` only means the venue catalog came from the API.
-        // Occupancy is Typical unless a door / host / user report wrote it.
-        let crowds = NativeHomeRegionPresentation.venueRailVenues(in: regionalSnapshot).compactMap(\.crowd)
-        let liveCount = crowds.filter(\.isLiveOccupancy).count
-        if liveCount == 0 { return "Typical" }
-        if liveCount == crowds.count { return "Live crowd" }
-        return "Live + typical"
     }
 
     private var weatherSmartCard: some View {
@@ -19205,14 +19202,6 @@ private struct NativeMapExploreView: View {
                         .font(.system(size: 23, weight: .black))
                         .foregroundColor(.white)
                         .frame(width: 64, height: 78)
-                    Text("LIVE")
-                        .font(.system(size: 11, weight: .black))
-                        .foregroundColor(.black)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .background(NativeTheme.pink)
-                        .clipShape(Capsule())
-                        .offset(x: 8, y: -6)
                 }
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title)
@@ -20086,13 +20075,6 @@ private struct NativeTrafficIntelSheet: View {
                     .lineLimit(1)
             }
             Spacer()
-            Text("LIVE")
-                .font(.system(size: 11, weight: .black))
-                .foregroundColor(.black)
-                .padding(.horizontal, 10)
-                .frame(height: 28)
-                .background(NativeTheme.orange)
-                .clipShape(Capsule())
         }
         .padding(16)
         .background(NativeTheme.selectedControlSurface)
@@ -20105,7 +20087,7 @@ private struct NativeTrafficIntelSheet: View {
             Image(systemName: "location.viewfinder")
                 .font(.system(size: 13, weight: .black))
                 .foregroundColor(NativeTheme.cyan)
-            Text("Powered by live venue, crowd, and parking signals")
+            Text("Typical busyness for this hour, not a live reading")
                 .font(.system(size: 12, weight: .bold))
                 .foregroundColor(NativeTheme.textSecondary)
             Spacer(minLength: 0)
@@ -20118,8 +20100,13 @@ private struct NativeTrafficIntelSheet: View {
 
     private var crowd: NativeCrowdSummary { venue.crowd ?? NativeCrowdSummary(level: 1, label: "Chill", waitMins: nil) }
     private var congestionProgress: Double { min(max(Double(crowd.level) / 4.0, 0.12), 1.0) }
-    private var congestionLabel: String { crowd.label }
-    private var congestionSubtitle: String { crowd.waitMins.map { "~\($0)m wait · Level \(crowd.level)/4" } ?? "Level \(crowd.level)/4 · monitored nearby" }
+    private var congestionLabel: String { crowd.isLiveOccupancy ? crowd.label : "Typical · \(crowd.label)" }
+    private var congestionSubtitle: String {
+        if crowd.isLiveOccupancy {
+            return crowd.waitMins.map { "~\($0)m wait · Level \(crowd.level)/4" } ?? "Level \(crowd.level)/4"
+        }
+        return crowd.waitMins.map { "typically ~\($0)m wait · Level \(crowd.level)/4" } ?? "Typical for this hour · Level \(crowd.level)/4"
+    }
 
     private var congestionColor: Color {
         switch crowd.level {

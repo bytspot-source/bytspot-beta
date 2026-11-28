@@ -174,9 +174,11 @@ test('an incomplete business is refused with the list rather than a bare no', ()
   assert.deepEqual((submit?.verdict.missing ?? []).map((item) => item.id), ['legalName', 'contactEmail']);
 });
 
-test('only the owner can advance, and the rest are told so', () => {
+test('an owner or a manager can finish setup, as the API allows, and the rest are told so', () => {
   assert.equal(canAdvanceOnboarding(session()), true);
-  for (const role of ['manager', 'door', 'serviceProvider'] as const) {
+  assert.equal(canAdvanceOnboarding(session({ satisfied: ['legalName', 'contactEmail'] }, { role: 'manager' })), true);
+  assert.equal(canAdvanceOnboarding(session({ state: 'PENDING' }, { role: 'manager' })), true);
+  for (const role of ['staff', 'door', 'serviceProvider'] as const) {
     const other = session({ satisfied: ['legalName', 'contactEmail'] }, { role, bookableIds: ['bk_1'] });
     assert.equal(canAdvanceOnboarding(other), false, `${role} must not advance the business`);
     // The action is still refused by the ontology, not merely hidden by the UI.

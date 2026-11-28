@@ -351,7 +351,8 @@
         "id": "bookables",
         "label": "Bookables",
         "icon": "square.grid.2x2.fill",
-        "requiresCapability": "PUBLISH"
+        "requiresCapability": "SCHEDULE",
+        "requiresRoleCapability": "PUBLISH"
       },
       {
         "id": "demand",
@@ -662,7 +663,7 @@
       {
         "state": "DRAFT",
         "title": "Finish setting up",
-        "body": "You can build bookables now. Once everything below is done, Bytspot reviews the business and you can sell.",
+        "body": "You can build bookables now under Bookables; they stay drafts until you are live. Once everything below is done, Bytspot reviews the business and you can sell.",
         "checklist": true
       },
       {

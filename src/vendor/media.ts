@@ -29,7 +29,8 @@ export const MEDIA_MAX_IMAGE_BYTES = 2_000_000;
 export const MEDIA_MAX_MENU_BYTES = 8_000_000;
 export const MEDIA_MAX_VIDEO_BYTES = 80_000_000;
 /** The API's JSON body ceiling. A larger file is refused here, not mid-POST. */
-export const MEDIA_MAX_DATA_URI_CHARS = 4_000_000;
+/** An 8 MB menu PDF is about 10.7 million base64 characters; the API takes 11 million. */
+export const MEDIA_MAX_DATA_URI_CHARS = 11_000_000;
 
 export type MediaRefusal =
   | 'forbidden'
@@ -64,14 +65,23 @@ export function reviewLabel(item: Pick<VendorMediaItem, 'reviewStatus' | 'review
 }
 
 export const VIDEO_HOSTING_NOTE = 'Video hosting is a premium Bytspot service. Ask Bytspot to switch it on.';
+export const VIDEO_STORAGE_NOTE = 'Bytspot has not switched on video storage yet, so videos cannot be uploaded. Photos and menus still work.';
+
+/** Why video is off, from the API. Older APIs do not say, and are read as hosting. */
+export type VideoUnavailableReason = 'storage' | 'hosting';
+
+export function videoUnavailableNote(reason: VideoUnavailableReason | null): string | null {
+  if (reason === 'storage') return VIDEO_STORAGE_NOTE;
+  return reason === 'hosting' ? VIDEO_HOSTING_NOTE : null;
+}
 
 export const MEDIA_REFUSALS: Record<MediaRefusal, string> = {
   forbidden: 'Your role cannot do that',
   'unknown-kind': 'Unknown media kind',
   'kind-not-on-parent': 'That file does not belong on this',
-  'video-unavailable': 'Video uploads are not available yet',
+  'video-unavailable': VIDEO_STORAGE_NOTE,
   'bad-payload': 'That file type isn\u2019t supported. Use a JPEG, PNG or WebP photo, a PDF menu, or an MP4, WebM or MOV video',
-  'too-large': 'That file is too large. Photos must be under 2 MB, menu PDFs under 3 MB and videos under 80 MB',
+  'too-large': 'That file is too large. Photos must be under 2 MB, menu PDFs under 8 MB and videos under 80 MB',
   'at-capacity': 'This already has as many files as it can hold',
   'cover-has-no-index': 'A cover cannot specify a slot',
   'video-needs-hosting': VIDEO_HOSTING_NOTE,

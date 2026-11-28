@@ -196,6 +196,8 @@ export interface WindowDraft {
   title?: string;
   priceCents?: number;
   durationMins?: number;
+  /** Most guests in one booking. Left out to keep the preset's. */
+  maxGuests?: number;
 }
 
 /** `custom.<domain>.<variant>`: a catalog variant with no printed preset. */
@@ -249,6 +251,9 @@ export function windowDraftProblems(draft: WindowDraft): string[] {
   }
   if (draft.durationMins !== undefined && (!Number.isInteger(draft.durationMins) || draft.durationMins < 5 || draft.durationMins > 1440)) {
     problems.push('Length is between 5 minutes and a day');
+  }
+  if (draft.maxGuests !== undefined && (!Number.isInteger(draft.maxGuests) || draft.maxGuests < 1 || draft.maxGuests > 500)) {
+    problems.push('Guests per booking is between 1 and 500');
   }
   return problems;
 }
@@ -317,7 +322,7 @@ export function demoWindowsTransport(): WindowsTransport {
         title: draft.title?.trim() || draft.skuTemplateId,
         domain: (isBlankTemplateId(draft.skuTemplateId) ? draft.skuTemplateId.split('.')[1] : draft.skuTemplateId.split('.')[0]) ?? '',
         priceCents: draft.priceCents ?? 0,
-        maxGuests: 1,
+        maxGuests: draft.maxGuests ?? 1,
         intent: 'request',
         published: false,
       };

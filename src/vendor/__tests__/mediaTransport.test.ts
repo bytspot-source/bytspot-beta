@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { httpMediaTransport, reviveMediaList, type MediaTransport } from '../mediaTransport.ts';
 import { demoMediaTransport } from '../mediaTransport.ts';
+import { videoUnavailableNote } from '../media.ts';
 import type { AuthorizedFetch } from '../setupTransport.ts';
 
 function stubFetch(reply: (path: string, init?: RequestInit) => { status: number; body: unknown }) {
@@ -31,6 +32,7 @@ test('a list hangs on /vendor/locations/:id/media, a window on /vendor/bookables
   assert.equal(calls[0]?.path, '/vendor/locations/loc_1/media');
   assert.equal(place.value?.media[0]?.id, 'media_1');
   assert.equal(place.value?.videoAvailable, true);
+  assert.equal(place.value?.videoUnavailableReason, null);
 
   await transport.list('bookable', 'win_1');
   assert.equal(calls[1]?.path, '/vendor/bookables/win_1/media');
@@ -121,4 +123,19 @@ test('a refusal without a reason still tells the vendor what happened and what t
   assert.match(refusalFor(413, {})[0], /under 2 MB/);
   assert.match(refusalFor(500, { error: 'Internal server error' })[0], /problem on our side/);
   assert.equal(refusalFor(500, { error: 'Internal server error' })[0].includes('Internal'), false, 'no server wording leaks');
+});
+
+test('the media list says why video is off, so storage is not blamed on video hosting', async () => {
+  for (const [body, reason] of [
+    [{ media: [], videoAvailable: false, videoUnavailableReason: 'storage' }, 'storage'],
+    [{ media: [], videoAvailable: false, videoUnavailableReason: 'hosting' }, 'hosting'],
+    [{ media: [], videoAvailable: false }, 'hosting'],
+  ] as const) {
+    const { authorized } = stubFetch(() => ({ status: 200, body }));
+    const result = await httpMediaTransport(authorized).list('location', 'loc_1');
+    assert.equal(result.value?.videoUnavailableReason, reason);
+  }
+  assert.match(videoUnavailableNote('storage') ?? '', /video storage/);
+  assert.match(videoUnavailableNote('hosting') ?? '', /premium/);
+  assert.equal(videoUnavailableNote(null), null);
 });

@@ -18,6 +18,7 @@ import {
   vendorLandingView,
   vendorPrimaryNav,
   vendorSecondaryNav,
+  vendorSetupNav,
   vendorWebhookUiContract,
   VENDOR_CONSOLE,
   type VendorViewer,
@@ -207,12 +208,16 @@ test('navigation follows the session, so suspending the business removes the tab
   // The pass scanner survives, because a suspended business still honours passes.
   assert.ok(suspendedIds.includes('scanner'));
 
-  // A business still in setup can build a calendar and nothing else.
+  // A business still in setup can build a calendar and draft bookables, and nothing else.
   const draft = viewerFor('DRAFT');
   const draftIds = [...ids(vendorPrimaryNav(draft)), ...ids(vendorSecondaryNav(draft))];
   assert.ok(draftIds.includes('availability'));
-  assert.equal(draftIds.includes('bookables'), false);
+  assert.ok(draftIds.includes('bookables'));
   assert.equal(draftIds.includes('staff'), false);
+  assert.deepEqual(ids(vendorSetupNav(draft)), ['bookables', 'parties', 'availability']);
+  // A service provider schedules its own work but does not create what is sold.
+  const provider: VendorViewer = { role: 'serviceProvider', businessMode: 'standard', capabilities: new Set(['SCHEDULE']) };
+  assert.equal(ids(vendorSetupNav(provider)).includes('bookables'), false);
 
   // Without a session the role's own list is used, which is the widest it gets.
   const roleOnly: VendorViewer = { role: 'owner', businessMode: 'standard' };

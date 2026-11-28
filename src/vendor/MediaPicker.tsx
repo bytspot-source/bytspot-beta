@@ -9,7 +9,8 @@ import {
   planUpload,
   reviewLabel,
   vendorCanEditMedia,
-  VIDEO_HOSTING_NOTE,
+  videoUnavailableNote,
+  type VideoUnavailableReason,
   type MediaKind,
   type MediaParent,
   type VendorMediaItem,
@@ -71,6 +72,7 @@ function ScopedMediaPicker({ session, transport, parent, parentId, authorizedFet
   const [resultKind, setResultKind] = useState<MediaKind | null>(null);
   const [uploaded, setUploaded] = useState<MediaKind | null>(null);
   const [videoAvailable, setVideoAvailable] = useState(false);
+  const [videoOff, setVideoOff] = useState<VideoUnavailableReason | null>(null);
   const inputId = useId();
   const fileInput = useRef<HTMLInputElement>(null);
   const generation = useRef(0);
@@ -135,7 +137,7 @@ function ScopedMediaPicker({ session, transport, parent, parentId, authorizedFet
       if (current !== generation.current) return;
       if (result.value) {
         setBlockers([]);
-        setVideoAvailable(result.value.videoAvailable);
+        setVideoAvailable(result.value.videoAvailable); setVideoOff(result.value.videoUnavailableReason);
         await show(result.value.media, current);
         return;
       }
@@ -266,7 +268,7 @@ function ScopedMediaPicker({ session, transport, parent, parentId, authorizedFet
       if (active.signal.aborted || current !== generation.current) return;
       if (result.value) {
         setBlockers([]);
-        setVideoAvailable(result.value.videoAvailable);
+        setVideoAvailable(result.value.videoAvailable); setVideoOff(result.value.videoUnavailableReason);
         await show(result.value.media, current);
       } else {
         setLoaded(false); setBlockers(result.blockers ?? ['Could not remove that. Reload before trying again.']);
@@ -378,7 +380,7 @@ function ScopedMediaPicker({ session, transport, parent, parentId, authorizedFet
       })}
 
       <button type="button" className="vendor-chip" disabled={busy} onClick={() => void reload()}>Reload media</button>
-      {!videoAvailable ? <p className="vendor-muted">{VIDEO_HOSTING_NOTE}</p> : null}
+      {!videoAvailable && loaded && videoUnavailableNote(videoOff) ? <p className="vendor-muted">{videoUnavailableNote(videoOff)}</p> : null}
       <p className="vendor-muted">Bytspot reviews every new photo, menu and video before guests see it.</p>
 
       {blockers.length > 0 && (resultKind === null || !kinds.includes(resultKind)) ? (

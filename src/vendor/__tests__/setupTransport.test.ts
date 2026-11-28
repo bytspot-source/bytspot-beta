@@ -161,6 +161,11 @@ test('a window draft is refused locally for what the API would refuse', () => {
     'Closing has to come after opening',
   ]);
   assert.deepEqual(windowDraftProblems({ ...windowDraft, quantity: 0 }), ['Sell at least one per slot']);
+  // Guests per booking follows the API's 1 to 500.
+  assert.deepEqual(windowDraftProblems({ ...windowDraft, maxGuests: 8 }), []);
+  for (const maxGuests of [0, 501, 2.5]) {
+    assert.deepEqual(windowDraftProblems({ ...windowDraft, maxGuests }), ['Guests per booking is between 1 and 500']);
+  }
 });
 
 test('windows are created at /vendor/windows and published by operation, not by flag', async () => {

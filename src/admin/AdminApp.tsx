@@ -109,6 +109,8 @@ type Vendor = {
   awaitingApproval: boolean; approvedAt: string | null; createdAt: string; missing: string[];
   locations: VendorLocationRow[];
   videoHostingAt: string | null;
+  /** Checked by the Bytspot team; needed to sell bottle service. Absent from older servers. */
+  alcoholLicence?: { number: string | null; verifiedAt: string } | null;
   pausedAt?: string | null; pausedReason?: string | null; ownerInvitePending?: boolean;
   bands?: { total: number; active: number; lost: number; ranges: string[] };
 };
@@ -1123,6 +1125,48 @@ function MediaReview({ onBusy }: { onBusy: (busy: boolean) => void }) {
 }
 
 /** Gives a business a range of Bytspot bands, or takes back the ones it never activated. */
+/** Records that the team checked the business's on-premise alcohol licence (number, name, expiry). Bottle service needs it. */
+function VendorAlcoholLicence({ vendor, onChanged }: { vendor: Vendor; onChanged: () => Promise<void> }) {
+  const [number, setNumber] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const licence = vendor.alcoholLicence ?? null;
+
+  const run = async (verify: boolean) => {
+    if (verify && number.trim().length < 3) { setError('Enter the licence number from the licence you checked.'); return; }
+    setBusy(true); setError(null);
+    try {
+      if (verify) await trpc.admin.vendors.verifyAlcoholLicence.mutate({ sellerId: vendor.sellerId, licenceNumber: number.trim() });
+      else await trpc.admin.vendors.revokeAlcoholLicence.mutate({ sellerId: vendor.sellerId });
+      setNumber('');
+      await onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="admin-stack">
+      <p className="admin-small">
+        {licence
+          ? `Alcohol licence ${licence.number ?? ''} checked ${dateLabel(licence.verifiedAt)}: can sell bottle service`
+          : 'Alcohol licence not checked: cannot sell bottle service'}
+      </p>
+      <div className="admin-inline">
+        {!licence && (
+          <input className={input} placeholder="Licence number" value={number} maxLength={80} onChange={(e) => setNumber(e.target.value)} />
+        )}
+        {licence
+          ? <Button kind="quiet" disabled={busy} onClick={() => run(false)}>Remove licence check</Button>
+          : <Button kind="quiet" disabled={busy} onClick={() => run(true)}>Mark licence checked</Button>}
+      </div>
+      {error && <p className="admin-warn">{error}</p>}
+    </div>
+  );
+}
+
 function VendorBands({ vendor, onChanged }: { vendor: Vendor; onChanged: () => Promise<void> }) {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -1468,6 +1512,7 @@ function VendorsTab({ onCount }: { onCount: (awaiting: number) => void }) {
                 <p className="admin-small">Joined {dateLabel(v.createdAt)}{v.approvedAt ? ` · Approved ${dateLabel(v.approvedAt)}` : ''}</p>
                 <p className="admin-small">{v.videoHostingAt ? `Premium video hosting since ${dateLabel(v.videoHostingAt)}` : 'No premium video hosting'}</p>
                 <VendorBands vendor={v} onChanged={load} />
+                {v.alcoholLicence !== undefined && <VendorAlcoholLicence vendor={v} onChanged={load} />}
                 <VendorDecisions vendor={v} onChanged={load} onRemoved={setRemoved} />
               </div>
               <div className="admin-inline">

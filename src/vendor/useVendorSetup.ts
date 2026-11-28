@@ -56,6 +56,19 @@ export function useVendorSetup(
     void reload();
   }, [reload]);
 
+  // Stripe's form opens in another tab. Coming back to this one, or landing on
+  // Stripe's return link, reloads the profile, which asks Stripe for the
+  // payout's status and takes the business live if it now qualifies.
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    if (/^\/payout\/(done|retry)\/?$/.test(window.location.pathname)) window.history.replaceState(null, '', '/');
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void reload();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [reload]);
+
   const edit = useCallback(
     async (next: ProfileEdit) => {
       // Validated before the write, so a rejected edit never reaches the API and

@@ -63,7 +63,10 @@ type ListedPlace = {
   online?: boolean; website?: string | null; manual?: boolean; verificationNote?: string | null; verifiedAt?: string | null;
   numbers: { checkIns: Count; bookingTaps: Count; planAdds: Count; bookedByGuests: Count };
 };
-type VenueControlRow = { venueId: string; name: string; address: string; category: string; control: 'bytspot' | 'listed'; controlledAt: string | null; placeId: string | null };
+type VenueControlRow = { venueId: string; name: string; address: string; category: string; control: 'bytspot' | 'listed'; controlledAt: string | null; placeId: string | null;
+  /** The business location whose offerings, photos and menu this place shows. Absent from older servers. */
+  vendorLocation?: { locationId: string; label: string; sellerName: string } | null };
+type VendorLocationOption = { locationId: string; label: string; address: string | null; sellerName: string; linkedVenueId: string | null };
 type Candidate = { placeId: string; name: string; address: string; suggestedCategory: Category; listed: boolean; venueName?: string | null };
 type Draft = { placeId: string; name: string; address: string; provider: Provider | 'none'; url: string; category: Category; opened: boolean; tiedTo?: string | null;
   /** YYYY-MM-DD: the last day the link shows (an event's date). Empty: no end. */
@@ -564,6 +567,60 @@ function VenueMedia({ venue }: { venue: VenueControlRow }) {
   );
 }
 
+/** Links a place to the business location that runs it, so the place shows its offerings, photos and menu. */
+function BusinessLink({ venue, onDone }: { venue: VenueControlRow; onDone: () => void }) {
+  const [options, setOptions] = useState<VendorLocationOption[] | null>(null);
+  const [chosen, setChosen] = useState<string>(venue.vendorLocation?.locationId ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    trpc.admin.places.vendorLocations.query()
+      .then((result: { locations: VendorLocationOption[] }) => setOptions(result.locations))
+      .catch((err: unknown) => setError(errorText(err)));
+  }, []);
+
+  const save = async (locationId: string | null) => {
+    setBusy(true); setError(null);
+    try {
+      // Changing business: the place lets go of the old location first.
+      if (locationId && venue.vendorLocation && venue.vendorLocation.locationId !== locationId) {
+        await trpc.admin.places.linkVendorLocation.mutate({ venueId: venue.venueId, locationId: null });
+      }
+      await trpc.admin.places.linkVendorLocation.mutate({ venueId: venue.venueId, locationId });
+      onDone();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const free = (options ?? []).filter((o) => o.linkedVenueId === null || o.linkedVenueId === venue.venueId);
+  return (
+    <div className="admin-card" style={{ marginTop: 8 }}>
+      <p className="admin-strong">Which business runs {venue.name}?</p>
+      <p className="admin-muted">Its published offerings, approved photos and menu show on this place in the app.</p>
+      {options === null && !error ? <p className="admin-muted">Loading businesses…</p> : free.length === 0 ? (
+        <p className="admin-muted">No live business location is free to link. A business needs an active place in its console first.</p>
+      ) : (
+        <select value={chosen} onChange={(e) => setChosen(e.target.value)} disabled={busy} aria-label="Business location">
+          <option value="">Choose a business location</option>
+          {free.map((o) => (
+            <option key={o.locationId} value={o.locationId}>{o.sellerName} · {o.label}{o.address ? ` (${o.address})` : ''}</option>
+          ))}
+        </select>
+      )}
+      <div className="admin-inline" style={{ marginTop: 8 }}>
+        <Button disabled={busy || !chosen || chosen === venue.vendorLocation?.locationId} onClick={() => save(chosen)}>Link</Button>
+        {venue.vendorLocation && <Button kind="quiet" disabled={busy} onClick={() => save(null)}>Unlink</Button>}
+        <Button kind="quiet" disabled={busy} onClick={onDone}>Later</Button>
+      </div>
+      {error && <p className="admin-warn">{error}</p>}
+    </div>
+  );
+}
+
 /** The team's approval: only a controlled venue gets the Bytspot display and curated media. */
 function ControlledVenues() {
   const [venues, setVenues] = useState<VenueControlRow[] | null>(null);
@@ -571,6 +628,7 @@ function ControlledVenues() {
   const [busy, setBusy] = useState<string | null>(null);
   const [linking, setLinking] = useState<string | null>(null);
   const [curating, setCurating] = useState<string | null>(null);
+  const [choosingBusiness, setChoosingBusiness] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -587,6 +645,8 @@ function ControlledVenues() {
     try {
       await trpc.admin.places.setControlled.mutate({ venueId: v.venueId, controlled });
       await load();
+      // A partner shows its business's offerings and photos only once linked, so ask which one.
+      if (controlled && !v.vendorLocation) setChoosingBusiness(v.venueId);
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -625,6 +685,15 @@ function ControlledVenues() {
                   </p>
                   <p className="admin-muted">{v.address}</p>
                   <p className="admin-muted">{v.placeId ? 'Google place linked' : 'Not linked to Google: guests see no Google photos or details'}</p>
+                  {v.vendorLocation !== undefined && (
+                    <p className={v.vendorLocation || v.control !== 'bytspot' ? 'admin-muted' : 'admin-warn'}>
+                      {v.vendorLocation
+                        ? `Business: ${v.vendorLocation.sellerName} · ${v.vendorLocation.label}`
+                        : v.control === 'bytspot'
+                          ? 'No business linked: guests see no offerings or business photos here'
+                          : 'No business linked'}
+                    </p>
+                  )}
                 </div>
                 <div className="admin-inline">
                   <Button kind="quiet" disabled={busy === v.venueId} onClick={() => setLinking(linking === v.venueId ? null : v.venueId)}>
@@ -632,6 +701,11 @@ function ControlledVenues() {
                   </Button>
                   {v.placeId && <Button kind="quiet" disabled={busy === v.venueId} onClick={() => unlink(v)}>Unlink</Button>}
                   <Button kind="quiet" onClick={() => setCurating(curating === v.venueId ? null : v.venueId)}>Photos &amp; video</Button>
+                  {v.vendorLocation !== undefined && (
+                    <Button kind="quiet" disabled={busy === v.venueId} onClick={() => setChoosingBusiness(choosingBusiness === v.venueId ? null : v.venueId)}>
+                      {v.vendorLocation ? 'Change business' : 'Link business'}
+                    </Button>
+                  )}
                   <Button kind={v.control === 'bytspot' ? 'quiet' : 'primary'} disabled={busy === v.venueId}
                     onClick={() => setControlled(v, v.control !== 'bytspot')}>
                     {v.control === 'bytspot' ? 'Return to listed' : 'Approve as Bytspot-controlled'}
@@ -642,6 +716,9 @@ function ControlledVenues() {
                 <GoogleLink venue={v} onCancel={() => setLinking(null)} onLinked={() => { setLinking(null); void load(); }} />
               )}
               {curating === v.venueId && <VenueMedia venue={v} />}
+              {choosingBusiness === v.venueId && (
+                <BusinessLink venue={v} onDone={() => { setChoosingBusiness(null); void load(); }} />
+              )}
             </li>
           ))}
         </ul>

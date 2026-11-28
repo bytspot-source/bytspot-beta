@@ -2130,6 +2130,15 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertEqual(NativeVenueOfferingsAPI.input(for: listed)?["googlePlaceId"] as? String, "ChIJabc")
     }
 
+    func testDiscoverCardSaysBytspotPartnerForAnAdminControlledPlace() throws {
+        let shell = try shellSource()
+        let card = try region(in: shell, from: "private struct NativeDiscoverFeatureCard: View {", to: "private struct NativeSpecialDiscoverCard: View {")
+        XCTAssertTrue(card.contains("venue.control == .bytspot && card.offering == nil && card.nearbyParty == nil"))
+        XCTAssertTrue(card.contains("isPartner ? \"Bytspot partner\""))
+        XCTAssertTrue(card.contains("isPartner ? NativeDiscoverBrowsePolicy.partnerLine"))
+        XCTAssertFalse(NativeDiscoverBrowsePolicy.partnerLine.contains("does not control"))
+    }
+
     func testMapBytspotButtonShowsOnlyPartnersAndFitsThem() throws {
         let shell = try shellSource()
         let focus = try region(in: shell, from: "    private func handlePartnerFocus() {", to: "    static let pinPoints")

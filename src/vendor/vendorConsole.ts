@@ -45,6 +45,8 @@ export interface VendorNavItem {
   label: string;
   icon: string;
   requiresCapability?: BookableCapabilityId;
+  /** The seat's role must hold this, whatever the business's state allows today. */
+  requiresRoleCapability?: BookableCapabilityId;
   requiresFinancials?: boolean;
   requiresPayouts?: boolean;
   /** For tabs that mint credentials rather than merely read money. */
@@ -169,7 +171,17 @@ function isVisible(item: VendorNavItem, viewer: VendorViewer): boolean {
   if (item.requiresPayouts && !canManagePayouts(viewer.role)) return false;
   if (item.requiresOwner && viewer.role !== 'owner') return false;
   if (item.requiresCapability && !viewerCan(viewer, item.requiresCapability)) return false;
+  if (item.requiresRoleCapability && !staffRoleCan(viewer.role, item.requiresRoleCapability)) return false;
   return true;
+}
+
+/**
+ * The tabs a business still in setup can use: those that need only SCHEDULE,
+ * which is all its state allows. Everything else waits until it is live.
+ */
+export function vendorSetupNav(viewer: VendorViewer): VendorNavItem[] {
+  return [...VENDOR_CONSOLE.navigation.primary, ...VENDOR_CONSOLE.navigation.secondary]
+    .filter((item) => item.requiresCapability === 'SCHEDULE' && isVisible(item, viewer));
 }
 
 export function vendorAuthContract(): VendorAuthContract {

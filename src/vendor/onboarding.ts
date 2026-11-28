@@ -1,6 +1,7 @@
 import {
   getBookableSeller,
   sellerCanPublish,
+  staffRoleCan,
   type BookableSellerOperationId,
   type BookableSellerRequirement,
   type BookableSellerState,
@@ -161,13 +162,13 @@ export function onboardingActions(session: VendorSession): OnboardingAction[] {
 }
 
 /**
- * Whether this seat can do anything about the gap at all. A manager sees the
- * same checklist and can fix nothing on it, so the screen has to be able to say
- * that rather than offering buttons that always refuse.
+ * Whether this seat can fill in the business's setup: a role that sells, as
+ * the API's own check, so an owner or manager can and the rest are told so.
+ * In setup the business allows nothing but SCHEDULE, so the role decides.
  */
 export function canAdvanceOnboarding(session: VendorSession): boolean {
-  const { requiresRole } = getBookableSeller().identity.operations.find((item) => item.id === 'SUBMIT_SELLER') ?? {};
-  return requiresRole ? session.seat.role === requiresRole : sessionCan(session, 'SELL');
+  if (session.seller.state === 'DRAFT' || session.seller.state === 'PENDING') return staffRoleCan(session.seat.role, 'SELL');
+  return sessionCan(session, 'SELL');
 }
 
 /**

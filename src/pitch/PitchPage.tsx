@@ -18,6 +18,52 @@ const page: React.CSSProperties = { minHeight: '100vh', background: '#0b0b12', c
 const card: React.CSSProperties = { maxWidth: 560, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 };
 const muted: React.CSSProperties = { color: 'rgba(255,255,255,.65)', fontSize: 15, lineHeight: 1.5, margin: 0 };
 
+const field: React.CSSProperties = { background: 'rgba(255,255,255,.06)', color: '#fff', border: '1px solid rgba(255,255,255,.18)', borderRadius: 12, padding: '12px 14px', fontSize: 16 };
+const button: React.CSSProperties = { background: '#fff', color: '#0b0b12', textAlign: 'center', padding: '14px 18px', borderRadius: 14, fontWeight: 700, border: 'none', fontSize: 16 };
+
+/** Businesses join by invite, so Join asks Bytspot for one rather than opening a sign-in that has no seat to find. */
+function JoinRequest({ code }: { code: string }) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [error, setError] = useState<string | null>(null);
+
+  if (state === 'sent') {
+    return (
+      <div style={{ display: 'grid', gap: 8 }}>
+        <p style={{ ...muted, color: '#fff', fontWeight: 600 }}>Thanks, we have your request.</p>
+        <p style={muted}>Bytspot will email {email.trim()} an invite to set up your business. Open it to sign in and finish setup.</p>
+      </div>
+    );
+  }
+
+  const send = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!name.trim() || !email.trim()) { setError('Enter your name and email.'); return; }
+    setState('sending'); setError(null);
+    try {
+      await trpc.pitch.requestJoin.mutate({ code, name: name.trim(), email: email.trim(), ...(phone.trim() ? { phone: phone.trim() } : {}) });
+      setState('sent');
+    } catch (err) {
+      setState('idle');
+      setError(err instanceof Error && err.message ? err.message : 'Your request did not send. Try again in a minute.');
+    }
+  };
+
+  return (
+    <form onSubmit={send} style={{ display: 'grid', gap: 10 }}>
+      <p style={{ ...muted, color: '#fff', fontWeight: 600 }}>Join Bytspot for business</p>
+      <p style={muted}>Tell us who to send the invite to.</p>
+      <input style={field} placeholder="Your name" autoComplete="name" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} aria-label="Your name" />
+      <input style={field} type="email" placeholder="Work email" autoComplete="email" value={email} maxLength={255} onChange={(e) => setEmail(e.target.value)} aria-label="Work email" />
+      <input style={field} type="tel" placeholder="Phone (optional)" autoComplete="tel" value={phone} maxLength={40} onChange={(e) => setPhone(e.target.value)} aria-label="Phone (optional)" />
+      <button type="submit" style={button} disabled={state === 'sending'}>{state === 'sending' ? 'Sending…' : 'Ask for an invite'}</button>
+      {error && <p style={{ ...muted, color: '#ff8a8a' }}>{error}</p>}
+    </form>
+  );
+}
+
 /** What an admin sends a listed place that is not on Bytspot yet: what Bytspot guests did there, and how to join. */
 export function PitchPage({ code }: { code: string | null }) {
   const [view, setView] = useState<View | null>(null);
@@ -67,9 +113,7 @@ export function PitchPage({ code }: { code: string | null }) {
         <p style={muted}>• get paid out to your bank through Stripe</p>
       </div>
       <p style={muted}>Bytspot keeps {view.bookingFeePercent}% of bookings made in Bytspot. There's no monthly fee.</p>
-      <a href={view.joinUrl} style={{ background: '#fff', color: '#0b0b12', textAlign: 'center', padding: '14px 18px', borderRadius: 14, fontWeight: 700, textDecoration: 'none' }}>
-        Join Bytspot for business
-      </a>
+      <JoinRequest code={code!} />
       <p style={{ ...muted, fontSize: 13 }}>Counts are guests using Bytspot. Check-ins count only when the guest was at your place.</p>
     </div></main>
   );

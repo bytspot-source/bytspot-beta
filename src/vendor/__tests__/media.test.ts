@@ -49,7 +49,10 @@ test('a menu belongs on a place, not a window, and video is offered only when th
   assert.equal(planUpload({ parent: 'bookable', kind: 'menu', existing: [] }).ok, false);
   const closed = planUpload({ parent: 'location', kind: 'video', existing: [] });
   assert.equal(closed.ok, false);
-  if (!closed.ok) assert.equal(MEDIA_REFUSALS[closed.reason], 'Video uploads are not available yet');
+  if (!closed.ok) {
+    assert.match(MEDIA_REFUSALS[closed.reason], /not switched on video storage/);
+    assert.doesNotMatch(MEDIA_REFUSALS[closed.reason], /hosting/i);
+  }
   assert.deepEqual(planUpload({ parent: 'location', kind: 'video', existing: [], storeConfigured: true }), {
     ok: true,
     kind: 'video',

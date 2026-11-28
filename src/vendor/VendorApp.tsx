@@ -10,7 +10,9 @@ import {
   vendorLandingView,
   vendorPrimaryNav,
   vendorSecondaryNav,
+  vendorSetupNav,
   VENDOR_CONSOLE,
+  type VendorNavItem,
   type VendorViewer,
 } from './vendorConsole';
 import { InstallCard } from './InstallCard';
@@ -234,7 +236,7 @@ function WindowForm({
   onCancel,
 }: {
   skuTemplateId: string;
-  preset?: { title: string; priceCents: number; durationMins: number };
+  preset?: { title: string; priceCents: number; durationMins: number; maxGuests: number };
   locations: VendorLocation[];
   busy: boolean;
   onCreate: (draft: WindowDraft) => Promise<boolean>;
@@ -244,6 +246,7 @@ function WindowForm({
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
   const [length, setLength] = useState('');
+  const [guests, setGuests] = useState('');
   const [tried, setTried] = useState(false);
   const [draft, setDraft] = useState<WindowDraft>({
     skuTemplateId,
@@ -267,6 +270,7 @@ function WindowForm({
     title: name.trim() || undefined,
     priceCents: price.trim() ? Math.round(Number(price) * 100) : undefined,
     durationMins: length.trim() ? Number(length) : undefined,
+    maxGuests: guests.trim() ? Number(guests) : undefined,
   };
   const problems = windowDraftProblems(full);
 
@@ -311,6 +315,19 @@ function WindowForm({
           value={length}
           placeholder={preset ? String(preset.durationMins) : '60'}
           onChange={(event) => setLength(event.target.value)}
+        />
+      </label>
+      <label className="vendor-field">
+        Most guests in one booking
+        <input
+          type="number"
+          inputMode="numeric"
+          min="1"
+          max="500"
+          step="1"
+          value={guests}
+          placeholder={preset ? String(preset.maxGuests) : '2'}
+          onChange={(event) => setGuests(event.target.value)}
         />
       </label>
       <label className="vendor-field">
@@ -484,7 +501,7 @@ function BookablesView({
             {drafting === template.id ? (
               <WindowForm
                 skuTemplateId={template.id}
-                preset={{ title: template.title, priceCents: template.priceCents, durationMins: template.durationMins }}
+                preset={{ title: template.title, priceCents: template.priceCents, durationMins: template.durationMins, maxGuests: template.maxGuests }}
                 locations={locations}
                 busy={owned.busy}
                 onCreate={owned.create}
@@ -543,6 +560,7 @@ function BookablesView({
               <p className="vendor-muted">
                 {placeLabel(window.locationId)} · {window.weekdays.map((day) => WEEKDAYS[day]).join(' ')} ·{' '}
                 {toClock(window.openMins)}–{toClock(window.closeMins)} · {window.quantity} per slot ·{' '}
+                {window.maxGuests > 0 ? `up to ${window.maxGuests} ${window.maxGuests === 1 ? 'guest' : 'guests'} · ` : ''}
                 {formatBookablePrice(window.priceCents)}
               </p>
               {canPublish ? (
@@ -676,8 +694,9 @@ function VendorConsole({
       }
       /**
        * A business with nothing but SCHEDULE allowed has no guests to admit and
-       * no money to read, so the gate is the whole console. One that is live but
-       * has fallen out of compliance keeps its tabs and is told what broke.
+       * no money to read, so it gets Setup and the tabs SCHEDULE opens, such as
+       * Bookables. One that is live but has fallen out of compliance keeps its
+       * tabs and is told what broke.
        */
       gateReplacesConsole={gateReplacesConsole(seller)}
       places={
@@ -740,6 +759,8 @@ function VendorConsole({
   );
 }
 
+const SETUP_TAB: VendorNavItem = { id: 'setup', label: 'Setup', icon: 'checklist' };
+
 const BUILT_VIEWS = ['home', 'bookings', 'earnings', 'scanner', 'patches', 'bands', 'tickets', 'parties', 'partnerships', 'bookables', 'availability', 'demand', 'locations', 'staff', 'webhooks', 'business', 'analytics', 'payouts', 'settings'];
 
 function ConsoleShell({
@@ -782,9 +803,14 @@ function ConsoleShell({
     }),
     [session]
   );
-  const primary = useMemo(() => vendorPrimaryNav(viewer), [viewer]);
-  const secondary = useMemo(() => vendorSecondaryNav(viewer), [viewer]);
-  const [view, setView] = useState(() => vendorLandingView(viewer));
+  // In setup the checklist is a tab of its own, beside what can be built before going live.
+  const primary = useMemo(
+    () => (gateReplacesConsole ? [SETUP_TAB, ...vendorSetupNav(viewer)] : vendorPrimaryNav(viewer)),
+    [viewer, gateReplacesConsole],
+  );
+  const secondary = useMemo(() => (gateReplacesConsole ? [] : vendorSecondaryNav(viewer)), [viewer, gateReplacesConsole]);
+  const landing = gateReplacesConsole ? SETUP_TAB.id : vendorLandingView(viewer);
+  const [view, setView] = useState(landing);
   const withheld = useMemo(() => withheldBySellerState(session), [session]);
   const verified = verifiedLabel(session.seller);
   const [verifiedSeen, setVerifiedSeen] = useState(false);
@@ -792,7 +818,7 @@ function ConsoleShell({
   const visible = [...primary, ...secondary];
   const active = visible.find((item) => item.id === view);
   // A seat that loses a tab is moved off it rather than left on a blank screen.
-  const current = active ? view : vendorLandingView(viewer);
+  const current = active ? view : landing;
 
   return (
     <div className="vendor-shell">
@@ -814,7 +840,7 @@ function ConsoleShell({
         ) : null}
       </header>
 
-      {gateReplacesConsole ? null : (
+      {gateReplacesConsole && primary.length < 2 ? null : (
         <nav className="vendor-tabs" aria-label="Primary">
           {primary.map((item) => (
             <button
@@ -843,8 +869,8 @@ function ConsoleShell({
             </button>
           </section>
         ) : null}
-        {gate}
-        {gateReplacesConsole ? null : (
+        {!gateReplacesConsole || current === SETUP_TAB.id ? gate : null}
+        {gateReplacesConsole && current === SETUP_TAB.id ? null : (
           <>
             {current === 'home' ? (
               <HomeView
@@ -880,7 +906,7 @@ function ConsoleShell({
             {current === 'analytics' ? <AnalyticsView transport={consoleApi} /> : null}
             {current === 'payouts' ? payouts : null}
             {current === 'settings' ? <SettingsView session={session} transport={consoleApi} onSignOut={onSignOut} /> : null}
-            {!BUILT_VIEWS.includes(current) ? (
+            {!BUILT_VIEWS.includes(current) && current !== SETUP_TAB.id ? (
               <PlaceholderView id={current} label={active?.label ?? current} />
             ) : null}
           </>

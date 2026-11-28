@@ -6,12 +6,15 @@ import {
   type MediaKind,
   type MediaParent,
   type VendorMediaItem,
+  type VideoUnavailableReason,
 } from './media.ts';
 import type { AuthorizedFetch, SetupResult } from './setupTransport.ts';
 
 export interface MediaList {
   media: VendorMediaItem[];
   videoAvailable: boolean;
+  /** Null when video is available. */
+  videoUnavailableReason: VideoUnavailableReason | null;
 }
 
 export interface VideoUploadIntent {
@@ -72,7 +75,7 @@ export function refusalFor(status: number, json: Record<string, unknown>): strin
   if (status === 403 && /no seat/i.test(error)) return ['You are no longer on this business\u2019s team. Sign out and back in, or ask the owner to invite you again.'];
   if (status === 403) return ['Your role cannot add files here. Ask the owner or a manager.'];
   if (status === 404) return ['This place no longer exists or you cannot see it any more. Reload the page.'];
-  if (status === 413) return ['That file is too large. Photos must be under 2 MB, menu PDFs under 3 MB and videos under 80 MB.'];
+  if (status === 413) return ['That file is too large. Photos must be under 2 MB, menu PDFs under 8 MB and videos under 80 MB.'];
   if (status >= 500) return ['Bytspot could not save it because of a problem on our side. Try again in a minute; if it keeps happening, tell Bytspot.'];
   return ['Could not save that file. Reload the page and try again.'];
 }
@@ -104,6 +107,7 @@ export function reviveMediaList(json: Record<string, unknown>): MediaList {
     // one, so it is not shown.
     media: rows.map(reviveItem).filter((item): item is VendorMediaItem => item !== undefined),
     videoAvailable: json.videoAvailable === true,
+    videoUnavailableReason: json.videoAvailable === true ? null : json.videoUnavailableReason === 'storage' ? 'storage' : 'hosting',
   };
 }
 
@@ -224,7 +228,7 @@ export function demoMediaTransport(): MediaTransport {
   return {
     list: async (parent, parentId) => ({
       status: 200,
-      value: { media: [...rows(parent, parentId)], videoAvailable: true },
+      value: { media: [...rows(parent, parentId)], videoAvailable: true, videoUnavailableReason: null },
     }),
     upload: async (parent, parentId, kind, dataUri) => {
       const list = [...rows(parent, parentId)];
@@ -288,7 +292,7 @@ export function demoMediaTransport(): MediaTransport {
     remove: async (parent, parentId, mediaId) => {
       const remaining = rows(parent, parentId).filter((item) => item.id !== mediaId);
       byParent.set(keyFor(parent, parentId), remaining);
-      return { status: 200, value: { media: remaining, videoAvailable: true } };
+      return { status: 200, value: { media: remaining, videoAvailable: true, videoUnavailableReason: null } };
     },
   };
 }

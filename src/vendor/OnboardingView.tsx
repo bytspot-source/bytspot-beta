@@ -65,7 +65,7 @@ export function OnboardingView({
 
         {!canAdvance ? (
           <p className="vendor-muted">
-            A {staffRoleLabel(session.seat.role)} seat can see what is missing but cannot supply it. The owner finishes
+            A {staffRoleLabel(session.seat.role)} seat can see what is missing but cannot supply it. The owner or a manager finishes
             this.
           </p>
         ) : null}

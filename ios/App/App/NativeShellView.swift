@@ -13143,6 +13143,8 @@ private struct NativeVenueCheckInChip: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
+            // Away from the place the card's Route button covers it; Check In shows once you are there.
+            if arrivalAction != .directions {
             Button(action: performArrivalAction) {
                 HStack(spacing: 8) {
                     if state.isLoading { ProgressView().tint(.white) }
@@ -13158,6 +13160,7 @@ private struct NativeVenueCheckInChip: View {
             Text(arrivalAction == .locate ? locationDetail : arrivalAction.detail)
                 .font(.footnote).foregroundColor(.white.opacity(0.80))
                 .fixedSize(horizontal: false, vertical: true)
+            }
             if let detail = state.detail, !state.isLoading {
                 Text(detail).font(.footnote.weight(.semibold)).foregroundColor(.white)
                     .fixedSize(horizontal: false, vertical: true)
@@ -13755,6 +13758,11 @@ private struct NativeVenueDetailView: View {
     @State private var showParkingBooking = false
     @State private var showStayBooking = false
     @State private var showPartnerMenu = false
+    @State private var showRide = false
+    /// What this Bytspot partner offers here, from inventory.atVenue. Empty for listed places.
+    @State private var partnerOfferings: [NativeWindowListing] = []
+    @State private var askingOffering: NativeWindowListing?
+    @StateObject private var driveEstimate = NativeM2RouteModel()
 
     private var openStatus: NativeVenueOpenStatus { NativeVenueHours.openStatus(category: venue.discoverType) }
     private var currentTrustLevel: BytspotTrustLevel { .staticDiscovery }
@@ -13796,6 +13804,16 @@ private struct NativeVenueDetailView: View {
             NativeGuestSavePromptSheet(title: guestPromptTitle, subtitle: guestPromptSubtitle, ctaTitle: guestPromptCTA, onSignIn: continueGuestPromptSignIn)
         }
         .sheet(isPresented: $showRoute) { NativeM2RouteSheet(venue: venue) }
+        .sheet(isPresented: $showRide) {
+            NativeValetPremiumRideSheet(initialVenue: venue, openNativeTab: { openNativeTab?($0) },
+                                        openNativeAccess: { openNativeAccess?() }, openNativeAuth: { openNativeAuth?() })
+        }
+        .sheet(item: $askingOffering) { listing in
+            let client = BytspotAPIClient(tokenProvider: { [credential = sessionStore.canAttachBearerToken ? sessionStore.token : nil] in credential })
+            NativeWindowAskSheet(listing: listing, windows: NativeWindowAskAPI(client: client), demand: NativePlanDemandAPI(client: client))
+        }
+        .task(id: venue.id) { await loadPartnerOfferings() }
+        .task(id: locationStore.lastLocation?.timestamp) { refreshDriveEstimate() }
         .sheet(isPresented: $showVibe) {
             if let url = details?.vibeVideoURL { NativeVenueVibeSheet(url: url) }
         }
@@ -13930,6 +13948,16 @@ private struct NativeVenueDetailView: View {
                     .font(.body).foregroundColor(.white.opacity(0.60))
                     .accessibilityIdentifier("native-m2-description-empty")
             }
+            if let placeID = NativeOpenStatusLine.placeID(id: venue.id, googlePlaceID: venue.googlePlaceID) {
+                NativeOpenStatusLine(placeID: placeID, size: 15)
+            }
+            if isBytspotPartner {
+                Label("Bytspot partner", systemImage: "checkmark.seal.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(NativeVendorSurface()).clipShape(Capsule())
+                    .accessibilityIdentifier("native-m2-partner-badge")
+            } else {
             HStack(spacing: 8) {
                 if placePresentation.ringStyle == .dot {
                     Circle().fill(Color.white.opacity(0.72)).frame(width: 6, height: 6)
@@ -13943,7 +13971,13 @@ private struct NativeVenueDetailView: View {
             .padding(.horizontal, 12).padding(.vertical, 7)
             .background(NativeVendorSurface()).clipShape(Capsule())
             Text(placePresentation.availabilityLine).font(.footnote).foregroundColor(.white.opacity(0.72))
+            }
         }
+    }
+
+    /// Set as Bytspot-controlled in Admin, with no catalog offering of its own to describe instead.
+    private var isBytspotPartner: Bool {
+        venue.control == .bytspot && placePresentation.capability == .details
     }
 
     /// The vibe slot is permanent: a recorded walkthrough plays when supplied,
@@ -13956,11 +13990,6 @@ private struct NativeVenueDetailView: View {
                     .accessibilityHint("Plays venue-supplied recorded video")
                     .accessibilityIdentifier("native-m2-play-vibe")
                     .id(url)
-            } else {
-                vibeLabel(NativeVenueSlotCopy.vibeEmptyTitle, supplied: false)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel(NativeVenueSlotCopy.vibeEmptyDetail)
-                    .accessibilityIdentifier("native-m2-play-vibe-empty")
             }
         }
         // Clears the released cluster strip so the two never overlap.
@@ -13999,6 +14028,12 @@ private struct NativeVenueDetailView: View {
             utility("Call", icon: "phone", url: details?.phoneURL)
             utility("Menu", icon: "menucard", url: details?.menuURL)
             utility("Site", icon: "globe", url: details?.websiteURL)
+            if venue.hasKnownCoordinates {
+                Button { showRide = true } label: { utilityLabel("Ride", icon: "car.fill", supplied: true) }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens Get a ride with \(venue.name) as the drop-off")
+                    .accessibilityIdentifier("native-m2-utility-ride")
+            }
         }
         .accessibilityIdentifier("native-m2-venue-utilities")
     }
@@ -14062,7 +14097,7 @@ private struct NativeVenueDetailView: View {
                 heroPhoto(url)
                     .accessibilityLabel("Photo of \(venue.name)")
                     .accessibilityIdentifier("native-m2-hero-photo")
-                    .overlay(alignment: .topTrailing) { photoClusterControl }
+                    .overlay(alignment: .bottomTrailing) { photoClusterControl }
                     .overlay(alignment: .bottom) { photoClusterStrip }
             } else {
                 ZStack {
@@ -14117,7 +14152,7 @@ private struct NativeVenueDetailView: View {
                 .background(NativeVendorSurface()).clipShape(Capsule())
             }
             .buttonStyle(.plain)
-            .padding(14)
+            .padding(14).padding(.bottom, showPhotoCluster ? 80 : 0)
             .accessibilityLabel(showPhotoCluster
                 ? "Hide the other \(galleryURLs.count - 1) photographs"
                 : "Show all \(galleryURLs.count) photographs")
@@ -14190,28 +14225,82 @@ private struct NativeVenueDetailView: View {
         }
     }
 
-    private var placeFacts: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Know before you go").font(.title3.bold()).accessibilityAddTraits(.isHeader)
-            if let hours = details?.hours {
-                suppliedFacts("Supplied opening hours", values: hours)
-            } else { Label(NativeM5DetailPolicy.hoursUnknown, systemImage: "clock") }
-            Label(NativeM5DetailPolicy.activity(for: venue), systemImage: "person.2")
-            if let amenities = details?.amenities { suppliedFacts("Amenities", values: amenities) }
-            if let accessibility = details?.accessibility { suppliedFacts("Accessibility", values: accessibility) }
-            if let rules = details?.rules { suppliedFacts("Requirements & rules", values: rules) }
-            if let cancellation = details?.cancellationPolicy { suppliedFacts("Cancellation terms", values: [cancellation]) }
-            if let price = details?.price {
-                suppliedFacts("Supplied pricing · not a quote", values: [price])
-            } else {
-                Label(NativeVenueSlotCopy.priceEmpty, systemImage: "tag")
-                    .foregroundColor(.white.opacity(0.60))
-                    .accessibilityIdentifier("native-m2-price-empty")
+    /// Only what is known. A row with nothing to say is left out, and so is the section when every row is.
+    @ViewBuilder private var placeFacts: some View {
+        let placeID = NativeOpenStatusLine.placeID(id: venue.id, googlePlaceID: venue.googlePlaceID)
+        let today = NativeVenueHours.todayLine(details?.hours ?? [])
+        let fromPrice = NativePartnerCardPolicy.fromPrice(partnerOfferings)
+        let activity = NativePartnerCardPolicy.liveActivity(venue)
+        let supplied: [(String, [String])] = [
+            ("Amenities", details?.amenities), ("Accessibility", details?.accessibility),
+            ("Requirements & rules", details?.rules), ("Cancellation terms", details?.cancellationPolicy.map { [$0] }),
+        ].compactMap { title, values in values.flatMap { $0.isEmpty ? nil : (title, $0) } }
+        if placeID != nil || today != nil || fromPrice != nil || details?.price != nil || activity != nil || !supplied.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Know before you go").font(.title3.bold()).accessibilityAddTraits(.isHeader)
+                if placeID != nil || today != nil {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "clock")
+                        VStack(alignment: .leading, spacing: 3) {
+                            if let placeID { NativeOpenStatusLine(placeID: placeID, size: 15) }
+                            if let today { Text(today).foregroundColor(.white.opacity(0.80)) }
+                        }
+                    }
+                }
+                if let fromPrice { Label(fromPrice, systemImage: "tag") }
+                else if let price = details?.price { Label(price, systemImage: "tag") }
+                if let activity { Label(activity, systemImage: "person.2") }
+                ForEach(supplied, id: \.0) { fact in suppliedFacts(fact.0, values: fact.1) }
             }
+            .font(.body).frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16).background(Color.white.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .accessibilityIdentifier("native-m2-know-before")
         }
-        .font(.body).frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16).background(Color.white.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    /// The partner's own offerings, each with a Request button that names it.
+    @ViewBuilder private var partnerOfferingsSection: some View {
+        let shown = Array(partnerOfferings.prefix(3))
+        if !shown.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("What you can book here").font(.title3.bold()).accessibilityAddTraits(.isHeader)
+                ForEach(shown) { listing in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(listing.title).font(.headline)
+                        Text(NativePartnerCardPolicy.offeringLine(listing)).font(.subheadline).foregroundColor(.white.opacity(0.80))
+                        placeButton(NativePartnerCardPolicy.requestTitle(listing), icon: "paperplane", supported: true) { askingOffering = listing }
+                            .accessibilityIdentifier("native-m2-request-offering-\(listing.windowId)")
+                    }
+                    .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white.opacity(0.06)).clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                if partnerOfferings.count > shown.count {
+                    Text("\(partnerOfferings.count - shown.count) more in Discover").font(.footnote).foregroundColor(.white.opacity(0.72))
+                }
+            }
+            .accessibilityIdentifier("native-m2-partner-offerings")
+        }
+    }
+
+    private func loadPartnerOfferings() async {
+        guard venue.control == .bytspot else { partnerOfferings = []; return }
+        let rows = try? await NativeVenueOfferingsAPI(client: BytspotAPIClient()).offerings(for: venue)
+        guard !Task.isCancelled else { return }
+        partnerOfferings = (rows ?? []).filter(\.takesAsks)
+    }
+
+    private func refreshDriveEstimate() {
+        guard venue.hasKnownCoordinates, locationStore.authorizationState == .allowed else { return }
+        if case .ready = driveEstimate.state { return }
+        if case .loading = driveEstimate.state { return }
+        driveEstimate.load(destination: NativeM2RouteDestination(venue: venue), location: locationStore.lastLocation, authorized: true)
+    }
+
+    /// "Route · 12 min" once the drive time is known, else "Route".
+    private var routeTitle: String {
+        if case .ready(let metrics, _) = driveEstimate.state { return "Route · \(metrics.minutesLabel)" }
+        return "Route"
     }
 
     private func suppliedFacts(_ title: String, values: [String]) -> some View {
@@ -14223,21 +14312,19 @@ private struct NativeVenueDetailView: View {
         }
     }
 
-    private var arrivalModule: some View {
-        NativeM2ArrivalModule(venue: venue, openRoute: openRoute)
-    }
-
-    private var vendorInformation: some View {
+    @ViewBuilder private var vendorInformation: some View {
+        if details?.vendorName != nil || details?.hasGoogleFacts == true || venue.control != .bytspot {
         VStack(alignment: .leading, spacing: 8) {
             Text("Venue information").font(.headline)
             if let vendor = details?.vendorName { Text(vendor).font(.body) }
             if details?.hasGoogleFacts == true {
                 Text("Place details from Google Places. Contact the venue to verify details.").font(.footnote)
-            } else {
+            } else if venue.control != .bytspot {
                 Text("Contact the venue for current information. Listing a place does not mean Bytspot controls its availability.").font(.footnote)
             }
         }
         .foregroundColor(.white.opacity(0.80)).frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private var placeBottomActions: some View {
@@ -14262,7 +14349,7 @@ private struct NativeVenueDetailView: View {
     }
 
     @ViewBuilder private var placeActionButtons: some View {
-        placeButton(currentTransaction?.primaryTitle ?? NativeM5DetailPolicy.primaryTitle(for: placePresentation),
+        placeButton(currentTransaction?.primaryTitle ?? (NativeM5DetailPolicy.primaryAction(for: placePresentation) == .route ? routeTitle : NativeM5DetailPolicy.primaryTitle(for: placePresentation)),
             icon: placePresentation.capability == .request ? "paperplane" : "arrow.up.right",
             supported: placePresentation.capability == .request) { performPlacePrimaryAction() }
             .disabled(NativeM5DetailPolicy.primaryAction(for: placePresentation).isUnavailable ||
@@ -14302,8 +14389,8 @@ private struct NativeVenueDetailView: View {
             }
             statusMessageBanner
             offeringSection
+            partnerOfferingsSection
             placeFacts
-            arrivalModule
             vendorInformation
             Text(NativeM5DetailPolicy.planDisclaimer)
                 .font(.footnote).foregroundColor(.white.opacity(0.72))
@@ -16339,7 +16426,7 @@ enum NativeMapStartupResetPolicy {
 }
 
 private struct NativeMapCameraRequest {
-    enum Action { case focus(CLLocationCoordinate2D), reveal(CLLocationCoordinate2D), zoom(Double) }
+    enum Action { case focus(CLLocationCoordinate2D), reveal(CLLocationCoordinate2D), fit([CLLocationCoordinate2D]), zoom(Double) }
     let id = UUID()
     let action: Action
 }
@@ -16722,6 +16809,16 @@ private struct NativeGeographicMap: UIViewRepresentable {
                     return
                 }
                 coordinator.reveal(coordinate, map: map)
+            case .fit(let coordinates):
+                if map.bounds.isEmpty, let deferring = map as? NativeLayoutDeferringMapView {
+                    deferring.whenLaidOut = { [weak coordinator, weak deferring] in
+                        guard let coordinator, let deferring else { return }
+                        coordinator.fit(coordinates, map: deferring)
+                        coordinator.hasEstablishedCamera = true
+                    }
+                    return
+                }
+                coordinator.fit(coordinates, map: map)
             case .zoom(let factor):
                 let camera = map.camera.copy() as! MKMapCamera
                 camera.altitude = min(40_000_000, max(80, camera.altitude * factor))
@@ -16777,6 +16874,17 @@ private struct NativeGeographicMap: UIViewRepresentable {
             guard !parent.reduceMotion else { map.setCamera(target, animated: false); return }
             map.setCamera(start, animated: false)
             map.setCamera(target, animated: true)
+        }
+
+        /// Every given point in view, with room for the pins.
+        func fit(_ coordinates: [CLLocationCoordinate2D], map: MKMapView) {
+            guard let first = coordinates.first else { return }
+            let rect = coordinates.dropFirst().reduce(MKMapRect(origin: MKMapPoint(first), size: MKMapSize(width: 1, height: 1))) {
+                $0.union(MKMapRect(origin: MKMapPoint($1), size: MKMapSize(width: 1, height: 1)))
+            }
+            let padding = NativeMapRoutePolicy.fitPadding(margins: map.layoutMargins, mapHeight: map.bounds.height)
+                ?? UIEdgeInsets(top: 40, left: 40, bottom: 40, right: 40)
+            moveCamera(on: map) { map.setVisibleMapRect(rect, edgePadding: padding, animated: false) }
         }
 
         func reveal(_ coordinate: CLLocationCoordinate2D, map: MKMapView) {
@@ -19291,14 +19399,14 @@ private struct NativeMapExploreView: View {
     private var filteredPins: [NativeMapPin] {
         switch selectedMode {
         case "Smart Parking": return filteredByToggles(pins).filter { $0.kind == .parking }
-        case "Tap Zones": return filteredByToggles(pins).filter { $0.kind == .partner || $0.kind == .access }
+        case "Tap Zones": return filteredByToggles(pins).filter(NativeMapPartnerPolicy.isPartner)
         default: return filteredByToggles(pins)
         }
     }
 
     private func filteredByToggles(_ input: [NativeMapPin]) -> [NativeMapPin] {
         input.filter { pin in
-            (!showVerifiedOnly || pin.kind == .partner || pin.kind == .access) && (vibeFilter == nil || pin.crowdLevel == vibeFilter)
+            (!showVerifiedOnly || NativeMapPartnerPolicy.isPartner(pin)) && (vibeFilter == nil || pin.crowdLevel == vibeFilter)
         }
     }
 
@@ -19342,6 +19450,15 @@ private struct NativeMapExploreView: View {
         selectMarker(marker)
     }
 
+    private func fitGeographicCamera(to coordinates: [CLLocationCoordinate2D]) {
+        let valid = coordinates.filter { NativeVenueSummary.hasValidMapCoordinate(latitude: $0.latitude, longitude: $0.longitude) }
+        guard !valid.isEmpty else { return }
+        didResolveInitialCamera = true
+        cameraActionGeneration += 1
+        dropRecenterModeForUserPan()
+        cameraRequest = NativeMapCameraRequest(action: .fit(valid))
+    }
+
     /// Zooms to street level on a place handed over from another screen.
     private func revealGeographicCamera(on coordinate: CLLocationCoordinate2D) {
         guard NativeVenueSummary.hasValidMapCoordinate(latitude: coordinate.latitude, longitude: coordinate.longitude) else { return }
@@ -19379,7 +19496,7 @@ private struct NativeMapExploreView: View {
         }
         let decorative = (showsAtlantaSamples ? Self.decorativeMarkers : []).filter { marker in
             if selectedMode == "Smart Parking" { return marker.shape == .circle }
-            if selectedMode == "Tap Zones" || showVerifiedOnly { return marker.shape == .hex || marker.glyph == "P" }
+            if selectedMode == "Tap Zones" || showVerifiedOnly { return false }
             if !showVenues && marker.shape == .roundedSquare { return false }
             if !showParking && marker.glyph == "P" { return false }
             return true
@@ -19388,6 +19505,7 @@ private struct NativeMapExploreView: View {
     }
 
     private func shouldShow(_ pin: NativeMapPin) -> Bool {
+        if showVerifiedOnly { return NativeMapPartnerPolicy.isPartner(pin) }
         if pin.kind == .parking && !showParking { return false }
         if pin.kind == .partner && !showTapZones { return false }
         if pin.kind == .access && !showTapZones { return false }
@@ -19542,11 +19660,18 @@ private struct NativeMapExploreView: View {
         if activating {
             selectedMode = "Tap Zones"
             showFunctionSheet = true
-            selectedPin = pins.first(where: { $0.kind == .partner || $0.kind == .access })
+            let partners = pins.filter(NativeMapPartnerPolicy.isPartner)
+            selectedPin = partners.count == 1 ? partners.first : nil
+            switch partners.count {
+            case 0: mapStatusMessage = NativeMapPartnerPolicy.noneNearby
+            case 1: mapStatusMessage = nil; revealGeographicCamera(on: partners[0].coordinate)
+            default: mapStatusMessage = nil; fitGeographicCamera(to: partners.map(\.coordinate))
+            }
         } else {
             selectedMode = "Nearby"
             showFunctionSheet = false
             selectedPin = nil
+            if mapStatusMessage == NativeMapPartnerPolicy.noneNearby { mapStatusMessage = nil }
         }
         nativeImpactLight()
     }
@@ -24423,5 +24548,65 @@ private struct NativeConciergeSettingsSheet: View {
             }
         }
         .navigationViewStyle(.stack)
+    }
+}
+
+/// Which map pins are Bytspot partners: set as Bytspot-controlled in Admin, or carrying a Bytspot tap patch.
+enum NativeMapPartnerPolicy {
+    static let noneNearby = "No Bytspot partners near here yet."
+
+    fileprivate static func isPartner(_ pin: NativeMapPin) -> Bool {
+        pin.kind == .partner || pin.kind == .access || pin.venue?.control == .bytspot
+    }
+}
+
+/// What a Bytspot partner's card says about its offerings.
+enum NativePartnerCardPolicy {
+    /// "From $25", from the lowest-priced offering. Nil when none has a price.
+    static func fromPrice(_ offerings: [NativeWindowListing]) -> String? {
+        guard let lowest = offerings.map(\.priceCents).filter({ $0 > 0 }).min() else { return nil }
+        return "From \(NativePlanDemandFormat.price(lowest))"
+    }
+
+    /// "$25 · up to 4 guests · Next: Tonight 7:30 PM"
+    static func offeringLine(_ listing: NativeWindowListing) -> String {
+        var parts: [String] = []
+        if listing.priceCents > 0 { parts.append(listing.price) }
+        parts.append("up to \(listing.maxGuests) \(listing.maxGuests == 1 ? "guest" : "guests")")
+        parts.append("Next: \(listing.nextSlot.when)")
+        return parts.joined(separator: " · ")
+    }
+
+    /// "Request Table for 4": the button names what is asked for.
+    static func requestTitle(_ listing: NativeWindowListing) -> String {
+        let title = listing.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? "Request" : "Request \(title)"
+    }
+
+    /// Shown only from a live reading, never a typical one.
+    static func liveActivity(_ venue: NativeVenueSummary) -> String? {
+        guard let crowd = venue.crowd, crowd.isLiveOccupancy else { return nil }
+        return NativeM5DetailPolicy.activity(for: venue)
+    }
+}
+
+/// A Bytspot partner's offerings at one place, from inventory.atVenue.
+struct NativeVenueOfferingsAPI {
+    let client: BytspotAPIClient
+
+    static func input(for venue: NativeVenueSummary) -> [String: Any]? {
+        if let placeID = NativeOpenStatusLine.placeID(id: venue.id, googlePlaceID: venue.googlePlaceID), venue.id.hasPrefix("gp:") || venue.id.hasPrefix("suggestion-") {
+            return ["googlePlaceId": placeID]
+        }
+        let id = venue.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty, id.count <= 64 else { return nil }
+        return ["venueId": id]
+    }
+
+    func offerings(for venue: NativeVenueSummary) async throws -> [NativeWindowListing] {
+        guard let input = Self.input(for: venue) else { return [] }
+        let payload = try await client.trpcQueryPayload(path: "/trpc/inventory.atVenue", input: input)
+        let data = try JSONSerialization.data(withJSONObject: NativeTRPCList.rows(payload))
+        return try JSONDecoder().decode([NativeWindowListing].self, from: data)
     }
 }

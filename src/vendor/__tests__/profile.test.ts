@@ -11,6 +11,7 @@ import {
   payoutIsUsable,
   payoutNeedsOwner,
   PAYOUT_REVIEWING_DETAIL,
+  payoutRetryAction,
   reconcileSeller,
   requirementIsMet,
   satisfiedRequirements,
@@ -216,4 +217,13 @@ test('an owner is sent back to Stripe only when Stripe needs something from them
   // While Stripe reviews, Stripe's form has nothing to fill in and returns them here.
   assert.equal(payoutNeedsOwner({ reference: 'a', status: 'pending', detail: PAYOUT_REVIEWING_DETAIL }), false);
   assert.equal(payoutNeedsOwner({ reference: 'a', status: 'active' }), false);
+});
+
+test("Stripe's retry link gets one fresh link, then an explanation instead of a loop", () => {
+  const now = 1_800_000_000_000;
+  assert.equal(payoutRetryAction('/payout/retry', null, now), 'retry');
+  assert.equal(payoutRetryAction('/payout/retry/', now - 3 * 60_000, now), 'retry');
+  assert.equal(payoutRetryAction('/payout/retry', now - 30_000, now), 'explain');
+  assert.equal(payoutRetryAction('/payout/done', null, now), 'none');
+  assert.equal(payoutRetryAction('/', null, now), 'none');
 });

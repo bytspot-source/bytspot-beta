@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { BookableLocationKindId, BookableLocationOperationId } from '../utils/bookableTemplates.ts';
 import type { GeocodeCandidate } from './geocoding.ts';
-import { applyProfileEdit, EMPTY_PROFILE, reconcileSeller, type ProfileEdit, type VendorProfile } from './profile.ts';
+import {
+  applyProfileEdit,
+  EMPTY_PROFILE,
+  PAYOUT_BOUNCED_NOTE,
+  payoutRetryAction,
+  reconcileSeller,
+  type ProfileEdit,
+  type VendorProfile,
+} from './profile.ts';
 import type { Seller } from './seller.ts';
 import type { SetupTransport } from './setupTransport.ts';
 
@@ -61,13 +69,23 @@ export function useVendorSetup(
   // payout's status and takes the business live if it now qualifies.
   useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    const retry = payoutRetryAction(window.location.pathname, readRetryAt(), Date.now());
     if (/^\/payout\/(done|retry)\/?$/.test(window.location.pathname)) window.history.replaceState(null, '', '/');
+    if (retry === 'explain') setBlockers([PAYOUT_BOUNCED_NOTE]);
+    if (retry === 'retry') {
+      writeRetryAt(Date.now());
+      // This tab is already Stripe's; reopen the form here with a fresh link.
+      void transport.startPayoutOnboarding().then((handoff) => {
+        if (handoff.value?.url) window.location.assign(handoff.value.url);
+        else setBlockers(handoff.blockers ?? [PAYOUT_BOUNCED_NOTE]);
+      });
+    }
     const onVisible = () => {
       if (document.visibilityState === 'visible') void reload();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [reload]);
+  }, [reload, transport]);
 
   const edit = useCallback(
     async (next: ProfileEdit) => {
@@ -176,4 +194,24 @@ export function useVendorSetup(
   );
 
   return { profile, seller, blockers, busy, loaded, edit, startPayout, move, geocode, reload };
+}
+
+const RETRY_KEY = 'bytspot.vendor.payoutRetryAt';
+
+function readRetryAt(): number | null {
+  try {
+    const value = Number(window.sessionStorage.getItem(RETRY_KEY));
+    return Number.isFinite(value) && value > 0 ? value : null;
+  } catch {
+    // Without storage a retry cannot be remembered, so explain instead of retrying.
+    return Date.now();
+  }
+}
+
+function writeRetryAt(at: number): void {
+  try {
+    window.sessionStorage.setItem(RETRY_KEY, String(at));
+  } catch {
+    // Read back as just retried, so the next bounce is explained.
+  }
 }

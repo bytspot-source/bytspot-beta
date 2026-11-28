@@ -53,6 +53,20 @@ export function payoutIsUsable(payout?: PayoutAccount): boolean {
   return payout?.status === 'active';
 }
 
+/** Where Stripe sends the owner when its link could not open its form. */
+export const PAYOUT_RETRY_PATH = /^\/payout\/retry\/?$/;
+export const PAYOUT_BOUNCED_NOTE =
+  'Stripe sent you back without opening its form. Bytspot has been told; try Set up payouts again in a few minutes, and tell Bytspot if it keeps happening.';
+
+/**
+ * Landing on Stripe's retry link: fetch a fresh link once, as Stripe asks, but
+ * not again within two minutes, so a link Stripe keeps refusing cannot loop.
+ */
+export function payoutRetryAction(pathname: string, lastRetryAt: number | null, now: number): 'none' | 'retry' | 'explain' {
+  if (!PAYOUT_RETRY_PATH.test(pathname)) return 'none';
+  return lastRetryAt !== null && now - lastRetryAt < 2 * 60_000 ? 'explain' : 'retry';
+}
+
 /** The API's detail while Stripe checks what the owner already sent. */
 export const PAYOUT_REVIEWING_DETAIL = 'The processor is reviewing these details';
 

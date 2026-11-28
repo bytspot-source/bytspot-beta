@@ -11849,6 +11849,9 @@ enum NativeDiscoverBrowsePolicy {
         return card.nearbyParty?.discoverRail == rail
     }
 
+    /// A Bytspot partner's Discover card, instead of "Bytspot does not control availability".
+    static let partnerLine = "Bytspot partner · open to see what you can book"
+
     static func sourceLine(offering: NativePlanBookableOffering?) -> String {
         guard let offering else { return "Listed · add it to a Plan to explore later" }
         return offering.sourceKind == .coffeeSpot ? "Coffee catalog selection" : "Public party catalog selection"
@@ -13475,7 +13478,7 @@ private struct NativeDiscoverFeatureCard: View {
                             authorized: locationStore.authorizationState == .allowed) {
                             Label(distance, systemImage: "location").font(.footnote).foregroundColor(.white.opacity(0.72))
                         }
-                        Text(NativeDiscoverBrowsePolicy.availabilityLine(offering: card.offering, nearbyParty: card.nearbyParty))
+                        Text(isPartner ? NativeDiscoverBrowsePolicy.partnerLine : NativeDiscoverBrowsePolicy.availabilityLine(offering: card.offering, nearbyParty: card.nearbyParty))
                             .font(.footnote).foregroundColor(.white.opacity(0.72))
                     }
                     .padding(20)
@@ -13485,7 +13488,7 @@ private struct NativeDiscoverFeatureCard: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Details for \(card.title)")
-            .accessibilityHint(NativeDiscoverBrowsePolicy.availabilityLine(offering: card.offering, nearbyParty: card.nearbyParty))
+            .accessibilityHint(isPartner ? NativeDiscoverBrowsePolicy.partnerLine : NativeDiscoverBrowsePolicy.availabilityLine(offering: card.offering, nearbyParty: card.nearbyParty))
             .accessibilityIdentifier("native-discover-details-\(card.id)")
 
             if let transaction {
@@ -13551,17 +13554,24 @@ private struct NativeDiscoverFeatureCard: View {
             .contentShape(Rectangle())
     }
 
+    /// Approved as Bytspot-controlled in Admin, shown as a place with nothing of its own to sell here.
+    private var isPartner: Bool {
+        venue.control == .bytspot && card.offering == nil && card.nearbyParty == nil
+    }
+
     private var status: some View {
         HStack(spacing: 6) {
-            if card.presentation.ringStyle == .dot {
+            if isPartner {
+                Image(systemName: "checkmark.seal.fill").font(.caption.weight(.bold)).foregroundColor(.white)
+            } else if card.presentation.ringStyle == .dot {
                 Circle().fill(Color.white.opacity(0.72)).frame(width: 6, height: 6)
             } else {
                 Circle().stroke(Color(hex: Int(card.presentation.actionHex ?? 0xB8B8B8)), style: StrokeStyle(lineWidth: 1.5,
                     dash: card.presentation.ringStyle.dashPattern.map { CGFloat($0) }))
                     .frame(width: 10, height: 10)
             }
-            Text(card.nearbyParty?.requiresApproval == true ? card.badgeText : card.isParty ? "Party" : card.presentation.statusLabel)
-                .font(.caption.weight(.semibold)).foregroundColor(.white.opacity(0.72))
+            Text(isPartner ? "Bytspot partner" : card.nearbyParty?.requiresApproval == true ? card.badgeText : card.isParty ? "Party" : card.presentation.statusLabel)
+                .font(.caption.weight(.semibold)).foregroundColor(.white.opacity(isPartner ? 1 : 0.72))
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
         .background(Color.white.opacity(0.08)).clipShape(Capsule())

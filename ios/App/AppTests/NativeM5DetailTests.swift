@@ -1824,8 +1824,9 @@ final class NativeM5DetailTests: XCTestCase {
         XCTAssertTrue(surface.contains("NativeVenueHeroMedia.heroURLs(venueImage: venue.imageUrl"))
         XCTAssertFalse(surface.contains("if let url = venue.imageUrl"))
         XCTAssertTrue(surface.contains("NativeM5DetailPolicy.address(for: venue)"))
-        XCTAssertTrue(surface.contains("NativeM5DetailPolicy.hoursUnknown"))
-        XCTAssertTrue(surface.contains("NativeM5DetailPolicy.activity(for: venue)"))
+        // Unknown hours are left out; busy is shown only from a live reading.
+        XCTAssertFalse(surface.contains("NativeM5DetailPolicy.hoursUnknown"))
+        XCTAssertTrue(surface.contains("NativePartnerCardPolicy.liveActivity(venue)"))
         XCTAssertFalse(surface.contains("unsplash"))
         XCTAssertFalse(surface.contains("minimumScaleFactor"))
         XCTAssertFalse(surface.contains("lineLimit(1)"))

@@ -15,6 +15,19 @@ interface MenuAdminApi {
   reviewMenuDish: { mutate: (input: ReviewInput) => Promise<unknown> };
 }
 
+type MenuChecks = { previewReady: boolean; inspected: boolean; namesChecked: boolean; samePlace: boolean };
+
+/** What still stands between the admin and Approve, in the order they can fix it. */
+export function menuApproveBlockers(dish: Pick<MenuQueueDish, 'mediaReviewStatus' | 'venueId' | 'venueDiscoverable'>, checks: MenuChecks): string[] {
+  const out: string[] = [];
+  if (dish.mediaReviewStatus !== 'approved') out.push('approve the menu file in Vendor photos and videos');
+  if (!dish.venueId) out.push('bind this location to its listed place below');
+  else if (!dish.venueDiscoverable) out.push('show the bound place to guests (it is hidden)');
+  if (!checks.previewReady) out.push('open the source menu');
+  else if (!checks.inspected || !checks.namesChecked || !checks.samePlace) out.push('tick all three checks');
+  return out;
+}
+
 export function MenuEvidenceReview({ api, authorizedFetch }: { api: MenuAdminApi; authorizedFetch: AuthorizedFetch }) {
   const [filter, setFilter] = useState<MenuReviewStatus>('pending');
   const [revision, setRevision] = useState(0);
@@ -107,6 +120,7 @@ function MenuReviewRow({ dish, api, authorizedFetch, busy, run }: {
   const candidate = venues?.find((venue) => venue.venueId === selected);
   const checks = { previewReady, inspected, namesChecked, samePlace };
   const canApprove = canApproveMenuDish(dish, checks);
+  const approveBlockers = menuApproveBlockers(dish, checks);
   const search = async () => {
     if (busy || query.trim().length < 2 || query.trim().length > 100) return;
     const request = ++searchGeneration.current;
@@ -169,6 +183,7 @@ function MenuReviewRow({ dish, api, authorizedFetch, busy, run }: {
     }}>
       <fieldset disabled={busy}>
         <legend>Review evidence</legend>
+        {!previewReady && <p className="admin-warn" role="note">Tap “Inspect source menu” above and wait for the menu to load. These boxes unlock once you can see it.</p>}
         <label className="admin-check"><input type="checkbox" checked={inspected} disabled={!previewReady} onChange={(e) => setInspected(e.target.checked)} />I opened and inspected the source menu.</label>
         <label className="admin-check"><input type="checkbox" checked={namesChecked} disabled={!previewReady} onChange={(e) => setNamesChecked(e.target.checked)} />I checked this dish name and every alias against the menu.</label>
         <label className="admin-check"><input type="checkbox" checked={samePlace} disabled={!previewReady} onChange={(e) => setSamePlace(e.target.checked)} />The menu, vendor location and bound venue are the actual same physical place.</label>
@@ -183,6 +198,7 @@ function MenuReviewRow({ dish, api, authorizedFetch, busy, run }: {
             }
           }}>{dish.reviewStatus === 'approved' ? 'Revoke approval' : 'Reject with note'}</button>
         </div>
+        {approveBlockers.length > 0 && <p className="admin-small">To approve: {approveBlockers.join(' · ')}</p>}
       </fieldset>
     </form>
   </div>;
